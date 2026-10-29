@@ -198,6 +198,27 @@ test("settings load their section through ops and adjust values with config.set"
   expect(t.calls.filter(c => c.op === "config.get")).toHaveLength(2);
 });
 
+test("This machine follows config changes made elsewhere and steps from the fresh value", async () => {
+  let max: unknown = 4;
+  const t = setup({ respond: (op, p) => op === "config.get" ? { keys: { "execution.local_max_tasks": { value: max, source: "strategy" } }, planners: [] } : op === "config.set" ? { key: p.key, value: p.value, undo: "pacer config set execution.local_max_tasks 8" } : undefined });
+  await t.dash.refresh();
+  await t.keys("4", "j", "j", "j", "enter");
+  expect(t.last()).toContain("‹ 4 ›");
+  // Another client changes the cap: its config event re-reads config.get.
+  max = 6;
+  await t.dash.event({ type: "config" }); await t.dash.settle();
+  expect(t.last()).toContain("‹ 6 ›");
+  // A change whose event has not arrived yet is not overwritten: the step re-reads config.get first.
+  max = 8;
+  await t.keys("right");
+  expect(t.calls.filter(c => c.op === "config.set")).toEqual([{ op: "config.set", params: { key: "execution.local_max_tasks", value: 9 } }]);
+  // Stepping down from a value that became No limit elsewhere writes nothing.
+  max = "unlimited";
+  await t.keys("left");
+  expect(t.calls.filter(c => c.op === "config.set")).toHaveLength(1);
+  expect(t.last()).toContain("Parallel tasks is already No limit.");
+});
+
 test("changing the planner previews integration files and offers change only", async () => {
   const t = setup({ respond: op => op === "config.get" ? { keys: { planner: { value: "claude-code", source: "default" } }, planners: ["claude-code", "codex#team"] } : op === "agent.preview" ? { files: ["~/.codex/skills/pacer/SKILL.md"], undo: "pacer uninstall codex" } : undefined });
   await t.dash.refresh();

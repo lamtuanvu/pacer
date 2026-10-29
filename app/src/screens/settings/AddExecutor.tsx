@@ -2,6 +2,7 @@ import { ChoiceCard, FilterChip, TextRow, RadioChoices } from "../../ds/Patterns
 import { TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { accountNeedsSignIn, accountStatus } from "../../../../src/view-model/words";
+import { machineHardCap } from "../../../../src/view-model/capacity";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SettingRow } from "../../ds/SettingRow";
 import { CheckList, Stepper } from "../../ds/Stepper";
@@ -126,7 +127,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Where does it run?</SectionHeading><p className="u3-muted">Tasks run in their own worktree on that machine.</p></div>
           {REMOTE_AGENTS.includes(draft.agent)
             ? <RadioChoices layout="options" name="agent-location" label="Runs on" value={draft.host ? "remote" : "local"}
-                options={[{ value: "local", label: <><strong>This Mac</strong><span className="u3-muted">{state.snapshot?.machine ? `${state.snapshot.machine.max} parallel tasks shared by every executor here` : "Runs on this machine"}</span></> },
+                options={[{ value: "local", label: <><strong>This Mac</strong><span className="u3-muted">{machineHardCap(state.snapshot?.machine) !== null ? `${machineHardCap(state.snapshot?.machine)} parallel tasks shared by every executor here` : state.snapshot?.machine ? "Parallel tasks shared by every executor here" : "Runs on this machine"}</span></> },
                   ...(facts.hosts.length ? [{ value: "remote", label: <><strong>A remote host</strong><span className="u3-muted">Choose a configured host below</span></> }] : [])]}
                 onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "" })} />
             : <p>{name} runs on this machine. Only Codex and Claude Code can run on a remote host.</p>}

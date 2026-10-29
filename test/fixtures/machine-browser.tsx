@@ -1,5 +1,6 @@
 import { NotificationProvider } from '../../app/src/data/notification-context';
 import { render } from 'preact';
+import { useState } from 'preact/hooks';
 import { MachineSection } from '../../app/src/screens/settings/Machines';
 import { TaskContext } from '../../app/src/screens/task-shared';
 import { ActionContext } from '../../app/src/data/action-context';
@@ -15,4 +16,10 @@ const call: BrowserApi['call'] = async <T,>(op: string, params: unknown) => {
 };
 const api = {call} as BrowserApi;
 const runner = createActionRunner({call,waitFor:async()=>true,refetch:()=>{},navigate:hash=>{location.hash=hash;}});
-render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><MachineSection/></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);
+// Tests call window.invalidateConfig() to stand in for the config event another client's change publishes.
+function Root() {
+ const [config, setConfig] = useState(0);
+ (window as unknown as {invalidateConfig: () => void}).invalidateConfig = () => setConfig(n => n + 1);
+ return <TaskContext.Provider value={{state:{...initialState(),invalidations:{config}},api}}><ActionContext.Provider value={runner}><NotificationProvider><MachineSection/></NotificationProvider></ActionContext.Provider></TaskContext.Provider>;
+}
+render(<Root/>, document.getElementById('root')!);

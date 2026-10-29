@@ -518,6 +518,49 @@ test("requested failed-check and partial results never bind the accept key in Ta
  }
 });
 
+describe("Settings › This machine in the TUI", () => {
+  const state = { screen: "settings" as const, section: "machine", focus: "detail" as const };
+  const withKeys = (keys: Record<string, unknown>) => {
+    const d = data();
+    const config = (d.settings as any).config.value.keys;
+    for (const [key, value] of Object.entries(keys)) config[key] = { value, source: "default" };
+    return d;
+  };
+  const params = (s: ClientSnapshot, d: Partial<DashData>, id: string, key: string) =>
+    { const effect = screenItems(s, s.at, { data: d, state }).find(item => item.id === id)?.keys[key]?.effect as any;
+      return effect && (expect(effect).toMatchObject({ type: "flow", name: "machine-step" }), { key: effect.params.key, value: effect.params.value }); };
+  test("parallel tasks steps between no limit and a hard cap", () => {
+    const s = snapshot();
+    const unlimited = withKeys({ "execution.local_max_tasks": "unlimited" });
+    expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: unlimited, state })).toContain("‹ No limit ›");
+    expect(params(s, unlimited, "setting:local-max", "right")).toEqual({ key: "execution.local_max_tasks", value: 4 });
+    expect(params(s, unlimited, "setting:local-max", "left")).toBeUndefined();
+    const one = withKeys({ "execution.local_max_tasks": 1 });
+    expect(params(s, one, "setting:local-max", "left")).toEqual({ key: "execution.local_max_tasks", value: "unlimited" });
+    // No upper ceiling on the local cap.
+    expect(params(s, withKeys({ "execution.local_max_tasks": 16 }), "setting:local-max", "right")).toEqual({ key: "execution.local_max_tasks", value: 17 });
+  });
+  test("memory pressure and load limits step and the guard state is shown", () => {
+    const s = snapshot();
+    s.machine = { used: 3, max: Number.MAX_SAFE_INTEGER, hardCap: null, unlimited: true, memoryPressure: "critical", memoryPressureLimit: "critical", loadPerCore: 4.92, loadLimit: null, open: false, reason: "machine_memory_pressure", detail: "memory pressure critical" };
+    const d = withKeys({ "execution.local_memory_pressure_limit": "critical", "execution.local_load_limit": "off" });
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state });
+    expect(text).toContain("‹ Critical ›");
+    expect(text).toContain("memory pressure critical · load 4.9 per core · new tasks");
+    // One running count, beside Parallel tasks.
+    expect(text).toContain("3 busy now");
+    expect(text).not.toContain("3 running");
+    expect(text).toContain("wait: memory pressure critical");
+    expect(params(s, d, "setting:memory-pressure", "right")).toEqual({ key: "execution.local_memory_pressure_limit", value: "warning" });
+    expect(params(s, d, "setting:memory-pressure", "left")).toEqual({ key: "execution.local_memory_pressure_limit", value: "off" });
+    expect(params(s, d, "setting:load-limit", "right")).toEqual({ key: "execution.local_load_limit", value: 2 });
+    const half = withKeys({ "execution.local_load_limit": 0.5 });
+    expect(params(s, half, "setting:load-limit", "left")).toEqual({ key: "execution.local_load_limit", value: "off" });
+    s.machine = { ...s.machine, memoryPressure: null, open: true, reason: undefined, detail: "memory pressure signal unavailable" };
+    expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state })).toContain("memory pressure unavailable");
+  });
+});
+
 test("Settings › This machine toggles the task backend with ← →", () => {
   const s = snapshot(), state = { screen: "settings" as const, section: "machine", focus: "detail" as const };
   expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state })).toMatch(/Task backend\s+‹ Direct ›/);

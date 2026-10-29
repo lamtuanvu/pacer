@@ -3,6 +3,7 @@ import { readProjectStrategies, type ProjectStrategyFile } from "../../config/pr
 import { resolveProjectSelection } from "../../engine/project-routing";
 import { validateExecution } from "../../config/execution";
 import { resolveRunner } from "../../config/runner-id";
+import { machineGuardState } from "../../engine/machine";
 import { cachedPath, schedulePathRefresh, waitingIO } from "../../core/path-probe";
 import { redactEndpointError } from "../../endpoints/state";
 import { readPause } from "../../core/pause";
@@ -47,11 +48,14 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  for(const t of recent)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
  const notifier=activeNotifier(ctx);
- const machine = {used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, max: validateExecution(strategy.execution).localMaxTasks ?? 2};
+ const exec = validateExecution(strategy.execution);
+ const machine = {used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
  return {desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
 /** A repo-path call stuck for a second or more, e.g. behind a macOS removable-volume prompt. */
+/** The machine row's cap fields. max stays numeric for 3.0 clients; without a cap it is MAX_SAFE_INTEGER. */
+export function machineCap(hardCap:number|null){return {max:hardCap ?? Number.MAX_SAFE_INTEGER,hardCap,unlimited:hardCap===null};}
 function waitingField(){const waiting=waitingIO();return waiting?{waiting}:{};}
 
 export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[],policies?:ProjectStrategyFile):string|null {

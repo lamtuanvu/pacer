@@ -149,14 +149,14 @@ test("cookie config-set restricts terminal presets while bearer and CLI allow te
   } finally {server.stop();}
 });
 
-test("machine parallel tasks validates whole numbers 1..16, preserves invalid edits and provides undo", async () => {
+test("machine parallel tasks defaults to unlimited, validates whole numbers, preserves invalid edits and provides undo", async () => {
   const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
-  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 2, source: "default"}}});
-  for (const value of [1, 16, "3"]) {
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: "unlimited", source: "default"}}});
+  for (const value of [1, 16, 40, "3"]) {
     expect(await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value})).toMatchObject({value: Number(value), undo: expect.stringContaining("pacer config set execution.local_max_tasks")});
   }
   const before = readFileSync(path, "utf8"), count = eventsSince(ctx, 0).events.length;
-  for (const value of [0, 17, 1.5, "1.5", true, "bad", ""]) {
+  for (const value of [0, 1.5, "1.5", true, "bad", "", "none"]) {
     expect((await error(callOp(ctx, "config.set", {key: "execution.local_max_tasks", value}))).code).toBe("invalid_input");
     expect(readFileSync(path, "utf8")).toBe(before);
     expect(eventsSince(ctx, 0).events.length).toBe(count);
@@ -165,6 +165,30 @@ test("machine parallel tasks validates whole numbers 1..16, preserves invalid ed
   expect(result).toMatchObject({previous: 3, undo: "pacer config set execution.local_max_tasks 3"});
   await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 3});
   expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 3, source: path}}});
+  expect(await callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: "unlimited"})).toMatchObject({value: "unlimited", previous: 3, undo: "pacer config set execution.local_max_tasks 3"});
+  expect(Bun.YAML.parse(readFileSync(path, "utf8"))).toMatchObject({execution: {local_max_tasks: "unlimited"}});
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: "unlimited", source: path}}});
+});
+
+test("machine guard settings: memory pressure limit and load limit get, set and validate", async () => {
+  const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {
+    "execution.local_memory_pressure_limit": {value: "critical", source: "default"},
+    "execution.local_load_limit": {value: "off", source: "default"},
+  }});
+  expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "warning"})).toMatchObject({value: "warning", previous: "critical", undo: "pacer config set execution.local_memory_pressure_limit critical"});
+  expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "off"})).toMatchObject({value: "off"});
+  expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: 3})).toMatchObject({value: 3, previous: "off", undo: "pacer config set execution.local_load_limit off"});
+  expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "1.5"})).toMatchObject({value: 1.5, previous: 3});
+  expect(Bun.YAML.parse(readFileSync(path, "utf8"))).toMatchObject({execution: {local_memory_pressure_limit: "off", local_load_limit: 1.5}});
+  const before = readFileSync(path, "utf8");
+  for (const value of ["high", "Critical", "", 2]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value}))).code).toBe("invalid_input");
+  for (const value of [0, "0", -1, "-2", "fast", ""]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_load_limit", value}))).code).toBe("invalid_input");
+  expect(readFileSync(path, "utf8")).toBe(before);
+  await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "off"});
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_load_limit": {value: "off", source: path}, "execution.local_memory_pressure_limit": {value: "off", source: path}}});
+  // config.get also reports what the guard sees now, for Settings to re-read while open.
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({machine: {used: 0, memoryPressure: "normal", memoryPressureLimit: "off", loadLimit: null, open: true}});
 });
 
 test("delegated task launch mode defaults to interactive and validates its values", async () => {

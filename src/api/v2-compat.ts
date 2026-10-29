@@ -49,7 +49,10 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
   return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];
  }));
  const counts={...s.counts,attention:attention.length,problems:attention.filter(a=>a.severity!=="decide").length,setupOpen:setup.open};
- return {...compatible,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
+ // ceiling is the sum of the local executors' own limits.
+ const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
+ return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {

@@ -191,17 +191,57 @@ function executorFacts(ctx: ScreenCtx, e: ExecutorRow): string {
   return [e.id, e.model ?? "agent default", e.host ? `runs on ${e.host}` : "this machine", `${e.slots.used}/${e.slots.max} tasks`, check, e.stale ? "Historical usage" : null, assessment.detail, assessment.age, e.reason !== assessment.detail ? e.reason : null, note].filter(Boolean).join(` ${glyph(ctx.theme, "·")} `);
 }
 
+const PRESSURE_LIMITS = ["critical", "warning", "off"];
+const PRESSURE_LABELS: Record<string, string> = { critical: "Critical", warning: "Warning", off: "Off" };
+/** One ← › row: the value between arrows, with ←/→ bound to the given steps. */
+function stepper(ctx: ScreenCtx, width: number, id: string, label: string, value: string, down: Act | undefined, up: Act | undefined, note?: string): { rows: Row[]; item: Item } {
+  return {
+    item: { id, actions: [], keys: { ...(down ? { left: down } : {}), ...(up ? { right: up } : {}) } },
+    rows: fieldRows(field(ctx, width, label, [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(value, { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], note), id),
+  };
+}
+/** Plain words for what the machine guard sees now. */
+export function machineGuardWords(m: NonNullable<ScreenCtx["s"]["machine"]>): string {
+  const pressure = m.memoryPressure === undefined ? null : m.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${m.memoryPressure}`;
+  const load = m.loadPerCore == null ? null : `load ${Math.round(m.loadPerCore * 10) / 10} per core`;
+  const waits = m.open === false && m.detail ? `new tasks wait: ${m.detail}` : null;
+  // The running count shows once, beside Parallel tasks.
+  return [pressure, load, waits].filter(Boolean).join(" · ");
+}
+/** The next value of a This machine setting one step down (-1) or up (1) from `current`; undefined when it cannot step.
+ * Parallel tasks below 1 means no fixed limit and up from no limit starts at 4, as in the app; load steps by 0.5 per
+ * core and below 0.5 turns the ceiling off. */
+export function machineStep(key: MachineKey, current: unknown, step: -1 | 1): unknown {
+  if (key === "execution.local_memory_pressure_limit") return cycle(PRESSURE_LIMITS, String(current ?? "critical"), step);
+  const n = typeof current === "number" ? current : null;
+  if (key === "execution.local_max_tasks") return n === null ? (step > 0 ? 4 : undefined) : step > 0 ? n + 1 : n <= 1 ? "unlimited" : n - 1;
+  return n === null ? (step > 0 ? 2 : undefined) : step > 0 ? Math.round((n + 0.5) * 10) / 10 : n <= 0.5 ? "off" : Math.round((n - 0.5) * 10) / 10;
+}
+export type MachineKey = "execution.local_max_tasks" | "execution.local_memory_pressure_limit" | "execution.local_load_limit";
+/** A step the controller re-bases on a fresh config.get, so it never overwrites a change made elsewhere. */
+const machineAct = (label: string, key: MachineKey, current: unknown, step: -1 | 1): Act | undefined => {
+  const value = machineStep(key, current, step);
+  return value === undefined ? undefined : { label, effect: { type: "flow", name: "machine-step", params: { label, key, step, value } } };
+};
 const machine: Build = (ctx, width) => {
   const rows: Row[] = [], items: Item[] = [], config = ctx.data.settings.config;
   const pending = resourceState(ctx, config);
   if (pending) return { rows: pending, items };
-  const current = Number(config!.value!.keys?.["execution.local_max_tasks"]?.value ?? 2);
-  const step = (n: number) => clamp(current + n, 1, 16) === current ? undefined : set(ctx, "Parallel tasks", "execution.local_max_tasks", clamp(current + n, 1, 16));
-  const down = step(-1), up = step(1);
-  items.push({ id: "setting:local-max", actions: [], keys: { ...(down ? { left: down } : {}), ...(up ? { right: up } : {}) } });
-  const busy = ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined;
-  rows.push(...fieldRows(field(ctx, width, "Parallel tasks", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(String(current), { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], busy), "setting:local-max"));
-  rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. 1–16.", { fg: "muted" })])));
+  const keys = config!.value!.keys ?? {}, value = (k: MachineKey) => keys[k]?.value;
+  const steps = (label: string, key: MachineKey) => [machineAct(label, key, value(key), -1), machineAct(label, key, value(key), 1)] as const;
+  const rawMax = value("execution.local_max_tasks"), max = typeof rawMax === "number" ? rawMax : null;
+  const cap = stepper(ctx, width, "setting:local-max", "Parallel tasks", max === null ? "No limit" : String(max),
+    ...steps("Parallel tasks", "execution.local_max_tasks"), ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined);
+  const pressure = String(value("execution.local_memory_pressure_limit") ?? "critical");
+  const hold = stepper(ctx, width, "setting:memory-pressure", "Hold at memory pressure", PRESSURE_LABELS[pressure] ?? pressure,
+    ...steps("Memory pressure limit", "execution.local_memory_pressure_limit"));
+  const rawLoad = value("execution.local_load_limit"), load = typeof rawLoad === "number" ? rawLoad : null;
+  const ceiling = stepper(ctx, width, "setting:load-limit", "Load limit per core", load === null ? "Off" : String(load),
+    ...steps("Load limit", "execution.local_load_limit"));
+  for (const control of [cap, hold, ceiling]) { items.push(control.item); rows.push(...control.rows); }
+  const guard = ctx.s.machine && machineGuardWords(ctx.s.machine);
+  if (ctx.s.machine && guard) rows.push(...fieldRows(field(ctx, width, "Now", [span(guard, { fg: ctx.s.machine.open === false ? "warn" : "secondary" })])));
+  rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. Without a limit, new tasks start until memory pressure or load reaches its limit. Running tasks are never stopped.", { fg: "muted" })])));
   const backendKey = config!.value!.keys?.["execution.backend"];
   const backend = backendKey?.value === "orca" ? "orca" : "direct";
   // PACER_BACKEND wins over the saved value: a toggle here would save a value that has no effect.
