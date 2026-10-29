@@ -389,6 +389,13 @@ browserTest('Add agent steps 1–4 fit the actual Settings container at desktop,
           expect(steps!.y+steps!.height).toBeLessThanOrEqual(panel!.y);
           expect(await page.locator('.pc-stepper').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
         }
+        if(viewport===375) {
+          for(const link of [page.getByRole('link',{name:'Cancel',exact:true}),page.getByRole('navigation',{name:'Breadcrumb'}).getByRole('link',{name:'Agents',exact:true})]) {
+            const bounds = (await link.boundingBox())!;
+            expect(bounds.width).toBeGreaterThanOrEqual(44);
+            expect(bounds.height).toBeGreaterThanOrEqual(44);
+          }
+        }
         if(step===1) await page.getByRole('button',{name:/Codex/}).first().click();
         if(step===2) await page.getByRole('radio',{name:/team/}).check();
         if(step<4) await page.getByRole('button',{name:'Continue',exact:true}).click();
@@ -420,7 +427,10 @@ browserTest('Agents five columns and More actions remain contained with the asid
       const edges=await page.locator('.u3-agents-table').evaluate(el=>({right:el.getBoundingClientRect().right,cells:[...el.querySelectorAll('td')].map(cell=>cell.getBoundingClientRect().right)}));
       for(const right of edges.cells) expect(right).toBeLessThanOrEqual(edges.right);
       // With the aside open at 1440 the table keeps the board's five columns instead of collapsing to cards.
-      if(viewport===1440) expect(await page.locator('thead').evaluate(el=>getComputedStyle(el).display)).not.toBe('none');
+      if(viewport===1440) {
+        expect(await page.locator('thead').evaluate(el=>getComputedStyle(el).display)).not.toBe('none');
+        await assertHeaderBand(page);
+      }
       await action.scrollIntoViewIfNeeded();
       expect(await action.isVisible()).toBe(true);
       const bounds=await action.boundingBox();
@@ -461,3 +471,77 @@ browserTest('Unknown host errors keep the settings frame and a scoped Machines d
     await assertContained(page);
   }finally{await browser.close();}
 },20000);
+
+async function assertHeaderBand(page: import('playwright-core').Page) {
+  expect(await page.locator('thead tr').evaluate(el => getComputedStyle(el).borderBottomWidth)).toBe('1px');
+  expect(await page.locator('thead tr').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  for (const color of await page.locator('thead th').evaluateAll(els => els.map(el => getComputedStyle(el).backgroundColor))) {
+    expect(color).toBe('rgba(0, 0, 0, 0)');
+  }
+}
+
+browserTest('Accounts six board tracks, conditional actions and labelled cards fit their Settings container', async () => {
+  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/accounts-table.tsx'], target: 'browser', minify: true });
+  expect(built.success).toBe(true);
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    for (const { viewport, content } of settingsWidths) {
+      const page = await browser.newPage();
+      await page.setContent('<div id="app"></div>');
+      await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
+      await emulateSettingsWidth(page, viewport, content);
+      await page.addScriptTag({ content: await built.outputs[0]!.text() });
+      await page.locator('#accounts tbody tr').first().waitFor();
+      expect(await page.locator('thead th').allTextContents()).toEqual(['Account', 'Sign-in', 'Quota', 'Status', 'Used by', 'Actions']);
+      expect(await page.getByRole('button', { name: 'More actions for team', exact: true }).count()).toBe(0);
+      expect(await page.locator('tbody tr').first().locator('td').count()).toBe(6);
+      if (viewport === 1440) {
+        const tracks = await page.locator('thead tr').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').map(parseFloat));
+        expect(tracks).toHaveLength(6);
+        expect(tracks[1]).toBe(130);
+        expect(tracks[3]).toBe(150);
+        expect(tracks[5]).toBe(32);
+        console.log('Accounts tracks at 1000px content:', tracks.join('/'));
+        await assertHeaderBand(page);
+      } else {
+        expect(await page.locator('thead').evaluate(el => getComputedStyle(el).display)).toBe('none');
+        expect(await page.locator('tbody tr').first().evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(1);
+      }
+      const checkCells = async () => {
+        await assertContained(page);
+        const geometry = await page.locator('.u3-agents-table').evaluate(el => ({
+          right: el.getBoundingClientRect().right,
+          cells: [...el.querySelectorAll('td')].map(cell => ({ right: cell.getBoundingClientRect().right, fits: cell.scrollWidth <= cell.clientWidth })),
+          text: [...el.querySelectorAll('td[data-label="Status"],td[data-label="Used by"]')].map(cell => {
+            const range = document.createRange(); range.selectNodeContents(cell);
+            return { text: cell.textContent, right: range.getBoundingClientRect().right, edge: cell.getBoundingClientRect().right };
+          }),
+        }));
+        for (const cell of geometry.cells) {
+          expect(cell.right).toBeLessThanOrEqual(geometry.right);
+          expect(cell.fits).toBe(true);
+        }
+        for (const text of geometry.text) {
+          expect(text.text!.trim().length).toBeGreaterThan(0);
+          expect(text.right).toBeLessThanOrEqual(text.edge);
+        }
+      };
+      await checkCells();
+      const action = page.getByRole('button', { name: 'More actions for out', exact: true });
+      await action.focus(); await page.keyboard.press('Enter');
+      expect(await action.getAttribute('aria-expanded')).toBe('true');
+      await page.getByText('Fix sign-in for out', { exact: true }).click();
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.signin' && p.name === 'out'));
+      await checkCells();
+      await action.click();
+      expect(await page.getByRole('button', { name: 'Sign in', exact: true }).isVisible()).toBe(false);
+      await page.getByRole('button', { name: 'More actions for ark', exact: true }).click();
+      await page.getByText('Fix Ark CLI sign-in for ark', { exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh usage for ark', exact: true }).click();
+      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'limits.refresh' && p.account === 'ark'));
+      await checkCells();
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 30000);

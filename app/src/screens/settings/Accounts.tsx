@@ -14,7 +14,7 @@ import { Icon } from "../../ds/icons";
 import type { ConfigData } from "../../model/strategy";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { Stack } from "../../ds/Page";
-import { Button, TextAction } from "../../ds/Button";
+import { Button, IconButton, TextAction } from "../../ds/Button";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import { useTaskContext } from "../task-shared";
 import { AgentsIntro } from "./Executors";
@@ -38,6 +38,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
     action = useOperation(query.reload),
     { state, api } = useTaskContext();
   const [adding, setAdding] = useState(false), [name, setName] = useState(""), [kind, setKind] = useState("codex"),
+    [openActions, setOpenActions] = useState<string | null>(null),
     [refreshing, setRefreshing] = useState(""), [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
   const refresh = async (account: string) => {
     setRefreshing(account); setRefreshStatus(undefined);
@@ -60,13 +61,15 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
       <div className="u3-accounts-info"><Icon name="lock"/><span>An account is where quota comes from. pacer never reads or copies an agent's own sign-in.</span></div>
       <ResourceState resource={query} empty="No accounts yet. Add an account to get started.">
         <div className="u3-table-wrap u3-agents-table">
-          <div className="u3-agents-scroll"><table>
-            <thead><tr>{["Account", "Sign-in", "Quota", "Status", "Used by"].map(v => <th key={v} scope="col">{v}</th>)}</tr></thead>
+          <div className="u3-accounts-scroll"><table>
+            <thead><tr>{["Account", "Sign-in", "Quota", "Status", "Used by"].map(v => <th key={v} scope="col">{v}</th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {query.data?.map(account => {
                 const summary = state.snapshot?.accounts?.find(a => a.name === account.name),
                   readiness = { ...account, signedIn: summary?.signedIn ?? account.signedIn },
-                  freshness = summary && accountUsageFreshness(summary), users = summary?.executors ?? account.runners ?? [];
+                  freshness = summary && accountUsageFreshness(summary), users = summary?.executors ?? account.runners ?? [],
+                  hasAction = arkcliSignInRequired(account) || accountNeedsSignIn(readiness),
+                  expanded = hasAction && openActions === account.name, actionsId = `account-actions-${encodeURIComponent(account.name)}`;
                 return (
                   <tr key={account.name}>
                     <td data-label="Account">
@@ -81,20 +84,27 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     </td>
                     <td data-label="Status">
                       <StatusPill status={accountStatus(readiness)} />
-                      {arkcliSignInRequired(account) ? (
-                        <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
-                          <Stack space="compact"><p>Sign in to BytePlus in a terminal, then refresh usage here.</p><div><code>arkcli auth login</code></div><div>{refreshButton(account.name)}</div></Stack>
-                        </Disclosure>
-                      ) : accountNeedsSignIn(readiness) ? (
-                        <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {account.name}</span></>}>
-                          {account.signin_command && <code>{account.signin_command}</code>}
-                          <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
-                        </Disclosure>
-                      ) : null}
                       {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
                     </td>
                     <td data-label="Used by">
                       {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={id}><AgentMark agent={id.split(/[#@]/)[0]!} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
+                    </td>
+                    <td data-label="Actions" className={expanded ? "u3-account-actions--open" : undefined}>
+                      {hasAction && <>
+                        <IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${account.name}`} aria-expanded={expanded} aria-controls={actionsId} onClick={() => setOpenActions(expanded ? null : account.name)} />
+                        <div id={actionsId} hidden={!expanded}>
+                          {arkcliSignInRequired(account) ? (
+                            <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
+                              <Stack space="compact"><p>Sign in to BytePlus in a terminal, then refresh usage here.</p><div><code>arkcli auth login</code></div><div>{refreshButton(account.name)}</div></Stack>
+                            </Disclosure>
+                          ) : accountNeedsSignIn(readiness) ? (
+                            <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {account.name}</span></>}>
+                              {account.signin_command && <code>{account.signin_command}</code>}
+                              <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
+                            </Disclosure>
+                          ) : null}
+                        </div>
+                      </>}
                     </td>
                   </tr>
                 );

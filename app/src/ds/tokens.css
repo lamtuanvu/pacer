@@ -220,6 +220,7 @@
   --size-400: 400px;
   --size-150: 150px;
   --size-130: 130px;
+  --size-160: 160px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --shadow-agent-failure: inset 0 0 0 1px var(--bad-line);

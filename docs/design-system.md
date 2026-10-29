@@ -471,3 +471,11 @@ operations and scoped host-detail navigation.
 Settings-specific component styles live in `screens/settings/settings.css` to keep the startup bundle bounded. Agents uses five columns (Executor, Status, This week, Parallel, actions); below 760px of table container width, rows become labelled cards with visible actions. The More actions icon button opens the details region and keeps its focus-return and Escape behavior. Priority and parallel-task edits share the page draft and save bar; Takes work saves immediately. The stacked priority SettingRow keeps movement buttons beside the position number. Parallel-task inputs in details are 72px wide with 6px radius and 10px padding.
 
 Machines uses auto-fit cards with a 440px minimum, bounded by the container. Its board SettingRows use a label track capped at 240px, a flexible control track with a 220px floor, 20px gap and 12px block padding. Rows stack below 420px of the card body. ChoicePickers are 220px wide, capped by their control track after rows stack. At 456px of content the label track shrinks to 216px to fit the picker and 20px gap. Account policy labels, bare Takes work switch labels, and settings text actions keep at least 44px touch height on narrow or coarse-pointer layouts. The new 130px and 90px table dimensions are provisional local tokens.
+
+Accounts uses six board grid tracks: Account, Sign-in (130px), Quota (at least
+160px), Status (150px), Used by, and actions (32px). At container widths up to
+760px, every cell remains visible in labelled cards. More actions appears only
+for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
+region spanning the row. Agents and Accounts paint the header background and
+bottom rule on the whole header row. Add agent breadcrumb and footer text
+links keep the shared touch minimum for both width and height.

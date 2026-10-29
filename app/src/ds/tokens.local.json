@@ -249,6 +249,11 @@
         "name": "size-130",
         "value": "130px",
         "provisional": "Settings Agents board weekly usage column."
+      },
+      {
+        "name": "size-160",
+        "value": "160px",
+        "provisional": "Settings Accounts board minimum quota column width."
       }
     ]
   },

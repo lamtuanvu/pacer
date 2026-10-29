@@ -125,7 +125,7 @@
 
 /* Agents and Accounts use the boards' specialized table rhythm. */
 #executors,#accounts{gap:var(--size-18)}
-.u3-agents-table{border-radius:var(--radius-agents);overflow:hidden}
+.u3-agents-table{border-radius:var(--radius-agents);overflow:auto}
 .u3-settings .u3-agents-table th{padding:var(--size-9) var(--space-4);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted);border-bottom:1px solid var(--line)}
 .u3-settings .u3-agents-table td{padding:var(--space-2\.5) var(--space-4);border-bottom:0;border-top:1px solid var(--surface-lane)}
 .u3-agents-table .u3-agent{gap:var(--space-2\.5)}
@@ -276,6 +276,22 @@
  #executors .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
  #executors .u3-agents-table td[data-label=Actions]::before{display:none}
 }
+/* Accounts retains all six board columns until its own container needs cards. */
+.u3-accounts-scroll{max-width:100%;position:relative;container-type:inline-size;container-name:accounts-table}
+#accounts .u3-agents-table table,#accounts .u3-agents-table thead,#accounts .u3-agents-table tbody{display:block}
+#accounts .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.3fr) var(--size-130) minmax(var(--size-160),1fr) var(--size-150) minmax(0,1fr) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4);align-items:center}
+#accounts .u3-agents-table th,#accounts .u3-agents-table td{display:block;min-width:0;width:auto;padding:0;border:0;overflow-wrap:anywhere}
+#accounts .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
+#accounts .u3-account-actions--open{grid-column:1 / -1}
+#accounts .u3-chip{max-width:100%;box-sizing:border-box;white-space:normal}
+#executors .u3-agents-table thead tr,#accounts .u3-agents-table thead tr{padding:var(--size-9) var(--space-4);background:var(--surface-card);border-bottom:1px solid var(--line)}
+#executors .u3-agents-table th,#accounts .u3-agents-table th{background:transparent}
+@container accounts-table (max-width:760px){
+ #accounts .u3-agents-table thead{display:none}
+ #accounts .u3-agents-table tr{grid-template-columns:minmax(0,1fr)}
+ #accounts .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
+ #accounts .u3-agents-table td[data-label=Actions]::before{display:none}
+}
 .pc-tabs--nav .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);font-size:var(--type-body-size)}
 .u3-agent-detail .u3-detail-parallel{width:var(--size-72);border-radius:var(--radius-sm);padding:var(--space-2\.5)}
 @media(max-width:700px),(pointer:coarse){
@@ -283,5 +299,10 @@
  .u3-agent-detail .pc-checkbox--bare,.pc-radio-choices label{min-height:var(--control-touch);box-sizing:border-box}
  .u3-agent-detail .pc-checkbox--bare{min-width:var(--control-touch)}
  .u3-settings .pc-text-action{display:inline-flex;align-items:center;min-height:var(--control-touch)}
+ .u3-add-agent .u3-breadcrumb .pc-text-action,.u3-add-agent .u3-footer .pc-text-action{min-width:var(--control-touch)}
  .u3-executor-order{grid-template-columns:var(--size-16) var(--control-touch) var(--control-touch)}
 }
+
+/* The account policy stacks by its page width, not the viewport. */
+#accounts{container-type:inline-size;container-name:accounts-page}
+@container accounts-page (max-width:640px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}}
