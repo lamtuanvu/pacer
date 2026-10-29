@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-29
+
 ### Added
 
 - pacer now ships as a Rust front door, `pacer`, paired with its TypeScript core, `pacer-core`. The front door owns the CLI, stdio, loopback HTTP/SSE/WebSocket and the desktop's native listener. Operations and routes it does not handle itself go to the core with the same requests, results, errors, authentication and events, so the API stays the same. Keep both files together: the install script, npm, Homebrew and the desktop app install and update them as a pair. See [Distribution](docs/distribution.md).
