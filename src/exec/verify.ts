@@ -41,10 +41,11 @@ export async function verifyRepo(
     const supportsPipefail = (await execProcess({ argv: ["sh", "-c", "set -o pipefail"], cwd: repo, env, timeoutMs: 30_000 })).code === 0;
     if (!supportsPipefail) {
       // Running without the requested pipefail could pass a failing non-final pipeline stage.
-      const shell = "sh -c (pipefail unsupported)";
-      const tail = "acceptance not run: acceptance_pipefail was requested, but bash is not on PATH and sh does not support set -o pipefail";
-      const hint = "install bash, or drop acceptance_pipefail and check each pipeline stage in the command itself";
-      return { files, acceptance: { cmd: acceptance, passed: false, tail, durationS: 0, machine: null, shell, hint } };
+      return { files, acceptance: {
+        cmd: acceptance, passed: false, durationS: 0, machine: null, shell: "sh -c (pipefail unsupported)",
+        tail: "acceptance not run: acceptance_pipefail was requested, but bash is not on PATH and sh does not support set -o pipefail",
+        hint: "install bash, or drop acceptance_pipefail and check each pipeline stage in the command itself",
+      } };
     }
     argv = ["sh", "-c", `set -o pipefail; ${acceptance}`];
     shell = "sh -c (set -o pipefail; ...)";
