@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { withLock } from "../core/lock";
 import { CoreError } from "../core/errors";
 import { readRun, startRun, stopRun, type RunSpec } from "../supervisor/run";
 import type { Ctx } from "../types";
+import { resolveLoginShell } from "./login-shell";
 
 export interface TerminalRecord {
   id: string;
@@ -31,7 +32,7 @@ interface StoredTerminal {
   error?: string;
 }
 
-type ShellInput = { requestId: string; kind: "shell"; title: string; cwd?: string };
+type ShellInput = { requestId: string; kind: "shell"; title?: string; cwd?: string };
 type ActionInput = { requestId: string; kind: "action"; title: string; cwd?: string; argv: string[]; env?: Record<string, string> };
 export type CreateTerminalInput = ShellInput | ActionInput;
 interface Reservation { payload: string; id: string }
@@ -80,9 +81,7 @@ function canonicalDirectory(path: string): string {
   }
 }
 function shellArgv(ctx: Ctx): string[] {
-  const candidate = ctx.env.SHELL && isAbsolute(ctx.env.SHELL) ? ctx.env.SHELL : "/bin/sh";
-  if (!existsSync(candidate)) throw new CoreError("not_allowed", "Login shell is unavailable");
-  return [candidate, "-l"];
+  return [resolveLoginShell(ctx.env), "-l"];
 }
 function presentation(ctx: Ctx, stored: StoredTerminal): TerminalRecord {
   const dir = directory(ctx, stored.id);
@@ -99,10 +98,10 @@ function presentation(ctx: Ctx, stored: StoredTerminal): TerminalRecord {
 }
 function validate(ctx: Ctx, input: CreateTerminalInput) {
   if (!ID.test(input.requestId)) throw new CoreError("invalid_input", "Invalid terminal request ID");
-  const title = input.title.trim();
+  const argv = input.kind === "shell" ? shellArgv(ctx) : input.argv;
+  const title = (input.title ?? basename(argv[0] ?? "sh")).trim();
   if (!title || title.length > 80) throw new CoreError("invalid_input", "Terminal title must be 1–80 characters");
   const cwd = canonicalDirectory(input.cwd ?? ctx.home);
-  const argv = input.kind === "shell" ? shellArgv(ctx) : input.argv;
   if (!argv.length || argv.some(arg => typeof arg !== "string" || arg.includes("\0"))) throw new CoreError("invalid_input", "Invalid terminal command");
   if (input.kind === "action" && input.env && Object.keys(input.env).some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))) throw new CoreError("invalid_input", "Invalid terminal environment");
   return { title, cwd, argv };
@@ -133,6 +132,7 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
     reservations[input.requestId] = { payload, id };
     writePrivate(join(base, "requests.json"), reservations);
     const env: Record<string,string|undefined> = { ...process.env, ...ctx.env, ...(input.kind === "action" ? input.env : undefined), HOME: ctx.home, PACER_HOME: ctx.pacerHome };
+    if (input.kind === "shell") env.SHELL = argv[0];
     for (const name of ["PACER_AUTH_TOKEN","PACER_INTERNAL_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID"]) delete env[name];
     let started: ReturnType<Start>;
     try { started = (deps.start ?? startRun)({ dir, cwd, argv, env, session: "interactive" }); }
