@@ -51,8 +51,8 @@ export function SettingsBoard({id,title,caption,actions,children,aside}:{id:stri
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  const budget = budgetResourceRevision(op, invalidations);
  if (budget !== undefined) return budget;
- // update.check itself publishes an update event; reacting to it creates a request loop.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
+ // update.check itself publishes an update event; reacting to it creates a request loop. Message threads have their own counters.
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
