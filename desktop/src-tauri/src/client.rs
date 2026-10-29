@@ -973,13 +973,18 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     shell.navigation.lock().unwrap().invalidate();
     result
 }
-async fn monitor_health(client: &Client) -> Result<(), String> {
+async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> {
+    let mut strikes = logic::HealthStrikes::default();
+    // A new session must not inherit the previous session's transaction state; its first
+    // snapshot sets it again.
+    app.state::<Shell>().update_transaction.store(false, Ordering::SeqCst);
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if !matches!(
-            health(client).await,
-            logic::HealthProbe::Ready | logic::HealthProbe::Starting
-        ) {
+        let probe = health(client).await;
+        let shell = app.state::<Shell>();
+        let transaction = shell.update_transaction.load(Ordering::SeqCst)
+            || shell.adoption.lock().unwrap().is_some();
+        if strikes.observe(probe, transaction) {
             return Err("diagnose".into());
         }
     }
@@ -1739,7 +1744,7 @@ pub async fn run(app: AppHandle) {
                 if let Some(cli) = cli {
                     let result = tokio::select! {
                         result = connected(&app, &cli, &mut first_run) => result,
-                        result = monitor_health(&probe_client) => result,
+                        result = monitor_health(&app, &probe_client) => result,
                     };
                     if let Err(error) = result {
                         if matches!(error.as_str(), "outdatedService" | "unverifiedService" | "takeover") {

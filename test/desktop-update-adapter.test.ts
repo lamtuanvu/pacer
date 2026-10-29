@@ -300,3 +300,46 @@ test("a pipe that fails mid-read is closed, while a malformed frame is a protoco
   garbled.raw(new Uint8Array([0, 0, 0, 0]));
   await fails(second, "protocol");
 });
+
+test("a bound helper error before hello is a remote refusal, not a protocol rejection", async () => {
+  const h = harness(); (h.factory.capabilities as Set<string>).add("adopt");
+  const adopt: AdapterRequest = { command: "adopt", installationId: "fixture", revision: 4, transactionId: "tx-1", target: { ...target, ownership: "attached" } };
+  const promise = runAdapterCommand(h.factory, adopt, { authorizeInstall: async () => true });
+  const command = await h.opened;
+  h.send(command, { kind: "error", code: "verification" }, 0);
+  try { await promise; throw Error("expected adapter failure"); }
+  catch (error) {
+    expect(error).toMatchObject({ reason: "remote", handoff: "none", rejection: undefined });
+    expect((error as AdapterError).message).toBe("Desktop update adapter could not complete the operation");
+  }
+  expect(h.aborts()).toBe(1); expect(h.writes).toHaveLength(1);
+  for (const change of [{ nonce: "c".repeat(64) }, { sequence: 1 }]) {
+    const unbound = harness(), rejected = runAdapterCommand(unbound.factory, check); const sent = await unbound.opened;
+    unbound.send(sent, { kind: "error", code: "verification", ...change }, 0);
+    await fails(rejected, "protocol");
+  }
+});
+
+test("protocol rejections record the failing predicate without frame payloads", async () => {
+  const cases: [Record<string, unknown>, number, Record<string, unknown>][] = [
+    [{ kind: "checked", candidate }, 0, { check: "hello", kind: "checked", sequence: 0, expectedSequence: 0, phase: "initial", hello: false }],
+    [{ kind: "hello", ...identity }, 1, { check: "sequence", kind: "hello", sequence: 1, expectedSequence: 0, phase: "initial", hello: false }],
+    [{ kind: "hello", ...identity, version: "9.0.0" }, 0, { check: "identity", kind: "hello", sequence: 0, expectedSequence: 0, phase: "initial", hello: false }],
+    [{ kind: "hello", ...identity, revision: 3 }, 0, { check: "binding", kind: "hello", sequence: 0, expectedSequence: 0, phase: "initial", hello: false }],
+    [{ kind: "execute-shell" }, 0, { check: "schema", kind: null, sequence: null, expectedSequence: 0, phase: "initial", hello: false }],
+  ];
+  for (const [frame, sequence, rejection] of cases) {
+    const h = harness(), promise = runAdapterCommand(h.factory, check); const command = await h.opened;
+    h.send(command, frame, sequence);
+    try { await promise; throw Error("expected adapter failure"); }
+    catch (error) { expect(error).toMatchObject({ reason: "protocol", rejection }); }
+  }
+  const late = harness(), promise = runAdapterCommand(late.factory, check); const command = await late.opened;
+  hello(late, command); late.send(command, { kind: "hello", ...identity }, 1);
+  try { await promise; throw Error("expected adapter failure"); }
+  catch (error) { expect(error).toMatchObject({ reason: "protocol", rejection: { check: "order", kind: "hello", sequence: 1, expectedSequence: 1, hello: true } }); }
+  const garbled = harness(), malformed = runAdapterCommand(garbled.factory, check); await garbled.opened;
+  garbled.raw(new Uint8Array([0, 0, 0, 0]));
+  try { await malformed; throw Error("expected adapter failure"); }
+  catch (error) { expect(error).toMatchObject({ reason: "protocol", rejection: { check: "frame", kind: null, sequence: null } }); }
+});

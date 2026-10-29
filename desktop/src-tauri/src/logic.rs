@@ -597,6 +597,25 @@ pub enum HealthProbe {
     Invalid,
     Unreachable,
 }
+/// Consecutive failed `/health` probes, about one per second, that end a connected session.
+pub const HEALTH_STRIKES: u8 = 3;
+/// Counts consecutive failed `/health` probes of a connected session. One slow reply never
+/// ends the session. Nor do failures while an update or adoption transaction is in flight:
+/// the service can stall while it verifies signatures, and the adoption is bound to this
+/// session. A service that exits still ends the session through its event stream.
+#[derive(Debug, Default)]
+pub struct HealthStrikes(u8);
+impl HealthStrikes {
+    /// Records one probe; true when the session should end for diagnosis.
+    pub fn observe(&mut self, probe: HealthProbe, transaction: bool) -> bool {
+        if matches!(probe, HealthProbe::Ready | HealthProbe::Starting) {
+            self.0 = 0;
+            return false;
+        }
+        self.0 = self.0.saturating_add(1);
+        self.0 >= HEALTH_STRIKES && !transaction
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum JobState {
     NotLoaded,
@@ -1847,6 +1866,46 @@ mod tests {
             approval_window("UserNotificationCenter", "OtherApp notifications"),
             None
         );
+    }
+    #[test]
+    fn one_slow_health_reply_keeps_the_session() {
+        let mut strikes = HealthStrikes::default();
+        assert!(!strikes.observe(HealthProbe::NoAnswer, false));
+        assert!(!strikes.observe(HealthProbe::Ready, false));
+        assert!(!strikes.observe(HealthProbe::NoAnswer, false));
+        assert!(!strikes.observe(HealthProbe::Starting, false));
+    }
+    #[test]
+    fn consecutive_failed_health_probes_end_the_session() {
+        for probe in [HealthProbe::NoAnswer, HealthProbe::Refused, HealthProbe::Unreachable, HealthProbe::Invalid] {
+            let mut strikes = HealthStrikes::default();
+            for _ in 1..HEALTH_STRIKES {
+                assert!(!strikes.observe(probe, false), "{probe:?}");
+            }
+            assert!(strikes.observe(probe, false), "{probe:?}");
+            assert!(strikes.observe(probe, false), "{probe:?}");
+        }
+    }
+    #[test]
+    fn in_flight_transaction_holds_the_session_through_failed_probes() {
+        let mut strikes = HealthStrikes::default();
+        for _ in 0..10 {
+            assert!(!strikes.observe(HealthProbe::NoAnswer, true));
+        }
+        // Once the transaction ends, a still-failing service ends the session at once.
+        assert!(strikes.observe(HealthProbe::NoAnswer, false));
+    }
+    #[test]
+    fn health_recovery_resets_the_strike_count() {
+        let mut strikes = HealthStrikes::default();
+        for _ in 1..HEALTH_STRIKES {
+            assert!(!strikes.observe(HealthProbe::NoAnswer, false));
+        }
+        assert!(!strikes.observe(HealthProbe::Ready, false));
+        for _ in 1..HEALTH_STRIKES {
+            assert!(!strikes.observe(HealthProbe::NoAnswer, false));
+        }
+        assert!(strikes.observe(HealthProbe::NoAnswer, false));
     }
     #[test]
     fn automatic_lifecycle_transitions() {
