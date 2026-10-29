@@ -25,6 +25,8 @@ export interface ServiceDeps {
   platform?: string; uid?: number; argv?: string[]; port?: number;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>; waitMs?: number; healthTimeoutMs?: number;
   tty?: boolean; confirm?: (question: string) => Promise<boolean>;
+  /** Test seam only; runtime callers derive this from the compiled fixture. */
+  label?: string;
   /** CLI upgrade-path calls to the restarted service (tests inject these). */
   upgrade?: import("./upgrade").UpgradeDeps;
 }
@@ -63,14 +65,14 @@ const unxml = (s: string) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").r
 const quote = (s: string, exec = false) => '"' + s.replaceAll("%", "%%").replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t").replaceAll("$", () => exec ? "$$" : "$") + '"';
 // Standard, not Background: launchd throttles a Background job's disk I/O, and under
 // memory pressure its reads stalled the service (and its health thread) for 30-90s.
-export function plist(ctx: Ctx, argv: string[]): string {
+export function plist(ctx: Ctx, argv: string[], label: string = desktopServiceLabel(ctx)): string {
   const str = (s: string) => `<string>${xml(s)}</string>`;
   const log = join(ctx.pacerHome, "logs/serve.log");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- ${MARKER} -->
 <plist version="1.0"><dict>
-<key>Label</key>${str(LABEL)}
+<key>Label</key>${str(label)}
 <key>ProgramArguments</key><array>${[...argv, "serve"].map(str).join("")}</array>
 <key>EnvironmentVariables</key><dict><key>HOME</key>${str(ctx.home)}<key>PATH</key>${str(servicePATH(ctx))}<key>PACER_HOME</key>${str(ctx.pacerHome)}${ctx.env.PACER_PORT ? `<key>PACER_PORT</key>${str(ctx.env.PACER_PORT)}` : ""}</dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
@@ -193,7 +195,8 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
   const platform = deps.platform ?? process.platform;
   if (platform !== "darwin" && platform !== "linux") throw new Error(`pacer service is not supported on ${platform}`);
   const mac = platform === "darwin", argv = deps.argv ?? pacerArgv(ctx.env);
-  const path = servicePath(ctx, platform), target = `gui/${deps.uid ?? process.getuid?.() ?? 0}/${LABEL}`;
+  const label = deps.label ?? (mac ? desktopServiceLabel(ctx) : LABEL);
+  const path = servicePath(ctx, platform), target = `gui/${deps.uid ?? process.getuid?.() ?? 0}/${label}`;
   const system = (cmd: string, ...args: string[]) => ["systemctl", "--user", cmd, ...args];
   async function run(args: string[], absent = false) {
     let r = await ctx.run(args, 10000);
@@ -223,7 +226,7 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
         mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
         const before = tx.read(path);
         old = before;
-        tx.edit(path, () => mac ? plist(ctx, argv) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
+        tx.edit(path, () => mac ? plist(ctx, argv, label) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
         installedCache.delete(path);
         // The manager must read the registration before the install transaction commits.
         // Stage it only while activating, then restore the pre-transaction state for commit.
