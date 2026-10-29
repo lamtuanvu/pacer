@@ -150,7 +150,7 @@ browserTest('Add host: a check that cannot start is reported, not silently retri
     await page.evaluate(() => (window as any).hostFixture.failFirst(true));
     await page.getByRole('button', { name: 'Connect and check', exact: true }).click();
     await page.getByRole('list', { name: 'Checks for devbox' }).waitFor();
-    expect(await page.getByRole('status').filter({ hasText: 'Changes saved' }).count()).toBe(0);
+    expect(await page.getByRole('status').filter({ hasText: /Changes saved/ }).count()).toBe(0);
   });
 });
 
@@ -258,7 +258,7 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
   expect(geometry[0]).toMatchObject({radius:'12px',overflow:'hidden',border:'1px'});
   const rows=page.locator('.u3-machine-body .pc-setting-row--board');
-  expect(await rows.count()).toBe(5);
+  expect(await rows.count()).toBe(7);
   const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
   for (const row of layout) {
    expect(row.padding).toBe('12px 0px');

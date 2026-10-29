@@ -16,7 +16,9 @@ test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',
    expect(current.attention.find((a:any)=>a.taskId==='t-20261010-190000-0003')).toMatchObject({kind:'failed',severity:'problem'});
    expect(current.counts).toMatchObject({review:0,attention:5,problems:5});
    expect(value).toMatchObject(golden);
-   expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
+   // The default local cap changed from 2 to none; 2.x clients still get a numeric max,
+   // the effective ceiling from the local executors' own limits.
+   expect(value).toMatchObject({snapshot:{machine:{used:1,max:1}}});
   } else if (name === 'hello') {
    const live=value as any;
    const additive=['task.request_review','task.send'];

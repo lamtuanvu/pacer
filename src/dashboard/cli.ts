@@ -116,7 +116,7 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
     dash.draw();
     void dash.refresh().then(() => {
       if (closed) return;
-      unsubscribe = client.subscribe(dash.snapshot.seq, () => { void dash.refresh(); });
+      unsubscribe = client.subscribe(dash.snapshot.seq, event => { void dash.event(event); });
       if (dash.supports("update.check")) void client.call("update.check", {}).then(value => { dash.data.settings.update = { value: value as never }; dash.draw(); }).catch(() => {});
     });
     timer = setInterval(() => { void dash.refresh(); }, 2000);

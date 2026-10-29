@@ -21,7 +21,7 @@ import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
-import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { type SpawnRunner } from "./api";
@@ -207,6 +207,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     }
     for (let i = 0; i < attemptBudget; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
+      // The first attempt is a start, even when the drain reserved it; retries keep running.
+      const freshStart = i === 0 && !resuming;
       let selection: ProjectSelection | undefined;
       let policySnapshot: ReturnType<typeof projectSnapshot> | undefined;
       let pick: string | undefined;
@@ -303,7 +305,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             if (!allowed.includes(candidate.id)) return false;
             const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, candidate.id);
             if (guard) { excluded.push({ id: candidate.id, reason: guard }); return false; }
-            const reason = slotBlock(s, candidate.id, use);
+            // The machine guard holds only a start, never a retry of a running task.
+            const reason = slotBlock(s, candidate.id, use, {guard: freshStart});
             if (!reason) return true;
             full.add(candidate.id);
             excluded.push({id: candidate.id, reason});
@@ -338,7 +341,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
             const c = dispatchCandidates.find(c=>c.runner===pick);
             if (!c || !reserveDispatch({...ctx,now},id,c,decision)) pick=undefined;
           }
-          if (work && !pick && !paused) {
+          const machineHeld = freshStart && [...full].some(e => !tried.has(e) && !!localMachineGuard(s, e));
+          if (work && !pick && !paused && !machineHeld) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
             const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
@@ -356,7 +360,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
               t.state = "queued";
               const blockedExecutor = req && full.has(req) ? req : [...full].find(e => !tried.has(e));
               const capacity = !paused && blockedExecutor ? queueCapacity(s, blockedExecutor, use) : undefined;
-              t.queue = {...capacity, reason: paused ? "paused" : "no_slot", since: initial.queue?.since ?? now, position: waiting.length + 1};
+              t.queue = {...capacity, reason: paused ? "paused" : capacity?.reason ?? "no_slot", since: initial.queue?.since ?? now, position: waiting.length + 1};
               delete t.runnerPid;
               delete t.executor;
               delete t.run;

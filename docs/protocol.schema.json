@@ -1270,6 +1270,8 @@
           "enum": [
             "task_retention_days",
             "execution.local_max_tasks",
+            "execution.local_memory_pressure_limit",
+            "execution.local_load_limit",
             "execution.launch_mode",
             "execution.backend",
             "planner",

@@ -18,7 +18,7 @@ import { publish } from "../link/publish";
 import { pidAlive } from "../link/store";
 import { gitInfo, realpathSafe } from "../core/git";
 import { tasksDir, listTasksWhere, readTask, updateTask } from "../tasks/store";
-import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
+import { progressBase, resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { parseRunnerId } from "../config/runner-id";
 import { resolveRunner } from "../config/runner-id";
@@ -115,22 +115,27 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       gitAt = now;
       try {
         const st = await ctx.run(["git", "-C", run.workdir, "status", "--porcelain=v1", "-z"], 15_000);
+        const current = readTask(ctx, task.id);
+        const base = current && progressBase({...current, run});
+        const names = base ? await ctx.run(["git", "-C", run.workdir, "diff", "--merge-base", "--name-only", "-z", "--end-of-options", base, "--"], 15_000) : undefined;
         if (st.code === 0) {
-          const entries = st.stdout.split("\0").filter(Boolean);
-          files = 0;
+          // With a base: committed, staged and unstaged paths since it plus untracked ones; otherwise every status entry.
+          const based = names?.code === 0, entries = st.stdout.split("\0").filter(Boolean), paths = new Set(based ? names.stdout.split("\0").filter(Boolean) : []);
+          let count = 0;
           for (let n = 0; n < entries.length; n++) {
-            files++;
+            if (!based) count++; else if (entries[n].startsWith("?? ")) paths.add(entries[n].slice(3));
             if (/^[RC]|^.[RC]/.test(entries[n])) n++; // Renames/copies include the original path too.
           }
+          files = based ? paths.size : count;
         }
-        const base = readTask(ctx, task.id)?.baseBranch;
-        if (base && run.mode === "new") {
+        if (base) {
           const c = await ctx.run(["git", "-C", run.workdir, "rev-list", "--count", `${base}..HEAD`], 15_000);
           if (c.code === 0) commits = Number(c.stdout.trim()) || 0;
         }
+        const head = await ctx.run(["git", "-C", run.workdir, "rev-parse", "--verify", "-q", "HEAD"], 15_000);
         const diff = await ctx.run(["git", "-C", run.workdir, "diff", "HEAD"], 15_000);
         if (st.code === 0 && diff.code === 0) {
-          const next = gitFingerprint(st.stdout, diff.stdout);
+          const next = gitFingerprint(st.stdout, diff.stdout, head.code === 0 ? head.stdout.trim() : "");
           changed = fingerprint === undefined ? files > 0 || commits > 0 : next !== fingerprint;
           fingerprint = next;
         }
@@ -433,6 +438,13 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, existsSync(strategyPath(ctx)) ? loadStrategy(ctx) : undefined, cfg.id);
   if (guard) return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: guard, timedOut: false }, log, guard);
   const attempt = task.attempts.length + 1, rdir = runDir(ctx, task.id, attempt);
+  if (mode === "current" && !readTask(ctx, task.id)?.startSha) {
+    try {
+      const head = await ctx.run(["git", "-C", workdir, "rev-parse", "--verify", "-q", "HEAD"], 10_000);
+      const sha = head.stdout.trim();
+      if (head.code === 0 && /^[0-9a-f]{40,64}$/.test(sha)) updateTask(ctx, task.id, t => { t.startSha ??= sha; });
+    } catch { /* no start commit: progress counts uncommitted changes only */ }
+  }
   updateTask(ctx, task.id, t => {
     t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, mode, why: resolved.why };
     t.worktree = workdir;
