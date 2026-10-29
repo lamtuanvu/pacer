@@ -285,7 +285,7 @@ async function retryTask(
       if (head.code === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim())) answerBase = head.stdout.trim();
       else if (!before.run?.host && !existsSync(worktree)) throw new CoreError("conflict", "the asking executor's worktree is unavailable; restore it before answering");
       else throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
-    } else if (before.baseSha) {
+    } else if (before.baseSha && before.worktreeReleased) {
       // Pacer removed the lane's unused worktree and forgot its path: start from the commit it was created from.
       answerBase = before.baseSha; answerFromBase = true;
     }

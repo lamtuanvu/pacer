@@ -85,11 +85,24 @@ test("an answer starts from the asking executor's committed worktree head",async
 test("an answer whose asking worktree pacer removed starts from the lane's recorded base and says so",async()=>{
   const {ctx,task,deps}=setup();
   const base="c".repeat(40);
-  updateTask(ctx,task.id,t=>{t.baseSha=base;t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"orca"};});
+  updateTask(ctx,task.id,t=>{t.baseSha=base;t.worktreeReleased={at:ctx.now,path:join(tmpDir(),"lane")};t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"orca"};});
   const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
   expect(readTask(ctx,r.retry.id)?.brief.base).toBe(base);
   expect(readActivity(ctx,{}).entries.find(e=>e.taskId===r.retry.id&&e.kind==="message")?.text)
     .toBe(`The asking worktree was removed; the answer starts from the recorded base ${base.slice(0,12)}`);
+});
+
+test("an answer to a remote-host task keeps its brief base and says nothing about a removed worktree",async()=>{
+  const {ctx,task,deps}=setup();
+  const original=task.brief.base;
+  updateTask(ctx,task.id,t=>{
+    t.baseSha="c".repeat(40);t.worktree="build-host:/srv/lane";
+    t.run={host:"build-host",dir:join(tmpDir(),"run"),attempt:1,executor:"codex",startedAt:ctx.now,mode:"new",workdir:"/srv/lane",logFile:join(tmpDir(),"log")};
+    t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:"build-host:/srv/lane"};
+  });
+  const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
+  expect(readTask(ctx,r.retry.id)?.brief.base).toBe(original);
+  expect(readActivity(ctx,{}).entries.some(e=>e.taskId===r.retry.id&&e.text?.includes("asking worktree was removed"))).toBe(false);
 });
 
 test("an answer whose asking worktree was removed out of band is refused until it is restored",async()=>{

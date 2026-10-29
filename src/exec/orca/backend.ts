@@ -257,6 +257,7 @@ async function releaseStoppedLane(
     updateTask(ctx, task.id, t => {
       if (gone(t.worktree)) delete t.worktree;
       if (t.result && gone(t.result.worktree)) delete t.result.worktree;
+      t.worktreeReleased = { at: ctx.now, path: w.path };
     });
     taskActivity(ctx, current, "message", `Removed the lane's unused Orca worktree ${w.path}`);
     return true;

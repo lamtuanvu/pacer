@@ -1289,6 +1289,7 @@ test("pacer stop on a kept-alive group lane also removes its unused worktree and
   updateOrcaState(x.ctx, s => { s.groups["repo-1:feature-x"] = {selector: "path:/work/pacer-group-feature-x"}; });
   const asked = askedLane(x);
   updateTask(x.ctx, asked.id, t => {t.interactive = true; t.group = "feature-x";});
+  const recorded = readTask(x.ctx, asked.id)!.worktree!;
   expect(await main(["stop", asked.id], x.ctx)).toMatchObject({code: 0});
   expect(workerStops(x)).toBe(1);
   expect(closes(x.f.calls)).toHaveLength(1);
@@ -1297,6 +1298,8 @@ test("pacer stop on a kept-alive group lane also removes its unused worktree and
   expect(loadOrcaState(x.ctx).groups).toEqual({});
   // The task forgets the removed path, so a later retry starts fresh instead of asking for a missing worktree.
   expect(readTask(x.ctx, asked.id)?.worktree).toBeUndefined();
+  // and records that pacer removed it, so an answer may start from the lane's base.
+  expect(readTask(x.ctx, asked.id)?.worktreeReleased).toEqual({at: x.ctx.now, path: recorded});
 });
 
 for (const settled of ["done", "partial", "failed", "limit"] as const) {
@@ -1311,6 +1314,7 @@ for (const settled of ["done", "partial", "failed", "limit"] as const) {
     expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"))).toEqual([`id:${x.wt}`]);
     expect(readTask(x.ctx, asked.id)?.worktree).toBeUndefined();
     expect(readTask(x.ctx, asked.id)?.result?.worktree).toBeUndefined();
+    expect(readTask(x.ctx, asked.id)?.worktreeReleased).toEqual({at: x.ctx.now, path: x.root});
   });
 }
 
