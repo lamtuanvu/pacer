@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { progressPoller } from "../src/exec/direct";
-import { createTask, readTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 import { gitFingerprint, idleSeconds, nextProgress } from "../src/supervisor/progress";
@@ -181,4 +181,54 @@ test("terminal activity after Stop delays the input alert without completing the
     expect(await poll(state)).toBe("continue");
     expect(readTask(ctx, task.id)?.progress?.phase).toBe("needs-input");
   } finally {clock.mockRestore();}
+});
+
+const commit = (repo: string, message: string) => realRun(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", message], 10000);
+async function committedRun(mode: "current" | "new") {
+  const repo = gitRepo();
+  const head = async () => (await realRun(["git", "-C", repo, "rev-parse", "HEAD"], 10000)).stdout.trim();
+  const ctx = fakeCtx({ run: realRun });
+  const start = await head();
+  const task = createTask(ctx, { brief: { goal: "Commit", repo }, kind: null, requestedExecutor: null, timeoutS: 3600, ...(mode === "new" ? { baseBranch: "main", baseSha: start } : {}) });
+  if (mode === "current") updateTask(ctx, task.id, t => { t.startSha = start; });
+  const run: RunRef = { dir: repo, attempt: 1, executor: "cursor", startedAt: 1000, mode, workdir: repo, logFile: join(repo, "unused.log") };
+  return { repo, ctx, task, run };
+}
+const idleState = { pid: null, startedAt: 1000, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null };
+
+for (const mode of ["current", "new"] as const) test(`${mode} placement counts committed files and commits against the start commit`, async () => {
+  const { repo, ctx, task, run } = await committedRun(mode);
+  writeFileSync(join(repo, "one.txt"), "1\n"); writeFileSync(join(repo, "two.txt"), "2\n");
+  await realRun(["git", "-C", repo, "add", "."], 10000);
+  await commit(repo, "work");
+  writeFileSync(join(repo, "untracked.txt"), "u\n");
+  const now = spyOn(Date, "now");
+  try {
+    now.mockReturnValue(1000_000);
+    await progressPoller(ctx, task, run)(idleState);
+    expect(readTask(ctx, task.id)?.progress).toMatchObject({ files: 3, commits: 1, lastChangeAt: 1000 });
+  } finally { now.mockRestore(); }
+});
+
+test("a commit from a clean tree to a clean tree counts as change", async () => {
+  const { repo, ctx, task, run } = await committedRun("current");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  await realRun(["git", "-C", repo, "add", "."], 10000);
+  await commit(repo, "first");
+  const poll = progressPoller(ctx, task, run);
+  const now = spyOn(Date, "now");
+  try {
+    now.mockReturnValue(1000_000);
+    await poll(idleState);
+    expect(readTask(ctx, task.id)?.progress).toMatchObject({ files: 1, commits: 1, lastChangeAt: 1000 });
+    writeFileSync(join(repo, "a.txt"), "b\n");
+    await realRun(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qa", "--amend", "-m", "amended"], 10000);
+    now.mockReturnValue(1031_000);
+    await poll(idleState);
+    expect(readTask(ctx, task.id)?.progress).toMatchObject({ files: 1, commits: 1, lastChangeAt: 1031 });
+  } finally { now.mockRestore(); }
+});
+
+test("git fingerprints change when HEAD moves", () => {
+  expect(gitFingerprint("", "", "a")).not.toBe(gitFingerprint("", "", "b"));
 });

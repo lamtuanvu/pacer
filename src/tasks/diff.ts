@@ -6,7 +6,7 @@ import { boundedGitRead } from "../core/git";
 import { CoreError } from "../core/errors";
 import { readJson } from "../fsutil";
 import type { Ctx } from "../types";
-import type { TaskRecord } from "./types";
+import { progressBase, type TaskRecord } from "./types";
 
 export interface DiffFile {
   path: string;
@@ -28,7 +28,7 @@ export async function taskDiff(ctx: Ctx, task: TaskRecord, o: DiffOptions = {}):
   const worktree = task.run?.host
     ? reviewWorktree ?? task.brief.repo
     : task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
-  const base = task.run?.mode === "new" ? task.baseSha ?? task.baseBranch ?? null : null;
+  const base = progressBase(task);
   if (task.run?.host && (!reviewWorktree || task.state === "running")) {
     return { base, worktree, files: [], patch: "", diff: "", untracked: [], truncated: false, note: `changes are on ${task.run.host} until the run ends` };
   }

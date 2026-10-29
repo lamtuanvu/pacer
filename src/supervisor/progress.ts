@@ -18,11 +18,11 @@ export function nextProgress(
     : idleSeconds(p, i.startedAt, i.now) >= idleAfterS ? "idle" : "working";
   return { phase, ...p, files: i.files, commits: i.commits, logBytes: i.logBytes, host: i.host ?? "local", updatedAt: i.now };
 }
-/** Hash at most 4 MiB of git output, retaining the total byte length for larger diffs. */
-export function gitFingerprint(status: string, diff: string): string {
+/** Hash HEAD and at most 4 MiB of git output, retaining the total byte length for larger diffs. */
+export function gitFingerprint(status: string, diff: string, head = ""): string {
   const hash = createHash("sha1");
   let remaining = 4 * 1024 * 1024, length = 0;
-  for (const output of [status, diff]) {
+  for (const output of [head, status, diff]) {
     const bytes = Buffer.from(output);
     length += bytes.length;
     const take = Math.min(remaining, bytes.length);

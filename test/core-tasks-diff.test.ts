@@ -33,6 +33,16 @@ test("diff includes per-file statuses and counts and keeps the legacy alias", as
   expect(single.patch).toContain("+two");
   expect(single.patch).not.toContain("added.txt");
 });
+test("an in-place task diffs against its start commit, including committed work", async () => {
+  const { repo, ctx, task, git } = fixture();
+  const start = Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"]).stdout.toString().trim();
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "task work");
+  updateTask(ctx, task.id, t => { t.startSha = start; t.run = { workdir: repo, dir: repo, attempt: 1, executor: "cursor", startedAt: 1, mode: "current", logFile: "" }; });
+  const result = await diff(ctx, task.id, { summaryOnly: true });
+  expect(result.base).toBe(start);
+  expect(result.files.map(f => f.path)).toEqual(["added.txt", "modified.txt", "renamed.txt"]);
+});
+
 test("remote task diffs the transferred local review worktree", async () => {
   const { ctx, task, repo } = fixture();
   updateTask(ctx, task.id, t => {

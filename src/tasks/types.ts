@@ -136,6 +136,11 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
   return {mode:strategy==="current"?"current":"new",why:"strategy default"};
 }
 
+/** Commit a running task's changes are counted from: the new worktree's base, or the in-place start commit. */
+export function progressBase(t: Pick<TaskRecord, "run" | "baseSha" | "baseBranch" | "startSha">): string | null {
+  return t.run?.mode === "new" ? t.baseSha ?? t.baseBranch ?? null : t.run?.mode === "current" ? t.startSha ?? null : null;
+}
+
 export interface RunRef {
   interactionMode?: InteractionMode;
   takeover?: boolean;
@@ -184,6 +189,8 @@ export interface TaskRecord {
   resolutionCheckedAt?: number;
   baseBranch?: string;
   baseSha?: string;
+  /** HEAD when the first local in-place attempt started; live progress counts from it. */
+  startSha?: string;
   placement?: TaskPlacement;
   worktree?: string;
   id: string;

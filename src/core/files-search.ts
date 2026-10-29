@@ -4,7 +4,7 @@ import { openReadOnlyStore, runningTasksReadOnly } from "../dispatch/readonly";
 import { isExecutorSession } from "../install/role";
 import { CoreError } from "./errors";
 import { listRepos } from "./repos";
-import type { TaskRecord } from "../tasks/types";
+import { progressBase, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 
 export const filesSearchInputSchema = z.strictObject({
@@ -130,7 +130,7 @@ async function changedByRunningTasks(ctx: Ctx, keys: Set<string>): Promise<Map<s
   await Promise.all(local.map(async task => {
     const worktree = task.run?.workdir ?? task.worktree ?? task.result?.worktree ?? task.brief.repo;
     if (!worktree?.startsWith("/")) return;
-    const base = task.run?.mode === "new" ? task.baseSha ?? task.baseBranch ?? null : null;
+    const base = progressBase(task);
     const argv = ["git", "-c", "core.fsmonitor=false", "--literal-pathspecs", "-C", worktree, "diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--end-of-options", base ?? "HEAD", "--"];
     const paths = await cached(changedPaths, JSON.stringify([task.id, worktree, base]), async () => {
       try {
