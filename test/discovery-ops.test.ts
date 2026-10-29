@@ -1,11 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { OPS } from "../src/api/ops";
 import { clearIdentityCache, setIdentityPlatformForTests } from "../src/identity/store";
 import { recordObservations, resetRadioForTests } from "../src/discovery/radio";
 import { updateState, ensureNetwork, readState } from "../src/discovery/state";
+import { FOUND_MAX } from "../src/api/ops-discovery";
 import { assertCallerCanInvoke } from "../src/api/caller-policy";
 import { V3_ONLY_OPS, v2Hello } from "../src/api/v2-compat";
 import { helloBody } from "../src/api/protocol";
@@ -166,4 +167,62 @@ test("discovery.set with a stale expect_rev is a conflict and writes nothing; se
   await call(ctx, "discovery.set", { enabled: false });
   expect(readState(ctx).networksRev).toBe(rev);
   expect(() => (OPS as any)["discovery.set"].params.parse({ enabled: "off" })).toThrow();
+});
+
+test("discovery.list caps found at the most recently seen machines (B2)", async () => {
+  const ctx = fakeCtx();
+  const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+  const idOf = (n: number) => Array.from({ length: 26 }, (_, i) => B32[Math.floor(n / 32 ** i) % 32]).join("");
+  for (let b = 0; b < 3; b++) await recordObservations(ctx, Array.from({ length: 64 }, (_, i) => ({ id: idOf(b * 64 + i), name: "x", v: "1", h: "" })), { now: 100 + b, network: home });
+  const r = await call(ctx, "discovery.list", {});
+  expect(r.found.length).toBe(FOUND_MAX);
+  expect(r.found[0].lastSeen).toBe(102);
+  expect(r.found.at(-1).lastSeen).toBeGreaterThanOrEqual(101);
+});
+
+test("discovery.list reports a corrupt state file as off with a warning (N7)", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { s.enabled = true; });
+  writeFileSync(join(ctx.pacerHome, "discovery", "state.json"), "{");
+  const r = await call(ctx, "discovery.list", {});
+  expect(r.enabled).toBe(false);
+  expect(r.warning).toContain("could not be read");
+});
+
+test("v2 clients get no discovery notifications; other notifications pass (S2)", async () => {
+  const ctx = fakeCtx();
+  const { publish } = await import("../src/link/publish");
+  const notify = (key: string) => ({ type: "entity" as const, data: { kind: "notify" as const, id: key, value: { key, title: key, body: "", actions: [], url: "/app/#/" } } });
+  await publish(ctx, [notify(`discovery:${peer}:100`), notify(`discovery-network:${K1}:100`), notify("review:t-1:100")]);
+  expect(eventsSince(ctx, 0, 3).events.filter(e => e.type === "notify").length).toBe(3);
+  expect(eventsSince(ctx, 0, 2).events.filter(e => e.type === "notify").map(e => (e.data as any).key)).toEqual(["review:t-1:100"]);
+});
+
+test("v2 counts events leave out the open discovery items (S2)", async () => {
+  const ctx = fakeCtx();
+  const { publish } = await import("../src/link/publish");
+  const attention = (id: string, removed = false) => ({ type: "entity" as const, data: removed ? { kind: "attention" as const, id, removed: true as const } : { kind: "attention" as const, id, value: { id } } });
+  const counts = (n: number) => ({ type: "entity" as const, data: { kind: "counts" as const, id: "counts", value: { attention: n, problems: 1, review: 0 } } });
+  await publish(ctx, [attention(`discovery:${peer}`), attention(`discovery-network:${K1}`), attention("failed:t-1"), counts(3)]);
+  await publish(ctx, [attention(`discovery-network:${K1}`, true), counts(2)]);
+  const v3 = eventsSince(ctx, 0, 3).events.filter(e => e.type === "counts").map(e => (e.data as any).attention);
+  expect(v3).toEqual([3, 2]);
+  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === "counts").map(e => e.data as any);
+  expect(v2.map(c => c.attention)).toEqual([1, 1]);
+  expect(v2.map(c => c.problems)).toEqual([1, 1]);
+  // Reading from a later cursor still knows which discovery items are open.
+  const last = eventsSince(ctx, 0, 2).events.at(-1)!.seq;
+  expect(eventsSince(ctx, last - 1, 2).events.filter(e => e.type === "counts").map(e => (e.data as any).attention)).toEqual([1]);
+});
+
+test("the v2 fallback alerts leave out discovery items (S2)", async () => {
+  const { fixture } = await import("./fixtures/protocol-v2/capture");
+  const { liveSnapshot } = await import("../src/api/events");
+  const { toV2Snapshot } = await import("../src/api/v2-compat");
+  const { ctx, status } = await fixture();
+  const wire = JSON.parse(JSON.stringify((await liveSnapshot(ctx, { status: async () => status })).snapshot));
+  wire.attention.push({ id: `discovery:${peer}`, kind: "discovery", severity: "decide", title: "Found pacer on studio", detail: "", actions: [], raisedAt: 1 });
+  const v2 = toV2Snapshot(wire);
+  expect(v2.alerts.some(a => a.key.startsWith("discovery"))).toBe(false);
+  expect(v2.alerts.length).toBe(wire.attention.length - 1);
 });

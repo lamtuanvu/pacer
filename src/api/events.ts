@@ -1,4 +1,5 @@
-import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, v3OnlyEvent, type CompatEvent } from "./v2-compat";
+import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, isDiscoveryItemId, toV2Snapshot, toV2Event, v3OnlyEvent, type CompatEvent } from "./v2-compat";
+import type { OutboxEvent } from "../link/envelope";
 import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
@@ -61,8 +62,9 @@ export async function liveSnapshot(
   return { protocol: PROTOCOL_VERSION, seq: result.seq, snapshot: result };
 }
 
-function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean } {
+function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean; discoveryOpen: Map<number, number> } {
   const all = readOutboxSince(ctx, 0);
+  const discoveryOpen = openDiscoveryAtCounts(all);
   const oldest = all[0]?.seq;
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
   const after = all.filter((e) => e.seq > since);
@@ -85,7 +87,18 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),
   ];
-  return { events, last: after.at(-1)?.seq ?? since, reset };
+  return { events, last: after.at(-1)?.seq ?? since, reset, discoveryOpen };
+}
+
+/** For each counts entity in the outbox, how many discovery attention items were open then; v2 counts leave them out. */
+function openDiscoveryAtCounts(all: { seq: number; envelope: OutboxEvent }[]): Map<number, number> {
+  const open = new Set<string>(), at = new Map<number, number>();
+  for (const { seq, envelope: env } of all) {
+    if (env.type !== "entity") continue;
+    if (env.data.kind === "attention" && isDiscoveryItemId(env.data.id)) { if (env.data.removed) open.delete(env.data.id); else open.add(env.data.id); }
+    if (env.data.kind === "counts") at.set(seq, open.size);
+  }
+  return at;
 }
 
 
@@ -111,7 +124,10 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
    const a=e.data as import('../link/envelope').AlertData;
    event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#/'}};
   } else event={...e,seq,type:e.type};
-  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"||v3OnlyEvent(e)?null:e});
+  const open=e.type==='counts'?batch.discoveryOpen.get(e.seq)??0:0;
+  const counts=e.data as {attention?:unknown}|null;
+  const v2=open&&typeof counts?.attention==='number'?{...e,data:{...counts,attention:Math.max(0,counts.attention-open)}}:e;
+  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"||v3OnlyEvent(e)?null:v2});
   return event;
  });
  if(protocol===2)return {...batch,events:converted.map(toV2Event).filter(e=>e!==null)};

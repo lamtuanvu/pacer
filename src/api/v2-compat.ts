@@ -54,15 +54,18 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
  // ceiling is the sum of the local executors' own limits.
  const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
- return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
-/** LAN discovery is v3-only: its event, its config area and its attention items never reach v2 clients. */
+/**
+ * LAN discovery is v3-only: its event, its config area, its attention items and their notifications never reach v2 clients.
+ * v2 counts events leave the open discovery items out (see eventsSince).
+ */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
- const d=e.data as {area?:unknown;id?:unknown}|null;
- return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id);
+ const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
+ return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
 }
-const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
+export const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
