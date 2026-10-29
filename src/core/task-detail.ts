@@ -36,7 +36,7 @@ export interface TaskDetail extends ApiTask {
   tokens?: TokenRollup;
   routing: RoutingNote | null;
   cost: Cost;
-  acceptance: { cmd: string | null; state: "pending" | "running" | "passed" | "failed" | "none"; tail: string; durationS?: number; summary?: string; machine: string | null };
+  acceptance: { cmd: string | null; state: "pending" | "running" | "passed" | "failed" | "none"; tail: string; durationS?: number; summary?: string; machine: string | null; exitCode?: number; shell?: string; hint?: string };
   summary: string | null;
   branch: string | null;
   base: string | null;
@@ -155,7 +155,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
     ...(policyError ? { policyError } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
-    acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },
+    acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}), ...(acceptance?.exitCode !== undefined ? { exitCode: acceptance.exitCode } : {}), ...(acceptance?.shell ? { shell: acceptance.shell } : {}), ...(acceptance?.hint ? { hint: acceptance.hint } : {}) },
     summary: task.result?.report ?? null, branch: changes.branch, base: task.baseBranch ?? null, machine: task.run?.host ?? null,
     startedAt: task.attempts[0]?.startedAt ?? task.run?.startedAt ?? task.attemptStartedAt ?? null,
     endedAt: terminal ? last?.endedAt ?? null : null, files: changes.files, retryOptions, timeline: timelineFor(ctx, task),

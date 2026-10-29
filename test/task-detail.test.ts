@@ -31,6 +31,14 @@ test("task.get returns complete task detail, diffstat and ordered timeline", asy
   expect(detail.cost.executor).toMatchObject({ deltaPct: 1.2, account: "team" });
 });
 
+test("task.get carries the acceptance exit code, shell and hint when the result has them", async () => {
+  const { ctx, task } = await fixture();
+  expect((await callOp(ctx, "task.get", { id: task.id }) as any).acceptance).not.toHaveProperty("exitCode");
+  updateTask(ctx, task.id, t => { t.result!.acceptance = { cmd: "seq 9 | head -1", passed: false, tail: "", exitCode: 141, shell: "bash -o pipefail -c", hint: "acceptance exited 141" }; });
+  const detail = await callOp(ctx, "task.get", { id: task.id }) as any;
+  expect(detail.acceptance).toMatchObject({ state: "failed", exitCode: 141, shell: "bash -o pipefail -c", hint: "acceptance exited 141" });
+});
+
 test("cost suppresses shared account usage, including active attempts", async () => {
   const { ctx, task, attempt } = await fixture();
   const other = createTask(ctx, { brief: task.brief, kind: null, requestedExecutor: null, timeoutS: 60 });

@@ -54,10 +54,15 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 unavailable): idioms like `grep -v ... | (! grep .)` or `git log | grep -q ...` keep
 their ordinary meaning. Set `acceptance_pipefail: true` (or `--acceptance-pipefail`),
 or write `set -o pipefail;` at the start of the command yourself, to fail the check on
-a non-final pipeline stage's exit code too. The result always reports the acceptance
-command's exit code and which shell/options ran it; a 141 (SIGPIPE) or an instant,
-empty-output failure comes with a hint, since both often mean a piped command raced
-past an earlier stage rather than the task actually failing.
+a non-final pipeline stage's exit code too. Commands such as `bun test | tail -n 40` or
+`make check | tee log` need one of these, or a failing first stage passes the check.
+If `acceptance_pipefail` is set but bash is missing and `sh` cannot `set -o pipefail`,
+the check fails without running the command.
+
+The task result (`task.wait`, `task.get`, `pacer tasks <id>`) reports which shell/options
+ran the acceptance command and, when the command ran, its exit code. A 141 (possibly SIGPIPE) or an
+instant, empty-output failure comes with a hint, since both often mean a piped command
+raced past an earlier stage rather than the task actually failing.
 
 Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
 map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to

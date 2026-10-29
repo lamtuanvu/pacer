@@ -123,7 +123,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 ## Task and repository operations
 
 Default task lists and snapshots omit archived history. The protocol 3 task.prune and task.restore operations manage archives.
-`task.get` returns full task detail: brief, attempts with logs, routing explanation, cost, acceptance timing and summary, timestamps, diffstat files, retryOptions and timeline. `task.retry_options { id }` lists alternate executors in routing order with state and reason. `task.diff { id, path? }` returns files, patch, base and worktree; `diff` remains an alias for patch in 2.x. Patches are capped at 1 MiB, or 4 MiB with a path. Running remote tasks return an empty patch and a note until changes reach the local review worktree.
+`task.get` returns full task detail: brief, attempts with logs, routing explanation, cost, acceptance timing, summary, exit code, shell and hint, timestamps, diffstat files, retryOptions and timeline. `task.retry_options { id }` lists alternate executors in routing order with state and reason. `task.diff { id, path? }` returns files, patch, base and worktree; `diff` remains an alias for patch in 2.x. Patches are capped at 1 MiB, or 4 MiB with a path. Running remote tasks return an empty patch and a note until changes reach the local review worktree.
 
 `task.review` accepts verdict `accept`, `reject`, `send_back` (requires note), or `retry` (requires executor), and returns `{ task, retry? }`. Legacy `accepted: true/false` maps to accept/reject. Send back creates a retry on the same executor with the note as review feedback. Queued or running tasks cannot be reviewed.
 

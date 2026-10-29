@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { chmodSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { verifyRepo } from "../src/exec/verify";
 import { tmpDir } from "./helpers";
 
@@ -77,7 +79,16 @@ test("a 141 (SIGPIPE) exit under opted-in pipefail gets a hint", async () => {
   const v = await verifyRepo(await gitRepo(), "seq 1 1000000 | head -1", env, undefined, true);
   expect(v.acceptance?.exitCode).toBe(141);
   expect(v.acceptance?.passed).toBe(false);
-  expect(v.acceptance?.hint).toContain("141 (SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("141 (possibly SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("with pipefail on, an earlier stage");
+});
+
+test("a 141 exit without pipefail blames the final command, not an earlier stage", async () => {
+  const v = await verifyRepo(await gitRepo(), "kill -PIPE $$", env);
+  expect(v.acceptance?.exitCode).toBe(141);
+  expect(v.acceptance?.hint).toContain("141 (possibly SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("final command");
+  expect(v.acceptance?.hint).not.toContain("earlier stage");
 });
 
 test("an instant, empty-output failure gets a hint even without pipefail", async () => {
@@ -103,3 +114,30 @@ for (const [output, summary] of [["38 passed", "38 passed"], ["36 pass\n2 fail",
     expect(v.acceptance?.machine).toBeNull();
   });
 }
+
+/** A PATH with git and an `sh` that refuses `set -o pipefail`, and no bash. */
+function noPipefailPath(): string {
+  const bin = tmpDir();
+  const git = Bun.which("git");
+  if (!git) throw new Error("git not found");
+  symlinkSync(git, join(bin, "git"));
+  writeFileSync(join(bin, "sh"), `#!/bin/sh\nif [ "$2" = "set -o pipefail" ]; then exit 2; fi\nexec /bin/sh "$@"\n`);
+  chmodSync(join(bin, "sh"), 0o755);
+  return bin;
+}
+
+test("acceptance_pipefail fails the check without running it when no shell supports pipefail", async () => {
+  const repo = await gitRepo();
+  const v = await verifyRepo(repo, "false | true", { ...env, PATH: noPipefailPath() }, undefined, true);
+  expect(v.acceptance?.passed).toBe(false);
+  expect(v.acceptance?.shell).toBe("sh -c (pipefail unsupported)");
+  expect(v.acceptance?.exitCode).toBeUndefined();
+  expect(v.acceptance?.hint).toContain("acceptance_pipefail");
+  expect(v.acceptance?.tail).toContain("pipefail");
+});
+
+test("without acceptance_pipefail, a shell lacking pipefail still runs the command", async () => {
+  const v = await verifyRepo(await gitRepo(), "false | true", { ...env, PATH: noPipefailPath() });
+  expect(v.acceptance?.passed).toBe(true);
+  expect(v.acceptance?.shell).toBe("sh -c");
+});
