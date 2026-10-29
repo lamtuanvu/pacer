@@ -18,6 +18,7 @@ import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtur
 import { makeCtx } from "../../src/ctx";
 import { hasReservation } from "../../src/update/desktop/admission";
 import { readNativeTransaction } from "../../src/update/desktop/native-record";
+import { assertRealAppUnchanged, realAppNote, snapshotRealApp } from "./ota-real-app";
 
 export function incarnationExited(expected: ProcessIdentity): boolean {
   const current = processIdentity(expected.pid);
@@ -43,6 +44,8 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const resuming = resumableStartup(state.runtime, state.exercise, incarnationExited);
   if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || (state.runtime && !resuming) || state.exercise || session.stopped || !session.serviceIdentity || (!resuming && !sameProcess(session.serviceIdentity, processIdentity(session.pid)))) throw Error("UNVERIFIED: fresh native fixture and exact source service ownership required");
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
+  // The installed app may keep running beside the fixture; prove it is untouched at the end.
+  const realApp = snapshotRealApp(enumerateNativeProcesses());
   const before = await inspectFixtureJobs(state);
   if (resuming) {
     if (before.desktops.length || before.jobs[1].loaded || before.jobs[1].state !== "reserved") throw Error("Startup has unexpected native participants");
@@ -210,6 +213,8 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
+    assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()));
+    record(session, { kind: "note", behavior: `OTA ${scenario} installed app untouched`, surface: "native desktop", verdict: "PASS", text: realAppNote(realApp) });
     state = readOtaRecord(id, options);
     updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: expected === "recovery-failed" ? "failed" : "complete" } }, options);
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "PASS", text: `Observed ${expectedJournal}${outcome ? " with matching public status" : " offline, with both faults consumed, admission retained and desktop/service absent"}; exact native checkpoint and journal evidence verified. Configuration and authentication token remained byte-identical. Owned native processes and registrations retained until verified retirement.` });

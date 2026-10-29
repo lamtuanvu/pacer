@@ -13,6 +13,8 @@ import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { captureProblem } from "./capture-content";
 import { attachFixtureTakeover, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+import { assertRealAppUnchanged, realAppNote, snapshotRealApp } from "./ota-real-app";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const sleep = (ms: number) => Bun.sleep(ms);
@@ -122,7 +124,8 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
   if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || state.external.length !== 4 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
-  if (enumerateNativeProcesses().some(item => item.executable === "/Applications/pacer.app/Contents/MacOS/pacer")) throw Error("UNVERIFIED: real desktop is running; fixture launch refused");
+  // Fixture apps have their own identifier, so the installed app may keep running; prove it is untouched.
+  const realApp = snapshotRealApp(enumerateNativeProcesses());
   const baseline = state.nativeFixture!.baselineVersion;
   await verifyFixtureBundle(state, baseline);
   const before = await inspectFixtureJobs(state);
@@ -142,7 +145,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const installationId = fixtureInstallation(state, attached, state.nativeFixture!.candidateVersion, "attached").id;
   const originalRegistration = service.registrationSha256!;
   const originalProcess = service.process;
-  const config = join(state.pacerHome, "Library/Application Support/dev.pacer.desktop");
+  const config = join(state.pacerHome, "Library/Application Support", FIXTURE_IDENTIFIERS.desktop);
   mkdirSync(config, { recursive: true, mode: 0o700 });
   writeFileSync(join(config, "consent.json"), JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { flag: "wx", mode: 0o600 });
   const preserved = ["strategy.yaml", "token"].map(name => ({ name, hash: digest(privateFixtureBytes(join(state.pacerHome, name), 1048576)) }));
@@ -339,6 +342,8 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     await waitFor(async () => incarnationExited(current) ? true : null, 10000, "Fixture desktop did not exit");
   }
   for (const item of preserved) if (digest(privateFixtureBytes(join(state.pacerHome, item.name), 1048576)) !== item.hash) throw Error(`User data changed: ${item.name}`);
+  assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()));
+  observed.realApp = realAppNote(realApp);
   state = readOtaRecord(id, options);
   updateOtaDriverRecord(id, state, { exercise: { ...state.exercise!, state: "complete" }, runtime: { ...state.runtime!, request: null } }, options);
   observed.preserved = preserved.map(item => item.name);

@@ -13,12 +13,13 @@ import { fixtureProcessSchema } from "./ota-exercise-record";
 import { installationFingerprint } from "../../src/update/desktop/identity";
 import { processIdentity } from "../../src/update/desktop/process-identity";
 import type { Installation } from "../../src/update/desktop/types";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const jobSchema = z.object({ label: z.string(), state: z.enum(["reserved", "intent", "loaded", "retired"]), loaded: z.boolean(), process: fixtureProcessSchema.nullable(), executable: z.string().nullable(), registrationSha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(), registrationText: z.string().max(131072).nullable() }).strict();
 export const jobsSchema = z.object({ schema: z.literal(1), jobs: z.array(jobSchema).max(2), desktops: z.array(fixtureProcessSchema).max(128) }).strict();
 export type FixtureJobs = z.infer<typeof jobsSchema>;
 export function validateFixtureIdentity(state: OtaRecord, value: unknown, role: "cli" | "helper" | "desktop", version: string): void {
-  const identity = z.object({ schema: z.literal(1), role: z.literal(role === "helper" ? "update-helper" : role), bundleId: z.literal(role === "cli" ? "dev.pacer.cli" : "dev.pacer.desktop"), version: z.literal(version), arch: z.literal(state.nativeFixture!.arch), fixture: z.literal(true), otaMode: z.literal("fixture"), fixturePolicySha256: z.literal(digest(JSON.stringify(otaFixturePolicy(state)))), updaterKeySha256: z.string().optional(), fixtureIsolationProtocol: z.number().optional() }).parse(value);
+  const identity = z.object({ schema: z.literal(1), role: z.literal(role === "helper" ? "update-helper" : role), bundleId: z.literal(role === "cli" ? FIXTURE_IDENTIFIERS.cli : FIXTURE_IDENTIFIERS.desktop), version: z.literal(version), arch: z.literal(state.nativeFixture!.arch), fixture: z.literal(true), otaMode: z.literal("fixture"), fixturePolicySha256: z.literal(digest(JSON.stringify(otaFixturePolicy(state)))), updaterKeySha256: z.string().optional(), fixtureIsolationProtocol: z.number().optional() }).parse(value);
   if (role === "desktop" && identity.fixtureIsolationProtocol !== 1) throw Error("Fixture shell lacks compiled isolation proof");
   if (role !== "cli" && identity.updaterKeySha256 !== state.nativeFixture!.updaterKeySha256) throw Error("Fixture updater key differs from its lease");
 }
@@ -32,7 +33,7 @@ export function fixtureInstallation(state: OtaRecord, observed: unknown, version
   if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external && service.executable !== fixtureTakeoverCli(state)) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
   const actual = service.executable === bundled ? "managed" as const : "attached" as const;
   if (ownership && ownership !== actual) throw Error(`Fixture service is ${actual}, not ${ownership}`);
-  const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
+  const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: FIXTURE_IDENTIFIERS.desktop, ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
   return { ...identity, id: installationFingerprint(identity, service.executable, service.registrationText), version };
 }
 /**
@@ -40,7 +41,7 @@ export function fixtureInstallation(state: OtaRecord, observed: unknown, version
  * only installs or restarts a service after recorded consent (desktop/src-tauri/src/client.rs).
  */
 export function seedFixtureConsent(state: Pick<OtaRecord, "pacerHome" | "currentApp">): void {
-  const dir = join(state.pacerHome, "Library/Application Support/dev.pacer.desktop"), file = join(dir, "consent.json");
+  const dir = join(state.pacerHome, "Library/Application Support", FIXTURE_IDENTIFIERS.desktop), file = join(dir, "consent.json");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!existsSync(file)) writeFileSync(file, JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { mode: 0o600, flag: "wx" });
   // Consent also linked the bundled CLI into ~/.local/bin; without it the desktop asks to relink.
