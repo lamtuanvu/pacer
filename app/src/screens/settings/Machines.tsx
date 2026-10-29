@@ -25,6 +25,14 @@ export function hostNameProblem(name: string, taken: readonly string[] = []): st
 export const hostNameFrom = (alias: string) => alias.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 export const checkItems = (job: Job) => job.steps.map(step => ({ id: step.name, label: hostCheckStepCopy(step.name), state: step.state, note: step.detail }));
 
+const BACKEND_CHOICES = [{ value: "direct", label: "Direct" }, { value: "orca", label: "Orca" }];
+/** Which backend runs delegated tasks. Orca hosts interactive launches; everything else runs directly. */
+export function TaskBackendField({ value, source, disabled, run }: { value: unknown; source?: string; disabled?: boolean; run: (op: string, params: unknown) => unknown }) {
+  return <SettingRow variant="board" label="Task backend" description={<>Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}>
+    <ChoicePicker className="u3-terminal-picker" aria-label="Task backend" value={value === "orca" ? "orca" : "direct"} options={BACKEND_CHOICES} disabled={disabled} onValueChange={choice => void run("config.set", { key: "execution.backend", value: choice })} />
+  </SettingRow>;
+}
+
 export function MachineSection({ initialData }: { initialData?: ConfigData }) {
   const { state } = useTaskContext(), snapshot = state.snapshot;
   const local = snapshot?.executors?.filter(e => !e.host) ?? [];
@@ -61,6 +69,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
     <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
       <ChoicePicker className="u3-terminal-picker" aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
     </SettingRow>
+    <TaskBackendField value={keys?.["execution.backend"]?.value} source={keys?.["execution.backend"]?.source} disabled={action.busy} run={action.run} />
     <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
     </SettingRow>

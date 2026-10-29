@@ -4,6 +4,7 @@ import { PluginsSection } from "./Plugins";
 import { AccountsSection } from "./Accounts";
 export { AccountsSection } from "./Accounts";
 import { MachineSection } from "./Machines";
+export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
 import { UpdatesSection } from "./Updates";
@@ -14,32 +15,63 @@ import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
 import { settingsPageId } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
-import { Page } from "../../ds/Page";
+import { Page, Stack } from "../../ds/Page";
 import { Card } from "../../ds/Patterns";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { modeWords, toneFor } from "../../../../src/view-model/words";
 import { StatusDot } from "../../ds/StatusDot";
 import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
-import { Range, TextInput } from "../../ds/Controls";
+import {
+  Checkbox,
+  Disclosure,
+  Range,
+  TextInput,
+} from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { executorLabel } from "../../../../src/view-model/words";
-import { accountUsageFreshness } from "../../../../src/view-model/capacity";
+import { clock } from "../../../../src/view-model/time";
+import { spendCopy } from "../../../../src/view-model/copy";
+import { useDialogs } from "../../ds/useDialogs";
+import {
+  accountNeedsSignIn,
+  accountStatus,
+  executorLabel,
+} from "../../../../src/view-model/words";
+import { StatusPill } from "../../ds/StatusPill";
+import {
+  accountUsageFreshness,
+  capacityNote,
+  executorEligibility,
+} from "../../../../src/view-model/capacity";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import type { ExecutorRow } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
-import { Button } from "../../ds/Button";
-import { type Account } from "../../model/accounts";
+import { Button, ButtonLink, TextAction } from "../../ds/Button";
+import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
 import { consentAction, plannerAgent } from "../../model/settings";
 import { Dialog, useTaskContext } from "../task-shared";
-import { Feedback, ResourceState, Segment, time, useOperation, useResource, words, SettingsPageContext, SettingsQueryContext, useSettingsStyles } from "./shared";
+import {
+  Feedback,
+  Field,
+  ResourceState,
+  Section,
+  Segment,
+  time,
+  useOperation,
+  useResource,
+  words,
+  SettingsPageContext,
+  SettingsQueryContext,
+  useSettingsStyles,
+} from "./shared";
 interface AssistantStatus { available: boolean; configured: boolean; account?: string; reason?: string }
+
 export interface SettingsData {
   assistant?: AssistantStatus;
   config?: ConfigData;

@@ -258,7 +258,7 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
   expect(geometry[0]).toMatchObject({radius:'12px',overflow:'hidden',border:'1px'});
   const rows=page.locator('.u3-machine-body .pc-setting-row--board');
-  expect(await rows.count()).toBe(4);
+  expect(await rows.count()).toBe(5);
   const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
   for (const row of layout) {
    expect(row.padding).toBe('12px 0px');
