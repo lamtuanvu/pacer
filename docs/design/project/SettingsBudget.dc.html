@@ -55,41 +55,30 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <div style="display: flex; align-items: center; gap: 12px;"><input id="res" type="range" min="0" max="50" value="10" style="width: 260px; accent-color: var(--ink);"><b>10%</b><span class="cap">0–50%</span></div></div>
 <div class="srow"><div><h3 class="h3">Mode</h3><span class="cap">Automatic follows the pace above. Hold keeps one mode until you release it.</span></div>
 <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;"><div role="radiogroup" aria-label="Mode" style="display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-card);"><button class="seg" role="radio" aria-checked="true" type="button" style="background: var(--surface-lane); color: var(--ink);">Automatic</button><button class="seg" role="radio" aria-checked="false" type="button">Hold strict</button><button class="seg" role="radio" aria-checked="false" type="button">Hold relaxed</button></div><span class="cap">Now: relaxed, because Claude is behind pace.</span></div></div>
-<div class="srow"><div><h3 class="h3">Pace clock</h3><span class="cap">How pacer spreads a weekly budget over time.</span></div>
-<div style="display: flex; flex-direction: column; gap: 8px;">
-<label style="display: flex; gap: 8px; align-items: flex-start;"><input type="radio" name="clock" checked style="margin-top: 3px;"><span><b>Your working hours</b><br><span class="cap">Learned from activity: weekdays 09:00–19:00, about 68 active hours left this week</span></span></label>
-<label style="display: flex; gap: 8px; align-items: flex-start;"><input type="radio" name="clock" style="margin-top: 3px;"><span><b>Calendar time</b><br><span class="cap">Evenly across all 168 hours of the week</span></span></label>
-</div></div>
+<div class="srow"><div><h3 class="h3">Planner</h3><span class="cap">Who plans and reviews. Changing it rewires that agent's hooks and status line.</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;"><label style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);" for="planner">Planner</label><select id="planner" style="height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-page); color: var(--ink); font: inherit;"><option>Claude Code</option><option>Codex</option></select><x-import component-from-global-scope="Pacer.Button" size="sm">Review integration changes</x-import></div></div>
+<div class="srow"><div><h3 class="h3">Pace clock</h3><span class="cap">How pacer spreads a weekly budget over time. Set automatically.</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px;"><b>Your working hours</b><span class="cap">Learned from activity: weekdays 09:00–19:00, about 68 active hours left this week</span></div></div>
 </section>
 
 <section aria-label="Executors">
 <h2 class="lbl" style="margin: 0 0 4px;">Executors</h2>
-<div class="srow"><div><h3 class="h3"><label for="ahead">Ahead of pace</label></h3><span class="cap">An executor this far ahead is skipped for capable work until it slows down.</span></div>
-<div style="display: flex; align-items: center; gap: 8px;"><input id="ahead" type="number" value="10" style="width: 64px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-page); color: var(--ink); font: inherit;"><span>points ahead</span></div></div>
-<div class="srow"><div><h3 class="h3">Burn before reset</h3><span class="cap">In the last hours before a window resets, use what's left instead of letting it expire.</span></div>
-<div style="display: flex; align-items: center; gap: 10px;"><button class="sw" role="switch" aria-checked="true" aria-label="Burn before reset" type="button" style="background: var(--good-fill); justify-content: flex-end;"><span></span></button><span>From 6 hours before reset</span></div></div>
-<div class="srow"><div><h3 class="h3">When an executor runs out</h3><span class="cap">Out of quota, or a reading too old to trust.</span></div>
-<div style="display: flex; flex-direction: column; gap: 8px;">
-<label style="display: flex; gap: 8px; align-items: center;"><input type="radio" name="out" checked> Try the next executor in the Dispatcher list</label>
-<label style="display: flex; gap: 8px; align-items: center;"><input type="radio" name="out"> Queue the task until it resets</label>
-<span class="cap">Readings older than <b style="color: var(--ink);">24 hours</b> count as unknown.</span>
-</div></div>
+<div class="srow"><div><h3 class="h3">Pacing policy</h3><span class="cap">How work spreads across executors that may take it.</span></div>
+<div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;"><div role="radiogroup" aria-label="Pacing policy" style="display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-card);"><button class="seg" role="radio" aria-checked="true" type="button" style="background: var(--surface-lane); color: var(--ink);">Priority</button><button class="seg" role="radio" aria-checked="false" type="button">Even</button><button class="seg" role="radio" aria-checked="false" type="button">Burn before reset</button><button class="seg" role="radio" aria-checked="false" type="button">Cheapest first</button></div><span class="cap">Priority uses the order on the Agents page and skips one only when it is out of quota or ahead of pace. Readings older than <b style="color: var(--ink);">24 hours</b> count as unknown.</span></div></div>
 </section>
 
 <section aria-labelledby="win-h" style="display: flex; flex-direction: column; gap: 8px;">
 <h2 id="win-h" class="lbl" style="margin: 0;">Budget windows</h2>
 <div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">
 <sc-for list="{{windows}}" as="w" hint-placeholder-count="5">
-<div style="display: grid; grid-template-columns: minmax(0, 180px) 90px minmax(160px, 1fr) 130px 64px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--surface-lane);">
+<div style="display: grid; grid-template-columns: minmax(0, 180px) 90px minmax(160px, 1fr) 130px; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--surface-lane);">
 <span style="display: flex; align-items: center; gap: 8px;"><dc-import name="AgentMark" mono="{{w.mono}}" hint-size="20px,20px"></dc-import><b>{{w.name}}</b></span>
 <span class="cap">{{w.window}}</span>
 <span style="display: flex; flex-direction: column; gap: 4px;"><x-import component-from-global-scope="Pacer.UsageMeter" used="{{w.used}}" pace="{{w.pace}}" tone="{{w.tone}}" size="slim" label="{{w.label}}"></x-import><span class="cap">{{w.note}}</span></span>
 <span class="cap">{{w.reset}}</span>
-<span style="display: flex; align-items: center; gap: 6px;"><button class="sw" role="switch" aria-checked="{{w.paced}}" aria-label="Pace {{w.name}} {{w.window}}" type="button" style="background: {{w.swbg}}; justify-content: {{w.swj}};"><span></span></button></span>
 </div>
 </sc-for>
 </div>
-<span class="cap">Switch off pacing for a window to let pacer use it freely, for example a 5-hour window.</span>
 </section>
 </main>
 </div>
