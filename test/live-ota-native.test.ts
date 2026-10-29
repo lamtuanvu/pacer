@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { validateFixtureIdentity, fixtureInstallation } from "../scripts/live/ota-native";
+import { validateFixtureIdentity, fixtureInstallation, verifyFixtureBaselineRegistration } from "../scripts/live/ota-native";
 import { installationFingerprint } from "../src/update/desktop/identity";
 import { createHash } from "node:crypto";
 import { otaFixturePolicy, type OtaRecord } from "../scripts/live/ota";
@@ -8,6 +8,9 @@ test("compiled fixture identity binds exact role, policy, key, version and CPU",
   const value = { schema: 1, role: "update-helper", bundleId: "dev.pacer.desktop", version: "0.2.3", arch: "aarch64", fixture: true, otaMode: "fixture", fixturePolicySha256: createHash("sha256").update(JSON.stringify(otaFixturePolicy(state))).digest("hex"), updaterKeySha256: "b".repeat(64) };
   expect(() => validateFixtureIdentity(state, value, "helper", "0.2.3")).not.toThrow();
   for (const patch of [{ fixture: false }, { otaMode: "production" }, { version: "0.2.4" }, { role: "cli" }, { updaterKeySha256: "a".repeat(64) }, { fixturePolicySha256: "a".repeat(64) }, { arch: "x86_64" }]) expect(() => validateFixtureIdentity(state, { ...value, ...patch }, "helper", "0.2.3")).toThrow();
+});
+test("baseline priority stays outside the published bridge compile-time policy", () => {
+  expect(otaFixturePolicy({ ...state, baselineProcessType: "Standard" })).toEqual(otaFixturePolicy({ ...state, baselineProcessType: "Background" }));
 });
 test("installation binding requires exact service executable, loaded incarnation and registration receipt", () => {
   const executable = state.currentApp + "/Contents/Resources/pacer", registrationText = "exact receipt", process = { pid: 42, bootId: "boot", birth: "birth" };
@@ -28,6 +31,16 @@ test("fixture ownership follows the exact registered program", () => {
   expect(managed.ownership).toBe("managed");
   expect(managed.id).not.toBe(attached.id);
   expect(() => fixtureInstallation(state, { schema: 1, desktops: [], jobs: [{ ...job, executable: state.root + "/other/pacer" }] }, "0.2.3")).toThrow();
+});
+
+test("attached fixture receipt must prove the reserved launch priority and exact hash", () => {
+  const plist = (priority: string) => `<?xml version="1.0"?><plist version="1.0"><dict><key>ProcessType</key><string>${priority}</string></dict></plist>`;
+  const report = (priority: string) => ({ schema: 1, desktops: [], jobs: [{ label: state.serviceLabel, state: "loaded", loaded: true, process: { pid: 43, bootId: "boot", birth: "birth" }, executable: state.root + "/external/pacer", registrationText: plist(priority), registrationSha256: createHash("sha256").update(plist(priority)).digest("hex") }] });
+  expect(() => verifyFixtureBaselineRegistration({ ...state, baselineProcessType: "Background" }, report("Background"))).not.toThrow();
+  expect(() => verifyFixtureBaselineRegistration({ ...state, baselineProcessType: "Standard" }, report("Standard"))).not.toThrow();
+  expect(() => verifyFixtureBaselineRegistration({ ...state, baselineProcessType: "Standard" }, report("Background"))).toThrow();
+  const altered = report("Standard"); altered.jobs[0]!.registrationSha256 = "0".repeat(64);
+  expect(() => verifyFixtureBaselineRegistration({ ...state, baselineProcessType: "Standard" }, altered)).toThrow();
 });
 
 test("desktop fixture must prove compiled isolation before launch", () => {

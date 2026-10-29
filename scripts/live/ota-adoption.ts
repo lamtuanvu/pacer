@@ -68,6 +68,9 @@ export async function runAttachedExercise(id: string, scenario: string, options:
     const desktop = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer")], { env: fixtureEnvironment(state), stdin: "ignore", stdout: log, stderr: log });
     desktop.unref(); // A failed driver must exit; the Desktop is retired through the lease, not by the driver.
     launched = processIdentity(desktop.pid);
+    void desktop.exited.then(code => {
+      try { record(session, { kind: "note", surface: "native Desktop", text: `Fixture Desktop pid ${desktop.pid} exited with code ${code} at ${Date.now()}` }); } catch { /* Later exit may outlive the driver. */ }
+    });
   } finally { closeSync(log); }
   if (!launched) throw Error("Launched desktop incarnation unavailable; fixture retained");
   state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: null, runtime: { ...state.runtime!, desktop: launched } }, options);

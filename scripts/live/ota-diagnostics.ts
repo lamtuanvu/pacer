@@ -32,7 +32,12 @@ import type { FixtureJobs } from "./ota-native";
 import type { ProcessIdentity } from "../../src/update/desktop/process-identity";
 /** A signed report is still insufficient without positive OS incarnation exits. */
 export function assertStartupRetirement(state: OtaRecord, report: FixtureJobs, exited: (process: ProcessIdentity) => boolean): void {
-  if (state.phase !== "prepared" || !state.nativeFixture || !state.diagnostics || state.exercise || state.runtime?.state !== "starting" || state.runtime.request !== null || !state.runtime.desktop) throw Error("Fixture was not an unresolved never-armed startup");
+  if (state.phase !== "prepared" || !state.nativeFixture || (!state.diagnostics && !signedAttachedStartup(state)) || state.exercise || state.runtime?.state !== "starting" || state.runtime.request !== null || !state.runtime.desktop) throw Error("Fixture was not an unresolved never-armed startup");
   if (report.schema !== 1 || report.desktops.length || report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel || report.jobs[1].label !== state.recoveryLabel || report.jobs.some(job => job.loaded || job.process !== null || !["reserved", "retired"].includes(job.state))) throw Error("Native fixture retirement is unproven");
+  if (signedAttachedStartup(state) && (report.jobs[0].state !== "retired" || report.jobs[0].executable !== join(state.root, "external/pacer") || report.jobs[1].state !== "reserved")) throw Error("Attached fixture service retirement is unproven");
   if ([state.runtime.driver, state.runtime.sourceService, state.runtime.desktop].some(process => !exited(process))) throw Error("Fixture incarnation exit is unproven");
+}
+
+export function signedAttachedStartup(state: OtaRecord): boolean {
+  return state.initialLayout === "paired" && !!state.nativeFixture?.signingCertSha1 && !state.diagnostics && state.external.length === 2 && state.exercise === null && state.runtime?.state === "starting" && state.runtime.request === null && !!state.runtime.desktop;
 }

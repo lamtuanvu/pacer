@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
+
 ## [0.12.0] - 2026-10-29
 
 ### Fixed
