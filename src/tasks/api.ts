@@ -50,7 +50,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptancePipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }

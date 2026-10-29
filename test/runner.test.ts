@@ -10,6 +10,9 @@ import { runAttempt } from "../src/exec/direct";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type RunnerDeps, runTask } from "../src/tasks/runner";
 import { taskStop } from "../src/tasks/api";
+import * as tasks from "../src/core/tasks";
+import { callOp } from "../src/api/ops";
+import { verifyRepo } from "../src/exec/verify";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
@@ -52,9 +55,9 @@ function deps(plan: Record<string, AttemptOutcome>, st: Status = status(), accep
 const newTask = (ctx: ReturnType<typeof fakeCtx>, extra: { requestedExecutor?: string | null; acceptance?: string } = {}) =>
   createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: extra.acceptance }, kind: null, requestedExecutor: extra.requestedExecutor ?? null, timeoutS: 60 });
 
-test("brief.acceptancePipefail reaches verifyRepo's pipefail argument", async () => {
+test("brief.pipefail reaches verifyRepo's pipefail argument", async () => {
   const ctx = fakeCtx();
-  const task = createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: "true", acceptancePipefail: true }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const task = createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: "true", pipefail: true }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const calls: unknown[][] = [];
   const d = deps({ codex: outcomeFor("codex", 0) });
   d.verifyRepo = async (...args) => { calls.push(args); return { files: "", acceptance: { cmd: "true", passed: true, tail: "" } }; };
@@ -62,6 +65,19 @@ test("brief.acceptancePipefail reaches verifyRepo's pipefail argument", async ()
   expect(calls).toHaveLength(1);
   expect(calls[0][1]).toBe("true");
   expect(calls[0][4]).toBe(true);
+});
+
+test("a persisted brief with pipefail: true keeps pipefail on retry and in task.get", async () => {
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun });
+  const original = createTask(ctx, { brief: { goal: "g", repo, acceptance: "false | true", pipefail: true }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, original.id, t => { t.state = "failed"; });
+  const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
+  const { retry } = await tasks.retry(ctx, original.id, {}, { delegate: (c, input) => tasks.delegate(c, input, () => 1, s) });
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  d.verifyRepo = verifyRepo;
+  const result = await runTask(ctx, retry.id, d);
+  expect(result.result?.acceptance).toMatchObject({ passed: false, exitCode: 1, shell: "bash -o pipefail -c" });
+  expect(await callOp(ctx, "task.get", { id: retry.id })).toMatchObject({ brief: { pipefail: true } });
 });
 
 test("conversation exit skips delegated acceptance and result review", async () => {

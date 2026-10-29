@@ -26,12 +26,12 @@ test("brief-file and stdin preserve text and command flags override file fields"
  expect(t).toMatchObject({source:"cli",brief:{goal,repo:realpathSync(ctx.home),scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
  const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--title","  Queue fix  ","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");expect(JSON.parse(r.out).title).toBe("Queue fix");}finally{io.readBriefStdin=original;}
 });
-test("--acceptance-pipefail sets brief.acceptancePipefail; omitting it leaves it unset",async()=>{
+test("--acceptance-pipefail sets brief.pipefail; omitting it leaves pipefail unset",async()=>{
  const ctx=setup();
  const withFlag=await main(["delegate","--goal","g","--repo",ctx.home,"--acceptance","true","--acceptance-pipefail","--json"],ctx);
- expect(JSON.parse(withFlag.out).brief.acceptancePipefail).toBe(true);
+ expect(JSON.parse(withFlag.out).brief.pipefail).toBe(true);
  const without=await main(["delegate","--goal","g","--repo",ctx.home,"--acceptance","true","--json"],ctx);
- expect(JSON.parse(without.out).brief.acceptancePipefail).toBeUndefined();
+ expect(JSON.parse(without.out).brief.pipefail).toBeUndefined();
 });
 test("brief validation is shared and executor CLI guard runs before reading stdin",async()=>{
  const ctx=setup();
