@@ -1,4 +1,4 @@
-import { taskActivity } from "../core/tasks";
+import { checkRev, taskActivity } from "../core/tasks";
 import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import { isExecutorSession } from "../install/role";
@@ -17,7 +17,7 @@ const unknown = (id: string) => new CoreError("unknown_task", `unknown task ${id
  */
 export const DRIVING_LEASE_S = 60;
 
-export interface SendOptions { force?: boolean; by?: string }
+export interface SendOptions { force?: boolean; by?: string; expectRev?: number }
 
 /** Deliver one message into a running interactive lane's live Orca terminal. Records it on the task's timeline; does not create a new attempt. */
 export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = {}): Promise<TaskRecord> {
@@ -26,10 +26,11 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
   if (typeof text !== "string" || !text.trim() || text.length > 4000) {
     throw new CoreError("invalid_input", "message must contain 1–4000 characters");
   }
-  const by = o.by?.trim() || "planner";
+  const by = o.by?.trim() || ctx.env.USER?.trim() || "planner";
   return withLock(ctx, `send-${id}`, async () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
+    checkRev(ctx, task, o.expectRev);
     if (!["running", "needs_input"].includes(task.state)) {
       throw new CoreError("conflict", `task is ${task.state}, not running`);
     }

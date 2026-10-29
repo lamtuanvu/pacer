@@ -36,7 +36,7 @@ import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
-import { type Excluded, executorsFor, rankExecutors, ruleFor } from "../engine/rank";
+import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
@@ -67,16 +67,26 @@ export function observedAttemptModel(runner:string,stdout:string):string|null {
 const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
 
 /**
- * Without a project selection, a conversation's candidate pool is the default routing pool with the
- * planner moved to the end (matching the demotion `rankExecutors`'s own "priority" branch gives it;
- * an explicit `selection` override bypasses that branch and respects array order verbatim) and the
- * requested executor appended if a routing rule left it out entirely (e.g. the planner's own account).
+ * Passing any explicit `CandidateSelection` into `rankExecutors` takes its `if (selection)` branch,
+ * which sorts by array order alone and skips the `pacing.policy` ordering (priority promotion/
+ * demotion, headroom/fill reordering) entirely — correct for a real project selection, which is a
+ * curated order to respect verbatim, but not for widening a conversation's pool, which must keep
+ * that ordering for every other candidate. So a conversation ranks with no selection override at
+ * all (exactly like a delegated task with no project policy), and only afterward, if its requested
+ * executor was left out of the routing pool entirely (e.g. the planner's own account, excluded by
+ * every routing rule), is that one candidate ranked on its own — a lone selection trivially keeps
+ * its own order — and appended as a last-resort fallback, never disturbing the real sort above it.
  */
-function conversationPool(kind: string | null, s: Strategy, requested: string | null): { executors: string[]; order: "configured" } {
-  const isPlanner = (id: string) => { const r = resolveRunner(s, id); return r?.agent === s.planner.agent && r?.account === s.planner.account; };
-  const base = executorsFor(kind, s);
-  const executors = [...base.filter(id => !isPlanner(id)), ...(requested && !base.includes(requested) ? [requested] : []), ...base.filter(isPlanner)];
-  return { executors, order: "configured" };
+function conversationFallback(
+  ranking: ReturnType<typeof rankExecutors>, kind: string | null, s: Strategy,
+  byId: Record<string, Status["providers"][number]>, requested: string | null,
+): void {
+  if (!requested || ranking.ranked.some(e => e.id === requested) || ranking.excluded.some(e => e.id === requested)) return;
+  const solo = rankExecutors(kind, s, byId, { executors: [requested], order: "configured" }, { includePlanner: true });
+  if (!solo.ranked.length) { ranking.excluded.push(...solo.excluded); return; }
+  const floor = Math.min(1, ...ranking.ranked.map(e => e.score));
+  ranking.ranked.push({ ...solo.ranked[0], score: floor - 1 });
+  if (solo.uncertain?.length) (ranking.uncertain ??= []).push(...solo.uncertain);
 }
 
 export interface RunnerDeps {
@@ -253,11 +263,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         // A conversation's requested executor is a preference the ranked list still validates and can
         // fall back from (the `req`/`full` handling below), exactly like a delegated task's requestedExecutor;
         // it is never a narrower candidate set, so an explicit request is excluded (and explained) by the
-        // same decision as any other candidate rather than by a conversation-only restriction.
-        const ranking = rankExecutors(kind, s, byId,
-          selection ? {executors: selection.executors, order: "configured"}
-          : task.interactionMode === "conversation" ? conversationPool(kind, s, task.requestedExecutor) : undefined,
+        // same decision as any other candidate rather than by a conversation-only restriction. Passing
+        // `undefined` (not an explicit selection) here, same as a delegated task with no project policy,
+        // keeps rankExecutors' own pacing-policy ordering in effect; conversationFallback below only
+        // appends the requested executor afterward, when a routing rule left it out of the pool entirely.
+        const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+        if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
         if (work) {
           decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates);
           if (decision.proposal?.state === "ranked") {
@@ -448,10 +460,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           i--; continue;
         }
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
-        const refreshedSelection = selection ? {executors: selection.executors, order: "configured" as const}
-          : task.interactionMode === "conversation" ? conversationPool(kind, currentStrategy, task.requestedExecutor) : undefined;
-        const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), refreshedSelection,
+        const refreshedById = Object.fromEntries(prepared.status.providers.map(p => [p.id, p]));
+        const refreshedRanking = rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+        if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
           const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));

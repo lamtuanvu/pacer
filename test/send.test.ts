@@ -75,3 +75,19 @@ test("unknown task and bad id are reported as CoreError", async () => {
   await expect(send(ctx, "t-20261016-000000-abcd", "hi")).rejects.toBeInstanceOf(CoreError);
   await expect(send(ctx, "../escape", "hi")).rejects.toBeInstanceOf(CoreError);
 });
+
+test("defaults the identity to the OS user, not always literally planner", async () => {
+  const { ctx, task } = setup();
+  ctx.env = { ...ctx.env, USER: "alice" };
+  await send(ctx, task.id, "first");
+  await expect(send(ctx, task.id, "second")).resolves.toBeTruthy(); // same identity, no contention
+  const contended = send(ctx, task.id, "third", { by: "bob" });
+  await expect(contended).rejects.toThrow(/alice sent a message/);
+});
+
+test("send rejects a stale expectRev and accepts a matching one", async () => {
+  const { ctx, task } = setup();
+  const currentRev = readTask(ctx, task.id)!.rev;
+  await expect(send(ctx, task.id, "hi", { expectRev: currentRev + 1 })).rejects.toThrow();
+  await expect(send(ctx, task.id, "hi", { expectRev: currentRev })).resolves.toBeTruthy();
+});

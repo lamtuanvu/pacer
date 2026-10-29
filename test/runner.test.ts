@@ -96,6 +96,19 @@ test("conversation integration failure includes the repair hint in its task repo
   expect(result.result?.report).toContain("pacer install claude-code");
 });
 
+test("conversation ranking still honors pacing.policy priority ordering (EXPIRING promoted ahead of AHEAD)", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx);
+  updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
+  // codex is AHEAD (demoted last by the priority policy) and would run first under a naive static
+  // order; cursor is EXPIRING (promoted first). A conversation with no requested executor and no
+  // project selection must still pick by this ordering, not by configured/static provider order.
+  const d = deps({cursor: outcomeFor("cursor", 0)}, status({codex: {verdict: "AHEAD"}, cursor: {verdict: "EXPIRING"}}));
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual(["cursor"]);
+  expect(result.state).toBe("done");
+  expect(result.result?.executor).toBe("cursor");
+});
+
 test("conversation waits for its unavailable executor instead of switching accounts", async () => {
   const ctx = fakeCtx(), task = newTask(ctx, {requestedExecutor: "codex"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});

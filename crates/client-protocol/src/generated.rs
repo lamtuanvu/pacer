@@ -15801,6 +15801,11 @@ impl ::std::convert::TryFrom<&str> for TaskReviewParamsVerdict {
 ///    "text"
 ///  ],
 ///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
 ///    "force": {
 ///      "type": "boolean"
 ///    },
@@ -15822,6 +15827,8 @@ impl ::std::convert::TryFrom<&str> for TaskReviewParamsVerdict {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct TaskSendParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub expect_rev: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub force: ::std::option::Option<bool>,
     pub id: TaskSendParamsId,

@@ -329,7 +329,19 @@ async function runOrcaAttempt(
   if (!ws.ok) {
     if (ws.error.code !== "task_not_startable") return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
     finishWorkSync(ctx, admission);
-    return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`);
+    // A definite refusal (not an ambiguous timeout/bad_output) means Orca never attached a worker
+    // to the worktree prepare() just created for a --group lane: safe to remove it rather than
+    // leave an orphan with no task ever referencing it.
+    let cleanup = "";
+    if (p.newWorktree) {
+      try {
+        const rm = await c.worktreeRemove(`path:${p.newWorktree}`);
+        cleanup = `; removed orphaned group worktree ${p.newWorktree}: ${rm.ok ? "ok" : rm.error.code}`;
+      } catch (e) {
+        cleanup = `; failed to remove orphaned group worktree ${p.newWorktree}: ${String(e)}`;
+      }
+    }
+    return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})${cleanup}`);
   }
   startedAt = deps.now() / 1000;
   const r = ws.result;

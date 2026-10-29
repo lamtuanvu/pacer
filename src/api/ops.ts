@@ -374,8 +374,8 @@ export const OPS: Record<string, OpDef> = {
   }),
   "task.send": op({
     description: "Deliver one message into a running interactive lane's live Orca terminal. Does not create a new attempt.",
-    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional() }),
-    handler: (ctx, p) => sendMessage(ctx, p.id, p.text, { force: p.force }),
+    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
+    handler: (ctx, p) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",

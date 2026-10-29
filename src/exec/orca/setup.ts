@@ -8,8 +8,9 @@ const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 /**
  * A worktree shared by every lane in a named `--group`, so Orca nests each lane's own worktree
  * under one visible parent (worker-start's `new-child` convenience creator has no `--parent-worktree`
- * passthrough; only `worktree create` does). Cached per repo+group in `~/.pacer/orca.json`;
- * recreated if the cached selector turns out to be stale when a lane's own `worktree create` fails.
+ * passthrough; only `worktree create` does). Cached per repo+group in `~/.pacer/orca.json` once
+ * created. The cache is never invalidated: if the group's parent worktree is later removed outside
+ * pacer, every lane in that group fails the same way until the cache entry is cleared by hand.
  */
 export async function ensureGroupWorktree(
   ctx: Ctx, c: OrcaClient, repoId: string, group: string, baseBranch: string,

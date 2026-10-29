@@ -141,6 +141,21 @@ test("group: creates one parent worktree per group, nests each lane's own worktr
   expect(loadOrcaState(ctx).groups).toEqual({ "40c98aad-c083-4ec9-b82e-a51798a20270:feature-x": { selector: "path:~/worktrees/pacer-group-feature-x" } });
 });
 
+test("group: a refused worker-start removes the orphaned lane worktree it just created", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [
+    worktreeCreate,
+    [O("orchestration", "worker-start"), raw('{"ok":false,"error":{"code":"task_not_startable","message":"Task cannot start now."}}', 1)],
+    [O("worktree", "rm"), raw(JSON.stringify({ ok: true, result: {} }))],
+  ], { group: "feature-x" });
+  const out = await backend.runAttempt(ctx, cfg, task);
+  expect(out.backend).toBe("direct");
+  const removes = f.calls.filter((a) => a[1] === "worktree" && a[2] === "rm");
+  expect(removes).toHaveLength(1);
+  expect(arg(removes[0], "--worktree")).toBe(`path:~/worktrees/pacer-${task.id}-cursor`);
+  expect(removes[0]).toContain("--force");
+  expect(readFileSync(join(ctx.pacerHome, "orca", "fallback.log"), "utf8")).toContain("removed orphaned group worktree");
+});
+
 test("group: a second lane in the same group reuses the cached parent worktree", async () => {
   const { f, ctx, task, backend, cfg } = setup(() => [worktreeCreate], { group: "feature-x" });
   await backend.runAttempt(ctx, cfg, task);

@@ -6486,6 +6486,11 @@ Params JSON Schema:
     },
     "force": {
       "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "required": [

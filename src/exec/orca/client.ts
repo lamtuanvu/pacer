@@ -144,6 +144,10 @@ export class OrcaClient {
       ...(o.parentWorktree ? ["--parent-worktree", o.parentWorktree] : o.noParent ? ["--no-parent"] : []),
     ]);
   }
+  /** Best-effort cleanup for a worktree `worktreeCreate` made that no worker ever started in. */
+  worktreeRemove(selector: string) {
+    return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", selector, "--force"]);
+  }
   runCreate(objective: string, from: string) {
     return this.call<{ run: RunRow }>(["orchestration", "run-create", "--objective", objective, "--from", from]);
   }
