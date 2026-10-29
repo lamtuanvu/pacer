@@ -1,4 +1,6 @@
-import { registerWork, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { dispatchDatabase } from "../dispatch/store";
+import { revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync } from "../update/desktop/admission";
 import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
@@ -213,29 +215,60 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
   return t ? superviseTaskRecord(ctx, t, spawn) : null;
 }
 
+/** A stop during a handover gap: record the attempt from the run's evidence and do the cleanup the old runner skipped. */
+export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null): TaskRecord {
+  const run = t.run!;
+  const updated = updateTask(ctx, t.id, x => {
+    if (x.state !== "stopped" || x.handover?.state !== "handed-over" || x.run?.dir !== run.dir || x.attempts.length >= run.attempt) return;
+    x.attempts.push({ executor: run.executor, model: null, startedAt: x.attemptStartedAt ?? run.startedAt, endedAt: ctx.now, exitCode: exit ?? 143, timedOut: false, limitHit: false, log: run.logFile });
+    x.result = { status: "stopped", executor: run.executor, model: null, files: "",
+      report: `Stopped during a runner handover; the run ${exit === null ? "ended without an exit record" : `exited with ${exit}`}.`, backend: "direct" };
+    delete x.handover; delete x.runnerPid; delete x.childPid; delete x.childIdentity; delete x.pendingAttempt;
+  });
+  if (getWork(ctx, t.id)) {
+    dispatchDatabase(ctx).query("DELETE FROM work_reservations WHERE task_id=?").run(t.id);
+    revokeWorkGrants(ctx, t.id); revokeEnforcementTokens(ctx, t.id);
+  }
+  void import("./drain").then(m => m.drainQueue(ctx)).catch(() => {});
+  return updated;
+}
+
 async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, stopped: () => boolean = () => false): Promise<TaskRecord> {
-  if (!["queued", "running"].includes(t.state)) return t;
+  const handedOver = t.handover?.state === "handed-over";
+  if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
   const run = t.run, current = run && run.attempt > t.attempts.length;
-  const deadRun = t.state === "running" && current && !alive(t.runnerPid);
+  const deadRun = (t.state === "running" || t.state === "stopped") && current && !alive(t.runnerPid);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
     // Repository IO yields; an independent runner may have settled meanwhile.
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
-    if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
-      const firstReplacement = t.handover?.state === "handed-over" && t.handover.replacementAt === undefined;
-      if (firstReplacement || !t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
-        let lease: string;
-        try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
-        catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
-        updateTask(ctx, id, x => {
-          x.resumeSpawnedAt = ctx.now;
-          if (x.handover?.state === "handed-over" && x.handover.replacementAt === undefined) x.handover.replacementAt = ctx.now;
-        });
-        try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
-      }
+    const runLive = !!run && (!!run.host || !!(r && (r.alive || r.exit !== null)));
+    const relaunch = (): TaskRecord => {
+      let lease: string;
+      try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
+      catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
+      updateTask(ctx, id, x => {
+        x.resumeSpawnedAt = ctx.now;
+        if (x.handover?.state === "handed-over" && x.handover.replacementAt === undefined) x.handover.replacementAt = ctx.now;
+      });
+      try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
+      return readTask(ctx, id)!;
+    };
+    if (t.state === "stopped") {
+      // Stopped in a handover gap: a replacement records the outcome; without one within 60 s, the sweep does.
+      if (!deadRun) return t;
+      const replacementAt = t.handover!.replacementAt;
+      if (replacementAt === undefined && runLive) return relaunch();
+      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null);
+      return t;
+    }
+    if (deadRun && runLive) {
+      // A committed handover gets one immediate replacement; a failed one falls back to the 60 s throttle.
+      const firstReplacement = handedOver && t.handover!.replacementAt === undefined;
+      if (firstReplacement || !t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) return relaunch();
       return readTask(ctx, id)!;
     }
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
@@ -253,9 +286,11 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   });
 }
 
-/** Query only active tasks and yield between records so HTTP can keep serving. */
+/** Query only active tasks, plus tasks stopped during a handover gap, and yield between records so HTTP can keep serving. */
 export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner, stopped: () => boolean = () => false): Promise<void> {
-  for (const task of listTasksWhere(ctx, { states: ["queued", "running"] })) {
+  const active = listTasksWhere(ctx, { states: ["queued", "running"] });
+  const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
+  for (const task of [...active, ...gaps]) {
     await Bun.sleep(0);
     if (stopped()) return;
     await superviseTaskRecord(ctx, task, spawn, stopped);
@@ -289,8 +324,9 @@ export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 
   }
 }
 
-/** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. */
-export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
+/** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. During a handover gap
+ * the replacement runner, or the sweep after 60 s, records the outcome. `signal: false` leaves processes to the runner. */
+export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {}): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
   if (t.state === "needs_input") return updateTask(ctx, id, x => {
@@ -302,10 +338,11 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const updated = updateTask(ctx, id, (x) => {
     if (TERMINAL_STATES.includes(x.state)) return;
     x.state = "stopped";
-    if (!runnerAlive) {
+    if (!runnerAlive && x.handover?.state !== "handed-over") {
       x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
     }
   });
+  if (options.signal === false) return updated;
   if (t.run?.host) {
     try {
       const host = loadStrategy(ctx).hosts[t.run.host];

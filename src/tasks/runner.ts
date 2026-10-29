@@ -164,7 +164,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
     return withLock(ctx, "slots", async () => updateTask(ctx,id,t=>{
-      const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
+      const resumable = (t.state === "running" || (t.state === "stopped" && t.handover?.state === "handed-over")) && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
       const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
       if(t.state!=="queued" && !resumable && !dispatched)return;
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
