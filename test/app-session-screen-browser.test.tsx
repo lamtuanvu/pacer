@@ -250,7 +250,7 @@ async function assertTitleBarFits(page: Page) {
   const geometry = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
     const title = box("h1.pc-topbar__heading"), search = box("[data-command-trigger]");
-    const delegate = [...document.querySelectorAll(".pc-topbar button")].find(node => node.textContent === "New task")!.getBoundingClientRect();
+    const delegate = [...document.querySelectorAll(".pc-topbar a")].find(node => node.textContent === "New task")!.getBoundingClientRect();
     return { scroll: document.scrollingElement!.scrollWidth, width: innerWidth, title: title.width, search: search.width, searchRight: search.right, delegate: delegate.right };
   });
   expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
@@ -273,7 +273,7 @@ browserTest("session_title_bar_keeps_title_search_and_delegate_reachable", async
       expect(await page.locator(".pc-planner__name").innerText()).toBe("Claude Code");
       expect(await page.locator(".pc-planner__name").evaluate(node => ({ wrap: getComputedStyle(node).whiteSpace, height: node.getBoundingClientRect().height }))).toMatchObject({ wrap: "nowrap", height: 19 });
       expect(await page.locator("h1.pc-topbar__heading").evaluate(node => getComputedStyle(node).textOverflow)).toBe("ellipsis");
-      expect(await page.locator(".pc-planner").evaluate(node => node.getBoundingClientRect().height)).toBe(28);
+      expect(await page.locator(".pc-planner").evaluate(node => node.getBoundingClientRect().height)).toBe(24);
     }
     await page.close();
   }
@@ -360,7 +360,7 @@ browserTest("sessions navigator matches board geometry and retains panel focus",
         barCount: node.querySelectorAll(".pc-side-panel__bar").length,
         toggleInHead: !!head.querySelector('[aria-label="Hide Sessions"]') };
     });
-    expect(geometry).toEqual({ width: 272, cardX: 60, cardWidth: 256, headTop: 44, headHeight: 38, headPadding: "0px 8px 0px 14px",
+    expect(geometry).toEqual({ width: 272, cardX: 60, cardWidth: 256, headTop: 36, headHeight: 38, headPadding: "0px 8px 0px 14px",
       listPadding: "0px 8px 12px", navBorder: "0px", barCount: 0, toggleInHead: true });
     await expect(hide.getAttribute("aria-expanded")).resolves.toBe("true");
     await expect(hide.getAttribute("aria-controls")).resolves.toBe("pc-side-panel-left");

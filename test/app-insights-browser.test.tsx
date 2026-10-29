@@ -36,9 +36,9 @@ for (const [width, scheme] of [[375, "light"], [375, "dark"], [768, "light"], [1
         const css = getComputedStyle(node);
         return { padding: css.padding, maxWidth: css.maxWidth, width: node.getBoundingClientRect().width };
       });
-      expect(geometry.padding).toBe("28px 40px 48px");
-      expect(geometry.maxWidth).toBe("1240px");
-      expect(geometry.width).toBeLessThanOrEqual(1240);
+      expect(geometry.padding).toBe(width < 768 ? "16px 16px 24px" : "24px 32px 40px");
+      expect(geometry.maxWidth).toBe("none");
+      expect(geometry.width).toBe(width);
       const period = page.getByRole("group", { name: "Period" });
       const segments = await period.getByRole("button").evaluateAll(nodes => nodes.map(node => {
         const range = document.createRange();

@@ -412,11 +412,11 @@ test.skipIf(!browserPath)('Overview and App board geometry, themes and narrow co
         const canvas=getComputedStyle(node),board=getComputedStyle(node.querySelector('.pc-settings-board')!),h=getComputedStyle(node.querySelector('h1')!);
         return {padding:canvas.padding,maxWidth:canvas.maxWidth,gap:board.gap,title:[h.fontSize,h.lineHeight,h.fontWeight]};
       });
-      expect(geometry).toEqual({padding:width===1440?'28px 40px 48px':'16px',maxWidth:'1080px',gap:section?'24px':'20px',title:['28px','34px','650']});
+      expect(geometry).toEqual({padding:width===1440?'24px 32px 40px':'16px',maxWidth:'none',gap:section?'24px':'20px',title:['28px','34px','650']});
       if(section && width===1440) {
         expect(await page.locator('.pc-setting-row--board').first().evaluate(node=>{
           const s=getComputedStyle(node);return {columns:s.gridTemplateColumns,gap:s.gap,padding:s.padding,border:s.borderTopWidth};
-        })).toEqual({columns:'300px 676px',gap:'24px',padding:'14px 0px',border:'1px'});
+        })).toEqual({columns:'300px 1052px',gap:'24px',padding:'14px 0px',border:'1px'});
         expect(await page.locator('.pc-segmented--board button').first().evaluate(node=>node.getBoundingClientRect().height)).toBe(30);
         expect(await page.locator('.pc-choice-picker--content').evaluate(node => {
           const trigger = node.querySelector('button')!, s = getComputedStyle(trigger);
@@ -507,14 +507,14 @@ test.skipIf(!browserPath)('Budget board geometry matches tokens in both themes a
       expect(await page.locator('.pc-page').evaluate(node => {
         const s = getComputedStyle(node), b = getComputedStyle(node.querySelector('.pc-settings-board')!);
         return { padding: s.padding, maxWidth: s.maxWidth, gap: b.gap };
-      })).toEqual({ padding: width === 1440 ? '28px 40px 48px' : '16px', maxWidth: '1080px', gap: '18px' });
+      })).toEqual({ padding: width === 1440 ? '24px 32px 40px' : '16px', maxWidth: 'none', gap: '18px' });
       expect(await page.locator('.pc-setting-row__label').first().evaluate(node => {
         const s = getComputedStyle(node); return [s.fontSize, s.lineHeight, s.fontWeight];
       })).toEqual(['14px', '20px', '650']);
       if (width === 1440) {
         expect(await page.locator('.pc-setting-row').first().evaluate(node => {
           const s = getComputedStyle(node); return { columns: s.gridTemplateColumns, gap: s.gap, padding: s.padding, align: s.alignItems };
-        })).toEqual({ columns: '300px 676px', gap: '24px', padding: '14px 0px', align: 'start' });
+        })).toEqual({ columns: '300px 1052px', gap: '24px', padding: '14px 0px', align: 'start' });
         expect(await page.locator('.pc-budget-mode__fill').first().evaluate(node => node.getBoundingClientRect().height)).toBe(6);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

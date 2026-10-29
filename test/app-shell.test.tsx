@@ -121,7 +121,7 @@ test("detail routes select exactly one primary and at most one settings destinat
 test("top bar calls the delegate action New task on every destination that offers it", () => {
   for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/terminal"]) {
     const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
-    expect(html).toMatch(/pc-btn[^>]*>New task<\/button>/);
+    expect(html).toMatch(/pc-btn[^>]*>New task<\/a>/);
     expect(html).not.toMatch(/>Delegate<\/button>/);
   }
 });

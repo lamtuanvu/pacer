@@ -105,7 +105,7 @@
 .pc-session-control--driving .pc-session-control__hint{display:block;flex:1 0 100%}
 }
 /* Tasks page: header, filters, tree and the selected-task panel. */
-.pc-tasks-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;max-width:var(--size-1240);box-sizing:border-box;padding:var(--space-7) var(--space-10) var(--space-12)}
+.pc-tasks-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;box-sizing:border-box}
 .pc-tasks-page__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-tasks-page__heading{display:flex;flex:1 1 auto;flex-direction:column;gap:var(--space-half);min-width:0}
 .pc-tasks-page__title{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}

@@ -4,6 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+- Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
+
 ### Fixed
 
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.

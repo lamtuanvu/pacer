@@ -333,7 +333,7 @@ function NewTaskPage(p: ViewProps) {
     <header className="pc-new-task__header">
       <div className="pc-new-task__intro">
         <TextAction className="pc-new-task__crumb" href={hrefFor(routes.tasks())}>Tasks ›</TextAction>
-        <PageTitle className="pc-new-task__title">New task</PageTitle>
+        <h1 className="pc-page-title pc-new-task__title">New task</h1>
         <span className="pc-caption">Describe the outcome. pacer plans it, sends it to the best available agent, and checks the result before you see it.</span>
       </div>
       <span className="pc-caption pc-new-task__saved" aria-live="polite">{p.note}</span>

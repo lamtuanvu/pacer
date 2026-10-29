@@ -77,11 +77,11 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
    // Only the selected title adopts the Session board's stronger selection weight.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
    // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
-   expect(geometry.width).toBeLessThanOrEqual(1240);
+   expect(geometry.width).toBe(width - 52);
    expect(geometry.left).toBeLessThan(100);
    expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -149,9 +149,9 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const contentEdge=await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
-   expect(contentEdge).toBe(width<560?16:52+Math.max(0,(width-52-1240)/2)+40);
+   expect(contentEdge).toBe(width<560?16:52+32);
    if(width>=560){
-    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["28px","40px","48px","20px","1240px"]);
+    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["24px","32px","40px","20px","none"]);
     expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",28]);
    }
    expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
@@ -209,7 +209,7 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and space between r
    expect(await page.locator('h1').innerText()).toBe('Needs you');
    expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
    expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.pc-section')!.getBoundingClientRect().top-n.querySelector('.pc-filter')!.getBoundingClientRect().bottom)).toBe(24);
-   expect(await page.locator('.pc-topbar').getByRole('button',{name:'New task',exact:true}).count()).toBe(1);
+   expect(await page.locator('.pc-topbar').getByRole('link',{name:'New task',exact:true}).count()).toBe(1);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
  }finally{await browser.close();}

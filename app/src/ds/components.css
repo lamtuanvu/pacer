@@ -349,9 +349,9 @@ a.pc-btn{text-decoration:none}
 @media(max-width:560px){.pc-attachment-picker__trigger{min-height:var(--control-touch)}}
 
 /* Routed pages own one width, gutter and rhythm contract. */
-.pc-page{width:100%;margin-inline:auto;padding:var(--space-6) max(var(--space-8),env(safe-area-inset-right)) var(--space-8) max(var(--space-8),env(safe-area-inset-left));min-width:0}
-.pc-page--standard{max-width:var(--size-960)}
-.pc-page--wide{max-width:calc(var(--size-960) + var(--size-340))}
+.pc-page{width:100%;margin-inline:0;padding:var(--space-6) var(--space-8) var(--space-10);min-width:0;max-width:none;box-sizing:border-box}
+.pc-page--standard{max-width:none}
+.pc-page--wide{max-width:none}
 .pc-page--full{max-width:none}
 .pc-page-body,.pc-stack{display:flex;flex-direction:column;min-width:0}.pc-page-body{gap:var(--space-6)}
 .pc-stack--compact{gap:var(--space-2)}.pc-stack--normal{gap:var(--space-3)}.pc-stack--section{gap:var(--space-6)}
@@ -824,7 +824,7 @@ a.pc-btn{text-decoration:none}
 .pc-side-panel__content>.pc-settings-nav{width:100%;border-right:0}
 
 /* Diagnostics board: specialized diagnostic disclosure and bounded settings canvas. */
-.pc-page:has(.pc-diagnostics){max-width:calc(var(--size-360) * 3);padding:var(--space-7) var(--space-10) var(--space-12);margin-inline:0}
+
 .pc-diagnostics,.pc-diagnostic-results{display:flex;flex-direction:column;gap:var(--size-18);min-width:0}
 .pc-diagnostics-header{display:flex;align-items:flex-start;gap:var(--space-3);flex-wrap:wrap}
 .pc-diagnostics-header>div{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 var(--size-360);min-width:0}
@@ -857,7 +857,7 @@ a.pc-btn{text-decoration:none}
 @media(max-width:767px){.pc-diagnostics-header>div{flex-basis:100%}.pc-page:has(.pc-diagnostics){padding:var(--space-4)}.pc-diagnostic-totals{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-diagnostic-row{grid-template-columns:minmax(0,1fr)}.pc-diagnostic-row__action{padding:0 var(--space-3\.5) var(--space-2) var(--space-12)}.pc-diagnostic-row__details>summary{min-height:var(--control-touch)}}
 
 /* Settings board primitives: opt-in additions retain existing editor geometry. */
-.pc-page:has(.pc-settings-board){max-width:calc(var(--size-360) * 3);padding:var(--space-7) var(--space-10) var(--space-12);margin-inline:0}
+
 .pc-settings-board{display:flex;flex-direction:column;gap:var(--space-6);min-width:0}
 .pc-settings-board--overview{gap:var(--space-5)}
 .pc-settings-board__header{display:flex;flex-direction:column;gap:var(--space-half)}
@@ -934,3 +934,10 @@ a.pc-btn{text-decoration:none}
 .pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
 .pc-segmented--insights [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
 @media(max-width:560px),(pointer:coarse){.pc-segmented--insights .pc-btn{min-height:var(--control-touch)}}
+
+.pc-page h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight)}
+
+.pc-page-title{order:-1}
+/* Page-level breadcrumbs occupy the upper gutter, keeping every routed h1 on the same baseline. */
+.pc-page:has(.u3-add-agent){position:relative}
+.u3-add-agent>.u3-breadcrumb{position:absolute;top:var(--space-1);right:var(--space-8)}
