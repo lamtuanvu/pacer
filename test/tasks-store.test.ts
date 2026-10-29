@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { chmodSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { appendLabel, readLabels } from "../src/tasks/labels";
 import { createTask, isTaskId, listTasks, newTaskId, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, localTs } from "./helpers";
@@ -32,6 +34,37 @@ test("unknown or malformed ids read as null; updating one throws", () => {
   expect(readTask(ctx, "../x")).toBeNull();
   expect(() => updateTask(ctx, "t-20261011-140500-abcd", () => {})).toThrow("unknown task");
   expect(listTasks(ctx)).toEqual([]);
+});
+
+test("labels create a 0700 directory and a 0600 file even under a permissive umask (SEC-7)", () => {
+  const ctx = fakeCtx();
+  const before = process.umask(0);
+  try { appendLabel(ctx, { type: "guard_verdict", event_id: "e-1", blocked: true, source: "rules" }); }
+  finally { process.umask(before); }
+  expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
+  expect(statSync(join(ctx.pacerHome, "labels.jsonl")).mode & 0o777).toBe(0o600);
+
+  // An existing, wider file is narrowed on the next append.
+  chmodSync(join(ctx.pacerHome, "labels.jsonl"), 0o644);
+  appendLabel(ctx, { type: "guard_verdict", event_id: "e-2", blocked: false, source: "rules" });
+  expect(statSync(join(ctx.pacerHome, "labels.jsonl")).mode & 0o777).toBe(0o600);
+  expect(readLabels(ctx).map((label) => label.event_id)).toEqual(["e-1", "e-2"]);
+});
+
+test("labels appended concurrently from several processes stay whole lines (SEC-7)", async () => {
+  const ctx = fakeCtx();
+  const script = join(ctx.home, "append.ts");
+  writeFileSync(script, [
+    `import { appendLabel } from ${JSON.stringify(join(import.meta.dir, "..", "src", "tasks", "labels"))};`,
+    `const ctx = { home: ${JSON.stringify(ctx.home)}, pacerHome: ${JSON.stringify(ctx.pacerHome)}, now: 1, env: {} };`,
+    `for (let i = 0; i < 25; i++) appendLabel(ctx as never, { type: "guard_verdict", worker: process.argv[2], i, pad: "x".repeat(70000) });`,
+  ].join("\n"));
+  const workers = Array.from({ length: 6 }, (_, n) => Bun.spawn([process.execPath, script, String(n)], { stdout: "ignore", stderr: "inherit" }));
+  expect(await Promise.all(workers.map((worker) => worker.exited))).toEqual([0, 0, 0, 0, 0, 0]);
+  const lines = (await Bun.file(join(ctx.pacerHome, "labels.jsonl")).text()).split("\n").filter(Boolean);
+  expect(lines).toHaveLength(150);
+  expect(readLabels(ctx)).toHaveLength(150);
+  expect(new Set(readLabels(ctx).map((label) => `${label.worker}:${label.i}`)).size).toBe(150);
 });
 
 test("labels append as JSON lines with a timestamp and skip corrupt lines on read", async () => {
