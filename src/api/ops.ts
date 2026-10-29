@@ -39,6 +39,7 @@ import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { terminalOps } from "./ops-terminal";
+import { assistantOps } from "./ops-assistant";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -211,7 +212,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps,
+ ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -536,6 +537,8 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
   authorizeWorkOperation(ctx,name,params);
+  // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
+  if (name.startsWith("assistant.") && isExecutorSession(ctx)) throw new CoreError("not_allowed", "PACER_ROLE=executor: executors cannot use the assistant or read its history.");
   if (!Object.hasOwn(OPS, name)) throw new CoreError("unknown_op", `unknown operation "${name}"`, `operations: ${opNames().join(", ")}`);
   if(name==="task.review"&&params&&typeof params==="object"&&Object.hasOwn(params,"accepted"))throw new CoreError("invalid_input","task.review requires verdict; accepted was removed in protocol 3");
   const def = OPS[name];
