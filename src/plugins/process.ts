@@ -83,8 +83,9 @@ export class PluginProcess {
     } else p.resolve(m.result);
   }
 
-  request<T>(method: string, params: unknown, deadlineMs: number): Promise<T> {
+  request<T>(method: string, params: unknown, deadlineMs: number, signal?: AbortSignal): Promise<T> {
     if (!this.alive) return Promise.reject(new CoreError("plugin_unavailable", `${method}: plugin is not running`));
+    if (signal?.aborted) return Promise.reject(new CoreError("plugin_unavailable", `${method} was cancelled`));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -93,6 +94,13 @@ export class PluginProcess {
         reject(new CoreError("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
       }, deadlineMs);
       this.pending.set(id, { method, resolve: v => resolve(v as T), reject, timer });
+      // An aborted call is cancelled in the plugin too, so it stops spending.
+      signal?.addEventListener("abort", () => {
+        if (!this.pending.delete(id)) return;
+        clearTimeout(timer);
+        this.send({ method: CANCEL_METHOD, params: { id } });
+        reject(new CoreError("plugin_unavailable", `${method} was cancelled`));
+      }, { once: true });
       this.send({ id, method, params });
     });
   }

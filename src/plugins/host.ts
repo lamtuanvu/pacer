@@ -27,6 +27,12 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map(i => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
   switch (name) {
     case "log": { const p = parsed.data as { level: string; message: string }; appendPluginLog(ctx, plugin.id, p.level, p.message); return { ok: true }; }
+    case "secrets.resolve": {
+      // Only the key of the endpoint account the user chose for the assistant, and only for the plugin that serves it.
+      const { ref } = parsed.data as { ref: string };
+      const { assistantSecret } = await import("../assistant/service");
+      return { value: await assistantSecret(ctx, plugin.id, ref) };
+    }
     case "config.get": return { config: effectiveConfig(ctx, plugin.id) as never };
     default: throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   }

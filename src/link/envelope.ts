@@ -11,9 +11,11 @@ export type AcceptanceState = "passed" | "failed" | "none" | "pending" | "runnin
 export interface TaskData { interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; reviewRequest?: { note: string; at: number }; acceptanceState?: AcceptanceState; title?: string; session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
+/** Carries no text: other windows only learn that assistant History changed. */
+export interface AssistantEventData { turnId: string; conversationId: string; state: "done" | "error" | "cancelled" }
 export interface ConfigData { area: string; at: number }
 export interface EntityData { kind: "desktop.update" | "planner" | "plugin" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify"; id: string; value?: unknown; removed?: true }
-export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData };
+export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData } | { type: "assistant"; data: AssistantEventData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -109,6 +111,11 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
     case "task": { const data = parseTask(raw.data); return data && { type: "task", data }; }
     case "mode": { const data = parseMode(raw.data); return data && { type: "mode", data }; }
     case "alert": { const data = parseAlert(raw.data); return data && { type: "alert", data }; }
+    case "assistant": {
+      const d = raw.data;
+      if (!isObj(d) || !optStr(d.turnId, LIMITS.id) || !optStr(d.conversationId, LIMITS.id) || !["done", "error", "cancelled"].includes(String(d.state))) return null;
+      return { type: "assistant", data: { turnId: optStr(d.turnId, LIMITS.id)!, conversationId: optStr(d.conversationId, LIMITS.id)!, state: d.state as AssistantEventData["state"] } };
+    }
     default: return null;
   }
 }
@@ -123,6 +130,7 @@ export function reduce(s: LinkSnapshot, e: OutboxEvent, at: number): LinkSnapsho
   const next: LinkSnapshot = { ...s, seq: s.seq + 1, at };
   switch (e.type) {
     case "entity": break;
+    case "assistant": break; // Refresh signal only.
     case "config": break; // Refresh signal only; no snapshot content changes.
     case "budget": next.budget = e.data; break;
     case "mode": next.mode = e.data; break;

@@ -191,3 +191,7 @@ Each slice is useful alone: slice 1 already gives real (partial) numbers for mos
 - **Usage-index retention.** Keep forever, or follow a separate setting (proposed default: 365 days).
 - **Cached input in totals.** Proposed: show cache reads and cache writes separately and leave them out of the headline total. This needs the maintainer's confirmation, because some CLIs fold cached tokens into their total.
 - **Planner usage source.** The planner integrations already report quota-percentage observations through the status line. Whether any of them exposes a cumulative token counter is not yet verified.
+
+## Assistant usage
+
+The [always-on assistant](2026-10-28-always-on-assistant-design.md) records each turn's usage in its own `assistant_usage` table, outside any root task, with the same `measured`, `partial` or `unknown` coverage. It is never added to executor or planner work. Clearing assistant history deletes the text and keeps these rows.
