@@ -52,7 +52,7 @@ test("acceptance none and empty review queue use the requested words", () => {
 });
 test("diff truncates after 2000 lines, labels binaries and escapes content", () => {
   const patch = "diff --git a/x b/x\n" + Array.from({ length: 2500 }, (_, i) => i === 0 ? "@@ -0,0 +1,2499 @@" : `+line-${i}`).join("\n");
-  const html = renderToString(<Diff path="x" patch={patch} />);
+  const html = renderToString(<Diff path="x" patch={patch} onOpen={() => {}} />);
   expect(html.match(/class="diff-/g)?.length).toBe(2000);
   expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("+line-2000");
@@ -73,7 +73,7 @@ test("a requested task that left the queue gets a notice, the queue stays, and n
   expect(html).not.toContain("Accept and bring back");
 });
 test("the diff's button says what it does", () => {
-  const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} />);
+  const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} onOpen={() => {}} />);
   expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("Open in editor");
 });

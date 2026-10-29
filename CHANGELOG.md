@@ -4,7 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+- Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
+
 ### Fixed
+
+- Keep resolved failed tasks retryable, retain brief editing when retry is unavailable, show remaining attention after acceptance, and offer result file preview only for a current local direct run.
 
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 

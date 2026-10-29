@@ -56,11 +56,11 @@ test("details panel shortcut is registered only where a right panel exists", () 
   expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
 });
 
-test("next step is offered in the title bar only while the details panel is closed", () => {
+test("review navigation stays offered in the title bar while Details is open", () => {
   const status = taskStatus({ state: "done" } as never), next = { label: "Review result", tab: "details" as const, open: noop };
   const render = (open: boolean) => renderToString(<FrameContext.Provider value={frame(open)}><SessionTitle status={status} live={false} facts={[]} next={next} /></FrameContext.Provider>);
   expect(render(false)).toMatch(/pc-btn--primary[^>]*>Review result</);
-  expect(render(true)).not.toContain("Review result");
+  expect(render(true)).toContain("Review result");
   // Narrow layouts have no panel to reopen, so no button.
   expect(renderToString(<FrameContext.Provider value={{ ...frame(false), details: undefined }}><SessionTitle status={status} live={false} facts={[]} next={next} /></FrameContext.Provider>)).not.toContain("Review result");
 });

@@ -55,7 +55,7 @@ test("accept-all checks explicit passing evidence in the repository and confirms
   const h = harness();
   const result = await runBulkReview({ ...h, items: scopedReviewQueue(snap, repoA.key), passingOnly: true, verdict: "accept" });
   expect(result).toBe("Accepted 1 of 1 task(s).");
-  expect(writes(h)).toEqual([{ op: "task.review", params: { id: "bulk-0", verdict: "accept", accepted: true, expect_rev: 10 } }]);
+  expect(writes(h)).toEqual([{ op: "task.review", params: { id: "bulk-0", verdict: "accept", expect_rev: 10 } }]);
   expect(h.confirmations).toHaveLength(1);
   expect(h.confirmations[0]).toContain("Task 0 (bulk-0) · Repo A");
   for (let i = 1; i < 6; i++) expect(h.confirmations[0]).not.toContain(`Task ${i}`);
@@ -79,7 +79,7 @@ test("multi-select accept and reject use existing verdict ops, revisions and the
     const h = harness();
     await runBulkReview({ ...h, items: selected, passingOnly: false, verdict });
     expect(writes(h)).toEqual(selected.map((item, i) => ({ op: "task.review", params: {
-      id: item.taskId, verdict, accepted: verdict === "accept", expect_rev: 10 + i, ...(verdict === "reject" ? { note: "Needs fixes" } : {}),
+      id: item.taskId, verdict, expect_rev: 10 + i, ...(verdict === "reject" ? { note: "Needs fixes" } : {}),
     } })));
     expect(h.confirmations[0]).toContain("Task 1 (bulk-1)");
   }

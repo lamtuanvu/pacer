@@ -4,6 +4,7 @@ import { useContext } from "preact/hooks";
 import { LazySetup } from "./setup/LazySetup";
 import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
+import { LazyResultPage } from "./review/LazyResultPage";
 import { LazyTaskRoute } from "./LazyTaskRoute";
 import { LazyInsights } from "./LazyInsights";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
@@ -15,6 +16,8 @@ import { TerminalScreen } from "./terminal/Terminal";
 export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);
  switch(route.name) {
+ case 'task-failure': return <LazyResultPage key={route.id} id={route.id} query={route.query} failure/>;
+ case 'task-review': return <LazyResultPage key={route.id} id={route.id} query={route.query}/>;
  case 'plugin': return <LazyActivity key={`${route.plugin}/${route.id}`} plugin={route.plugin} id={route.id}/>;
  case 'new-task': return <LazyNewTask query={route.query}/>;
  case 'setup': return <LazySetup query={route.query}/>;

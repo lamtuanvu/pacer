@@ -78,7 +78,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
-  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={actions} next={next&&{...next,open:openPanel}}/>,
+  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={actions} next={next&&{...next,open:tab=>{if(next.label === "Review result") location.hash=`#/tasks/${encodeURIComponent(id)}/${task.data!.acceptance.state === "failed" || ["failed","partial","limit"].includes(task.data!.state) ? "failure" : "review"}${location.hash.includes("?") ? `?${location.hash.split("?")[1]}` : ""}`; else openPanel(tab);}}}/>,
   panel:(details,files,access)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
    changes={<><WorktreeChanges diff={diff.data} loading={diff.loading} error={diff.error?'Could not load changes. The worktree may have been removed.':undefined}/>{files}</>}
    details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!}/>{details}{data&&<Brief data={data}/>}<div className="pc-session-detail-group">{result}</div>{access}</div>}/>,

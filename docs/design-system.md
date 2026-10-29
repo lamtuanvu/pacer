@@ -528,3 +528,24 @@ for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
+
+### Result board variants
+
+Inspect failures and Review result compose existing Button, Pill, Field/TextArea,
+OptionRow/RadioGroup and SelectableRow primitives. `OptionRow variant="retry"`
+uses a closed 12px card with a leading radio dot; RadioGroup retains arrow-key
+selection and a single tab stop. `SegmentedControl variant="result"` uses the
+Review board's 30px segments and 2px container padding. The changed-file
+`pc-result-file` row uses 30px height and 10px horizontal padding. These variants
+are owned by DS; result screens bind task state and API operations. Their
+production consumers are `screens/failure/Failure.tsx` and
+`screens/review/ResultPage.tsx`. No upstream component was introduced.
+
+Result notes use the DS `pc-result-note` textarea variant: three rows, 8px/10px
+padding, body typography and no unrelated minimum height. It retains the native
+textarea resize and keyboard behavior. Numbered diffs remain a specialized result
+layout: hunk-derived line numbers and aligned before/after replacement rows.
+
+The session title keeps its `Review result` navigation action visible when Details
+is open; unlike a panel-opening action, it now navigates to the task's dedicated
+review or failure page. Other next-step actions retain their existing panel behavior.

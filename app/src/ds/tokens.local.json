@@ -339,6 +339,13 @@
         "lineHeight": "20px",
         "fontWeight": 400,
         "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      },
+      {
+        "name": "failure-output",
+        "fontSize": "12px",
+        "lineHeight": "17px",
+        "fontWeight": 400,
+        "provisional": "TaskFailed board acceptance output typography."
       }
     ]
   },

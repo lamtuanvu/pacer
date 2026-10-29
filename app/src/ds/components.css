@@ -934,3 +934,17 @@ a.pc-btn{text-decoration:none}
 .pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
 .pc-segmented--insights [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
 @media(max-width:560px),(pointer:coarse){.pc-segmented--insights .pc-btn{min-height:var(--control-touch)}}
+/* Result board variants: closed retry cards and compact changed-file navigation. */
+.pc-option-row--retry{align-items:flex-start;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-page)}
+.pc-option-row--retry .pc-option-row__text{gap:var(--space-half)}
+.pc-option-row--retry .pc-option-row__title{display:flex;gap:var(--space-1\.5);align-items:center;font-weight:var(--type-match-strong-weight)}
+.pc-failure-radio{width:var(--size-14);height:var(--size-14);border-radius:var(--radius-full);border:1px solid var(--ink-muted);box-sizing:border-box;flex-shrink:0;margin-top:var(--space-half)}
+.pc-option-row--retry[aria-checked=true] .pc-failure-radio{border:var(--space-1) solid var(--ink)}
+.pc-result-file{height:var(--size-30);min-height:var(--size-30);padding:0 var(--space-2\.5);gap:var(--space-2);border-radius:var(--radius-sm);color:var(--ink-secondary);font-weight:var(--type-body-weight)}
+.pc-result-file[aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
+.pc-segmented--result{height:auto;gap:var(--space-half);padding:var(--space-half);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
+.pc-segmented--result .pc-btn{height:var(--size-30);min-height:var(--size-30);padding:0 var(--space-2\.5);border:0;border-radius:var(--radius-sm);font-weight:var(--type-body-strong-weight)}
+.pc-segmented--result [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
+.pc-selectable-row.pc-result-file{border:0}
+.pc-selectable-row.pc-result-file[aria-pressed=true]{border-color:transparent}
+.pc-result-note.pc-textarea{min-height:0;padding:var(--space-2) var(--space-2\.5);border-radius:var(--radius-md);font-size:var(--type-body-size);line-height:var(--type-body-line);font-family:var(--font-sans)}

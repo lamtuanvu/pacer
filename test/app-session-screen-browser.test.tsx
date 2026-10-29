@@ -93,8 +93,8 @@ browserTest("changes_tab_lists_worktree_files", async () => withBrowser(async br
 browserTest("no_actions_on_ended_session", async () => withBrowser(async browser => {
   const page = await openSession(browser, "ended");
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
-  // Nothing in the title bar would act on a session that has ended; only the frame's details toggle remains.
-  await expect(actions.getByRole("button").count()).resolves.toBe(0);
+  // Session mutations disappear; result review remains a working navigation action.
+  await expect(actions.getByRole("button", {name:"Review result", exact:true}).count()).resolves.toBe(1);
   await expect(page.getByRole("button", { name: "Toggle details panel" }).count()).resolves.toBe(1);
   for (const name of ["End session", "Stop", "Take over", "Resume conversation", "Open in terminal"]) await expect(page.getByRole("button", { name, exact: true }).count()).resolves.toBe(0);
   // The task's title shows in the title bar (the frame hides the route's own heading).
@@ -156,19 +156,15 @@ const callsOf = (page: Page, op: string) => page.evaluate(op => (window as any).
 browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(async browser => {
   const page = await openSession(browser, "ended");
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
-  // Open panel: the next step is in the panel, so the title bar offers nothing extra.
-  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  // Review navigates to a dedicated page and remains reachable with either panel state.
+  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(1);
   await page.getByRole("button", { name: "Toggle details panel" }).click();
   const next = actions.getByRole("button", { name: "Review result" });
   await expect(next.getAttribute("class")).resolves.toContain("pc-btn--primary");
-  // Keyboard activation reopens the panel on Details, where the verdict actions are.
+  // Keyboard activation opens the dedicated result route.
   await next.focus();
   await page.keyboard.press("Enter");
-  const panel = page.getByRole("complementary", { name: "Session details" });
-  await panel.waitFor();
-  await expect(panel.getByRole("tab", { name: "Details" }).getAttribute("aria-selected")).resolves.toBe("true");
-  await expect(panel.getByRole("button", { name: "Mark accepted" }).isVisible()).resolves.toBe(true);
-  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  expect(page.url()).toContain("#/tasks/t-0412/review");
   // A running session has no next step to surface, even with the panel closed.
   const running = await openSession(browser, "supervised");
   await running.getByRole("button", { name: "Toggle details panel" }).click();
