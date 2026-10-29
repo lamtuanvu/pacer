@@ -31,13 +31,8 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <main style="flex: 999 1 560px; min-width: 0; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box;">
 <header style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
 <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1;"><h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Plugins</h1><span class="cap">Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</span></div>
-<x-import component-from-global-scope="Pacer.Button" size="sm">Install from file</x-import>
 </header>
-<div role="tablist" aria-label="Plugins view" style="display: flex; gap: 4px; border-bottom: 1px solid var(--line);">
-<button class="tab" role="tab" aria-selected="true" type="button" style="color: var(--ink); border-bottom-color: var(--ink);">Installed · 3</button>
-<button class="tab" role="tab" aria-selected="false" type="button">Browse</button>
-<button class="tab" role="tab" aria-selected="false" type="button">Updates · 1</button>
-</div>
+<span class="lbl">Installed · 3</span>
 
 <section aria-label="Installed plugins" style="display: flex; flex-direction: column; gap: 10px;">
 <sc-for list="{{plugins}}" as="p" hint-placeholder-count="3">
@@ -51,7 +46,7 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 </div>
 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
 <span style="display: flex; align-items: center; gap: 8px;"><span class="cap">{{p.onText}}</span><button class="sw" role="switch" aria-checked="{{p.on}}" aria-label="Enable {{p.name}}" type="button" style="background: {{p.swbg}}; justify-content: {{p.swj}};"><span></span></button></span>
-<span style="display: flex; gap: 6px;"><sc-if value="{{p.update}}" hint-placeholder-val="{{ false }}"><x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary">{{p.update}}</x-import></sc-if><sc-if value="{{p.page}}" hint-placeholder-val="{{ false }}"><a href="SettingsPluginPage.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-decoration: none; font-weight: 600;">Settings</a></sc-if><button class="ib" type="button" aria-label="More actions for {{p.name}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: currentColor;"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button></span>
+<span style="display: flex; gap: 6px;"><sc-if value="{{p.page}}" hint-placeholder-val="{{ false }}"><a href="SettingsPluginPage.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-decoration: none; font-weight: 600;">Settings</a></sc-if><button class="ib" type="button" aria-label="More actions for {{p.name}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: currentColor;"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button></span>
 </div>
 </article>
 </sc-for>
