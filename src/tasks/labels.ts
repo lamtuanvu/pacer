@@ -1,13 +1,35 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { appendJsonLine, narrowDir } from "../fsutil";
 import type { Ctx } from "../types";
 
 const labelsFile = (ctx: Ctx) => join(ctx.pacerHome, "labels.jsonl");
 
-/** Ground-truth labels for the classifier benchmark (spec §3.10). */
+// Serialize appends across processes (CLI, hooks, service) like the activity log, so a line is never interleaved.
+function withLabelsLock<T>(ctx: Ctx, action: () => T): T {
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  narrowDir(ctx.pacerHome);
+  const lock = join(ctx.pacerHome, "labels.lock"), deadline = Date.now() + 10_000;
+  const sleep = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try { closeSync(openSync(lock, "wx", 0o600)); break; }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 120_000) { unlinkSync(lock); continue; }
+      } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+      if (Date.now() >= deadline) throw new Error("timed out waiting for labels lock");
+      Atomics.wait(sleep, 0, 0, 10);
+    }
+  }
+  try { return action(); } finally { unlinkSync(lock); }
+}
+
+/** Ground-truth labels for the classifier benchmark (spec §3.10). One locked append per label, to a 0600 file
+ * in a 0700 directory, under the scoped SEC-7 append exception. */
 export function appendLabel(ctx: Ctx, label: Record<string, unknown>): void {
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  appendFileSync(labelsFile(ctx), `${JSON.stringify({ ts: ctx.now, ...label })}\n`);
+  const record = JSON.stringify({ ts: ctx.now, ...label });
+  withLabelsLock(ctx, () => appendJsonLine(labelsFile(ctx), record));
 }
 
 export function readLabels(ctx: Ctx): Record<string, unknown>[] {

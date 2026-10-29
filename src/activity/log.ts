@@ -1,8 +1,8 @@
 import { publish } from "../link/publish";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readJson, writeJsonAtomic } from "../fsutil";
+import { appendJsonLine, narrowDir, readJson, writeJsonAtomic } from "../fsutil";
 import { redactEndpointError } from "../endpoints/state";
 import type { Ctx } from "../types";
 
@@ -28,7 +28,8 @@ const RETENTION_S = 30 * 86400;
 // The public append API is synchronous. Serialize its single write with rotation
 // across CLI/service processes so replacing the log cannot discard an append.
 function withLogLock<T>(ctx: Ctx, action: () => T): T {
-  mkdirSync(stateDir(ctx), { recursive: true });
+  mkdirSync(stateDir(ctx), { recursive: true, mode: 0o700 });
+  narrowDir(stateDir(ctx));
   const lock = join(stateDir(ctx), "activity.lock"), deadline = Date.now() + 10_000;
   const sleep = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
@@ -76,7 +77,7 @@ function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
 /** Append in one write and publish to API clients. */
 export function appendActivity(ctx: Ctx, e: Omit<ActivityEntry, "id" | "at">, onAppend: (entry: ActivityEntry) => void = () => {}): ActivityEntry {
   const entry: ActivityEntry = { ...e, text: safeText(e.text), id: `${ctx.now}-${randomBytes(2).toString("hex")}`, at: ctx.now };
-  withLogLock(ctx, () => appendFileSync(logPath(ctx), JSON.stringify(entry) + "\n", { mode: 0o600 }));
+  withLogLock(ctx, () => appendJsonLine(logPath(ctx), JSON.stringify(entry)));
   void publish(ctx, [{ type: "entity", data: { kind: "activity", id: entry.id, value: entry } }]);
   onAppend(entry);
   return entry;
@@ -100,7 +101,6 @@ export function rotateActivity(ctx: Ctx): void {
     const marker = join(stateDir(ctx), "activity-rotation.json"), last = readJson<number>(marker);
     if (typeof last === "number" && ctx.now - last < 86400) return;
     const kept = entries(ctx).filter(e => e.at >= ctx.now - RETENTION_S).slice(-20_000);
-    mkdirSync(stateDir(ctx), { recursive: true });
     const tmp = `${logPath(ctx)}.${process.pid}.tmp`;
     writeFileSync(tmp, kept.map(e => JSON.stringify(e) + "\n").join(""), { mode: 0o600 });
     renameSync(tmp, logPath(ctx));

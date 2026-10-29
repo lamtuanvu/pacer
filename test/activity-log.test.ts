@@ -1,6 +1,6 @@
 import { repoFor } from "../src/core/repos";
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, readActivity, rotateActivity } from "../src/activity/log";
 import * as tasks from "../src/core/tasks";
@@ -54,6 +54,28 @@ test("corrupt and malformed lines are skipped", () => {
   appendFileSync(file(ctx), 'not json\nnull\n{"id":"broken"}\n');
   appendActivity(ctx, { kind: "config", level: "info", text: "last" });
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["last", "first"]);
+});
+
+test("the activity log keeps its state directory at 0700 and narrows an existing, wider one (SEC-7)", () => {
+  const ctx = fakeCtx();
+  appendActivity(ctx, { kind: "config", level: "info", text: "fresh" });
+  expect(statSync(join(ctx.pacerHome, "state")).mode & 0o777).toBe(0o700);
+  expect(statSync(file(ctx)).mode & 0o777).toBe(0o600);
+  // mkdirSync's mode does not apply to an existing directory, so a 0755 state/ is narrowed on the next append.
+  chmodSync(join(ctx.pacerHome, "state"), 0o755);
+  appendActivity(ctx, { kind: "config", level: "info", text: "narrowed" });
+  expect(statSync(join(ctx.pacerHome, "state")).mode & 0o777).toBe(0o700);
+});
+
+test("an entry appended after an interrupted append starts on a new line (SEC-7 append exception)", () => {
+  const ctx = fakeCtx();
+  appendActivity(ctx, { kind: "config", level: "info", text: "first" });
+  appendFileSync(file(ctx), '{"id":"torn","at":1,"kind":"con');
+  const next = appendActivity(ctx, { kind: "config", level: "info", text: "next" });
+  expect(readFileSync(file(ctx), "utf8").split("\n").at(-2)).toBe(JSON.stringify(next));
+  appendActivity(ctx, { kind: "config", level: "info", text: "last" });
+  expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["last", "next", "first"]);
+  expect(readActivity(ctx, { maxBytes: 1 << 20 }).entries.map(e => e.text)).toEqual(["last", "next", "first"]);
 });
 
 test("rotation keeps the newest 20 000 valid entries within 30 days and runs daily", () => {

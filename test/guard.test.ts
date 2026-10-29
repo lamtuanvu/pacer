@@ -265,6 +265,58 @@ test("detectShellExecutorLaunch matches ;/|/newline chaining, env/exec prefixes,
   expect(detectShellExecutorLaunch(ctx, 'env -u HOME PACER_ROLE=executor claude --model sonnet')).toBeNull();
 });
 
+test("detectShellExecutorLaunch carries inline and exported environment into bash/sh/zsh -c (PR #463 review)", () => {
+  const ctx = fakeCtx();
+  withManagedAccounts(ctx);
+  expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor bash -c "claude --model sonnet '<brief>'"`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `export PACER_ROLE=executor; sh -c "claude --model sonnet '<brief>'"`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `env PACER_ROLE=executor zsh -c 'codex exec "<brief>"'`)).toEqual({ cli: "codex" });
+  expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=$HOME/.claude-claude1 bash -c 'claude --model sonnet'`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `export CODEX_HOME=~/.codex-codex1 && sh -c 'codex exec "<brief>"'`)).toEqual({ cli: "codex" });
+  expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor bash -c "sh -c 'claude run'"`)).toEqual({ cli: "claude" });
+  // An exported variable that is reassigned or exported by name keeps tracking the shell's own environment.
+  expect(detectShellExecutorLaunch(ctx, "PACER_ROLE=executor; export PACER_ROLE; claude run")).toEqual({ cli: "claude" });
+  // Benign wrappers stay allowed: no executor identity, a non-exported variable, or a default folder.
+  expect(detectShellExecutorLaunch(ctx, `bash -c 'claude --help'`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=other bash -c 'claude --model sonnet'`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor; bash -c 'claude --model sonnet'`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=$HOME/.claude bash -c 'claude --model sonnet'`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor bash -c 'npm test'`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; PACER_ROLE=other; claude run")).toBeNull();
+  // A plain, unconditional `unset` removes an exported variable for later commands.
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -v PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -- PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -v -- PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE && claude --help")).toBeNull();
+  // Every other form fails closed and keeps the variable (#463 round-2 security review, A4).
+  for (const unset of [
+    "false && unset PACER_ROLE", "true || unset PACER_ROLE", "true && false || unset PACER_ROLE",
+    "unset -f PACER_ROLE", "unset -fv PACER_ROLE", "unset -vf PACER_ROLE", "unset -n PACER_ROLE", "unset -v -f PACER_ROLE",
+    "unset PACER_ROLE | cat", "unset PACER_ROLE &", "unset PACER_ROLE=x",
+  ]) expect(detectShellExecutorLaunch(ctx, `export PACER_ROLE=executor; ${unset}; claude run`)).toEqual({ cli: "claude" });
+  // Any `unset` after `&&` counts as conditional, even when the left side always succeeds.
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor && unset PACER_ROLE; claude run")).toEqual({ cli: "claude" });
+});
+
+test("detectShellExecutorLaunch splits control operators outside quotes only, and tells || from | (PR #463 review)", () => {
+  const ctx = fakeCtx();
+  expect(detectShellExecutorLaunch(ctx, `bash -c 'PACER_ROLE=executor claude --model sonnet | cat'`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `sh -c "PACER_ROLE=executor claude run; echo done"`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor || true; claude run")).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; echo start | claude run")).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "PACER_ROLE=executor claude run 2>&1 | tee log")).toEqual({ cli: "claude" });
+  // Quoted, commented or escaped text is inert: it never starts a CLI.
+  expect(detectShellExecutorLaunch(ctx, "echo 'safe; PACER_ROLE=executor claude run'")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `echo "a | PACER_ROLE=executor claude run"`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `grep -n "x && PACER_ROLE=executor codex exec" notes.md`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "ls # ; PACER_ROLE=executor claude run")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "echo safe\\; PACER_ROLE=executor claude run")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "'PACER_ROLE=executor' claude run")).toBeNull();
+  // A background job's export runs in a subshell and does not reach the next command.
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor & claude run")).toBeNull();
+});
+
 test("decideShellGuard blocks a managed-home executor launch, with the same exemptions as the subagent guard", async () => {
   const command = `PACER_ROLE=executor CLAUDE_CONFIG_DIR=$HOME/.claude-claude1 claude --model sonnet --permission-mode bypassPermissions "<brief>"`;
   const { stateHash } = await import("../src/classify/state");
