@@ -19,7 +19,7 @@ export async function rotateIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   const { signature } = await signFor(ctx, "pacer", "rotate", payload);
   await writePrivateKey(ctx, meta.backend, privateKey);
   const salt = await writeSalt(ctx, deps.platform);
-  writeMeta(ctx, { ...meta, rev: meta.rev + 1, rotatedFrom: old.id, saltHash: saltHash(salt) });
+  writeMeta(ctx, { ...meta, rev: meta.rev + 1, publicId: newId, rotatedFrom: old.id, saltHash: saltHash(salt) });
   clearTransportKeys(ctx);
   clearIdentityCache();
   const result = { oldId: old.id, newId, signature: Buffer.from(signature).toString("base64") };

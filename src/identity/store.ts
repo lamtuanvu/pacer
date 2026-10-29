@@ -7,7 +7,8 @@ import { base32, rawPublicKey } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBackend } from "./key-store";
 
-export interface MachineMeta { rev: number; name: string; createdAt: number; backend: KeyBackend; rotatedFrom?: string; saltHash?: string }
+/** `publicId` is the public machine id, kept here so records can be stamped without reading the private key. */
+export interface MachineMeta { rev: number; name: string; createdAt: number; backend: KeyBackend; publicId?: string; rotatedFrom?: string; saltHash?: string }
 export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject }
 
 const cache = new Map<string, MachineIdentity>();
@@ -56,11 +57,21 @@ export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
     const { writeSalt, saltHash } = await import("./salt");
     const salt = await writeSalt(ctx, platform);
     meta = { rev: 1, name: meta?.name ?? defaultName(), createdAt: ctx.now, backend, saltHash: saltHash(salt) };
-    writeMeta(ctx, meta);
   }
   const identity = build(meta, privateKey);
+  if (meta.publicId !== identity.id) writeMeta(ctx, { ...meta, publicId: identity.id });
   cache.set(ctx.pacerHome, identity);
   return identity;
+}
+
+/**
+ * The machine id for stamping records: the cached identity, else `publicId` from machine.json.
+ * Never creates an identity or reads the private key, so it is safe on hot paths.
+ */
+export function cachedMachineId(ctx: Ctx): string | undefined {
+  const hit = cache.get(ctx.pacerHome);
+  if (hit) return hit.id;
+  try { return readMeta(ctx)?.publicId; } catch { return undefined; }
 }
 
 export function machineView(id: MachineIdentity, cloneSuspected: boolean) {
