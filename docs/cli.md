@@ -437,6 +437,16 @@ terminal and are started only for newly created pacer-managed accounts unless
 
 Settings are stored in `$PACER_HOME/plugin-settings.json` (mode 0600), not in the strategy file. The app's plugin pages use the same operations. Secrets are never values: a `secretRef` field holds the name of a secret reference.
 
+## Machine
+
+Every pacer home has a machine identity: a long-lived key, an id derived from it, and a display name.
+
+- `pacer machine show [--json]` prints the name, id and revision. It also warns when the home looks copied from another machine.
+- `pacer machine rename <name> [--json]` changes the name. Names are display-only (1–64 characters; control and bidirectional characters are removed) and never change the id. A rename that races another client fails with `conflict`.
+- `pacer machine rotate --yes [--json]` replaces the key, prints the old and new ids, and forgets every plugin's recorded transport key. Machines paired with the old id must be told or pair again. Without `--yes` it refuses and exits 2.
+
+The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Executor sessions can read the identity but cannot rename or rotate it.
+
 ## Pause and resume delegation
 
 Set `PACER=off` for a session (for example, `PACER=off claude`) to disable

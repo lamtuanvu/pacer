@@ -4412,6 +4412,66 @@ Params JSON Schema:
 }
 ```
 
+### `machine.get`
+
+This machine's identity: id, name, revision and whether the home looks copied.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.rotate`
+
+Replace this machine's key and id. Paired machines must be told or pair again.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.set`
+
+Rename this machine against the expected revision. Names are display-only.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "name",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `mode.hold`
 
 Hold a mode until a timestamp or the planner window resets.
