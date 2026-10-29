@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { RunFn } from "../src/types";
 import { fakeCtx } from "./helpers";
@@ -36,8 +37,8 @@ test("macOS: every tool is called by absolute path with argv only, never through
   expect((await currentNetwork(ctx, { platform: "darwin" }))!.label).toBe("home-wifi");
   expect(calls).toEqual([
     ["/sbin/route", "-n", "get", "default"],
-    ["/usr/sbin/arp", "-n", "192.168.1.1"],
     ["/usr/sbin/ipconfig", "getsummary", "en0"],
+    ["/usr/sbin/arp", "-n", "192.168.1.1"],
   ]);
 });
 
@@ -51,6 +52,58 @@ test("macOS: a redacted SSID falls back to a neutral label with the same key rul
   expect(n!.label).toMatch(/^Network [0-9a-f]{6}$/);
 });
 
+const ROUTE = { "/sbin/route -n get default": "   route to: default\n    gateway: 192.168.100.1\n  interface: en0\n" };
+const summary = (ra: string, ssid = "home-wifi") => `<dictionary> {\n  Router : 192.168.100.1\n  RouterAdvertisement : ${ra}\n  SSID : ${ssid}\n}\n`;
+const v2 = (identity: string, ssid = "") => createHash("sha256").update(`pacer-network/v2\0${identity}\0${ssid}`).digest("hex").slice(0, 32);
+
+test("macOS: the router advertisement identifies the network without ARP", async () => {
+  const calls: string[][] = [];
+  const map: Record<string, string> = { ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::FEB2:D6FF:FEF4:17C7, length 176, hop limit 64, lifetime 1800s") };
+  const ctx = fakeCtx({ run: async (argv: string[]) => { calls.push(argv); return runner(map)(argv, 0); } });
+  const n = await currentNetwork(ctx, { platform: "darwin" });
+  expect(n).toEqual({ key: v2("ra:fe80::feb2:d6ff:fef4:17c7", "home-wifi"), label: "home-wifi", iface: "en0" });
+  expect(calls.some(c => c[0] === "/usr/sbin/arp")).toBe(false);
+});
+
+test("macOS: a scoped router advertisement source drops its scope", async () => {
+  const ctx = fakeCtx({ run: runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::1%en0, length 176") }) });
+  expect((await currentNetwork(ctx, { platform: "darwin" }))!.key).toBe(v2("ra:fe80::1", "home-wifi"));
+});
+
+test("macOS: without a router advertisement the ARP MAC identifies the network", async () => {
+  const ctx = fakeCtx({ run: runner({
+    ...ROUTE,
+    "/usr/sbin/ipconfig getsummary en0": "<dictionary> {\n  Router : 192.168.100.1\n  SSID : home-wifi\n}\n",
+    "/usr/sbin/arp -n 192.168.100.1": "? (192.168.100.1) at fc:b2:d6:f4:17:c7 on en0 ifscope [ethernet]\n",
+  }) });
+  expect((await currentNetwork(ctx, { platform: "darwin" }))!.key).toBe(v2("mac:fc:b2:d6:f4:17:c7", "home-wifi"));
+});
+
+test("macOS: neither a router advertisement nor an ARP entry means unknown network", async () => {
+  const ctx = fakeCtx({ run: runner({
+    ...ROUTE,
+    "/usr/sbin/ipconfig getsummary en0": "<dictionary> {\n  SSID : home-wifi\n}\n",
+    "/usr/sbin/arp -n 192.168.100.1": "192.168.100.1 (192.168.100.1) -- no entry\n",
+  }) });
+  expect(await currentNetwork(ctx, { platform: "darwin" })).toBeNull();
+});
+
+test("macOS: non-link-local or malformed router advertisement sources are ignored", async () => {
+  for (const ra of ["from 2001:db8::1, length 176", "from fe80::zz, length 176", "from fe80:::1, length 176", "from fe80::1::2, length 176", "from 192.168.100.1, length 176", "from fe80, length 176", "fe80::1"]) {
+    const ctx = fakeCtx({ run: runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary(ra) }) });
+    expect(await currentNetwork(ctx, { platform: "darwin" })).toBeNull();
+  }
+});
+
+test("macOS: the same router advertisement gives the same key across calls", async () => {
+  const map = { ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::feb2:d6ff:fef4:17c7, length 176", "<redacted>") };
+  const a = await currentNetwork(fakeCtx({ run: runner(map) }), { platform: "darwin" });
+  const b = await currentNetwork(fakeCtx({ run: runner(map) }), { platform: "darwin" });
+  expect(a!.key).toBe(b!.key);
+  expect(a!.key).toBe(v2("ra:fe80::feb2:d6ff:fef4:17c7"));
+  expect(a!.label).toBe(`Network ${a!.key.slice(0, 6)}`);
+});
+
 test("Linux: gateway from ip route, MAC from ip neigh, SSID from nmcli", async () => {
   const ctx = fakeCtx({ run: runner({
     "/usr/sbin/ip route show default": "default via 192.168.0.1 dev wlp2s0 proto dhcp metric 600\n",
@@ -60,6 +113,7 @@ test("Linux: gateway from ip route, MAC from ip neigh, SSID from nmcli", async (
   const n = await currentNetwork(ctx, { platform: "linux", exists: p => p === "/usr/sbin/ip" });
   expect(n!.label).toBe("office");
   expect(n!.iface).toBe("wlp2s0");
+  expect(n!.key).toBe(v2("mac:11:22:33:44:55:66", "office"));
 });
 
 test("Linux: ip is resolved by checking where it exists, and nmcli is called by absolute path", async () => {
