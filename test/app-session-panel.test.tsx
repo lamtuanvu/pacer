@@ -87,10 +87,10 @@ test("live token section distinguishes unreported and partial usage", () => {
   expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1/trace");
 });
 
-test("session header owns title, caption and working end action", () => {
+test("session header retains title, caption and working end action", () => {
   const task = {...taskDetail,id:"t-1",title:"Session title",branch:"topic"} as never;
   const html = renderToString(<SessionHeader task={task} onEnd={noop}/>);
-  expect(html).toContain('<h1 title="Session title">Session title</h1>');
+  expect(html).toContain('<h2 title="Session title">Session title</h2>');
   expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1/trace");
   expect(html).toContain("End session (asks to confirm)");
   expect(renderToString(<SessionHeader task={task}/>)).not.toContain("End session");

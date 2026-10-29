@@ -24,7 +24,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     const measureDock = () => root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
     const observer = new ResizeObserver(measureDock);
     const observeDock = () => {
-      const next = root.querySelector<HTMLElement>(":scope > .pc-dock");
+      const next = root.querySelector<HTMLElement>(":scope > .pc-dock > .pc-dock__panel");
       if (next !== dock) {
         if (dock) observer.unobserve(dock);
         dock = next;
@@ -34,7 +34,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     };
     observeDock();
     const children = new MutationObserver(observeDock);
-    children.observe(root, { childList: true });
+    children.observe(root, { childList: true, subtree: true });
     return () => { children.disconnect(); observer.disconnect(); };
   }, [docked]);
   const work = <div className="pc-work">

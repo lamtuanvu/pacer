@@ -4,6 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+- Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
+
 ### Fixed
 
 - Align Tasks with its board: short task titles and accessible names with full-text tooltips, a sticky selected-task summary with duration, planner-attributed linked work, notes and a dispatch trace link, measured token totals, and the board’s row geometry and selection colours.

@@ -123,7 +123,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
       const lead = node.agents.length > 1 ? `${node.agents.length} agents` : task?.executor ? executorLabel(task.executor) : "Not assigned";
       return <li key={node.id}><ListRowLink className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}${running ? "" : "/trace"}`, query)}>
         <span className="pc-dispatch-caption">{node.updatedAt ? clock(node.updatedAt, now) : ""}</span>
-        <span className="pc-dispatch-decision__task"><strong className="pc-ellipsis">{node.title}</strong><span className="pc-dispatch-caption pc-dispatch-decision__repo pc-ellipsis">{node.repo}{node.children.length > 0 ? ` · ${node.children.length} subtasks` : ""}</span></span>
+        <span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption pc-dispatch-decision__repo pc-ellipsis">{node.repo}{node.children.length > 0 ? ` · ${node.children.length} subtasks` : ""}</span></span>
         <span><Pill tone="neutral">{task?.kind ?? "Unclassified"}</Pill></span>
         <span className="pc-dispatch-decision__agents">{node.agents.map((agent, i) => <AgentMark key={`${agent}:${i}`} agent={agent} size={20} labelled={false} />)}<strong className="pc-ellipsis">{lead}</strong></span>
         <span className="pc-dispatch-caption pc-ellipsis" title={why ?? undefined}>{why ?? "Routing reason not recorded"}</span>

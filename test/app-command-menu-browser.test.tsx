@@ -300,7 +300,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
   await open(page, built, "#/");
   const trigger = page.locator(".pc-command-trigger");
   const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-command-trigger__text")!.textContent }; });
-  expect(t).toMatchObject({ w: 420, h: 30, radius: "8px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
+  expect(t).toMatchObject({ w: 420, h: 26, radius: "6px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
   await trigger.click();
   await page.getByRole("combobox").fill("fix");
   await page.waitForTimeout(100);

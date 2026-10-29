@@ -1,5 +1,6 @@
 import { useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
+import { Page } from "../../ds/Page";
 import { Button } from "../../ds/Button";
 import { TextInput } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
@@ -70,10 +71,10 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
-  return <div className="pc-tasks-page">
+  return <Page width="full" className="pc-tasks-page">
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
-        {/* The title bar still carries the page's h1 until the frame drops its route title; this stays a heading, not a second h1. */}<h2 className="pc-tasks-page__title">Tasks</h2>
+        <h1 className="pc-tasks-page__title">Tasks</h1>
         {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{` · ${summary.tokens ?? "— tokens"}`}</span>}
       </div>
       <label className="pc-tasks-page__search"><span className="sr-only">Search tasks</span><Icon name="overview" />
@@ -100,5 +101,5 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
       </section>
       {here && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
     </div>
-  </div>;
+  </Page>;
 }

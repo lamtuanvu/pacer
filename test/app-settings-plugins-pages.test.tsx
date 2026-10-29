@@ -249,8 +249,8 @@ browserTest('App and plugin pages retain the shared frame and controls',async()=
   const app=await mount({mode:'app'},{viewport:{width:1440,height:900}}), cards=await mount({mode:'plugins'},{viewport:{width:1440,height:900}}), editor=await mount({},{viewport:{width:1440,height:900}});
   const style=(page:Page,selector:string)=>page.locator(selector).first().evaluate(node=>{const s=getComputedStyle(node);return {height:s.height,width:s.width,padding:s.padding,radius:s.borderRadius,color:s.color,fontSize:s.fontSize,weight:s.fontWeight,align:s.alignItems};});
   try {
-    const appFrame=await frame(app);expect(appFrame.padding).toBe('28px 40px 48px');expect(appFrame.maxWidth).toBe('1080px');expect(appFrame.content).toBe(1000);
-    const expected=await frame(cards);expect(expected.padding).toBe('28px 40px 48px');expect(expected.maxWidth).toBe('1080px');expect(expected.content).toBe(1000);
+    const appFrame=await frame(app);expect(appFrame.padding).toBe('24px 32px 40px');expect(appFrame.maxWidth).toBe('none');expect(appFrame.content).toBe(1376);
+    const expected=await frame(cards);expect(expected.padding).toBe('24px 32px 40px');expect(expected.maxWidth).toBe('none');expect(expected.content).toBe(1376);
     expect(await frame(editor)).toEqual(expected);
     expect((await style(editor,'.pc-setting-row')).align).toBe('start');
     expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});

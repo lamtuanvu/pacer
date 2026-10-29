@@ -15,11 +15,8 @@ async function frame(setupOpen = 0) {
     });
     builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "terminal-stub" }));
     builder.onLoad({ filter: /.*/, namespace: "terminal-stub" }, () => ({ resolveDir: process.cwd(), loader: "js", contents: `import { h } from "preact";
-    // Same structure and classes as the real terminal view, without xterm.
     export const LazyTerminal = () => h("section", { class: "pc-terminal-view" },
-      h("div", { class: "pc-terminal-search", role: "search" }, h("div", { class: "pc-field field" }, h("label", null, "Search terminal output"), h("input")), h("button", null, "Previous"), h("button", null, "Next")),
-      h("div", { class: "pc-terminal-frame" }, h("div", { class: "pc-terminal-pane" }), h("div", { class: "pc-terminal-strip" }, h("strong", null, "You have control"), h("span", null, "Keystrokes go to your shell."), h("span", null, "80x24"))),
-      h("div", { class: "pc-session-row" }, h("button", null, "Release control"), h("span", { class: "pc-session-muted" }, "Only one window can type into this shell at a time.")));` }));
+      h("div", { class: "pc-terminal-frame" }, h("div", { class: "pc-terminal-pane" })));` }));
   } }] });
   expect(build.success).toBe(true);
   const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/terminal/terminal.css", "app/src/screens/work/work.css"].map(path => Bun.file(path).text()))].join("\n");
@@ -270,22 +267,22 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await dock.waitFor();
     await focused(page, "#pc-terminal-dock");
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
-    await page.getByRole("button", { name: "New terminal" }).click();
-    await dock.getByRole("navigation", { name: "Terminals" }).getByRole("button", { name: "Shell", exact: true }).waitFor();
+    await page.getByRole("button", { name: "New terminal", exact: true }).click();
+    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).waitFor();
     expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().height;
-      return { body: box(".pc-dock__body"), panes: box(".pc-workspace-terminal__panes"), pane: box(".pc-workspace-terminal__pane"), term: box(".pc-terminal-pane") };
+      return { body: box(".pc-workspace-terminal"), panes: box(".pc-workspace-terminal__panes"), pane: box(".pc-workspace-terminal__pane"), term: box(".pc-terminal-pane") };
     });
     expect(sizes.panes).toBeGreaterThanOrEqual(sizes.body * 0.55);
     expect(sizes.panes).toBeGreaterThanOrEqual(150);
     expect(sizes.pane).toBeLessThanOrEqual(sizes.panes);
     // The terminal itself keeps several lines (about 16px each) once search, status and controls are compacted.
     expect(sizes.term).toBeGreaterThanOrEqual(100);
-    await expect(dock.getByRole("button", { name: "Shell", exact: true }).getAttribute("aria-current")).resolves.toBe("true");
+    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).getAttribute("aria-selected")).resolves.toBe("true");
     await dock.focus();
-    await page.getByRole("button", { name: "Hide terminal panel" }).click();
+    await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
     // The terminal route has no dock and no dock control.
@@ -396,18 +393,18 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
         overflow: document.scrollingElement!.scrollWidth <= document.scrollingElement!.clientWidth,
       };
     });
-    expect(m.top.h).toBe(44);
+    expect(m.top.h).toBe(36);
     expect(m.top.pad).toBe("0px 10px 0px 8px");
     expect(m.top.bg).toBe(m.top.card);
     expect(m.top.headings).toBe(0); // Settings pages supply the h1; the banner retains its name.
     expect(m.top.label).toBe("Settings");
     expect(m.mark).toEqual([18, 18]);
-    expect(m.chip.h).toBe(28);
+    expect(m.chip.h).toBe(24);
     expect(m.chip.r).not.toBe("0px");
     expect(m.chip.mode).toBe(true);
     expect(m.group).toBe("Layout");
-    expect(m.toggles).toEqual([[32, 32], [32, 32]]); // left panel and terminal; no right panel on this route
-    expect(m.names).toEqual(["Toggle left panel", "Toggle terminal panel (Ctrl+`)"]);
+    expect(m.toggles).toEqual([[28, 28], [28, 28], [28, 28]]); // left panel and terminal; no right panel on this route
+    expect(m.names).toEqual(["Toggle left panel", "Toggle terminal panel (Ctrl+`)", "Toggle right panel"]);
     expect(m.rail.w).toBe(52);
     expect(m.rail.pad).toBe("8px 0px");
     expect(m.rail.gap).toBe("4px");
@@ -439,11 +436,11 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
     // A route without panels or dock offers no toggles; narrow layouts keep their own chrome.
     await page.evaluate(() => { location.hash = "#/terminal"; });
-    await page.locator(".pc-layout-toggles button").first().waitFor({ state: "detached" });
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled));
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
     await page.setViewportSize({ width: 767, height: 800 });
-    await page.waitForFunction(() => !document.querySelector(".pc-layout-toggles button"), null, { timeout: 2000 });
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled), null, { timeout: 2000 });
     expect(await noHorizontalOverflow(page)).toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await page.waitForFunction(() => !document.querySelector(".pc-statusbar"), null, { timeout: 2000 });

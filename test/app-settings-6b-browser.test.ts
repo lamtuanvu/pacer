@@ -20,7 +20,7 @@ browserTest('Add remote host: pick an alias, name it, then watch a live connect-
     const connect = page.getByRole('button', { name: 'Connect and check', exact: true });
     expect(await connect.isDisabled()).toBe(true);
     expect(await page.getByText('Pick a host from your SSH config first.').count()).toBe(1);
-    await page.getByRole('button', { name: 'devbox', exact: true }).click();
+    await page.locator('.u3-aliases').getByRole('button', { name: /^devbox(?:\s|$)/ }).click();
     // The name is suggested from the alias and can be edited; a taken name blocks the check with a reason.
     const name = page.getByRole('textbox', { name: /Name it in pacer/ });
     expect(await name.inputValue()).toBe('devbox');
@@ -44,7 +44,7 @@ browserTest('Add remote host: pick an alias, name it, then watch a live connect-
 browserTest('a failed check names the reason and checks again without adding the host twice', async () => {
   await open(async page => {
     await page.evaluate(() => (window as any).hostFixture.failFirst(true));
-    await page.getByRole('button', { name: 'pi-lab', exact: true }).click();
+    await page.locator('.u3-aliases').getByRole('button', { name: /^pi-lab(?:\s|$)/ }).click();
     await page.getByRole('button', { name: 'Connect and check', exact: true }).click();
     await page.getByRole('button', { name: 'Check again', exact: true }).waitFor();
     expect(await page.getByRole('list', { name: 'Checks for pi-lab' }).textContent()).toContain('Failed: Connects with your SSH key');
@@ -146,7 +146,7 @@ browserTest('Add agent: Remove this agent asks first, removes the executor and r
 
 browserTest('Add host: a check that cannot start is reported, not silently retried', async () => {
   await open(async page => {
-    await page.getByRole('button', { name: 'devbox', exact: true }).click();
+    await page.locator('.u3-aliases').getByRole('button', { name: /^devbox(?:\s|$)/ }).click();
     await page.evaluate(() => (window as any).hostFixture.failFirst(true));
     await page.getByRole('button', { name: 'Connect and check', exact: true }).click();
     await page.getByRole('list', { name: 'Checks for devbox' }).waitFor();
@@ -258,23 +258,23 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
   expect(geometry[0]).toMatchObject({radius:'12px',overflow:'hidden',border:'1px'});
   const rows=page.locator('.u3-machine-body .pc-setting-row--board');
-  expect(await rows.count()).toBe(5);
+  expect(await rows.count()).toBe(6);
   const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
   for (const row of layout) {
    expect(row.padding).toBe('12px 0px');
    // The board keeps the label and control side by side at desktop widths.
    expect(row.columns.split(' ')).toHaveLength(2);
-   // The label column is the board's 240px.
-   expect(row.columns.split(' ')[0]).toBe('240px');
+   // The label yields to the control's 220px minimum within the full-width frame.
+   expect(parseFloat(row.columns.split(' ')[0]!)).toBe(Math.min(240,row.width-20-220));
    expect(row.gap).toBe('20px');
   }
   expect(await page.locator('.u3-machines-grid').evaluate(el=>getComputedStyle(el).gap)).toBe('20px');
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(72);
-  // The 240px label column leaves 196px of the 456px card body, so the 220px select fits to its column.
-  expect(await page.getByRole('button',{name:'Terminal for sessions',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(196);
+  // The select retains its 220px minimum after the label yields.
+  expect(await page.getByRole('button',{name:'Terminal for sessions',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(220);
   expect(await page.getByRole('heading',{name:'This Mac',exact:true}).evaluate(el=>{const c=getComputedStyle(el);return [c.fontSize,c.lineHeight,c.fontWeight]})).toEqual(['16px','22px','650']);
   expect(await page.getByText('Codex · team may use 3',{exact:true}).count()).toBe(1);
-  await page.getByRole('button',{name:'devbox',exact:true}).click();
+  await page.locator('.u3-aliases').getByRole('button', { name: /^devbox(?:\s|$)/ }).click();
   expect(await page.getByRole('textbox',{name:/Name it in pacer/}).evaluate(el=>el.getBoundingClientRect().width)).toBe(200);
   await page.getByRole('button',{name:'Connect and check',exact:true}).click();
   const checks=page.getByRole('list',{name:'Checks for devbox'});await checks.waitFor();
@@ -344,7 +344,7 @@ browserTest('Add agent Check again reloads detection and exposes its busy state'
 browserTest('failed host recovery keeps the current settings scope',async()=>{
  await open(async page=>{
   await page.evaluate(()=>{(window as any).hostFixture.scoped();(window as any).hostFixture.failFirst(true);});
-  await page.getByRole('button',{name:'pi-lab',exact:true}).click();
+  await page.locator('.u3-aliases').getByRole('button', { name: /^pi-lab(?:\s|$)/ }).click();
   await page.getByRole('button',{name:'Connect and check',exact:true}).click();
   const manage=page.getByRole('link',{name:'Manage pi-lab',exact:true});await manage.waitFor();
   const href=await manage.getAttribute('href');

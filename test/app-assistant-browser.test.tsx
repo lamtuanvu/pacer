@@ -304,7 +304,7 @@ browserTest("pill stays 18px above the status bar or resized dock and exposes on
     };
     const geometry = () => page.evaluate(() => {
       const pill = document.querySelector('.pc-aurora-launcher')!.getBoundingClientRect();
-      const edge = (document.querySelector('.pc-dock') ?? document.querySelector('.pc-statusbar'))!.getBoundingClientRect();
+      const edge = (document.querySelector('.pc-dock__panel') ?? document.querySelector('.pc-statusbar'))!.getBoundingClientRect();
       return { gap: edge.top - pill.bottom, height: pill.height, dockHeight: getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') };
     });
     expect((await geometry()).gap).toBe(18);
@@ -312,7 +312,7 @@ browserTest("pill stays 18px above the status bar or resized dock and exposes on
     expect((await geometry()).height).toBe(40);
     expect((await geometry()).dockHeight).toBe('0px');
     await page.keyboard.press('Control+Backquote');
-    await page.locator('.pc-dock').waitFor();
+    await page.locator('.pc-dock__panel').waitFor();
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') !== '0px');
     expect((await geometry()).gap).toBe(18);
     await bodyDoesNotScroll();
@@ -328,14 +328,14 @@ browserTest("pill stays 18px above the status bar or resized dock and exposes on
     await page.keyboard.press('Meta+j');
     await bodyDoesNotScroll();
     // Replacing the dock while it remains open must move the observer to the new node.
-    await page.locator('.pc-dock').evaluate(el => { (window as any).originalDock = el; el.replaceWith(el.cloneNode(true)); });
-    await page.locator('.pc-dock').evaluate(el => (el as HTMLElement).style.height = '220px');
+    await page.locator('.pc-dock__panel').evaluate(el => { (window as any).originalDock = el; el.replaceWith(el.cloneNode(true)); });
+    await page.locator('.pc-dock__panel').evaluate(el => { (el as HTMLElement).style.flex = 'none'; (el as HTMLElement).style.height = '220px'; });
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') === '220px');
     expect((await geometry()).gap).toBe(18);
     await bodyDoesNotScroll();
-    await page.locator('.pc-dock').evaluate(el => el.replaceWith((window as any).originalDock));
+    await page.locator('.pc-dock__panel').evaluate(el => el.replaceWith((window as any).originalDock));
     await page.keyboard.press('Control+Backquote');
-    await page.locator('.pc-dock').waitFor({ state: 'detached' });
+    await page.locator('.pc-dock__panel').waitFor({ state: 'detached' });
     expect((await geometry()).dockHeight).toBe('0px');
     expect((await geometry()).gap).toBe(18);
     await bodyDoesNotScroll();

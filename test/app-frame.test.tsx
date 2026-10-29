@@ -75,7 +75,8 @@ test("dock_not_rendered_on_terminal_route", () => {
     const terminal = withService("#/terminal");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
-    expect(terminal).not.toContain('aria-keyshortcuts="Control+`"');
+    expect(terminal).toContain('aria-label="Toggle terminal panel (Ctrl+`)"');
+    expect(terminal).toContain("This screen has no terminal panel");
     expect(withService("#/setup")).not.toContain("pc-dock");
   } finally { (globalThis as any).localStorage = previous; }
 });
@@ -100,4 +101,14 @@ test("the planner chip carries the mode pill with a tone from the mode", () => {
   expect(html("relaxed")).toMatch(/pc-planner[\s\S]*pc-pill--good[^>]*>Relaxed</);
   expect(html("strict")).toMatch(/pc-planner[\s\S]*pc-pill--warn[^>]*>Strict</);
   expect(html("normal")).toMatch(/pc-planner[\s\S]*pc-pill--neutral[^>]*>Normal</);
+});
+
+
+test("only session detail routes retain the shell page heading", () => {
+  for (const hash of ["#/tasks", "#/tasks/new"]) {
+    expect(withService(hash)).not.toMatch(/<h1\b/);
+  }
+  for (const hash of ["#/tasks/task-1"]) {
+    expect(withService(hash)).toMatch(/<h1\b/);
+  }
 });

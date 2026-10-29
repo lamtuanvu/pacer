@@ -110,7 +110,7 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
   await summary.focus();await page.keyboard.press('Enter');
   expect(await page.locator('.pc-diagnostic-row details').first().getAttribute('open')).not.toBeNull();
   expect(await page.locator('summary button,summary a').count()).toBe(0);
-  expect(await page.locator('.pc-page').evaluate(node=>{const style=getComputedStyle(node);return {width:style.width,padding:style.padding};})).toEqual({width:'1080px',padding:'28px 40px 48px'});
+  expect(await page.locator('.pc-page').evaluate(node=>{const style=getComputedStyle(node);return {width:style.width,padding:style.padding};})).toEqual({width:'1440px',padding:'24px 32px 40px'});
   expect(await page.locator('#diagnostics h1').evaluate(node=>{const style=getComputedStyle(node);return {size:style.fontSize,line:style.lineHeight,weight:style.fontWeight};})).toEqual({size:'28px',line:'34px',weight:'650'});
   const geometry=await page.locator('.pc-diagnostic-totals').evaluate(node=>{
    const totals=getComputedStyle(node),glyph=getComputedStyle(node.querySelector('.pc-diagnostic-glyph')!);

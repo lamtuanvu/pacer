@@ -152,6 +152,7 @@ export function SettingsGeneral({
       >
         <SettingsQueryContext.Provider value={query}>
         <Page width="full" className="u3-settings u3-settings-page">
+          {section === "dispatcher" && <h1>Dispatcher</h1>}
           <div className="u3-general-sections">{content}</div>
           {DISPATCH_NOTE.has(section ?? "") && (
             <p className="u3-settings-note">

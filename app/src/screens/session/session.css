@@ -105,7 +105,7 @@
 .pc-session-control--driving .pc-session-control__hint{display:block;flex:1 0 100%}
 }
 /* Tasks page: header, filters, tree and the selected-task panel. */
-.pc-tasks-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;box-sizing:border-box;padding:var(--space-6) var(--space-8) var(--space-10)}
+.pc-tasks-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;box-sizing:border-box}
 .pc-tasks-page__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-tasks-page__heading{display:flex;flex:1 1 auto;flex-direction:column;gap:var(--space-half);min-width:0}
 .pc-tasks-page__title{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
@@ -169,7 +169,7 @@
 /* Session / ViewerDesktop boards: the global chrome remains independent of the session. */
 .pc-task-workspace__main:has(>.pc-session-bar){padding:0;overflow:hidden;gap:0}
 .pc-session-bar{height:var(--size-40);flex:none;display:flex;align-items:center;gap:var(--space-2\.5);padding:0 var(--space-3) 0 var(--space-4);border-bottom:1px solid var(--line);background:var(--surface-page);min-width:0}
-.pc-session-bar h1{margin:0;font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-session-title-weight);min-width:var(--size-80);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-session-bar h2{margin:0;font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-session-title-weight);min-width:var(--size-80);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pc-session-bar__caption{font-family:var(--font-mono);font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .pc-session-bar__spacer{flex:1}.pc-session-bar>.pc-text-action,.pc-session-bar>.pc-btn,.pc-session-bar>.pc-pill{flex:none;white-space:nowrap}
 .pc-session-bar>.pc-pill{align-self:center}
@@ -204,7 +204,7 @@
 .pc-session-acceptance{display:block;padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane);font-family:var(--font-mono);font-size:var(--type-code-size);white-space:pre-wrap}
 .pc-session-file-link.pc-btn{justify-content:flex-start;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;min-height:0;border:0;font-family:var(--font-mono);font-size:var(--type-code-size);font-weight:var(--type-body-weight)}
 .pc-session-file-closes{display:flex;flex-wrap:wrap;gap:var(--space-1);padding:0 var(--space-4)}
-@media(max-width:767px){.pc-session-bar{flex-wrap:wrap;height:auto;min-height:var(--size-40);padding:var(--space-2) var(--space-3)}.pc-session-bar h1{flex:1}.pc-session-bar__caption{display:none}.pc-task-workspace__main:has(>.pc-session-bar){overflow:auto}}
+@media(max-width:767px){.pc-session-bar{flex-wrap:wrap;height:auto;min-height:var(--size-40);padding:var(--space-2) var(--space-3)}.pc-session-bar h2{flex:1}.pc-session-bar__caption{display:none}.pc-task-workspace__main:has(>.pc-session-bar){overflow:auto}}
 
 .pc-session-end.pc-btn{color:var(--bad-fg)}
 

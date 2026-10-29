@@ -19,7 +19,7 @@ import { markAgent } from "../../../../src/view-model/agents";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import type { SessionFileResult } from "../../../../src/session/files";
 import { parseDiff } from "../../model/diff";
-import { useFrame } from "../../shell/slots";
+import { useFrame, useFrameHeading } from "../../shell/slots";
 
 export type SessionPanelTab = "changes" | "details" | "work";
 export interface ChangedFile { path: string; added: number; removed: number; status?: "added" | "modified" | "deleted" | "renamed" }
@@ -101,9 +101,10 @@ export function WorktreeChanges({ diff, loading, error }: { diff?: TaskDiff | nu
   </div>;
 }
 
-/** The session title belongs below the global chrome. */
+/** The frame owns the h1; the session header retains its content and actions. */
 export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?: () => void; busy?: boolean }) {
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
+  useFrameHeading({ title, agent: markAgent(task.executor ?? "unknown") });
   const header = useRef<HTMLElement>(null), couldEnd = useRef(!!onEnd);
   useEffect(() => {
     const ended = couldEnd.current && !onEnd;
@@ -115,7 +116,7 @@ export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?:
     return () => cancelAnimationFrame(frame);
   }, [!!onEnd]);
   return <header ref={header} className="pc-session-bar"><AgentMark agent={markAgent(task.executor ?? "unknown")} size={20}/>
-    <h1 title={title}>{title}</h1><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
+    <h2 title={title}>{title}</h2><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
     <StatusPill status={taskStatus(task)}/><span className="pc-session-bar__spacer"/>
     <a className="pc-text-action" href={`#/tasks/${encodeURIComponent(task.id)}/trace`}>Dispatch trace</a>
     {onEnd && <Button size="bar" className="pc-session-end" busy={busy} onClick={onEnd} title="End session (asks to confirm)">End session</Button>}

@@ -64,7 +64,7 @@ Compact is the desktop default, including dialogs outside the shell. `DensityPro
 | `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
 | `Pagination` | Controlled `label`, zero-based `page`, `pageSize`, `total`, `onChange` | Dispatch and Needs you lists. Uses canonical small Buttons with inherited density. Range is a polite live status; only available Previous/Next actions render. Native Tab/Enter/Space activation. Paging moves focus to the persistent labelled navigation region so disappearing boundary buttons do not lose focus. Empty lists omit navigation. Authored locally; no upstream adaptation. |
 | `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children, optional `bodyTitle` that renders the title as a body-strong `<strong>` instead of a section heading (for an empty state inside a section that already has one) | Shell connection, task/session/settings resources, Dispatch and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
-| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen uses `full` to fill the available workspace. The `standard` and `wide` variants remain available for explicitly constrained compositions. Page owns width, centering, responsive/safe-area gutters and page rhythm. PageHeader never invents another `h1`; the shell top bar remains the page title. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
+| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen fills its available workspace. All width variants now share uncapped geometry. Page owns width, responsive gutters and page rhythm. PageHeader accepts the routed page heading; desktop page titles live in the page frame. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
 | `Stack`, `Cluster`, `Section`, `DisclosurePanel`, `ActionPanel` | Semantic compact/normal/section spacing and contained section/detail/action composition | Shared page composition. These are original local Preact components with no upstream adaptation. Consumers provide content and domain state; DS tokens own spacing, borders and responsive behavior. Specialized tables, diffs, terminal geometry and domain grids remain screen-owned. |
 | `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs; `Pill` also accepts `title` only; its accessible name comes from its full text | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
 | `UsageMeter`, `AgentMark`, `Mark`, `Icon`, `Kbd`, `Tooltip` | Existing documented typed props in their modules; `Kbd` also takes `size="sm"` (11 px cap, 4 px radius, page background) for the command menu and the title-bar search | Specialized meter geometry, vendor identity, navigation, shortcuts and tooltips remain shared. Stale meter readings visibly say Historical usage, include a known capture time, and announce freshness through the meter value text. A Kbd composed inside a button inherits the action foreground on a transparent surface, retaining the action contrast pair in both themes. Usage percentages are data, not ad-hoc style. Agent colors mirror shared identity descriptors in both themes. |
@@ -531,6 +531,35 @@ links keep the shared touch minimum for both width and height.
 
 The assistant launcher uses the shared `AuroraLauncher` (surface-card in both themes, muted 11px shortcut) and its `AuroraAvatar` uses the board’s conic aurora token gradient. The shell clips the overlay to the work area; setup composes 24px `AgentMark` rows and a semantic h2 using the 14px/650 session-title tokens. App preferences uses the existing `Switch size="sm"` (36×20, green on). `AuroraSheet autoScroll` defaults to true for conversation updates; setup/status cards set it false to retain their heading at the top. No upstream source is introduced.
 
-Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
+Session detail keeps the sole h1 in the top bar; its in-page header uses an h2 and retains screen actions. Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
 
 Button `size="bar"` supplies the boards’ 26px header action, 10px horizontal padding and 6px radius, with the shared touch minimum on coarse pointers. The session End session action consumes it.
+
+### Unified page frame and workspace terminal
+
+`Page` owns an uncapped work-area width with 24px top, 32px side and 40px
+bottom gutters on desktop. All width names retain compatibility and resolve to
+that same frame. Settings keep their separate 240px navigation. Routed page
+headings use the display tokens (28px/34px, weight 650); `PageTitle` places the
+heading before introductory breadcrumbs in flex layouts.
+
+The desktop `TopBar` is 36px high: a 26px search, 24px planner chip, three
+28px layout toggles and a 26px New task link. Absent panels keep their toggle
+with a disabled state and a reason tooltip. Native traffic-light spacing remains
+owned by the shell.
+
+`TerminalDock` owns local height persistence, a 6px horizontal separator and
+120px–80% work-area limits. Up/Down resize by 16px; Home/End select the bounds;
+double-click restores 260px. Maximize fills the work area and Restore returns to
+the previous height. Its flex proportion is measured layout geometry,
+not an authored visual scale. `TerminalScreen` supplies the same terminal panel
+for the dock and full-page route: a 30px tab/header row, 24px tools with 6px radii, inline tab
+rename, folder creation menu, split panes and keyboard/pointer split separator.
+Terminal body padding is 10px/14px and type is mono 12px/19px. Existing session
+attachment, control and IO remain in `term/term.tsx`; its optional `onActions`
+callback exposes Find, Clear and screen-reader mode to the panel header, and
+`onInputLocked` supplies the tab's conditional control-lock tooltip. Find is a
+floating widget opened by Cmd/Ctrl+F and closed by Esc. Connection/retry/control
+state appears inside the body. The external-terminal menu item explains when the
+service lacks that capability. This is an original specialized terminal layout;
+no upstream component was copied.
