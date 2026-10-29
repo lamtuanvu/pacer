@@ -32,8 +32,9 @@ A planner can spend its subscription too quickly while other coding agents have 
 ## Install
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag pacer
-into Applications. On first launch, approve it once as described in
+Choose the matching `desktop-pacer-<version>-darwin-<arch>.dmg`: `aarch64` for
+Apple silicon or `x86_64` for Intel. Open it and drag pacer into Applications.
+On first launch, approve it once as described in
 [macOS desktop app](#macos-desktop-app).
 
 Welcome leads to one consent screen for the background service and the terminal
@@ -41,6 +42,11 @@ link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
 `export PATH="$HOME/.local/bin:$PATH"` to your `~/.zshrc` or `~/.bashrc`; it is
 off by default. Continue to the step-by-step **Setup** to choose your planner,
 connect agents, choose an executor and try a task. The app includes its CLI.
+
+The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
+`pacer-core` (the bundled TypeScript runtime). Keep them together. The standalone
+CLI can repair a missing or mismatched companion from its verified own-version
+release; an incomplete desktop app must be replaced as a complete app.
 
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See

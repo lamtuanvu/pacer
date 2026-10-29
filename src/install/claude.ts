@@ -80,7 +80,7 @@ export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, hom
   const { doc, removed } = removeHooks(original, "claude", command => !automatic && typeof command === "string" && command.includes("/.claude/scripts/budget/"));
   const next = upsertHooks(doc, "claude", [
     { event: "SessionStart", command: cmds.session, timeout: 15, statusMessage: "Checking subscription budgets" },
-    { event: "PreToolUse", matcher: "Agent|Task", command: cmds.guard, timeout: 15 },
+    { event: "PreToolUse", matcher: "Agent|Task|Bash", command: cmds.guard, timeout: 15 },
   ], "claude-code");
   const createdStatusLine = next.statusLine === undefined;
   let scriptPath: string | null = null;

@@ -51,7 +51,7 @@ export function hasDesktop(ctx:Ctx,platform:NodeJS.Platform=process.platform):bo
 export function detectTerminal(ctx:Ctx,platform:NodeJS.Platform=process.platform):string|null{
  if(!hasDesktop(ctx,platform))return null;
  const program=(ctx.env.TERM_PROGRAM??'').toLowerCase();
- const names:Record<string,string>={ghostty:'ghostty',iterm:'iterm',itermapp:'iterm','apple_terminal':'terminal-app',wezterm:'wezterm',kitty:'kitty',alacritty:'alacritty'};
+ const names:Record<string,string>={ghostty:'ghostty',iterm:'iterm','iterm.app':'iterm',itermapp:'iterm','apple_terminal':'terminal-app',wezterm:'wezterm',kitty:'kitty',alacritty:'alacritty'};
  if(names[program])return names[program];
  if(platform==='darwin'){
   for(const [app,preset] of [['Ghostty','ghostty'],['iTerm','iterm'],['Terminal','terminal-app']])if(existsSync(`/Applications/${app}.app`)||existsSync(`/System/Applications/Utilities/${app}.app`))return preset;
