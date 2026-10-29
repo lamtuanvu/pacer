@@ -53,9 +53,9 @@ test("desktop notifications carry only Pair and Later", () => {
 test("the rule input lists prompted, unsilenced machines and the radio's unanswered network", async () => {
   const ctx = fakeCtx();
   const name = (await ensureIdentity(ctx)).name;
-  await buildRadioConfig(ctx, { network: { key: K1, label: "home-wifi" } });
+  await buildRadioConfig(ctx, { network: { key: K1, label: "home-wifi", iface: "en0" } });
   const now = Math.floor(Date.now() / 1000);
-  await recordObservations(ctx, [{ id: peer, name: "studio", v: "1", h: "" }, { id: "b".repeat(26), name: "other", v: "1", h: "" }], { now, network: { key: K1, label: "home-wifi" } });
+  await recordObservations(ctx, [{ id: peer, name: "studio", v: "1", h: "" }, { id: "b".repeat(26), name: "other", v: "1", h: "" }], { now, network: { key: K1, label: "home-wifi", iface: "en0" } });
   await updateState(ctx, s => { s.silenced["b".repeat(26)] = "forever"; });
   const input = discoveryRuleInput(ctx, now)!;
   expect(input.networksRev).toBe(readState(ctx).networksRev);
@@ -73,7 +73,7 @@ test("the rule input is undefined when discovery is off", async () => {
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n");
   await ensureIdentity(ctx);
-  await buildRadioConfig(ctx, { network: { key: K1, label: "home-wifi" } });
+  await buildRadioConfig(ctx, { network: { key: K1, label: "home-wifi", iface: "en0" } });
   expect(discoveryRuleInput(ctx, 1000)?.network).toMatchObject({ key: K1 });
   await config.set(ctx, "discovery", "off");
   expect(discoveryRuleInput(ctx, 1000)).toBeUndefined();

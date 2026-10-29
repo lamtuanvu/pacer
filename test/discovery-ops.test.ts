@@ -14,7 +14,7 @@ import { readOutboxSince } from "../src/link/store";
 beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
 const call = (ctx: any, name: string, params: object) => (OPS as any)[name].handler(ctx, (OPS as any)[name].params.parse(params), {});
 const K1 = "0123456789abcdef0123456789abcdef";
-const home = { key: K1, label: "home-wifi" };
+const home = { key: K1, label: "home-wifi", iface: "en0" };
 const peer = "a".repeat(26);
 
 test("discovery.list reports unavailable when no radio has called in", async () => {

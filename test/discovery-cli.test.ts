@@ -8,7 +8,7 @@ import { clearIdentityCache, setIdentityPlatformForTests } from "../src/identity
 
 beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
 function setup() { const ctx = fakeCtx(); ctx.env.PACER_API = "inprocess"; return ctx; }
-const home = { key: "0123456789abcdef0123456789abcdef", label: "home" };
+const home = { key: "0123456789abcdef0123456789abcdef", label: "home", iface: "en0" };
 
 test("ls lists found machines; ignore accepts an unambiguous id prefix", async () => {
   const ctx = setup();
