@@ -33,7 +33,7 @@ function stub(routes: Record<string, unknown>, calls: Call[]): UpgradeDeps {
 
 test("work is read before the restart, then the healthy new service hands it over and reports", async () => {
   const ctx = ctxWith(true), calls: Call[] = [];
-  const deps = stub({ "version.get": { pacer: "0.13.1" }, "service.handover": { pacer: "0.13.1", tasks: 1, sessions: 0, handed_over: 1, kept_on_previous_runner: 0, summary: "ignored" } }, calls);
+  const deps = { ...stub({ "version.get": { pacer: "0.13.1" }, "service.handover": { pacer: "0.13.1", tasks: 1, sessions: 0, handed_over: 1, kept_on_previous_runner: 0, summary: "ignored" } }, calls), expectedPid: 12345 };
   const r = await restartAroundWork(ctx, async () => { expect(calls).toHaveLength(0); return true; }, { expectedVersion: "0.13.1", prefix: v => `Updated to v${v}.`, deps });
   expect(r).toEqual({ restarted: true, summary: "Updated to v0.13.1. 1 task and 0 sessions kept running; 0 stayed on the previous runner." });
   expect(calls.map(c => c.op)).toEqual(["health", "version.get", "service.handover"]);
@@ -49,9 +49,9 @@ test("with nothing running no service call is made", async () => {
 });
 
 test("a failed health check or an older service leaves work on its runners with a warning", async () => {
-  const unhealthy = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => `Updated to v${v}.`, deps: stub({ "version.get": { pacer: "0.13.0" } }, []) });
+  const unhealthy = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => `Updated to v${v}.`, deps: { ...stub({ "version.get": { pacer: "0.13.0" } }, []), expectedPid: 12345 } });
   expect(unhealthy).toEqual({ restarted: true, summary: null, warning: "the restarted service did not pass its health check; running work stays on its current runners" });
-  const older = await restartAroundWork(ctxWith(true), async () => true, { prefix: v => `Updated to v${v}.`, deps: stub({ "version.get": { pacer: "0.13.0" } }, []) });
+  const older = await restartAroundWork(ctxWith(true), async () => true, { prefix: v => `Updated to v${v}.`, deps: { ...stub({ "version.get": { pacer: "0.13.0" } }, []), expectedPid: 12345 } });
   expect(older.summary).toBeNull();
   expect(older.warning).toStartWith("running work was not handed over: ");
   expect(await restartAroundWork(ctxWith(true), async () => false, { prefix: v => v, deps: stub({}, []) })).toEqual({ restarted: false, summary: null });
@@ -75,6 +75,29 @@ test("a health pid that differs from the service manager never receives the toke
   const result = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => v, deps });
   expect(result.warning).toContain("health check");
   expect(calls.every(call => call.auth === null)).toBe(true);
+});
+
+test("a healthy responder receives no token while the manager reports no process", async () => {
+  const calls: Call[] = [];
+  const deps = { ...stub({ "version.get": { pacer: "0.13.1" } }, calls), expectedPid: null };
+  const result = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => v, deps });
+  expect(result.warning).toContain("health check");
+  expect(calls.length).toBeGreaterThan(0);
+  expect(calls.every(call => call.op === "health" && call.auth === null)).toBe(true);
+});
+
+test("the token guard polls until the manager reports the health process", async () => {
+  const calls: Call[] = [];
+  let managerPid: number | null = null;
+  const deps = {
+    ...stub({ "version.get": { pacer: "0.13.1" }, "service.handover": { pacer: "0.13.1", tasks: 1, sessions: 0, handed_over: 1, kept_on_previous_runner: 0, summary: "ok" } }, calls),
+    get expectedPid() { return managerPid; },
+    sleep: async () => { managerPid = 12345; },
+  };
+  const result = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => v, deps });
+  expect(result.warning).toBeUndefined();
+  expect(calls.map(call => call.op)).toEqual(["health", "health", "version.get", "service.handover"]);
+  expect(calls.slice(0, 2).every(call => call.auth === null)).toBe(true);
 });
 
 test("delegated tasks cannot update, install, restart or uninstall the service", async () => {

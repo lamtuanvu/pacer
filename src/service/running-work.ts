@@ -74,6 +74,17 @@ export function terminalChildBelongsToHost(childPid: number, hostPid: number): b
   } catch { return false; }
 }
 
+/** Executors launch detached as process group leaders. Check that fact before group signalling. */
+function signalExecutorGroup(pid: number, identity: NonNullable<ReturnType<typeof processIdentity>>): boolean {
+  if (pid <= 1 || !sameProcess(processIdentity(pid), identity)) return false;
+  try {
+    const p = Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+    if (p.exitCode !== 0 || Number(p.stdout.toString().trim()) !== pid || !sameProcess(processIdentity(pid), identity)) return false;
+    process.kill(-pid, "SIGTERM");
+    return true;
+  } catch { return false; }
+}
+
 /** Stop only work whose process identity is confirmed or whose runner still supervises it. */
 export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
   const report: StopReport = { stopped: [], skipped: [] };
@@ -83,7 +94,7 @@ export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
     if (!verified && !supervised && t.state === "running") { report.skipped.push({ id: t.id, reason: "its process identity could not be confirmed and no runner supervises it" }); continue; }
     const stopped = taskStop(ctx, t.id, { signal: false });
     if (verified && stopped && stopped.childPid === t.childPid && sameProcess(stopped.childIdentity ?? null, t.childIdentity ?? null))
-      (await import("../update/desktop/process-identity")).signalSameProcess(t.childIdentity!, "SIGTERM");
+      signalExecutorGroup(t.childPid!, t.childIdentity!);
     report.stopped.push(t.id);
   }
   for (const terminal of await listTerminals(ctx)) {

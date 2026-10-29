@@ -7,7 +7,7 @@ import { currentVersion } from "../update/version";
 import type { Ctx } from "../types";
 
 export const UPGRADE_CLI_REFUSAL = "upgrades are not allowed from a delegated task";
-export interface UpgradeDeps { fetch?: (url: string, init?: RequestInit) => Promise<Response>; sleep?: (ms: number) => Promise<void>; healthTimeoutMs?: number; handoverTimeoutMs?: number; expectedPid?: number }
+export interface UpgradeDeps { fetch?: (url: string, init?: RequestInit) => Promise<Response>; sleep?: (ms: number) => Promise<void>; healthTimeoutMs?: number; handoverTimeoutMs?: number; expectedPid?: number | null }
 export interface RestartOutcome { restarted: boolean; summary: string | null; warning?: string }
 interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string }
 
@@ -31,8 +31,8 @@ export async function waitForService(ctx: Ctx, deps: UpgradeDeps, expected?: str
       if (health.ok && health.headers.get("X-Pacer") === "1") {
         const body = await health.json() as { ok?: unknown; pid?: unknown };
         if (body.ok === true && Number.isInteger(body.pid) && (body.pid as number) > 0) {
-          const managerPid = deps.expectedPid ?? await import("./index").then(m => m.serviceBackend(ctx).status(1000)).then(s => s.running ? s.pid : null, () => null);
-          if (managerPid === null || body.pid === managerPid) {
+          const managerPid = deps.expectedPid !== undefined ? deps.expectedPid : await import("./index").then(m => m.serviceBackend(ctx).status(1000)).then(s => s.running ? s.pid : null, () => null);
+          if (managerPid !== null && body.pid === managerPid) {
             const v = await call<{ pacer: string }>(ctx, deps, "version.get", {}, 2000);
             if (!expected || v.pacer === expected) return v.pacer;
           }

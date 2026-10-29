@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { serviceCli } from "../src/service/cli";
 import { plist, servicePath, type ServiceDeps } from "../src/service";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -16,7 +16,7 @@ function installed() {
   return { ctx, calls, path, d };
 }
 async function runningTask(ctx: ReturnType<typeof fakeCtx>, identity: "match" | "mismatch") {
-  const child = Bun.spawn(["sleep", "30"]);
+  const child = Bun.spawn(["sleep", "30"], { detached: true });
   for (let i = 0; i < 100 && !processIdentity(child.pid); i++) await Bun.sleep(20);
   const real = processIdentity(child.pid)!;
   const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
@@ -58,6 +58,34 @@ test("--stop-work stops only processes whose identity still matches", async () =
     expect(stale.child.exitCode).toBeNull();
     expect(readTask(ctx, stale.id)?.state).toBe("running");
   } finally { good.child.kill("SIGKILL"); stale.child.kill("SIGKILL"); await Promise.all([good.child.exited, stale.child.exited]); }
+});
+
+test("--stop-work signals an identity-matched executor's process group", async () => {
+  const { ctx, d } = installed();
+  const grandchildFile = join(tmpDir(), "grandchild.pid");
+  const child = Bun.spawn(["sh", "-c", 'sleep 30 & echo $! > "$1"; wait', "sh", grandchildFile], { detached: true });
+  let grandchild = 0;
+  try {
+    for (let i = 0; i < 100 && !existsSync(grandchildFile); i++) await Bun.sleep(20);
+    grandchild = Number(readFileSync(grandchildFile, "utf8").trim());
+    expect(grandchild).toBeGreaterThan(1);
+    const real = processIdentity(child.pid)!;
+    const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+    updateTask(ctx, t.id, x => { x.state = "running"; x.attemptStartedAt = ctx.now; x.childPid = child.pid; x.childIdentity = real; });
+    const r = await serviceCli(["uninstall", "--stop-work", "--yes"], ctx, d);
+    expect(r.code).toBe(0);
+    await child.exited;
+    for (let i = 0; i < 50; i++) {
+      const state = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(grandchild)]).stdout.toString().trim();
+      if (!state || state.startsWith("Z")) return;
+      await Bun.sleep(20);
+    }
+    throw new Error("executor grandchild survived --stop-work");
+  } finally {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already exited */ }
+    if (grandchild) try { process.kill(grandchild, "SIGKILL"); } catch { /* already exited */ }
+    await child.exited;
+  }
 });
 
 test("a terminal child file cannot point at the operator process", () => {
