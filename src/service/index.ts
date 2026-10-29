@@ -24,6 +24,7 @@ export interface ServiceBackend {
 export interface ServiceDeps {
   platform?: string; uid?: number; argv?: string[]; port?: number;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>; waitMs?: number; healthTimeoutMs?: number;
+  tty?: boolean; confirm?: (question: string) => Promise<boolean>;
   /** CLI upgrade-path calls to the restarted service (tests inject these). */
   upgrade?: import("./upgrade").UpgradeDeps;
 }

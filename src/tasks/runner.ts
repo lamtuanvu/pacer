@@ -12,6 +12,7 @@ import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/
 import { installHandoverHandler, registerRunnerLease } from "./handover";
 import { appendActivity } from "../activity/log";
 import { currentVersion } from "../update/version";
+import { processIdentity } from "../update/desktop/process-identity";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
@@ -410,7 +411,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
       }
       const onSpawn = (pid: number) => {
-        updateTask(ctx, id, (t) => { t.childPid = pid; });
+        const identity = processIdentity(pid);
+        updateTask(ctx, id, (t) => { t.childPid = pid; if (identity) t.childIdentity = identity; else delete t.childIdentity; });
         if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
       if (!resuming) {
@@ -593,6 +595,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;
+        delete t.childIdentity;
       });
       try {
         const result: TaskResult | undefined = out.worktree ? {
