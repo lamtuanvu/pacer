@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Plugin protocol 1.4.0: the `identity.sign` capability signs a payload with the machine key under the domain-separated format `"pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload`. A plugin may sign only the purposes it declares in the capability's manifest `scopes`, its manifest sets `host` to `>=1.4.0`, and each signature is recorded in the plugin's log by purpose and payload hash. The plugin id `pacer` is reserved for the host's own signatures. The TypeScript plugin SDK adds `host.identitySign(purpose, payload)`.
+- New: `pacer machine show|rename|rotate` and the `machine.get`, `machine.set` and `machine.rotate` operations. Each pacer home has a machine identity with a display name; executor sessions can read it but cannot rename or rotate it. Activity entries and task records carry the `machineId`; see [Machine identity](docs/machine-identity.md) for key storage, copied-home detection and redaction.
+
 ## [0.12.0] - 2026-10-29
 
 ### Fixed
@@ -16,8 +21,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Plugin protocol 1.4.0: the `identity.sign` capability signs a payload with the machine key under the domain-separated format `"pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload`. A plugin may sign only the purposes it declares in the capability's manifest `scopes`, its manifest sets `host` to `>=1.4.0`, and each signature is recorded in the plugin's log by purpose and payload hash. The plugin id `pacer` is reserved for the host's own signatures. The TypeScript plugin SDK adds `host.identitySign(purpose, payload)`.
-- New: `pacer machine show|rename|rotate` and the `machine.get`, `machine.set` and `machine.rotate` operations. Each pacer home has a machine identity with a display name; executor sessions can read it but cannot rename or rotate it. Activity entries and task records carry the `machineId`; see [Machine identity](docs/machine-identity.md) for key storage, copied-home detection and redaction.
 - Add a New task composer at `#/tasks/new`, opened with ⌘N (Ctrl+N elsewhere). Write the request, attach files or mention paths, pick the repository, where it runs, the kind and acceptance checks, optionally send it to a specific agent, and delegate with ⌘↵. A "Will go to" card previews the route with the read-only `dispatch.explain` op and says so when the connected service doesn't offer it yet. When supported by the connected service, From an issue searches and imports issues as plain text with a visible source note. The routing preview distinguishes queued work from a task with no eligible agent. Below 560px the composer is a full-screen sheet whose rows open their own choice sheets. The draft is kept until the task starts.
 - Extend Claude Code's planner delegation guard from the Agent/Task subagent hook to the Bash tool: it now also blocks a shell command that starts a known executor CLI (`claude`, `codex`, `pi`, `opencode`) with `PACER_ROLE=executor` or a pacer-managed `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, pointing to `pacer delegate` instead — recognized through `env`/`exec`, an `export` earlier in the same command, and `bash -c`/`sh -c`, not just the bare inline form. Same exemptions as the subagent guard (`PACER=off`, relaxed mode, executor sessions, no eligible alternative executor); a strict-managed executor's own Bash use stays unaffected. This is a best-effort pattern match on the command text, not a shell-level security boundary, and it now runs `pacer guard` on every Bash call rather than only Agent/Task. See [Terminal and servers](docs/install.md#terminal-and-servers).
 
