@@ -60,3 +60,8 @@ export function recordHookBlock(ctx: Ctx, node: string, set: string): number {
     return d.query<{ n: number }, [string]>("SELECT hook_blocks AS n FROM msg_liveness WHERE node=?").get(node)!.n;
   }).immediate();
 }
+
+/** Resets the Stop-hook block count once nothing is pending. */
+export function clearHookBlocks(ctx: Ctx, node: string): void {
+  db(ctx).query("UPDATE msg_liveness SET hook_set=NULL, hook_blocks=0 WHERE node=?").run(node);
+}

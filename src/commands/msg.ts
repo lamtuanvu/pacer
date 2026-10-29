@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { CoreError } from "../core/errors";
 import { localHuman } from "../messaging/participants";
 import { sessionHook, type PlannerKind } from "../messaging/identity";
+import { promptHook, stopHook } from "../messaging/hooks";
 import { hookInput } from "../install/role";
 import { io } from "../install/stdin";
 import { spawnRunner } from "../tasks/api";
@@ -17,7 +18,7 @@ const NO_REPLY: Record<string, string> = {
   cap: "the task tree reached its turn limit; the message stays pending",
   closed: "the task is closed for messages",
   held: "the message waits for human confirmation (pacer msg confirm)",
-  live_unavailable: "messages to live conversations are not delivered yet",
+  live_unavailable: "the conversation has ended; the message stays pending",
 };
 const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy|hook";
 
@@ -39,10 +40,13 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
   try {
     const sub = args[0];
     if (sub === "hook") {
-      if (args.length !== 4 || args[1] !== "session" || args[2] !== "--planner" || !["claude-code", "codex"].includes(args[3] ?? ""))
-        return { code: 2, out: "", err: "usage: pacer msg hook session --planner <claude-code|codex>" };
-      const result = await sessionHook(ctx, args[3] as PlannerKind, hookInput(await io.readStdin().catch(() => "")));
-      return { code: 0, out: result.out, err: "" };
+      if (args.length !== 4 || !["session", "stop", "prompt"].includes(args[1] ?? "") || args[2] !== "--planner" || !["claude-code", "codex"].includes(args[3] ?? ""))
+        return { code: 2, out: "", err: "usage: pacer msg hook session|stop|prompt --planner <claude-code|codex>" };
+      const input = hookInput(await io.readStdin().catch(() => ""));
+      const kind = args[3] as PlannerKind;
+      if (args[1] === "stop") return { code: 0, out: await stopHook(ctx, kind, input), err: "" };
+      if (args[1] === "prompt") return { code: 0, out: await promptHook(ctx, kind, input), err: "" };
+      return { code: 0, out: (await sessionHook(ctx, kind, input)).out, err: "" };
     }
     const { pos, flags } = commandArgs(args.slice(1), ["answer", "request-id", "task", "from", "to", "kind", "timeout", "project", "set-file", "expect-rev"], ["question", "wait", "json", "all", "check", "remove"]);
     const json = !!flags.json;
