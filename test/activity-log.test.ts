@@ -56,6 +56,17 @@ test("corrupt and malformed lines are skipped", () => {
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["last", "first"]);
 });
 
+test("an entry appended after an interrupted append starts on a new line (SEC-7 append exception)", () => {
+  const ctx = fakeCtx();
+  appendActivity(ctx, { kind: "config", level: "info", text: "first" });
+  appendFileSync(file(ctx), '{"id":"torn","at":1,"kind":"con');
+  const next = appendActivity(ctx, { kind: "config", level: "info", text: "next" });
+  expect(readFileSync(file(ctx), "utf8").split("\n").at(-2)).toBe(JSON.stringify(next));
+  appendActivity(ctx, { kind: "config", level: "info", text: "last" });
+  expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["last", "next", "first"]);
+  expect(readActivity(ctx, { maxBytes: 1 << 20 }).entries.map(e => e.text)).toEqual(["last", "next", "first"]);
+});
+
 test("rotation keeps the newest 20 000 valid entries within 30 days and runs daily", () => {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });

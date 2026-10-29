@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendLabel, readLabels } from "../src/tasks/labels";
 import { createTask, isTaskId, listTasks, newTaskId, readTask, updateTask } from "../src/tasks/store";
@@ -49,6 +49,27 @@ test("labels create a 0700 directory and a 0600 file even under a permissive uma
   appendLabel(ctx, { type: "guard_verdict", event_id: "e-2", blocked: false, source: "rules" });
   expect(statSync(join(ctx.pacerHome, "labels.jsonl")).mode & 0o777).toBe(0o600);
   expect(readLabels(ctx).map((label) => label.event_id)).toEqual(["e-1", "e-2"]);
+});
+
+test("labels narrow an existing, wider pacer home to 0700 before writing (SEC-7)", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  chmodSync(ctx.pacerHome, 0o755);
+  appendLabel(ctx, { type: "guard_verdict", event_id: "e-1", blocked: true, source: "rules" });
+  expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
+  expect(statSync(join(ctx.pacerHome, "labels.jsonl")).mode & 0o777).toBe(0o600);
+});
+
+test("a label appended after an interrupted append starts on a new line (SEC-7 append exception)", () => {
+  const ctx = fakeCtx();
+  appendLabel(ctx, { type: "task_review", task_id: "t-1", accepted: true });
+  appendFileSync(join(ctx.pacerHome, "labels.jsonl"), '{"ts":1,"type":"task_rev');
+  appendLabel(ctx, { type: "task_review", task_id: "t-2", accepted: false });
+  const lines = readFileSync(join(ctx.pacerHome, "labels.jsonl"), "utf8").split("\n");
+  expect(lines.at(-2)).toBe(JSON.stringify({ ts: ctx.now, type: "task_review", task_id: "t-2", accepted: false }));
+  expect(readLabels(ctx).map((label) => label.task_id)).toEqual(["t-1", "t-2"]);
+  appendLabel(ctx, { type: "task_review", task_id: "t-3", accepted: true });
+  expect(readLabels(ctx).map((label) => label.task_id)).toEqual(["t-1", "t-2", "t-3"]);
 });
 
 test("labels appended concurrently from several processes stay whole lines (SEC-7)", async () => {

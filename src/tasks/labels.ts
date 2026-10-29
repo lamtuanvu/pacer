@@ -1,12 +1,24 @@
-import { closeSync, existsSync, fchmodSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { appendJsonLine } from "../fsutil";
 import type { Ctx } from "../types";
 
 const labelsFile = (ctx: Ctx) => join(ctx.pacerHome, "labels.jsonl");
 
+// mkdirSync's mode applies only to a directory it creates, so an existing wider pacer home is narrowed (SEC-7).
+function narrowHome(dir: string): void {
+  const st = statSync(dir);
+  if ((st.mode & 0o077) === 0) return;
+  if (process.getuid && st.uid !== process.getuid()) {
+    throw new Error(`pacer home ${dir} is mode ${(st.mode & 0o777).toString(8)} and owned by another user; make it 0700 and owned by you`);
+  }
+  chmodSync(dir, 0o700);
+}
+
 // Serialize appends across processes (CLI, hooks, service) like the activity log, so a line is never interleaved.
 function withLabelsLock<T>(ctx: Ctx, action: () => T): T {
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  narrowHome(ctx.pacerHome);
   const lock = join(ctx.pacerHome, "labels.lock"), deadline = Date.now() + 10_000;
   const sleep = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
@@ -24,16 +36,10 @@ function withLabelsLock<T>(ctx: Ctx, action: () => T): T {
 }
 
 /** Ground-truth labels for the classifier benchmark (spec §3.10). One locked append per label, to a 0600 file
- * in a 0700 directory (SEC-7). */
+ * in a 0700 directory, under the scoped SEC-7 append exception. */
 export function appendLabel(ctx: Ctx, label: Record<string, unknown>): void {
-  const line = Buffer.from(`${JSON.stringify({ ts: ctx.now, ...label })}\n`);
-  withLabelsLock(ctx, () => {
-    const fd = openSync(labelsFile(ctx), "a", 0o600);
-    try {
-      fchmodSync(fd, 0o600);
-      for (let written = 0; written < line.length;) written += writeSync(fd, line, written);
-    } finally { closeSync(fd); }
-  });
+  const record = JSON.stringify({ ts: ctx.now, ...label });
+  withLabelsLock(ctx, () => appendJsonLine(labelsFile(ctx), record));
 }
 
 export function readLabels(ctx: Ctx): Record<string, unknown>[] {
