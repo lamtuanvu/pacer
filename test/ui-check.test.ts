@@ -206,18 +206,6 @@ describe("UI source policy", () => {
     }
   });
 
-  test("allows only the measured tray menu containment channel", () => {
-    const source = 'const needed = popup ? popup.getBoundingClientRect().height + parseFloat(getComputedStyle(popup).bottom) : 0; root.current.style.setProperty("--tray-menu-height", `${Math.ceil(needed)}px`);';
-    expect(checkUiSource("app/src/tray/Tray.tsx", source)).toEqual([]);
-    for (const bad of [
-      source.replace("--tray-menu-height", "--other-height"),
-      source.replace("Math.ceil(needed)", "arbitrary"),
-      source.replace("getBoundingClientRect().height", "arbitrary"),
-      source.replace("root.current.style", "other.style"),
-    ]) expect(checkUiSource("app/src/tray/Tray.tsx", bad)).not.toEqual([]);
-    expect(checkUiSource("app/src/screens/Example.tsx", source)).not.toEqual([]);
-  });
-
   test("allows only terminal scale width/height computed from PTY or measured screen geometry", () => {
     const width = '`${screen.offsetWidth}px`';
     const source = `const scale = () => { mount.current.style.width = ${width}; };`;

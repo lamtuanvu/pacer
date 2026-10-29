@@ -247,5 +247,15 @@
         "provisional": "Tray board value; not yet in the design system."
       }
     ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-tray-menu",
+        "value": "0 8px 24px rgb(9 9 11 / .16)",
+        "usage": "Tray More menu elevation.",
+        "provisional": "Tray board value; not yet in the design system."
+      }
+    ]
   }
 }

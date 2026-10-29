@@ -49,7 +49,7 @@ test("busy board has four linked counts, three attention rows, two running rows 
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="[^"]*tray-running"/g)).toHaveLength(2);
-  expect(active).toContain('Idle</span><span class="tray-ellipsis">\u00a0· 15m');
+  expect(active).toContain('Idle</span><span class="tray-ellipsis">\u00a0· 15 min');
   expect(active).toContain("tray-running-caption");
   expect(active).not.toContain("Queued");
   expect(html).toContain("14 waiting for a free Codex slot · next: Review screen");
@@ -60,6 +60,14 @@ test("busy board has four linked counts, three attention rows, two running rows 
   }
   expect(counts).toContain('class="tray-idle">5');
   expect(trayModel({ ...snapshot, attention: undefined }).attention).toEqual([]);
+});
+
+test("running captions combine phase, readable duration and repository", () => {
+  const snapshot = fixture();
+  const task = snapshot.tasks[0]!;
+  snapshot.tasks = [{ ...task, attemptStartedAt: snapshot.at - 120, progress: { ...task.progress!, phase: "working" }, repo: { key: "repo", label: "repo", path: "$HOME/repo" } }];
+  const caption = draw(snapshot);
+  expect(caption).toContain('Editing</span><span class="tray-ellipsis">\u00a0· 2 min\u00a0· repo');
 });
 
 test("all-clear board uses a green check, optional cleared review time and no waiting row", () => {

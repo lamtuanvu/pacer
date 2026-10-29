@@ -9,7 +9,7 @@ import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
-import { backIn, clock, elapsed } from "../../../src/view-model/time";
+import { backIn, clock, durationWords } from "../../../src/view-model/time";
 import { meterText } from "../../../src/view-model/format";
 import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
 import { plannerMeter } from "../../../src/view-model/selectors";
@@ -78,14 +78,26 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     const measure = () => {
       if (!root.current) return;
       const popup = menu.current;
-      const needed = popup ? popup.getBoundingClientRect().height + parseFloat(getComputedStyle(popup).bottom) : 0;
-      root.current.style.setProperty("--tray-menu-height", `${Math.ceil(needed)}px`);
-      const height = root.current.getBoundingClientRect().height;
-      void ipc.resize(Math.min(560, Math.max(height, needed))).catch(() => {});
+      const popupStyle = popup && getComputedStyle(popup);
+      const needed = popup && popupStyle
+        ? Math.min(popup.scrollHeight + parseFloat(popupStyle.borderTopWidth) + parseFloat(popupStyle.borderBottomWidth), parseFloat(popupStyle.getPropertyValue("--size-340"))) + parseFloat(popupStyle.bottom)
+        : 0;
+      // Main content does not stretch with the open menu, so resize can shrink too.
+      const main = root.current.querySelector<HTMLElement>(".tray-main")!;
+      const footer = root.current.querySelector<HTMLElement>(".tray-actions")!;
+      const height = main.scrollHeight + footer.getBoundingClientRect().height;
+      // The window is the body's border box: add its border around the tray.
+      const body = getComputedStyle(root.current.ownerDocument.body);
+      const frame = parseFloat(body.borderTopWidth) + parseFloat(body.borderBottomWidth);
+      void ipc.resize(Math.min(560, Math.max(height, needed) + frame)).catch(() => {});
     };
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    if (root.current) observer?.observe(root.current);
+    if (root.current) {
+      observer?.observe(root.current);
+      observer?.observe(root.current.querySelector(".tray-main")!);
+    }
+    if (menu.current) observer?.observe(menu.current);
     return () => observer?.disconnect();
   });
   useLayoutEffect(() => {
@@ -124,7 +136,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{model.waiting} waiting for a free {nextExecutor} slot{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={planner ? agentInfo(planner.agent).name : "pacer"}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label" title="planner">planner</span><span className="tray-grow" /><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={planner ? agentInfo(planner.agent).name : "pacer"}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
     </section>
@@ -154,7 +166,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
       {model.active.length > 0 ? <section className="tray-section tray-running-section" aria-label="Running"><div className="tray-section-heading"><SectionHeading>Running</SectionHeading><TextAction href={appHref("/sessions")} onClick={navigate("/sessions")}>All {snapshot.counts?.running ?? model.active.length} in Tasks</TextAction></div>
         {model.active.slice(0, 2).map(task => <ListRowLink key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
-          <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={20} labelled={false} /><span className="tray-grow"><strong className="tray-ellipsis" title={shortTitle(task)}>{shortTitle(task)}</strong><span className="tray-running-caption"><span className="tray-phase">{taskStatus(task).label}</span><span className="tray-ellipsis">{[elapsed(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt)), task.repo?.label].filter(Boolean).map(part => `\u00a0· ${part}`).join("")}</span></span></span><span className="tray-chevron"><Icon name="chevron-right" /></span>
+          <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={20} labelled={false} /><span className="tray-grow"><strong className="tray-ellipsis" title={shortTitle(task)}>{shortTitle(task)}</strong><span className="tray-running-caption"><span className="tray-phase">{taskStatus(task).label}</span><span className="tray-ellipsis">{[durationWords(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt)), task.repo?.label].filter(Boolean).map(part => `\u00a0· ${part}`).join("")}</span></span></span><span className="tray-chevron"><Icon name="chevron-right" /></span>
         </ListRowLink>)}
         {waitingRow}
       </section> : waitingRow}
@@ -175,6 +187,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         <IconButton variant="quiet" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}><Icon name={snapshot?.pause ? "play" : "pause"} /></IconButton>
         <IconButton ref={moreButton} variant="quiet" type="button" className={menuOpen ? "tray-more-open" : undefined} title="More" aria-label="More" aria-expanded={menuOpen} aria-controls="tray-menu" onClick={() => { setMenuOpen(!menuOpen); setStrategiesOpen(false); }}><Icon name="more" /></IconButton>
       </nav>
+      {/* Local menu: DS ActionMenu supports plain labels, not strategy expansion, shortcut hints or dividers. */}
       {menuOpen && <nav ref={menu} id="tray-menu" className="tray-menu" aria-label="More actions">
         <Button variant="quiet" type="button" aria-expanded={strategiesOpen} aria-controls="tray-strategies" onClick={() => setStrategiesOpen(!strategiesOpen)} className="tray-menu-item"><Icon name="strategy" /><span className="tray-grow">Strategy</span><span className="tray-reason">{snapshot?.strategies?.flatMap(s => typeof s !== "string" && s.active ? [s.name] : [])[0] ?? snapshot?.budget?.strategy ?? snapshot?.mode?.strategy}</span><span className={strategiesOpen ? "tray-chevron tray-chevron--down" : "tray-chevron"}><Icon name="chevron-right" /></span></Button>
         {strategiesOpen && <div id="tray-strategies" className="tray-strategies">{snapshot?.strategies?.length ? snapshot.strategies.map(strategy => {
