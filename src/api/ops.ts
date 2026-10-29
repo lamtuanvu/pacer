@@ -375,7 +375,7 @@ export const OPS: Record<string, OpDef> = {
     },
   }),
   "task.send": op({
-    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose agent is in its terminal's foreground: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
+    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
     params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
     handler: (ctx, p, deps) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev, by: callerIdentity(ctx, deps.client) }),
   }),

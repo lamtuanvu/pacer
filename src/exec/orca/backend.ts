@@ -211,9 +211,9 @@ function checkedWorktree(p: Ready, w: WorktreeRow | undefined): { id: string; pa
 export interface LiveAnswerWorker { asked: TaskRecord; live: LiveWorker; worktree: string | null }
 
 /**
- * Why the lane's agent cannot take input right now, or null when it can: the worker must be unsettled and the agent
- * pacer launched must be the terminal's foreground process. Orca types `--text` into whatever runs in the terminal, and
- * once the agent exits that is the login shell, so input is never sent unless Orca reports the agent itself there.
+ * Why the lane's agent cannot take input right now, or null when it can: the worker must be unsettled and the terminal
+ * must still report the agent pacer launched. Orca types `--text` into whatever runs in the terminal. The agent is
+ * launched with `exec`, so no shell sits behind it; this check is the second guard, and it fails closed.
  */
 export async function liveAgentProblem(c: OrcaClient, live: LiveWorker): Promise<string | null> {
   const show = await c.workerShow(live.worker);
@@ -494,8 +494,10 @@ async function runOrcaAttempt(
     // acknowledgement, MCP answers). pacer's PTY session hooks stay out: Orca supervises this terminal.
     const launch = prepareInteractive(agent, `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`,
       {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false, ...(mcp ? {mcp} : {})}).argv;
-    const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
-    const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
+    // `exec` replaces the terminal's login shell with the agent: when the agent exits the terminal ends, so no shell is
+    // ever left behind it to receive text typed for the agent (`task.send`, a live answer).
+    const command = shellCommand(["exec", "env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
+    const shown = shellCommand(["exec", "env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
     if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
     terminal = made.result.terminal.handle;

@@ -97,6 +97,8 @@ test("new child worktree is created before agent terminal and worker attaches af
   expect(cmd).toContain(`PACER_TASK_ID=${x.task.id}`);
   expect(cmd).toContain("codex --no-daemon");
   expect(cmd).not.toContain("Fix the bug");
+  // The agent replaces the terminal's login shell, so once it exits no shell is left to receive typed input.
+  expect(cmd.startsWith("exec env ")).toBe(true);
   expect(arg(calls[start], "--terminal")).toBe(terminal);
   expect(arg(calls[start], "--worktree")).toBe(`id:${x.wt}`);
   expect(calls[start]).not.toContain("--agent");
@@ -291,7 +293,7 @@ test("Claude terminal commands set CLAUDE_CODE_SANDBOXED and write no Claude con
     const out = await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
     expect(out.backend).toBe("orca");
     const cmd = arg(x.f.calls.find(a => a[2] === "create" && a.includes("--command"))!, "--command");
-    expect(cmd.startsWith(`env -u ${id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} PACER_ROLE=executor PACER_TASK_ID=${x.task.id}${id === "claude-code" ? " CLAUDE_CODE_SANDBOXED=1 claude " : " codex "}`)).toBe(true);
+    expect(cmd.startsWith(`exec env -u ${id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} PACER_ROLE=executor PACER_TASK_ID=${x.task.id}${id === "claude-code" ? " CLAUDE_CODE_SANDBOXED=1 claude " : " codex "}`)).toBe(true);
     expect(cmd.includes("CLAUDE_CODE_SANDBOXED")).toBe(id === "claude-code");
     expect(existsSync(join(x.ctx.home, ".claude.json"))).toBe(false);
     expect(existsSync(join(x.ctx.pacerHome, "orca", "trusted.json"))).toBe(false);
@@ -380,7 +382,7 @@ test("the attempt log records each Orca step", async () => {
   const x = setup();
   const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   const text = readFileSync(out.attempt.log, "utf8");
-  const order = [`worktree create ${x.wt}: ${x.root}`, `terminal create ${terminal}: env -u CODEX_HOME PACER_ROLE=executor PACER_TASK_ID=${x.task.id} codex `,
+  const order = [`worktree create ${x.wt}: ${x.root}`, `terminal create ${terminal}: exec env -u CODEX_HOME PACER_ROLE=executor PACER_TASK_ID=${x.task.id} codex `,
     `terminal wait ${terminal}: idle`, `worker-start ${dispatch}: ready`, `worker_done ${dispatch}: succeeded`, "worker-release: retained",
     `closed pacer terminal ${terminal}: ok`, "--- summary\ndone\n\nok"];
   const at = order.map(line => text.indexOf(line));
