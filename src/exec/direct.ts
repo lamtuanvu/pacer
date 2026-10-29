@@ -1,6 +1,6 @@
 import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
-import { withWork } from "../update/desktop/admission";
+import { advertiseHandover, withAttemptWork, withdrawHandover } from "../tasks/handover";
 import { probeAgentSession } from "../session/agent-probe";
 import { conversationIdentity } from "../session/native-identity";
 import { conversationActivity } from "../session/conversation";
@@ -185,11 +185,15 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const host = run.host ? loadStrategy(ctx).hosts[run.host] : undefined;
   if (run.host && (!host || !run.remoteDir)) throw new Error(`remote run ${task.id} has no configured host or run directory`);
   const io = host ? new RemoteRunIO(ctx, host, run.remoteDir!, run.dir) : localRunIO(run.dir);
-  const end: SuperviseEnd = await supervise({
-    io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
-    interactionMode: run.interactionMode,
-    isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
-  });
+  const eligible = !run.takeover && advertiseHandover(ctx, task.id, run);
+  let end!: SuperviseEnd;
+  try {
+    end = await supervise({
+      io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
+      interactionMode: run.interactionMode,
+      isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
+    });
+  } finally { if (eligible) withdrawHandover(ctx, task.id); }
   if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
     const path = join(run.dir, "stdout");
     try {
@@ -365,7 +369,7 @@ const launchArgv = (run: RunRef) => { try { return readFileSync(join(run.dir, "a
 
 /** One executor attempt through the executor's own CLI, under the file-backed supervisor. */
 export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
-  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
+  return withAttemptWork(ctx, task.id, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
 }
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
@@ -541,7 +545,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
 
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
-  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => resumeAttemptAdmitted(ctx, cfg, task));
+  return withAttemptWork(ctx, task.id, () => resumeAttemptAdmitted(ctx, cfg, task));
 }
 async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);

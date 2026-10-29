@@ -9,6 +9,7 @@ import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { installHandoverHandler, registerRunnerLease } from "./handover";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
@@ -127,6 +128,8 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
   const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
   claimWorkSync(ctx, lease);
+  installHandoverHandler();
+  registerRunnerLease(lease);
   const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
   ctx = { ...ctx, env };
   const startedAt = Date.now();
