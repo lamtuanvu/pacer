@@ -8,7 +8,7 @@ const browserTest=test.skipIf(!browserPath);
 let browser:Browser,server:ReturnType<typeof Bun.serve>;
 type Values={'execution.local_max_tasks':number|string;'execution.local_memory_pressure_limit':string;'execution.local_load_limit':number|string};
 const defaults:Values={'execution.local_max_tasks':'unlimited','execution.local_memory_pressure_limit':'critical','execution.local_load_limit':'off'};
-let values:Values={...defaults},sets:unknown[]=[];
+let values:Values={...defaults},sets:unknown[]=[],failGet=false;
 beforeAll(async()=>{
  if(!browserPath)return;
  const out=tmpDir();
@@ -20,6 +20,7 @@ beforeAll(async()=>{
   const path=new URL(req.url).pathname;
   if(!path.startsWith('/ops/'))return new Response(`<meta charset="utf-8"><div id="root"></div><style>${styles}</style><script type="module">${script}</script>`,{headers:{'Content-Type':'text/html'}});
   const op=path.slice(5),params=await req.json();
+  if(op==='config.get'&&failGet)return Response.json({code:'internal',message:'config read failed'},{status:500});
   if(op==='config.get')return Response.json({keys:{...Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'user'}])),'execution.launch_mode':{value:'interactive',source:'default'},'terminal.open':{value:'',source:'default'},'terminal.app':{value:'Terminal',source:'default'}},terminalChoices:[{value:'auto',label:'Automatic'}],planners:[]});
   if(op==='config.set'){sets.push(params);const key=params.key as keyof Values,previous=values[key];values={...values,[key]:params.value};return Response.json({key,value:params.value,previous,diff:'',undo:`pacer config set ${key} ${previous}`});}
   return Response.json({});
@@ -29,7 +30,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await browser?.close();server?.stop(true);});
 
 async function open(initial:Partial<Values>={}):Promise<Page>{
- values={...defaults,...initial};sets=[];
+ values={...defaults,...initial};sets=[];failGet=false;
  const page=await browser.newPage();
  await page.goto(String(server.url));
  await page.getByRole('group',{name:'Parallel task limit'}).waitFor();
@@ -187,5 +188,62 @@ browserTest('a change elsewhere to a different key does not block saving this on
   expect(sets).toEqual([{key:'execution.local_memory_pressure_limit',value:'warning'}]);
   expect(await field(page).inputValue()).toBe('6');
   expect(await conflict(page).count()).toBe(0);
+ }finally{await page.close();}
+});
+
+/** The element holding focus, described for an assertion. */
+const focused=(page:Page)=>page.evaluate(()=>{const el=document.activeElement;return el===document.body||!el?'body':`${el.tagName.toLowerCase()}:${el.getAttribute('role')??''}:${el.textContent}`;});
+
+browserTest('keyboard Discard and Save keep focus on the save status instead of dropping it to the page',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await field(page).fill('9');
+  await page.getByRole('button',{name:'Discard'}).focus();
+  await page.keyboard.press('Enter');
+  await page.getByText('All changes saved').waitFor();
+  expect(await focused(page)).toBe('span:status:All changes saved');
+  expect(await page.evaluate(()=>document.activeElement?.matches(':focus-visible'))).toBe(true);
+  await field(page).fill('7');
+  await save(page).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>document.activeElement?.textContent==='All changes saved',undefined,{timeout:5000});
+  expect(sets).toEqual([{key:'execution.local_max_tasks',value:7}]);
+  expect(await focused(page)).toBe('span:status:All changes saved');
+ }finally{await page.close();}
+});
+
+browserTest('the save status is a polite live region that does not repeat the conflict alert',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  const status=page.locator('.u3-save-bar [role=status]');
+  expect(await status.getAttribute('aria-live')).toBe('polite');
+  expect(await status.textContent()).toBe('All changes saved');
+  await field(page).fill('9');
+  expect(await status.textContent()).toBe('Unsaved changes');
+  await external(page,{'execution.local_max_tasks':6});
+  await conflict(page).waitFor({timeout:5000});
+  // The conflict alert announces itself; the save status keeps its own state.
+  expect(await status.textContent()).toBe('Unsaved changes');
+ }finally{await page.close();}
+});
+
+browserTest('a failed freshness read stops Save, keeps the draft and shows the error',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await field(page).fill('9');
+  failGet=true;
+  await save(page).click();
+  await page.getByText('Something went wrong').waitFor({timeout:5000});
+  expect(await page.getByText('config read failed').count()).toBe(1);
+  expect(sets).toEqual([]);
+  expect(values['execution.local_max_tasks']).toBe(2);
+  expect(await field(page).inputValue()).toBe('9');
+  expect(await page.getByText('Unsaved changes').count()).toBe(1);
+  // Once reads work again, the same draft saves.
+  failGet=false;
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(sets).toEqual([{key:'execution.local_max_tasks',value:9}]);
+  expect(await page.getByText('Something went wrong').count()).toBe(0);
  }finally{await page.close();}
 });

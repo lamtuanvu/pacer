@@ -150,7 +150,7 @@ browserTest('Add host: a check that cannot start is reported, not silently retri
     await page.evaluate(() => (window as any).hostFixture.failFirst(true));
     await page.getByRole('button', { name: 'Connect and check', exact: true }).click();
     await page.getByRole('list', { name: 'Checks for devbox' }).waitFor();
-    expect(await page.getByRole('status').filter({ hasText: 'Changes saved' }).count()).toBe(0);
+    expect(await page.getByRole('status').filter({ hasText: /Changes saved/ }).count()).toBe(0);
   });
 });
 

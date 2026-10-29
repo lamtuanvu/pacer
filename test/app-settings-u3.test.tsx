@@ -188,12 +188,16 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
 test('This machine shows the guard state now and no limit by default',()=>{
  const machine={used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
  const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
- expect(html).toContain('Now: memory pressure critical · load 4.9 per core · 3 running · new tasks wait: memory pressure critical');
+ expect(html).toContain('Now: memory pressure critical · load 4.9 per core · new tasks wait: memory pressure critical');
+ // The running count is the card badge only (UI-15).
+ expect(html).toContain('Running 3');
+ expect(html).not.toContain('3 running');
  expect(html).toContain('No limit');
  expect(html).toContain('Hold new tasks at memory pressure');
  expect(html).toContain('Load limit per CPU core');
  const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,hardCap:4,unlimited:false,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
- expect(unavailable).toContain('Now: memory pressure unavailable · 0 running of 4');
+ expect(unavailable).toContain('Now: memory pressure unavailable<');
+ expect(unavailable).not.toContain('0 running');
  expect(machineNow(undefined)).toBeNull();
  const overview=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
  expect(overview).toContain('No limit');

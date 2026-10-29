@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { Job } from "../../../../src/api/read-model/types";
 import { hostCheckStepCopy } from "../../../../src/view-model/copy";
 import { executorLabel } from "../../../../src/view-model/words";
@@ -112,9 +112,9 @@ export function machineNow(machine: ClientMachine | undefined): string | null {
   if (!machine) return null;
   const pressure = machine.memoryPressure === undefined ? null : machine.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${PRESSURE_WORDS[machine.memoryPressure]}`;
   const load = machine.loadPerCore == null ? null : `load ${Math.round(machine.loadPerCore * 10) / 10} per core`;
-  const cap = machineHardCap(machine), running = `${machine.used} running${cap !== null ? ` of ${cap}` : ""}`;
   const waits = machine.open === false && machine.detail ? `new tasks wait: ${machine.detail}` : null;
-  return [pressure, load, running, waits].filter(Boolean).join(" · ");
+  // The running count is the card's badge; it appears once per screen (UI-15).
+  return [pressure, load, waits].filter(Boolean).join(" · ") || null;
 }
 
 /** Every field on this machine is drafted together and written only through the save bar. */
@@ -134,11 +134,20 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const loadError = draft.load === "limit" && !(/^\d+(\.\d+)?$/.test(draft.loadLimit) && Number(draft.loadLimit) > 0) ? "Enter a load per core greater than 0, such as 3." : undefined;
   useEffect(() => { setForm(f => rebaseMachine(f, saved)); }, [savedKey]);
   const edit = (patch: Partial<MachineDraft>) => setForm(f => ({ ...f, draft: { ...f.draft, ...patch } }));
-  const reset = () => setForm({ base: saved, draft: saved });
+  // Discard and Save disable themselves; the save status keeps keyboard focus in the form.
+  const status = useRef<HTMLSpanElement>(null);
+  const keepFocus = () => {
+    const el = document.activeElement as HTMLButtonElement | null;
+    if (!el || el === document.body || el.disabled || el.closest(".u3-save-bar")) status.current?.focus();
+  };
+  const [readError, setReadError] = useState<unknown>();
+  const reset = () => { setReadError(undefined); setForm({ base: saved, draft: saved }); status.current?.focus(); };
   const save = async () => {
     // Re-read before writing: a key changed elsewhere since this draft began is not overwritten.
+    // Without a fresh read there is no conflict check, so the draft stays unsaved.
+    setReadError(undefined);
     let latest: ConfigData;
-    try { latest = await api.call<ConfigData>("config.get", {}); } catch { latest = query.data!; }
+    try { latest = await api.call<ConfigData>("config.get", {}); } catch (e) { setReadError(e); return; }
     query.setData(latest);
     if (machineConflicts(base, draft, machineDraft(latest)).length) return;
     for (const change of changes) {
@@ -147,6 +156,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
       latest = { ...latest, keys: { ...latest.keys, [change.key]: { ...latest.keys[change.key], value: change.value } } };
       query.setData(latest);
     }
+    keepFocus();
   };
   // Pressure and load change without any setting changing: re-read the guard state while open.
   // A failed poll keeps the last reading rather than replacing the form with an error.
@@ -193,12 +203,14 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
       <Button size="sm" onClick={async () => { if (await dialogs.confirm("Discard this draft and load the latest saved settings?", "Reload saved settings", "Reload")) reset(); }}>Reload saved settings</Button>
     </Alert>}
     <div className="u3-save-bar">
-      <span>{dirty ? "Unsaved changes" : conflict ? "Settings changed elsewhere" : "All changes saved"}</span>
+      {/* Polite status; the conflict Alert already announces "Settings changed elsewhere". */}
+      <span ref={status} className="u3-save-status" tabIndex={-1} role="status" aria-live="polite">{dirty ? "Unsaved changes" : conflict ? <span aria-hidden="true">Settings changed elsewhere</span> : "All changes saved"}</span>
       <div className="u3-actions">
         <Button disabled={!(dirty || conflict) || action.busy} onClick={reset}>Discard</Button>
         <Button variant="primary" busy={action.busy} disabled={!dirty || conflict || action.busy || !!capError || !!loadError} onClick={() => void save()}>Save changes</Button>
       </div>
     </div>
+    <ErrorMessage error={readError} />
     <Feedback action={action} />
     {dialogs.dialog}
   </ResourceState>;
