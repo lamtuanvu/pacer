@@ -60,6 +60,17 @@ fn startup_identities(record:&serde_json::Value)->Result<Vec<ProcessIdentity>,Ot
     Ok(identities)
 }
 #[cfg(feature="ota-fixture")]
+fn attached_startup_service_cleanup(
+    record: &serde_json::Value,
+    policy: &crate::ota::fixture_policy::FixturePolicy,
+    service_program: &Path,
+) -> bool {
+    startup_identities(record).is_ok()
+        && record["initialLayout"] == "paired"
+        && policy.signing_cert_sha1.is_some()
+        && service_program == policy.external_cli()
+}
+#[cfg(feature="ota-fixture")]
 fn startup_version(record: &serde_json::Value) -> Result<&'static str, OtaError> {
     ensure(
         record["nativeFixture"]["baselineVersion"] == "0.2.3"
@@ -264,13 +275,21 @@ pub(crate) async fn fixture_jobs(
         jobs.push((label.clone(), Some((job, bytes)), loaded, process));
     }
     if retire && jobs.iter().any(|(_, _, loaded, _)| loaded.is_some()) {
-      if startup_identities(&record).is_ok() {
+      // A never-armed attached service can reserve cleanup through its own
+      // authenticated native provider; a managed startup needs diagnostics.
+      let attached_startup = jobs[0].1.as_ref().is_some_and(|(job, _)| {
+        job.definition.arguments.first().is_some_and(|program| {
+          attached_startup_service_cleanup(&record, policy, Path::new(program))
+        })
+      });
+      if startup_identities(&record).is_ok() && !attached_startup {
         ensure(desktops.is_empty())?;
         let reservation=reserve_startup_cleanup(trust).await?;
         for (_,owned,loaded,_) in &jobs {
           if let Some((job,_))=owned { if loaded.is_some() { retire_startup_job(trust,job,&reservation).await?; } }
         }
       } else {
+        if attached_startup { startup_proof(trust)?; }
         let (_, owned, loaded, process) = &jobs[0];
         let (job, _) = owned.as_ref().ok_or(OtaError::Unavailable)?;
         ensure(loaded.is_some())?;
@@ -291,6 +310,7 @@ pub(crate) async fn fixture_jobs(
         let acknowledgment = control::request_fixture_cleanup(&endpoint, trust)?;
         let reservation = acknowledgment.reservation_id;
         ensure(reservation == format!("fixture-cleanup-{}", policy.nonce))?;
+        if attached_startup { startup_proof(trust)?; }
         for desktop in &acknowledgment.desktops {
             ensure(desktops.contains(desktop))?;
             wait_exact_exit(desktop).await?;
@@ -303,6 +323,7 @@ pub(crate) async fn fixture_jobs(
         for (_, owned, loaded, process) in &jobs {
             let Some((job, _)) = owned else { continue };
             if loaded.is_some() {
+                if attached_startup { startup_proof(trust)?; }
                 ensure(recovery_authority::reservation_held(
                     &policy.home,
                     &reservation,
@@ -379,8 +400,46 @@ pub(crate) async fn fixture_jobs(
 
 /// Install the lease's one external service registration so Desktop starts
 /// attached. Fixed program, label and environment; never a caller-chosen path.
+fn fixture_baseline_priority(record: &serde_json::Value, requested: &str) -> Result<(), OtaError> {
+    let selected = match record.get("baselineProcessType") {
+        None => "Background", // Older fixed leases retain their exact control registration.
+        Some(value) => value.as_str().ok_or(OtaError::Invalid)?,
+    };
+    let nonce = record.get("nonce").and_then(serde_json::Value::as_str).ok_or(OtaError::Invalid)?;
+    let reserved = if nonce.starts_with("f0a3c29e") && !nonce.starts_with("f0a3c29e5c0d") { "Standard" } else { "Background" };
+    ensure(matches!(selected, "Background" | "Standard")
+        && selected == reserved
+        && selected == requested
+        && (selected != "Standard" || record["initialLayout"] == "paired"))
+}
+
+fn fixture_baseline_registration(
+    definition: &JobDefinition,
+    process_type: &str,
+) -> Result<Vec<u8>, OtaError> {
+    ensure(matches!(process_type, "Background" | "Standard"))?;
+    let background = definition.to_plist()?;
+    if process_type == "Background" {
+        return Ok(background);
+    }
+    let mut value = plist::Value::from_reader(std::io::Cursor::new(&background))
+        .map_err(|_| OtaError::Invalid)?;
+    value
+        .as_dictionary_mut()
+        .ok_or(OtaError::Invalid)?
+        .insert("ProcessType".into(), "Standard".into());
+    let mut standard = Vec::new();
+    value.to_writer_xml(&mut standard).map_err(|_| OtaError::Invalid)?;
+    ensure(JobDefinition::from_plist(&standard)? == *definition)?;
+    Ok(standard)
+}
+
 #[cfg(feature = "ota-fixture")]
-pub(crate) async fn fixture_attach(trust: &ReleaseTrust, takeover: bool) -> Result<FixtureJobsReport, OtaError> {
+pub(crate) async fn fixture_attach(
+    trust: &ReleaseTrust,
+    takeover: bool,
+    process_type: &str,
+) -> Result<FixtureJobsReport, OtaError> {
     use crate::ota::{control, platform_fs::PrivateDir};
     let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
     policy.validate_live().map_err(|_| OtaError::Identity)?;
@@ -414,6 +473,7 @@ pub(crate) async fn fixture_attach(trust: &ReleaseTrust, takeover: bool) -> Resu
         let record: serde_json::Value = serde_json::from_slice(&root.read("record.json", 262144)?)
             .map_err(|_| OtaError::Invalid)?;
         ensure(record.get("exercise").is_none_or(serde_json::Value::is_null))?;
+        fixture_baseline_priority(&record, process_type)?;
         registration(&record, &policy.service_label, &path, None)?;
         ensure(exact_absent(&path)? && copy_user_job(&policy.service_label)?.is_none())?;
         let home = policy.home.to_string_lossy().into_owned();
@@ -433,7 +493,7 @@ pub(crate) async fn fixture_attach(trust: &ReleaseTrust, takeover: bool) -> Resu
             plist_path: path,
             role: CodeRole::Cli,
         };
-        let bytes = job.definition.to_plist()?;
+        let bytes = fixture_baseline_registration(&job.definition, process_type)?;
         job.stage_fixture_registration(trust, &bytes)?;
         crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
         job.change(trust, JobChange::Bootstrap).await?;
@@ -525,6 +585,53 @@ fn recovery_arguments_valid(arguments: &[String], home: &Path) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn attached_baseline_priority_changes_only_the_exact_registration_receipt() {
+        let definition = JobDefinition {
+            label: "com.pacer.live.test.service".into(),
+            arguments: vec!["/fixture/external/pacer".into(), "serve".into()],
+            environment: [("HOME".into(), "/fixture/home".into())].into_iter().collect(),
+            keep_alive: true,
+            run_at_load: true,
+        };
+        let background = fixture_baseline_registration(&definition, "Background").unwrap();
+        let standard = fixture_baseline_registration(&definition, "Standard").unwrap();
+        let parse = |bytes: &[u8]| plist::Value::from_reader(std::io::Cursor::new(bytes)).unwrap();
+        let mut expected = parse(&background);
+        expected.as_dictionary_mut().unwrap().insert("ProcessType".into(), "Standard".into());
+        assert_eq!(parse(&standard), expected);
+        assert_eq!(JobDefinition::from_plist(&background).unwrap(), definition);
+        assert_eq!(JobDefinition::from_plist(&standard).unwrap(), definition);
+        assert_ne!(digest(&background), digest(&standard));
+        assert!(fixture_baseline_registration(&definition, "Interactive").is_err());
+    }
+    #[test]
+    fn attached_baseline_priority_must_match_the_reserved_lease() {
+        let old = serde_json::json!({"nonce":"a".repeat(32)});
+        assert!(fixture_baseline_priority(&old, "Background").is_ok());
+        assert!(fixture_baseline_priority(&old, "Standard").is_err());
+        let selected = serde_json::json!({"initialLayout":"paired","nonce":format!("f0a3c29e{}", "a".repeat(24)),"baselineProcessType":"Standard"});
+        assert!(fixture_baseline_priority(&selected, "Standard").is_ok());
+        assert!(fixture_baseline_priority(&selected, "Background").is_err());
+        let standard_choice_family = serde_json::json!({"initialLayout":"paired","nonce":format!("f0a3c29e5c0e{}", "a".repeat(20)),"baselineProcessType":"Standard"});
+        assert!(fixture_baseline_priority(&standard_choice_family, "Standard").is_ok());
+        let background_choice_family = serde_json::json!({"initialLayout":"paired","nonce":format!("f0a3c29e5c0d{}", "a".repeat(20)),"oldServiceChoice":"continue","baselineProcessType":"Background"});
+        assert!(fixture_baseline_priority(&background_choice_family, "Background").is_ok());
+        assert!(fixture_baseline_priority(&background_choice_family, "Standard").is_err());
+        let mut relabeled_choice = background_choice_family.clone();
+        relabeled_choice["baselineProcessType"] = "Standard".into();
+        assert!(fixture_baseline_priority(&relabeled_choice, "Standard").is_err());
+        let mut wrong_nonce = selected.clone();
+        wrong_nonce["nonce"] = "a".repeat(32).into();
+        assert!(fixture_baseline_priority(&wrong_nonce, "Standard").is_err());
+        let mut wrong_layout = selected.clone();
+        wrong_layout["initialLayout"] = "bridge".into();
+        assert!(fixture_baseline_priority(&wrong_layout, "Standard").is_err());
+        let mismatched = serde_json::json!({"nonce":format!("f0a3c29e{}", "a".repeat(24)),"baselineProcessType":"Background"});
+        assert!(fixture_baseline_priority(&mismatched, "Background").is_err());
+        let invalid = serde_json::json!({"nonce":"a".repeat(32),"baselineProcessType":"Interactive"});
+        assert!(fixture_baseline_priority(&invalid, "Interactive").is_err());
+    }
+    #[test]
     fn recovery_job_accepts_update_and_adoption_modes_for_its_own_transaction_only() {
         let home = Path::new("/fixture/home");
         let id = "a".repeat(64);
@@ -574,6 +681,33 @@ mod tests {
         }
         let mut bad=valid.clone();bad["exercise"]=serde_json::json!({});assert!(startup_identities(&bad).is_err());
         let mut bad=valid.clone();bad["runtime"]["extra"]=true.into();assert!(startup_identities(&bad).is_err());
+    }
+    #[cfg(feature = "ota-fixture")]
+    #[test]
+    fn signed_paired_attached_startup_uses_exact_service_cleanup() {
+        let root = PathBuf::from("/fixture/.work/live/test/ota");
+        let policy = crate::ota::fixture_policy::FixturePolicy {
+            schema: 1,
+            root: root.clone(),
+            nonce: "a".repeat(32),
+            home: root.parent().unwrap().join("home"),
+            port: 7444,
+            current_app: root.join("current.app"),
+            service_label: format!("com.pacer.live.{}.service", "a".repeat(32)),
+            recovery_label: format!("com.pacer.live.{}.recovery", "a".repeat(32)),
+            uid: 501,
+            signing_cert_sha1: Some("A".repeat(40)),
+        };
+        let identity = |pid| serde_json::json!({"pid":pid,"birth":format!("birth-{pid}"),"bootId":"boot"});
+        let record = serde_json::json!({"initialLayout":"paired","exercise":null,"runtime":{"schema":1,"state":"starting","request":null,"driver":identity(11),"sourceService":identity(12),"desktop":identity(13)}});
+        assert!(attached_startup_service_cleanup(&record, &policy, &policy.external_cli()));
+        assert!(!attached_startup_service_cleanup(&record, &policy, &policy.current_app.join("Contents/Resources/pacer")));
+        let mut unsigned = policy.clone(); unsigned.signing_cert_sha1 = None;
+        assert!(!attached_startup_service_cleanup(&record, &unsigned, &policy.external_cli()));
+        let mut bridge = record.clone(); bridge["initialLayout"] = "bridge".into();
+        assert!(!attached_startup_service_cleanup(&bridge, &policy, &policy.external_cli()));
+        let mut armed = record.clone(); armed["exercise"] = serde_json::json!({});
+        assert!(!attached_startup_service_cleanup(&armed, &policy, &policy.external_cli()));
     }
     #[test]
     fn inspection_requires_exact_immutable_ledger_registration() {

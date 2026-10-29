@@ -444,10 +444,64 @@ test("fixture old-service choice is paired-only and bound to a compiled nonce", 
   expect(f.calls()).toBe(0);
 });
 
+test("Standard baseline is paired-only and disjoint from reserved Background choice", async () => {
+  const { reserveOtaBuild, otaFixturePolicy } = await import("../scripts/live/ota");
+  const f = fixture();
+  expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "bridge", false, "Standard")).toThrow("Standard baseline requires paired layout");
+  expect(existsSync(join(f.session.root, "ota"))).toBe(false);
+  const state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "paired", false, "Standard");
+  expect(state.baselineProcessType).toBe("Standard");
+  expect(state.nonce.startsWith("f0a3c29e5c0e")).toBe(true);
+  expect(state.nonce.startsWith("f0a3c29e5c0d")).toBe(false);
+  expect(Object.keys(state.nativeFixture!).sort()).toEqual(["arch", "baselineVersion", "buildRoot", "candidateVersion", "kind", "schema", "updaterKeySha256"].sort());
+  expect(Object.keys(otaFixturePolicy(state)).sort()).toEqual(["currentApp", "home", "nonce", "port", "recoveryLabel", "root", "schema", "serviceLabel", "uid"].sort());
+  expect(readOtaRecord(f.session.id, f.options).baselineProcessType).toBe("Standard");
+  const path = join(f.session.root, "ota/record.json"), changed = JSON.parse(readFileSync(path, "utf8"));
+  changed.baselineProcessType = "Background";
+  atomicWrite(path, JSON.stringify(changed));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Baseline process type differs from build intent");
+  expect(f.calls()).toBe(0);
+});
+
+test("reserved Background choice cannot be relabeled Standard", async () => {
+  const { reserveOtaBuild } = await import("../scripts/live/ota");
+  const f = fixture();
+  const state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "paired", true);
+  expect(state.baselineProcessType).toBe("Background");
+  const path = join(f.session.root, "ota/record.json"), changed = JSON.parse(readFileSync(path, "utf8"));
+  changed.baselineProcessType = "Standard";
+  atomicWrite(path, JSON.stringify(changed));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Baseline process type differs from build intent");
+  expect(f.calls()).toBe(0);
+});
+
+test("Standard choice uses a third compiled nonce subfamily without changing strict policy shapes", async () => {
+  const { reserveOtaBuild, otaFixturePolicy } = await import("../scripts/live/ota");
+  const f = fixture();
+  const state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "paired", true, "Standard");
+  expect(state.nonce.startsWith("f0a3c29e5c0f")).toBe(true);
+  expect(state.nonce.startsWith("f0a3c29e5c0d")).toBe(false);
+  expect(state.nonce.startsWith("f0a3c29e5c0e")).toBe(false);
+  expect(state.oldServiceChoice).toBe("continue");
+  expect(state.baselineProcessType).toBe("Standard");
+  expect(Object.keys(state.nativeFixture!).sort()).toEqual(["arch", "baselineVersion", "buildRoot", "candidateVersion", "kind", "schema", "updaterKeySha256"].sort());
+  expect(Object.keys(otaFixturePolicy(state)).sort()).toEqual(["currentApp", "home", "nonce", "port", "recoveryLabel", "root", "schema", "serviceLabel", "uid"].sort());
+  const path = join(f.session.root, "ota/record.json"), changed = JSON.parse(readFileSync(path, "utf8"));
+  delete changed.oldServiceChoice;
+  atomicWrite(path, JSON.stringify(changed));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Fixture old-service choice differs from compiled nonce");
+  changed.oldServiceChoice = "continue";
+  changed.baselineProcessType = "Background";
+  atomicWrite(path, JSON.stringify(changed));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Baseline process type differs from build intent");
+  expect(f.calls()).toBe(0);
+});
+
 
 test("runtime driver cannot request an initial layout change before any ownership query", async () => {
   const { updateOtaDriverRecord } = await import("../scripts/live/ota");
   expect(() => updateOtaDriverRecord("nonexistent", {} as any, { initialLayout: "paired" } as any)).toThrow("Initial layout is immutable");
+  expect(() => updateOtaDriverRecord("nonexistent", {} as any, { baselineProcessType: "Standard" } as any)).toThrow("Baseline process type is immutable");
 });
 
 test("exercise guards accept only the exact recorded external service set", () => {

@@ -18,6 +18,7 @@ fn main() {
         Some("--ota-fixture-inspect")
         | Some("--ota-fixture-retire")
         | Some("--ota-fixture-attach")
+        | Some("--ota-fixture-attach-standard")
         | Some("--ota-fixture-attach-takeover")
         | Some("--ota-fixture-refresh-takeover") => {
             let result = (|| {
@@ -29,9 +30,13 @@ fn main() {
                     .build()
                     .map_err(|_| pacer_desktop::ota::OtaError::Unavailable)?;
                 match std::env::args().nth(1).as_deref() {
-                    Some("--ota-fixture-attach") | Some("--ota-fixture-attach-takeover") => {
+                    Some("--ota-fixture-attach")
+                    | Some("--ota-fixture-attach-standard")
+                    | Some("--ota-fixture-attach-takeover") => {
+                        let mode = std::env::args().nth(1);
                         runtime.block_on(pacer_desktop::ota::helper::fixture_attach(
-                            std::env::args().nth(1).as_deref() == Some("--ota-fixture-attach-takeover"),
+                            mode.as_deref() == Some("--ota-fixture-attach-takeover"),
+                            mode.as_deref() == Some("--ota-fixture-attach-standard"),
                         ))
                     }
                     Some("--ota-fixture-refresh-takeover") => runtime.block_on(

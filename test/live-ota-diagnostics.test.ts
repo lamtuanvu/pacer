@@ -47,6 +47,20 @@ test("failed startup retirement requires both jobs absent and every recorded inc
   expect(() => assertStartupRetirement({ ...state, exercise: {} }, report, () => true)).toThrow();
 });
 
+test("certificate-signed paired attached startup retires without a diagnostic descriptor", async () => {
+  const { assertStartupRetirement } = await import("../scripts/live/ota-diagnostics");
+  const identity = (pid: number) => ({ pid, bootId: "boot", birth: String(pid) });
+  const root = "/fixture/.work/live/test/ota";
+  const state = { phase: "prepared", root, initialLayout: "paired", nativeFixture: { signingCertSha1: "A".repeat(40) }, diagnostics: null, external: [{}, {}], exercise: null, serviceLabel: "service", recoveryLabel: "recovery", runtime: { state: "starting", request: null, driver: identity(11), sourceService: identity(12), desktop: identity(13) } } as any;
+  const service = { label: "service", state: "retired" as const, loaded: false, process: null, executable: join(root, "external/pacer"), registrationSha256: "a".repeat(64), registrationText: "registration" };
+  const recovery = { label: "recovery", state: "reserved" as const, loaded: false, process: null, executable: null, registrationSha256: null, registrationText: null };
+  const report = { schema: 1 as const, desktops: [], jobs: [service, recovery] };
+  expect(() => assertStartupRetirement(state, report, () => true)).not.toThrow();
+  expect(() => assertStartupRetirement(state, { ...report, jobs: [{ ...service, executable: join(root, "current.app/Contents/Resources/pacer") }, recovery] }, () => true)).toThrow();
+  expect(() => assertStartupRetirement({ ...state, nativeFixture: { signingCertSha1: null } }, report, () => true)).toThrow();
+  expect(() => assertStartupRetirement({ ...state, initialLayout: "bridge" }, report, () => true)).toThrow();
+});
+
 test("diagnostic native library must match its immutable optional descriptor", () => {
   const f = fixture(), descriptor = { ...f.descriptor, nativeShimSha256: digest("shim") };
   writeFileSync(join(f.directory, "build.json"), JSON.stringify(descriptor));
