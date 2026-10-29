@@ -283,11 +283,20 @@ test("detectShellExecutorLaunch carries inline and exported environment into bas
   expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=$HOME/.claude bash -c 'claude --model sonnet'`)).toBeNull();
   expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor bash -c 'npm test'`)).toBeNull();
   expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; PACER_ROLE=other; claude run")).toBeNull();
-  // `unset` removes an exported variable for later commands; `unset -f` only removes functions.
+  // A plain, unconditional `unset` removes an exported variable for later commands.
   expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE; claude --help")).toBeNull();
   expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -v PACER_ROLE; claude --help")).toBeNull();
-  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -f PACER_ROLE; claude run")).toEqual({ cli: "claude" });
-  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE | cat; claude run")).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -- PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -v -- PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE && claude --help")).toBeNull();
+  // Every other form fails closed and keeps the variable (#463 round-2 security review, A4).
+  for (const unset of [
+    "false && unset PACER_ROLE", "true || unset PACER_ROLE", "true && false || unset PACER_ROLE",
+    "unset -f PACER_ROLE", "unset -fv PACER_ROLE", "unset -vf PACER_ROLE", "unset -n PACER_ROLE", "unset -v -f PACER_ROLE",
+    "unset PACER_ROLE | cat", "unset PACER_ROLE &", "unset PACER_ROLE=x",
+  ]) expect(detectShellExecutorLaunch(ctx, `export PACER_ROLE=executor; ${unset}; claude run`)).toEqual({ cli: "claude" });
+  // Any `unset` after `&&` counts as conditional, even when the left side always succeeds.
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor && unset PACER_ROLE; claude run")).toEqual({ cli: "claude" });
 });
 
 test("detectShellExecutorLaunch splits control operators outside quotes only, and tells || from | (PR #463 review)", () => {

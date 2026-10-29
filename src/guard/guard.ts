@@ -192,6 +192,15 @@ function managedHomes(ctx: Ctx, kind: "claude" | "codex"): string[] {
   return homes;
 }
 
+/** The variable names a plain `unset [-v] [--] NAME...` removes, or null for any other form. */
+function unsetVariableNames(args: ShellWord[]): string[] | null {
+  let i = 0;
+  if (args[i]?.text === "-v") i++;
+  if (args[i]?.text === "--") i++;
+  const names = args.slice(i);
+  return names.every(w => w.assign === -1 && NAME.test(w.text)) ? names.map(w => w.text) : null;
+}
+
 export interface ShellLaunch { cli: string }
 const MAX_SHELL_DEPTH = 8;
 /**
@@ -211,8 +220,10 @@ export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: 
   const exported: Record<string, string> = { ...inherited };
   const shellVars: Record<string, string> = { ...inherited };
   const tokens = tokenizeShell(command);
-  let start = 0;
+  let start = 0, previous: string | undefined;
   while (start < tokens.length) {
+    // A list member after `&&` or `||` may not run.
+    const conditional = previous === "&&" || previous === "||";
     // One pipeline: commands joined by `|`, ended by `;`, `&&`, `||`, `&` or a newline.
     const stages: ShellWord[][] = [[]];
     let i = start;
@@ -224,6 +235,7 @@ export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: 
     }
     const terminator = tokens[i] as { op: string } | undefined;
     start = i + 1;
+    previous = terminator?.op;
     // A multi-stage pipeline or a background job runs in a subshell: its exports do not reach later commands.
     const persists = stages.length === 1 && terminator?.op !== "&";
     for (const words of stages) {
@@ -238,8 +250,10 @@ export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: 
         continue;
       }
       if (words[0]!.text === "unset" && words[0]!.assign === -1) {
-        // `unset -f` removes functions; plain and `-v` names remove variables.
-        if (!words.slice(1).some(w => w.text === "-f")) for (const w of words.slice(1)) { delete env[w.text]; delete vars[w.text]; }
+        // Fail closed: only an unconditional `unset NAME`, `unset -v NAME` or `unset -- NAME` in this shell clears a
+        // variable. One after `&&`/`||`, backgrounded or piped, or with any other option (`-f`, `-n`, `-fv`), keeps it.
+        const names = unsetVariableNames(words.slice(1));
+        if (persists && !conditional && names) for (const name of names) { delete env[name]; delete vars[name]; }
         continue;
       }
       const { assignments, program } = parseSimpleCommand(words);
