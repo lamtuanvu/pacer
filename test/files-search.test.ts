@@ -155,6 +155,17 @@ test("files changed by a running local task are annotated and ranked first in th
   expect(r.results[1].changedBy).toBeUndefined();
 });
 
+test("files committed by a running in-place task are annotated against its start commit", async () => {
+  const repo = repoWith({ "src/remote/access.ts": "a", "src/remote/accessor.ts": "b" });
+  const start = git(repo, "rev-parse", "HEAD").stdout.toString().trim();
+  writeFileSync(join(repo, "src/remote/accessor.ts"), "changed");
+  git(repo, "commit", "-qam", "task work");
+  const ctx = setup({ "local:x": repo });
+  runningTask(ctx, { id: "t-20261028-100000-dddd", repo: { key: "local:x", path: repo, label: "x" }, brief: { repo }, startSha: start, run: { mode: "current", workdir: repo } });
+  const r = await searchFiles(ctx, { query: "access" });
+  expect(r.results[0]).toMatchObject({ path: "src/remote/accessor.ts", changedBy: [{ task: "t-20261028-100000-dddd" }] });
+});
+
 test("a search writes nothing to the registry or the state directory", async () => {
   const repo = repoWith({ "a.ts": "" });
   const ctx = setup({ "local:x": repo, "local:gone": join(dirname(repo), "missing-repo") });
