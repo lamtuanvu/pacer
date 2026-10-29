@@ -123,6 +123,8 @@
   --radius-5: 5px;
   --radius-2: 2px;
   --radius-7: 7px;
+  --radius-key: 4px;
+  --radius-tile: 7px;
   --radius-agents: 10px;
   --radius-machine-tile: 9px;
   --control-compact: 28px;
@@ -212,10 +214,12 @@
   --size-140: 140px;
   --size-110: 110px;
   --size-9: 9px;
+  --size-76: 76px;
+  --size-90: 90px;
+  --size-860: 860px;
   --size-400: 400px;
   --size-150: 150px;
   --size-130: 130px;
-  --size-90: 90px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --shadow-agent-failure: inset 0 0 0 1px var(--bad-line);

@@ -5,6 +5,7 @@ import { LazySetup } from "./setup/LazySetup";
 import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
 import { LazyTaskRoute } from "./LazyTaskRoute";
+import { LazyInsights } from "./LazyInsights";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
 
 import { Sessions } from "./session/controller";
@@ -15,6 +16,7 @@ export function Screen({route}:{route:Route}) {
  switch(route.name) {
  case 'plugin': return <LazyActivity key={`${route.plugin}/${route.id}`} plugin={route.plugin} id={route.id}/>;
  case 'setup': return <LazySetup query={route.query}/>;
+ case 'insights': return <LazyInsights query={route.query}/>;
  case 'dispatch': return <LazyDispatch view="home" query={route.query}/>;
  case 'review': return <LazyDispatch view="needs-you" query={route.query}/>;
  case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<LazyTaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;

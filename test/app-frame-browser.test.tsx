@@ -6,8 +6,13 @@ import { generateTokensCss, readTokens } from "../app/tokens-gen";
 const browserPath = process.env.PACER_TEST_BROWSER;
 const browserTest = test.skipIf(!browserPath);
 
-async function frame() {
+async function frame(setupOpen = 0) {
   const build = await Bun.build({ entrypoints: ["test/fixtures/app-frame-browser.tsx"], target: "browser", splitting: false, plugins: [{ name: "stub-pty-view", setup(builder) {
+    builder.onLoad({ filter: /snapshot\.json$/ }, async args => {
+      const snapshot = await Bun.file(args.path).json();
+      snapshot.counts.setupOpen = setupOpen;
+      return { contents: JSON.stringify(snapshot), loader: "json" };
+    });
     builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "terminal-stub" }));
     builder.onLoad({ filter: /.*/, namespace: "terminal-stub" }, () => ({ resolveDir: process.cwd(), loader: "js", contents: `import { h } from "preact";
     // Same structure and classes as the real terminal view, without xterm.
@@ -283,3 +288,32 @@ browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
     }
   } finally { await browser.close(); }
 }, 30_000);
+
+for (const setupOpen of [0, 1]) {
+  browserTest(`bottom navigation has at most eight nonoverlapping touch targets with setupOpen=${setupOpen}`, async () => {
+    const built = await frame(setupOpen);
+    const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 812 }, hasTouch: true });
+      await open(page, built, "#/settings");
+      const nav = page.locator(".pc-bottom-bar");
+      await nav.waitFor();
+      const targets = await nav.locator("a, button").evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect();
+        return { label: node.getAttribute("aria-label"), left: box.left, right: box.right, width: box.width, height: box.height };
+      }));
+      expect(targets).toHaveLength(setupOpen ? 8 : 7);
+      expect(targets.some(t => t.label === "Dispatch")).toBe(true);
+      expect(targets.some(t => t.label === "Insights")).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(setupOpen === 1);
+      expect(targets.some(t => t.label === "Dispatcher")).toBe(true);
+      for (const [i, target] of targets.entries()) {
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBe(44);
+        expect(target.right).toBeLessThanOrEqual(375);
+        if (i > 0) expect(target.left).toBeGreaterThanOrEqual(targets[i - 1]!.right);
+      }
+      expect(await noHorizontalOverflow(page)).toBe(true);
+    } finally { await browser.close(); }
+  }, 30_000);
+}
