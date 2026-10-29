@@ -41,3 +41,20 @@ test("console identity prefers exported worktree id over terminal-list metadata"
  const f=fakeRun([[["orca","terminal","list"],raw(JSON.stringify({ok:true,result:{terminals:[{handle:"term_x",tabId:"T",leafId:"L",worktreeId:"wrong"}]}}))]]);
  expect(await selfHandle(fakeCtx({env:{ORCA_PANE_KEY:"T:L",ORCA_WORKTREE_ID:"wt-own"},run:f.run}))).toEqual({handle:"term_x",paneKey:"T:L",worktreeId:"wt-own"});
 });
+
+test("console discovery strips inherited Orca caller attestation", async () => {
+  const calls: string[][] = [];
+  const ctx = fakeCtx({
+    env: { PATH: "/bin", ORCA_PANE_KEY: "T:L", ORCA_AGENT_SESSION_ID: "foreign", ORCA_AGENT_SESSION_ID_ENV: "CUSTOM_SESSION", CUSTOM_SESSION: "foreign" },
+    run: async (argv, _timeout, options) => {
+      calls.push(argv);
+      expect(options?.env).toEqual({ PATH: "/bin" });
+      return { code: 0, stderr: "", stdout: JSON.stringify({ ok: true, result: argv[1] === "terminal"
+        ? { terminals: [{ handle: "term_x", tabId: "T", leafId: "L" }] }
+        : { worktree: { path: "/wt/project" } } }) };
+    },
+  });
+  expect(await selfHandle(ctx)).toMatchObject({ handle: "term_x" });
+  expect(await resolveWorktreePath(ctx, "project")).toBe("/wt/project");
+  expect(calls.map(argv => argv.slice(0, 3))).toEqual([["orca", "terminal", "list"], ["orca", "worktree", "show"]]);
+});
