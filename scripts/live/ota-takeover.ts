@@ -8,7 +8,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { processIdentitySync } from "./control/lease";
 import { nativeCommand } from "./control/desktop";
 import { healthy, loadSession, record } from "./core";
-import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { captureProblem } from "./capture-content";
@@ -46,6 +46,10 @@ async function desktopControls(pid: number) {
     const window_id = await window();
     const result = await nativeCommand({ command: "inspect", pid, start_identity: identity!.start_identity, window_id });
     return { window_id, elements: result.elements as ControlElement[] };
+  }
+  async function activate() {
+    const window_id = await window();
+    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
   }
   async function key(key: string) {
     const window_id = await window();
@@ -86,7 +90,7 @@ async function desktopControls(pid: number) {
     });
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
   }
-  return { controls, click, key, texts, frame, capture };
+  return { activate, controls, click, key, texts, frame, capture };
 }
 
 type Controls = Awaited<ReturnType<typeof desktopControls>>;
@@ -126,8 +130,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || state.external.length !== 4 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
   // Fixture apps have their own identifier, so the installed app may keep running; prove it is untouched.
   const realApp = snapshotRealApp(enumerateNativeProcesses());
-  const baseline = state.nativeFixture!.baselineVersion;
-  await verifyFixtureBundle(state, baseline);
+  await verifyFixtureBundle(state, initialFixtureVersion(state));
   const before = await inspectFixtureJobs(state);
   if (before.desktops.length || before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture job already active");
   if (!await healthy(session)) throw Error("Guarded source service is unhealthy");
@@ -175,10 +178,13 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     } finally { closeSync(log); }
   }
   async function offerShown(ui: Controls) {
+    await ui.activate();
+    let last: ControlElement[] = [];
     return waitFor(async () => {
       const seen = await ui.controls();
+      last = seen.elements;
       return seen.elements.some(e => e.name === "Use the app's service" && e.role === "button") && seen.elements.some(e => e.name === "Not now" && e.role === "button") ? seen : null;
-    }, 60000, "Takeover page did not precede the version gate");
+    }, 60000, "Takeover page did not precede the version gate").catch(error => { throw Error(`${String(error)}: ${JSON.stringify(last.map(e => [e.role, e.name]).slice(0, 50))}`); });
   }
   async function tabOrder(ui: Controls, name: string) {
     // Default macOS keyboard settings: Full Keyboard Access is not required.

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { readyControl } from "../scripts/live/ota-takeover";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertFixtureLayoutScenario, initialFixtureVersion } from "../scripts/live/ota";
+import { TAKEOVER_SCENARIOS } from "../scripts/live/ota-exercise-record";
 
 const button = (disabled?: boolean) => ({ ref: "e1", role: "button", name: "Use the app's service", actions: ["click"], disabled });
 
@@ -22,4 +24,14 @@ test("native fixture drivers run beside the installed app and prove it untouched
     expect(source).toContain("snapshotRealApp(enumerateNativeProcesses())");
     expect(source).toContain("assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()))");
   }
+});
+
+test("takeover scenarios require the candidate desktop and helper layout", () => {
+  const candidate = { initialLayout: "paired" as const, nativeFixture: { baselineVersion: "0.2.3", candidateVersion: "0.2.4" } as any };
+  expect(initialFixtureVersion(candidate)).toBe("0.2.4");
+  for (const scenario of TAKEOVER_SCENARIOS) {
+    expect(() => assertFixtureLayoutScenario(candidate, scenario)).not.toThrow();
+    expect(() => assertFixtureLayoutScenario({ initialLayout: "bridge" }, scenario)).toThrow("candidate desktop");
+  }
+  expect(() => assertFixtureLayoutScenario(candidate, "upgrade")).toThrow();
 });

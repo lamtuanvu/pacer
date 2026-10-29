@@ -118,18 +118,20 @@ export async function attachFixtureService(state: OtaRecord): Promise<FixtureJob
 
 export async function attachFixtureTakeover(state: OtaRecord): Promise<FixtureJobs> {
   if (!state.nativeFixture?.signingCertSha1) throw Error("Takeover requires a certificate-pinned fixture lease");
-  knownFixtureBytes(state);
+  knownFixtureBytes(state, state.nativeFixture.candidateVersion);
+  await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
   const link = fixtureTakeoverCli(state), bin = join(state.pacerHome, ".local/bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
   if (lstatExists(link)) throw Error("Takeover command path already exists");
-  // The candidate reports a different version than the baseline desktop. The
-  // takeover page must therefore win over the ordinary version gate.
+  // The external command is ad hoc signed, while the candidate desktop and
+  // helper are certificate signed and pinned to this lease.
   const staged = join(state.root, "external/takeover-pacer");
   const entry = state.external.find(file => file.path === staged);
   if (!entry || createHash("sha256").update(readFileSync(staged)).digest("hex") !== entry.sha256) throw Error("Takeover CLI differs from immutable lease");
   copyFileSync(staged, link, constants.COPYFILE_EXCL);
   await run(state, ["/usr/bin/codesign", "--verify", "--strict", link]);
   const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
+  validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture.candidateVersion);
   const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach-takeover"])));
   if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel) throw Error("Takeover attach returned foreign jobs");
   return report;
