@@ -65,15 +65,15 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
   expect(html).toContain('pc-rail__dot');
 });
 
-test("narrow Dispatch keeps the spec order, repo default, other-repo count and touch actions", () => {
+test("narrow Dispatch keeps the spec order, repo default, Needs you link and touch actions", () => {
   const html = atWidth(1200, () => overview({ repo: "another", scope: `repo:${repo}` }));
   const sections = ['<h1>Dispatch</h1>', 'aria-label="Scope"', '>Needs you<', '>Live dispatch<', 'aria-label="Planner budget"', '>Executors<', 'id="glance"'].map(s => html.indexOf(s));
   expect(sections.every(at => at >= 0)).toBe(true);
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
   expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);
-  expect(html).toContain('+1 in other repos');
+  expect(html).toContain('All in Needs you');
   expect(html).not.toContain('Add dark mode to the web header');
-  expect(html).toMatch(/pc-btn--touch[^>]*>Retry on Codex</);
+  expect(html).toMatch(/pc-btn--touch[^>]*>Inspect failures</);
 });
 
 test("width-only narrow uses the repo filter, otherwise All; explicit All keeps repo scope", () => {
@@ -126,13 +126,14 @@ test("narrow Dispatch never shows snapshot counts as the period's figures", () =
   }
 });
 
-test("narrow Needs you puts other repos on the right of its header, once", () => {
+test("narrow Needs you puts All in Needs you on the right of its header, once", () => {
   const html = atWidth(400, () => overview({ repo: null, scope: `repo:${repo}` }));
   const section = html.slice(html.indexOf('aria-labelledby="needs-you"'));
   const header = section.slice(0, section.indexOf('</div>'));
-  expect(header).toContain('+1 in other repos');
-  expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('+1 in other repos'));
-  expect(section.match(/\+1 in other repos/g)).toHaveLength(1);
+  expect(header).toContain('All in Needs you');
+  expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('All in Needs you'));
+  expect(header.match(/All in Needs you/g)).toHaveLength(1);
+  expect(header).not.toContain('in other repos');
 });
 
 test('display-contents Dispatch sections constrain intrinsic long titles to the available width', async () => {

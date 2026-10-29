@@ -123,6 +123,14 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   // Start and Overview merged into the Dispatch home; old Overview links keep their repo and scope.
   if (path === "/overview") return { redirect: withQuery("#/", query) };
+  // Dispatch's board links open the existing task workspace until dedicated result pages land.
+  const taskView = /^\/tasks\/([^/]+)\/(failure|review|trace)$/.exec(path);
+  if (taskView && decode(taskView[1]!) !== null) {
+    const tab = taskView[2] === "review" ? "changes" : "work";
+    return { redirect: withQuery(`#/tasks/${taskView[1]}?tab=${tab}`, query) };
+  }
+  const answer = path === "/needs-you" ? params.get("answer") : null;
+  if (answer) return { redirect: withQuery(`#/tasks/${encodeURIComponent(answer)}`, query) };
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   const interactiveArea = interactiveEntry && (route.name === "dispatch" || route.name === "sessions");

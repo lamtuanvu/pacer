@@ -673,3 +673,5 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* Comfortable desktop controls retain the shared 32px form density. */
 .pc-density--normal{--control-normal:var(--control-settings)}
 .pc-density--normal .pc-btn--normal{min-height:var(--control-settings)}
+
+.pc-section-heading--headline{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);letter-spacing:normal;text-transform:none;color:var(--ink)}
