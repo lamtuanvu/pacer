@@ -9,8 +9,8 @@ const ui = { activity: [{ id: "a", title: "Checklist", icon: "check-square", vie
 const m = (u: unknown, over: object = {}) => parseManifest({ ...base, ...over, contributes: { ui: u } });
 const page = (fields: object) => ({ settings: [{ id: "s", title: "S", schema: { fields } }] });
 
-test("the protocol is 1.2.0 and serves the three ui methods", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.2.0");
+test("the protocol serves the three ui methods (1.2.0 added them; assistant renumbered it to 1.3.0)", () => {
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.3.0");
   for (const k of ["ui.render", "ui.action", "ui.settings.validate"]) expect(EXTENSION_METHODS[k]).toBeDefined();
 });
 
