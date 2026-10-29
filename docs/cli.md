@@ -135,11 +135,22 @@ Task attempts save their final diff and file statistics in the run directory. Re
 terminal tasks that have been reviewed, dismissed or resolved. Only tasks run
 in a new worktree under pacer's worktrees directory are eligible. Dirty worktrees
 are kept with `uncommitted changes; use --force` unless `--force` is given.
-A task whose repository no longer exists is kept with `repository no longer exists`
-and the rest are still cleaned.
 `--dry-run` reports what would be removed without changing files. Cleanup deletes
 disposable run files while retaining saved review diffs, and always keeps branches. Text output
 lists removed or kept task IDs and reasons, or `nothing to clean`; exit status is 0.
+
+If a task's source repository was deleted, plain clean keeps the task with
+`source repository is missing; use --force to delete the worktree`. With `--force`,
+clean deletes only that task's own worktree, `<worktrees>/<repo-tag>/<task-id>`, after
+checking that no path component is a symlink. It renames the folder to a
+`.pacer-delete-*` name inside the worktrees folder, verifies it is still the same
+folder, then deletes it; if a check fails, the task is kept and nothing is deleted.
+`--dry-run` shows the same decisions and renames nothing. A symlinked worktrees
+folder blocks only this forced direct delete (`worktrees folder is a symlink; not
+deleted`); normal cleans, with the repository present, still use `git worktree
+remove`. A `.pacer-delete-*` folder left by an interrupted forced clean is listed
+as kept and must be removed by hand. Remote tasks whose repository is missing are
+kept, because remote cleanup needs the local repository.
 
 JSON contracts:
 
