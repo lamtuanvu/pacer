@@ -361,7 +361,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const liveWork = <LiveDispatch narrow={narrow} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    {!firstRun && <DispatchHeader hideNewTask={empty} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />}
+    <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
     {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
       {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}
     </> : <>

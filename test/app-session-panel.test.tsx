@@ -67,11 +67,12 @@ test("review navigation stays offered in the title bar while Details is open", (
 
 // Workspace reads only the public task.get fields; missing facts have no placeholder rows.
 test("workspace shows available task detail fields only", () => {
-  const task = { repo: { label: "acme/api" }, branch: "feature/session", base: "main", worktree: "/tmp/worktree", machine: "devbox" };
+  const task = { repo: { label: "acme/api" }, branch: "feature/session", base: "main", worktree: "/home/sample/work/tree", machine: "devbox" };
   const html = renderToString(<SessionWorkspace task={task as never} />);
   expect(html).toContain("Workspace</h3>");
   expect(html).toContain("<dl");
-  for (const [label, value] of [["Repo", "acme/api"], ["Branch", "feature/session"], ["Base", "main"], ["Worktree", "/tmp/worktree"], ["Machine", "devbox"]]) {
+  expect(html).toContain('<dt>Worktree</dt><dd><code class="pc-settings-path"><span>~/<wbr/></span><span>work/<wbr/></span><span>tree<wbr/></span></code></dd>');
+  for (const [label, value] of [["Repo", "acme/api"], ["Branch", "feature/session"], ["Base", "main"], ["Machine", "devbox"]]) {
     expect(html).toContain(`<dt>${label}</dt><dd>${value}</dd>`);
   }
   const sparse = renderToString(<SessionWorkspace task={{ repo: { label: "acme/api" } } as never} />);
@@ -90,7 +91,7 @@ test("live token section distinguishes unreported and partial usage", () => {
 test("session header retains title, caption and working end action", () => {
   const task = {...taskDetail,id:"t-1",title:"Session title",branch:"topic"} as never;
   const html = renderToString(<SessionHeader task={task} onEnd={noop}/>);
-  expect(html).toContain('<h2 title="Session title">Session title</h2>');
+  expect(html).toContain('<h1 title="Session title">Session title</h1>');
   expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1/trace");
   expect(html).toContain("End session (asks to confirm)");
   expect(renderToString(<SessionHeader task={task}/>)).not.toContain("End session");
@@ -127,3 +128,9 @@ test("empty or removed changes do not offer an unusable diff or deleted-file pre
   const diff={patch:"",untracked:[],truncated:false,files:[{path:"deleted.ts",added:0,removed:3,status:"deleted" as const}]};
   expect(renderToString(<SessionFiles id="t-1" diff={diff} onOpen/>)).not.toContain("data-session-file");
 });
+
+ test("workspace preserves paths outside a home directory", () => {
+  const html = renderToString(<SessionWorkspace task={{worktree:"/tmp/nested/worktree"} as never}/>);
+  expect(html).toContain('<span>/<wbr/></span><span>tmp/<wbr/></span><span>nested/<wbr/></span><span>worktree<wbr/></span>');
+  expect(html).not.toContain('~/');
+ });

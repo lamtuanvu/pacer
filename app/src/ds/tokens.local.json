@@ -335,7 +335,7 @@
         "fontSize": "11px",
         "lineHeight": "12px",
         "fontWeight": 600,
-        "letterSpacing": "0.04em",
+        "letterSpacing": "-0.09em",
         "provisional": "ActivityBar board Plugins section label; not yet in the design system."
       },
       {

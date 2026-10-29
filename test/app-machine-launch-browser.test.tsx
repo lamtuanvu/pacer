@@ -51,8 +51,8 @@ browserTest('delegated task launch and the preferred terminal are drafted and sa
   expect(await launch(page).textContent()).toContain('Interactive');
   expect(await page.getByText(/finish when the agent reports its result/).count()).toBe(1);
   expect(await terminal(page).textContent()).toContain('Automatic');
-  // The save bar follows the last row.
-  expect(await page.evaluate(()=>{const bar=document.querySelector('.u3-save-bar')!,fields=[...document.querySelectorAll('.pc-setting-row')];return fields.length===7&&fields.every(f=>!!(f.compareDocumentPosition(bar)&Node.DOCUMENT_POSITION_FOLLOWING));})).toBe(true);
+  // The board hides the save bar until a field changes.
+  expect(await page.locator('.u3-save-bar').count()).toBe(0);
   await pick(page,launch(page),'Headless');
   await pick(page,terminal(page),'Ghostty');
   await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).fill('3');

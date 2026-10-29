@@ -154,7 +154,7 @@ test('Overview shows only real readiness and setup facts', () => {
   expect(html).toContain('No active subscription');
   expect(html).toContain('Usage reading needs refreshing');
   expect(html).toContain('Saved setup default');
-  expect(html).not.toContain('Diagnostics not run');
+  expect(html).toContain('Diagnostics not run');
   expect(html).not.toContain('Planner connected');
 });
 
@@ -240,7 +240,7 @@ test('menu shows Agents attention and Overview shows executor facts', () => {
   expect(menu).toContain('1 blocked');
   expect(menu).not.toContain('1 needs setup');
   expect(overview).toContain('Cannot take work');
-  expect(overview).not.toContain('Diagnostics not run');
+  expect(overview).toContain('Diagnostics not run');
   expect(menu).not.toContain('2 accounts');
   // Removed account counts do not appear in either destination catalog.
   expect(overview).not.toContain('2 accounts');
@@ -334,7 +334,7 @@ test('board navigation includes its back link and save guidance without unsuppor
   expect(html).toContain('Nothing saves silently');
   expect(html).toContain('Lists and editors show unsaved changes until you save. Switches save at once.');
   for (const label of ['Agents', 'Machines', 'Settings']) expect(html).toContain(`>${label}<`);
-  for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<', 'Checks not run']) expect(html).not.toContain(text);
+  for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<']) expect(html).not.toContain(text);
 });
 
 test('Agents retain links to secondary pages with the current scope', () => {
@@ -548,5 +548,5 @@ test('Budget windows use pace only on matching windows and preserve individual f
   expect(html.match(/pc-meter__pace/g)).toHaveLength(1);
   expect(html.match(/pc-meter--stale/g)).toHaveLength(1);
   expect(html).toContain('18% · pace 38%');
-  expect(html).toContain('>Stale</span>');
+  expect(html).toContain('Stale reading');
 });

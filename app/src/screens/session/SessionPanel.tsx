@@ -1,3 +1,4 @@
+import { SettingsPath as PathText } from "../settings/PathText";
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
@@ -168,7 +169,7 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
       </span>)}
     </div></div>
     <div role="tabpanel" id={`${base}-${current}-panel`} aria-labelledby={`${base}-${current}-tab`} tabIndex={0} className="pc-session-panel__body">
-      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : <>{details}{work}</>}
+      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : <div className="pc-stack pc-stack--section">{details}{work}</div>}
     </div>
   </div>;
 }
@@ -188,7 +189,7 @@ export function SessionWorkspace({ task }: { task: TaskDetail }) {
   const fields = [["Repo", task.repo?.label], ["Branch", task.branch], ["Base", task.base], ["Worktree", task.worktree], ["Machine", task.machine]].filter(([, value]) => !!value);
   if (!fields.length) return null;
   return <section className="pc-session-workspace"><SectionHeading as="h3">Workspace</SectionHeading>
-    <dl>{fields.map(([label, value]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{value}</dd></>)}</dl>
+    <dl>{fields.map(([label, value]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{label === "Worktree" ? <PathText path={value!}/> : value}</dd></>)}</dl>
   </section>;
 }
 
@@ -203,7 +204,7 @@ export function SessionInsights({ task, executor }: { task: TaskDetail; executor
       <span className="pc-session-token-value">{reported ? `${tokens.lowerBound ? "≥ " : ""}${compactCount(tokens.total)}` : "—"}</span>
       <p className="muted">{reported ? "This session" : "No token usage reported yet"}{tokens?.lowerBound ? " · partial usage" : ""}</p>
       <UsageMeter used={executor?.usedPct ?? null} pace={executor?.pacePct ?? null} tone={pace.tone} size="slim" label={`${agent} weekly usage`} text="none"/>
-      <p className="muted">{agent} {executor?.usedPct == null ? "weekly usage unknown" : `${executor.usedPct}% of week`} · {pace.label.toLowerCase()}</p>
+      <p className="muted">{executor?.usedPct != null && <>{agent} {executor.usedPct}% of week{executor.verdict !== "unknown" && ` · ${pace.label.toLowerCase()}`}</>}</p>
     </section>
   </>;
 }

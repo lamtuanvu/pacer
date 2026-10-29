@@ -34,7 +34,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
         dock = next;
         if (dock) observer.observe(dock);
       }
-      const header = root.querySelector<HTMLElement>(".pc-session-bar");
+      const header = root.querySelector<HTMLElement>(".pc-session-bar, .pc-main .pc-page > header, .pc-main .pc-page-header");
       if (header !== sessionHeader) {
         if (sessionHeader) observer.unobserve(sessionHeader);
         sessionHeader = header;

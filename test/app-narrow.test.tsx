@@ -59,11 +59,11 @@ test("bottom bar keeps all five destinations, badges and scope on every destinat
     expect(nav).not.toContain('Tasks, 2 running');
     // Dispatch puts the budget in its body and offers a touch icon in the header.
     if (screen === "/") {
-      expect(html).not.toContain('class="pc-planner"');
+      expect(html).not.toContain('class="pc-planner pc-inline-link"');
       expect(html).toContain('aria-label="New task"');
       expect(html).toContain('pc-btn--touch pc-icon-button');
     } else {
-      expect(html).toContain('class="pc-planner"');
+      expect(html).toContain('class="pc-planner pc-inline-link"');
       expect(html).toMatch(/pc-btn--touch[^>]*>New task</);
     }
   }
@@ -78,7 +78,7 @@ test("narrow Dispatch keeps the spec order, repo default, Needs you link and tou
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
   expect(html).toContain("Add SSH keepalive to remote runs");
   expect(html).not.toContain("Split the settings page into sections");
-  expect(html).toContain('All in Needs you');
+  expect(html).toContain('All 3');
   expect(html).not.toContain('Add dark mode to the web header');
   expect(html).toContain("pc-narrow-attention--bad");
   expect(html).toContain("/failure");
@@ -139,13 +139,13 @@ test("narrow Dispatch never shows snapshot counts as the period's figures", () =
   }
 });
 
-test("narrow Needs you puts All in Needs you on the right of its header, once", () => {
+test("narrow Needs you puts All 3 on the right of its header, once", () => {
   const html = atWidth(400, () => overview({ repo: null, scope: `repo:${repo}` }));
   const section = html.slice(html.indexOf('aria-labelledby="needs-you"'));
   const header = section.slice(0, section.indexOf('</div>'));
-  expect(header).toContain('All in Needs you');
-  expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('All in Needs you'));
-  expect(header.match(/All in Needs you/g)).toHaveLength(1);
+  expect(header).toContain('All 3');
+  expect(header.indexOf('class="grow"')).toBeLessThan(header.indexOf('All 3'));
+  expect(header.match(/All 3/g)).toHaveLength(1);
   expect(header).not.toContain('in other repos');
 });
 
