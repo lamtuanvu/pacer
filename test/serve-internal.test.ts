@@ -5,6 +5,7 @@ import { main } from "../src/cli";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
 import { executorEnv } from "../src/exec/process";
+import { keychainStubPath } from "./keychain-stub";
 
 test("internal mode trusts only the internal token and keeps the bearer/cookie distinction", async () => {
   const ctx = fakeCtx({ now: Date.now() / 1000 });
@@ -74,7 +75,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 `, { mode: 0o755 });
   let pluginPid: number | undefined;
   const child = Bun.spawn([process.execPath, "src/cli.ts", "serve", "--internal"], {
-    env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome,
+    env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: keychainStubPath(ctx.home),
       PACER_INTERNAL_TOKEN: "i".repeat(64), PACER_INTERNAL_PARENT_PIPE: "1" },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
