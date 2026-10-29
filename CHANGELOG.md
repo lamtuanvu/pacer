@@ -51,6 +51,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Scheduled certification follows the repository where managed work runs rather than the one most recently viewed, and the Dispatcher row names it by its repository picker label.
 - Scheduled certification retries after a pause of at least 24 hours when a probe exceeds the cost ceiling or repeated repository switching invalidates certificates, instead of stopping permanently. The daily probe ceiling still applies; Dispatcher consent and documentation now describe the pause and retry.
 - Executor sessions now match a terminal more closely: the login shell's `umask` applies to the agent, direnv and mise apply for the task folder as their own trust allows (pacer never allows or trusts a folder), interactive sessions keep `NO_COLOR`/`FORCE_COLOR` from your profile, and the default account honours `CLAUDE_CONFIG_DIR`/`CODEX_HOME` from your profile (not from direnv or mise) for the run, its folder trust and usage readers. Managed work under strict native control runs with the service environment it was certified with. Backend selection now uses the same launch mode as the attempt under strict enforcement. See [Session environment](docs/executors.md#session-environment).
 - The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
