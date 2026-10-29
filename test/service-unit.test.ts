@@ -45,3 +45,8 @@ test("another KillMode value is replaced and a handwritten unit is left alone", 
   const handwritten = "[Service]\nExecStart=/opt/pacer serve\n";
   expect(currentUnitText(handwritten)).toBe(handwritten);
 });
+
+test("migration removes a second KillMode that could override process", () => {
+  const managed = `# ${MARKER}\n[Service]\nRestartSec=10\nKillMode=process\nKillMode=control-group\n`;
+  expect(currentUnitText(managed)).toBe(`# ${MARKER}\n[Service]\nRestartSec=10\nKillMode=process\n`);
+});

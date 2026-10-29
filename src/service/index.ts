@@ -101,7 +101,7 @@ WantedBy=default.target
 }
 /** Migrate only pacer-managed systemd units so a restart spares detached work. */
 export function currentUnitText(text: string): string {
-  if (!text.includes(MARKER) || /^KillMode=process$/m.test(text)) return text;
+  if (!text.includes(MARKER)) return text;
   const cleaned = text.replace(/^KillMode=.*\n/gm, "");
   if (/^RestartSec=10$/m.test(cleaned)) return cleaned.replace(/^RestartSec=10\n/m, "RestartSec=10\nKillMode=process\n");
   return cleaned.replace(/^\[Service\]\n/m, "[Service]\nKillMode=process\n");
