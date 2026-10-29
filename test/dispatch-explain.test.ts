@@ -221,6 +221,22 @@ test("the read-only store reads a cleanly closed WAL database", async () => {
   store.close();
 });
 
+test("the read-only slot query includes a lane waiting on its question, which may hold its slot", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { openReadOnlyStore, slotTasksReadOnly } = await import("../src/dispatch/readonly");
+  const { slotUse } = await import("../src/engine/slots");
+  const ctx = fakeCtx(); mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  const db = new Database(join(ctx.pacerHome, "state", "tasks.db"));
+  const lane = { id: "t2", state: "needs_input", executor: "codex", live: { backend: "orca", worker: "w", terminal: "t", executor: "codex", agent: "codex", since: 1 } };
+  db.run("CREATE TABLE tasks (id TEXT, state TEXT, record TEXT)");
+  db.run("INSERT INTO tasks VALUES ('t1','done','{\"id\":\"t1\",\"state\":\"done\",\"executor\":\"codex\"}')");
+  db.query("INSERT INTO tasks VALUES ('t2','needs_input',?)").run(JSON.stringify(lane)); db.close();
+  const store = openReadOnlyStore(ctx);
+  expect(slotTasksReadOnly(store).map(t => t.id)).toEqual(["t2"]);
+  expect(slotUse(slotTasksReadOnly(store)).byExecutor).toEqual({ codex: 1 });
+  store.close();
+});
+
 test("pacer route --explain refuses an executor session before calling the service", async () => {
   const { main } = await import("../src/cli");
   const ctx = fakeCtx({ env: { PACER_ROLE: "executor" } });
