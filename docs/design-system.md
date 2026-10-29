@@ -10,6 +10,8 @@ Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit colo
 
 `chart-1`–`chart-5` provide a calm categorical series and identity fills. Every value reaches at least 3:1 against `surface-page` and `surface-lane` in both themes. Neighbouring series can have similar luminance, so charts separate segments with gaps and carry a text legend. `aurora-1`–`aurora-3` reserve soft assistant-sheet glows; they are decorative only, never status. Neither palette replaces semantic status tokens.
 
+`chart-1`–`chart-5` provide a calm categorical series and identity fills. Every value reaches at least 3:1 against `surface-page` and `surface-lane` in both themes. Neighbouring series can have similar luminance, so charts separate segments with gaps and carry a text legend. `aurora-1`–`aurora-3` reserve soft assistant-sheet glows; they are decorative only, never status. Neither palette replaces semantic status tokens.
+
 All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal 44px and touch 48px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
 
 Compact is the desktop default, including dialogs outside the shell. `DensityProvider value="compact"` also scopes the tray, including list rows, pills and meters. Buttons (all variants and button links), text inputs and choice pickers share the 28px compact minimum, caption typography and medium radius. The top-bar Delegate is the reference control. Settings forms retain their shared 32px density; small settings actions remain 28px. Explicit `normal` density remains available at 44px for a documented need, rather than becoming a page-local override.
@@ -24,6 +26,14 @@ Compact is the desktop default, including dialogs outside the shell. `DensityPro
 | `ButtonLink`, `TextAction`, `IconButton` | Native anchor/button props and refs; ButtonLink shares button appearance; IconButton adds optional `icon: IconName` | Navigation stays an anchor, including href, current page, target, download and modifier behavior. IconButton requires `aria-label`; tooltip alone is insufficient. It retains children/ref/native button support and compact geometry; destructive icon actions such as End session use `variant="danger"`. Tray and terminal consumers remain supported. `pc-inline-link` is the CSS contract for underlined links in prose. |
 | `StatusDot` | Required `tone="good\|warn\|bad\|info\|neutral"`, `label`; optional `live`, `paired="glyph\|pill"` | DS-owned passive status marker. The label is visible next to the dot (with `title` for clipped text), so status is never colour alone. `paired="glyph"` hides the label visually but keeps it for assistive tech, beside an `aria-hidden` StatusGlyph; `paired="pill"` hides the whole dot from assistive tech, because the adjacent StatusPill announces the status. Tone and label come from the `src/view-model/` status vocabulary (UI-10). Live pulse uses motion tokens and stops under reduced motion. No keyboard target or production consumers yet. |
 | `HostChip` | `name`, `kind="local\|remote"` | DS-owned compact lane chip; remote includes a decorative servers icon, so host names must identify the machine ("Local Mac", an SSH alias). Long names ellipsize and retain the full name in `title` and DOM text. Passive; no keyboard target. No production consumers yet. |
+| `MetaRow` | `items: MetaItem[]`, `label`; item `icon`, `text`, optional `tone`, `emphasis`, `title` | DS-owned labelled group of facts, wrapping between items. Blank text is omitted; empty groups render nothing. Each item stays on one line and clips long text with ellipsis; title defaults to full text. Semantic foregrounds and strong weight supply variants; tone is never the only signal, so the text states the fact ("2 checks failing"). Passive; no production consumers yet. |
+| `AgentStack` | `agents: string[]`, `size=16\|18\|20` (default 18) | DS-owned inline group reuses AgentMark; canonical identities/aliases are deduplicated in input order. Exposed as one `role="img"` whose name lists the agent display names; inner marks are decorative. Empty stacks render nothing. Passive; no production consumers yet. |
+| `Identicon` | `seed`, `size=16\|24\|32` (default 24) | DS-owned decorative SVG: stable FNV-1a UTF-16 hash, mirrored 5×5 cells from hash bits 8–22 (never empty; the centre cell is the fallback), one categorical chart fill chosen independently on surface-lane. Hidden from accessibility APIs; accompany it with visible identity text. No keyboard target or production consumers yet. |
+| `SettingRow` | `label`, optional `description`, `status: {tone,label}` and the control as children | Settings Overview, Budget & pacing, App preferences and Diagnostics. The single settings row grammar: label, description and status on the left, control on the right, stacked at 700px and below. A canonical labelable control (TextInput, TextArea, ChoicePicker, Checkbox, Switch, Range) outside its own `<label>` and without its own `label` prop gets `<label for>` and the description appended to its `aria-describedby`, with no extra group; a bare Checkbox or Switch is wrapped in an empty `pc-checkbox` label so it keeps the settings and touch hit area. Other controls (segmented groups, buttons, links, self-labelled controls) keep their own names, and the row becomes a `role="group"` named by its label and described by its description. Give a segmented group the same label as its row. Status is a text Pill, never colour alone. |
+| `SettingsNav` | `label`, `groups: {id,label,items}[]`; item `id`, `label`, `href`, `icon`, optional `current`, `badge: {text,label?,tone?}` | The grouped settings menu in the settings panel. A labelled `nav` of lists, each named by a visible group label (not a heading, so page headings stay first); links stay in document order so Tab follows the groups, and the current item scrolls into view in the narrow strip. The current page carries `aria-current="page"`. Glyph and count badges are visually shown and announced by their `label` through screen-reader text, with `title` for pointer users. The shell lays groups out in a row on narrow layouts. |
+| `Stepper` | `label`, `steps: {id,title,detail?,state:"done\|current\|todo",reachable}[]`, `onSelect(id)` | Add agent wizard progress. An ordered list; reachable steps are quiet buttons, the current one carries `aria-current="step"`, done steps say "done" to assistive technology, and steps not yet reachable are plain text. Arrow Up/Down/Left/Right, Home and End move focus between the buttons; Enter and Space select. The Add agent page queries its own inline size: below 774px, steps wrap above the full-width panel without a horizontal scroller. Step marks use the 700 weight token. The caller decides which steps are reachable (the wizard gates them on completed earlier steps). |
+| `CheckList` | `label`, `items: {id,label,state:"passed\|failed\|running\|pending\|skipped",note?}[]` | Add agent test task and the Machines connect-and-check list. Each row has a glyph, a visually hidden result word and an optional note, so a result is never colour alone. Rows come from the service's job steps; nothing is invented. |
+| `NavTabs` | `label`, `items: {href,label,current?}[]` | Agents page Executors and Accounts tabs. A labelled `nav` of ButtonLinks sharing the Tabs underline; the current page carries `aria-current="page"`. Use `Tabs` for in-page panels and `NavTabs` when each tab is its own route. Settings navigation tabs use 32px minimum height, 13px text and 12px inline padding, with 44px touch height. |
 | `MetaRow` | `items: MetaItem[]`, `label`; item `icon`, `text`, optional `tone`, `emphasis`, `title` | DS-owned labelled group of facts, wrapping between items. Blank text is omitted; empty groups render nothing. Each item stays on one line and clips long text with ellipsis; title defaults to full text. Semantic foregrounds and strong weight supply variants; tone is never the only signal, so the text states the fact ("2 checks failing"). Passive; production consumer: TaskCard. |
 | `AgentStack` | `agents: string[]`, `size=16\|18\|20` (default 18) | DS-owned inline group reuses AgentMark; canonical identities/aliases are deduplicated in input order. Exposed as one `role="img"` whose name lists the agent display names; inner marks are decorative. Empty stacks render nothing. Passive; production consumer: TaskCard. |
 | `Identicon` | `seed`, `size=16\|24\|32` (default 24) | DS-owned decorative SVG: stable FNV-1a UTF-16 hash, mirrored 5×5 cells from hash bits 8–22 (never empty; the centre cell is the fallback), one categorical chart fill chosen independently on surface-lane. Hidden from accessibility APIs; accompany it with visible identity text. No keyboard target. Production use: Settings › Dispatcher saved setups, beside the setup name. |
@@ -431,3 +441,72 @@ The screen owns its chart and semantic tables in `insights.css`: agent rows use
 the board's fixed numeric columns and flexible Agent/Share columns, while the
 kind matrix keeps a 76px row-label column with full labels available by title.
 Provisional board dimensions live in `tokens.local.json`.
+Agents board density: `ListRow layout="planner"` uses a 32px identity mark,
+14px × 16px card padding and a 10px radius on surface-card. It preserves sibling
+actions and content. `PageColumns layout="agents"` gives the details aside a
+340–400px column with 28px × 24px padding, a left border and surface-card;
+it stacks below the table on smaller canvases. Production consumer: Settings Agents.
+`RadioChoices` takes label, name, value, options, onChange and disabled props.
+It uses native radio inputs in a labelled radiogroup, retaining browser arrow-key
+navigation, focus and disabled semantics. Production consumer: Settings Accounts'
+existing spread/fill policy. These are local compositions, with no upstream copy.
+Agents/Accounts tables retain specialized semantic table layouts: 9px × 16px
+uppercase headers, 10px × 16px body cells and 24px agent marks. Provisional
+`radius-agents`, `size-9`, `size-400` and `shadow-agent-failure` tokens record board values.
+`Icon` also supplies lock and close glyphs for the account information banner and
+agent detail dismissal; decorative glyphs remain hidden from assistive technology.
+`UsageMeter size="slim"` stacks its 6px meter above its caption and wraps caption
+text; it is used by both agent tables. `SettingRow layout="stacked"` places the
+control beneath its label and description with a top divider for detail blocks.
+`SectionHeading variant="headline"` provides the board's 16/22/650 mixed-case
+aside title. These variants retain the base components' semantics and actions.
+The rounded table frame clips its corners; an inner scrolling region keeps all
+columns and real actions reachable when the table is wider than its canvas.
+`Card tone="bad"` uses bad-tint and bad-line for readiness explanations; wording
+and fix actions remain supplied by the screen. Slim historical meters dim only
+the visual track, retaining full contrast for their factual caption.
+
+Machines and Add agent board alignment: `ChoiceCard` accepts `layout="agent"`
+(vertical, 14px padding, 6px gap, 10px corners) or `layout="alias"` (8px × 10px
+padding). Both retain button/pressed semantics, visible keyboard focus and an ink
+selection border/ring. `RadioChoices layout="options"` renders bordered native
+radio rows with 12px × 14px padding, 10px corners and an ink selected border;
+labels can contain a title and caption. Native arrow-key radio navigation applies.
+Existing compact account policy controls keep their default layout.
+
+`Stepper` uses a 2px list gap and 10px step padding/gap. `CheckList` uses 10px ×
+12px padding, 6px row gaps and 14px glyphs; `unboxed` removes its outer border,
+background and padding when composed inside the Add agent Test task block.
+Notes stay right aligned and wrap within the row. The `laptop` outline icon is
+available for the Machines local card. These variants are owned by DS; Machines
+and Add agent own only their specialized card, panel and grid composition.
+
+Slice 6b board consumers: Agents (Executors and Accounts), Machines and Add an
+agent compose `pc-settings-board` and `pc-settings-board__header` with one h1 and
+caption. Their settings-bundle rules own the 18px block gap and right-aligned
+header actions. Host detail retains its breadcrumb and no h1. This adds no DS
+component API or component stylesheet bytes.
+
+Machines uses `SettingRow variant="board"` for all four This Mac rows. The card
+body establishes an inline-size container; at widths up to 700px, rows use a
+single column and the shared 8px narrow gap, retaining 14px vertical padding.
+This documented card containment rule handles two cards within the bounded page.
+Agent details retain `layout="stacked"`; Takes work applies immediately with a
+disabled, aria-busy switch during saving and an inline alert on failure. Parallel
+tasks remain in the page draft. Escape and Close restore row focus; removal moves
+focus to Add agent. Detection retry and failed-host recovery use existing service
+operations and scoped host-detail navigation.
+
+### Settings Agents and Machines layouts
+
+Settings-specific component styles live in `screens/settings/settings.css` to keep the startup bundle bounded. Agents uses five columns (Executor, Status, This week, Parallel, actions); below 760px of table container width, rows become labelled cards with visible actions. The More actions icon button opens the details region and keeps its focus-return and Escape behavior. Priority and parallel-task edits share the page draft and save bar; Takes work saves immediately. The stacked priority SettingRow keeps movement buttons beside the position number. Parallel-task inputs in details are 72px wide with 6px radius and 10px padding.
+
+Machines uses auto-fit cards with a 440px minimum, bounded by the container. Its board SettingRows use a label track capped at 240px, a flexible control track with a 220px floor, 20px gap and 12px block padding. Rows stack below 420px of the card body. ChoicePickers are 220px wide, capped by their control track after rows stack. At 456px of content the label track shrinks to 216px to fit the picker and 20px gap. Account policy labels, bare Takes work switch labels, and settings text actions keep at least 44px touch height on narrow or coarse-pointer layouts. The new 130px and 90px table dimensions are provisional local tokens.
+
+Accounts uses six board grid tracks: Account, Sign-in (130px), Quota (at least
+160px), Status (150px), Used by, and actions (32px). At container widths up to
+760px, every cell remains visible in labelled cards. More actions appears only
+for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
+region spanning the row. Agents and Accounts paint the header background and
+bottom rule on the whole header row. Add agent breadcrumb and footer text
+links keep the shared touch minimum for both width and height.
