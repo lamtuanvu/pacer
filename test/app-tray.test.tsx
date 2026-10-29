@@ -188,7 +188,7 @@ test("ui.open navigates through IPC and never calls the operation API", async ()
   const routes: string[] = [];
   const browser = createTrayIpc({ location: { assign: url => { routes.push(url); } } });
   await performAction({ label: "Review", op: "ui.open", params: { view: "review", id: "task 1" } }, { ...api, call: async () => { throw Error("Must not POST ui.open"); } }, browser);
-  expect(routes).toEqual(["/app/#/tasks/task%201"]);
+  expect(routes).toEqual(["/app/#/sessions/task%201"]);
   expect(actionRoute({ label: "Open", op: "ui.open", params: { route: "/settings" } })).toBe("/settings");
 });
 
@@ -244,12 +244,12 @@ test("row actions show one short verb and keep the full label as a tooltip", asy
 
 test("tray action destinations use mounted screens and preserve settings sections", () => {
   const route = (params: Record<string, unknown>) => actionRoute({ label: "Open", op: "ui.open", params });
-  expect(route({view:"task",id:"running 1"})).toBe("/tasks/running%201");
-  expect(route({view:"review",id:"done 1"})).toBe("/tasks/done%201");
+  expect(route({view:"task",id:"running 1"})).toBe("/sessions/running%201");
+  expect(route({view:"review",id:"done 1"})).toBe("/sessions/done%201");
   expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
   expect(route({view:"settings",section:"routing"})).toBe("/settings/dispatcher");
   expect(route({view:"settings",section:"strategies"})).toBe("/settings/dispatcher");
-  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/dispatcher",setup:"/",tasks:"/tasks"})) expect(route({view})).toBe(to);
+  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/dispatcher",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
 });
 
 test("long settings actions shorten to Settings and labels ellipsize instead of overflowing", async () => {
@@ -411,6 +411,27 @@ test("executor warning and bad tones keep board percentages with status in the t
     expect(html).not.toContain("tray-executor-glyph");
     expect(html).toContain("90%</span>");
   }
+test("Answer opens the task at its answer box through a route the native shell accepts", async () => {
+  const route = actionRoute({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-20261029-190507-4d5a", tab: "answer" } });
+  expect(route).toBe("/sessions/t-20261029-190507-4d5a/answer");
+  // Same rules as desktop logic::route: no query string, and only review|sessions|settings.
+  expect(route).not.toContain("?");
+  expect(route).toMatch(/^\/sessions\/[A-Za-z0-9_-]+\/answer$/);
+  const opened: string[] = [];
+  const native = createTrayIpc({ __TAURI__: { core: { invoke: async (command, args) => { opened.push(`${command} ${String(args?.route)}`); } } }, location: { assign: () => { throw Error("native must not assign"); } } });
+  await performAction({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } }, api, native);
+  await performAction({ label: "Answer", op: "task.answer", params: { id: "t-2" } }, api, native);
+  expect(opened).toEqual(["tray_open /sessions/t-1/answer", "tray_open /sessions/t-2/answer"]);
+  const browser: string[] = [];
+  await performAction({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } }, api, createTrayIpc({ location: { assign: url => { browser.push(url); } } }));
+  expect(browser).toEqual(["/app/#/sessions/t-1/answer"]);
+});
+
+test("a failed tray action gives a plain reason and a next step", async () => {
+  const { actionError } = await import("../app/src/tray/model");
+  expect(actionError("Invalid route")).toBe("pacer could not open that. Try again, or open pacer to finish there.");
+  expect(actionError(undefined)).toBe("pacer could not open that. Try again, or open pacer to finish there.");
+  expect(actionError(new Error("Task already finished."))).toBe("Task already finished. Try again, or open pacer to finish there.");
 });
 
 

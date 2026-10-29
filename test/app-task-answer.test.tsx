@@ -59,6 +59,6 @@ test("refusals and deliveries read as plain words", () => {
 });
 
 test("the tray opens the composer for an Answer action", () => {
-  expect(actionRoute({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } })).toBe("/tasks/t-1?tab=answer");
-  expect(actionRoute({ label: "Open task", op: "ui.open", params: { view: "task", id: "t-1" } })).toBe("/tasks/t-1");
+  expect(actionRoute({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } })).toBe("/sessions/t-1/answer");
+  expect(actionRoute({ label: "Open task", op: "ui.open", params: { view: "task", id: "t-1" } })).toBe("/sessions/t-1");
 });
