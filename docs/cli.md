@@ -46,9 +46,18 @@ write a brief JSON file:
 
 Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
-`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `constraints`, `context`,
+`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_pipefail`, `constraints`, `context`,
 `worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
+
+`acceptance` runs exactly as written, as `bash -c "<cmd>"` (or `sh -c` where bash is
+unavailable): idioms like `grep -v ... | (! grep .)` or `git log | grep -q ...` keep
+their ordinary meaning. Set `acceptance_pipefail: true` (or `--acceptance-pipefail`),
+or write `set -o pipefail;` at the start of the command yourself, to fail the check on
+a non-final pipeline stage's exit code too. The result always reports the acceptance
+command's exit code and which shell/options ran it; a 141 (SIGPIPE) or an instant,
+empty-output failure comes with a hint, since both often mean a piped command raced
+past an earlier stage rather than the task actually failing.
 
 Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
 map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to
@@ -383,12 +392,13 @@ runner edits ask you to run `pacer config migrate` first. Migration saves the
 original as `<file>.pre-accounts.bak` and prints how to restore it.
 
 `config get` returns each effective value and its source: the strategy filename
-or `default`. With a key, JSON is `{value, source}`; without a key, JSON maps
+or `default` (`env PACER_BACKEND` when that override is set). With a key, JSON is `{value, source}`; without a key, JSON maps
 setting names to those objects. `config set` prints the change and an undo
 command. Account and runner list JSON are arrays (see the accounts guide).
 
 | Key | Value |
 | --- | --- |
+| execution.backend | `orca` or `direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved setting. |
 | planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
 | pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
 | pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |

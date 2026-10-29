@@ -403,4 +403,15 @@ density); variants, focus, disabled and busy semantics remain shared. Existing
 sizes keep their geometry. The tray's 36px quiet icon controls use the shared
 stroke `pause` and `play` icons; More owns an absolutely positioned menu, with
 Escape returning focus to its trigger. Icons are authored in-repo; provenance is
-unchanged. New task opens the Delegate dialog through `/?new=task`.
+unchanged. New task opens the New task composer at `/tasks/new` (#460).
+
+### Insights board
+
+`SegmentedControl variant="insights"` retains pressed-button semantics and keyboard
+behavior, with 3px group padding, 8px group radius and 32px segments. Narrow
+viewports and coarse pointers use the shared touch target token (48px). Only the
+Insights Period filter uses this additive variant; other densities are unchanged.
+The screen owns its chart and semantic tables in `insights.css`: agent rows use
+the board's fixed numeric columns and flexible Agent/Share columns, while the
+kind matrix keeps a 76px row-label column with full labels available by title.
+Provisional board dimensions live in `tokens.local.json`.

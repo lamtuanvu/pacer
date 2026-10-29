@@ -70,6 +70,19 @@ pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str
     }
 }
 
+/** The signed disposable fixture can queue the existing choice for one fixed release pair. */
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn fixture_continue_old_service(gate: ServiceGate, app: &str, live_service: Option<&str>, permitted: bool) -> bool {
+    permitted && gate == ServiceGate::ExplainOlder && app == "0.2.4" && live_service == Some("0.2.3")
+}
+
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn queue_fixture_old_service_choice(slot: &mut Option<ShellAction>) -> bool {
+    if slot.is_some() { return false; }
+    *slot = Some(ShellAction::ContinueOldService);
+    true
+}
+
 pub fn connection_retry_delay(
     normal: std::time::Duration,
     waiting_for_service_choice: bool,
@@ -835,7 +848,7 @@ pub fn remembered_route(route: &str) -> String {
 
 pub fn route(raw: &str) -> Option<String> {
     let value = raw.strip_prefix('#').unwrap_or(raw);
-    if value.contains(['%', '\\', '#']) || value.contains("..") {
+    if value.contains(['%', '\\', '#', '?']) || value.contains("..") {
         return None;
     }
     let value = if value.starts_with("pacer://") {
@@ -855,14 +868,11 @@ pub fn route(raw: &str) -> Option<String> {
     if !value.starts_with('/') || value.starts_with("//") || value.contains(['#', '\\']) {
         return None;
     }
-    if let Some((path, query)) = value.split_once('?') {
-        if matches!((path, query), ("/", "new=task")) {
-            return Some(format!("#{value}"));
-        }
-        return None;
-    }
     if value == "/" || value == "/overview" {
         return Some("#/".into());
+    }
+    if value == "/needs-you" {
+        return Some("#/needs-you".into());
     }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
     if !matches!(parts[0], "review" | "sessions" | "settings" | "needs-you" | "tasks")
@@ -1039,6 +1049,27 @@ mod tests {
         assert_eq!(service_gate("0.10.0", Some("bad"), Some("bad")), Open);
         assert_eq!(service_gate("0.10.0", None, None), ExplainUnknown);
         assert_eq!(service_gate("0.10.0", None, Some("")), Open);
+    }
+
+    #[test]
+    fn disposable_old_service_choice_is_one_exact_gate_and_release_pair() {
+        use ServiceGate::*;
+        assert!(fixture_continue_old_service(ExplainOlder, "0.2.4", Some("0.2.3"), true));
+        for (gate, app, service, permitted) in [
+            (ExplainOlder, "0.2.4", Some("0.2.3"), false),
+            (ExplainOlder, "0.2.4", Some("0.2.2"), true),
+            (ExplainOlder, "0.2.5", Some("0.2.3"), true),
+            (ExplainUnknown, "0.2.4", Some("0.2.3"), true),
+            (Open, "0.2.4", Some("0.2.3"), true),
+        ] {
+            assert!(!fixture_continue_old_service(gate, app, service, permitted));
+        }
+        let mut pending = Some(ShellAction::Download);
+        assert!(!queue_fixture_old_service_choice(&mut pending));
+        assert_eq!(pending, Some(ShellAction::Download));
+        pending = None;
+        assert!(queue_fixture_old_service_choice(&mut pending));
+        assert_eq!(pending, Some(ShellAction::ContinueOldService));
     }
 
     #[test]
@@ -1516,6 +1547,9 @@ mod tests {
         for raw in [
             "/",
             "/overview",
+            "/needs-you",
+            "/tasks",
+            "/tasks/t-20261026-143834-b2c1",
             "#/review/t-123",
             "/sessions/t-123",
             "/settings/hosts/workstation",
@@ -1534,6 +1568,7 @@ mod tests {
             assert!(route(&format!("pacer://{retired}/id")).is_none());
         }
         assert_eq!(route("pacer://overview"), Some("#/".into()));
+        assert_eq!(route("pacer://tasks/t-0412"), Some("#/tasks/t-0412".into()));
         for raw in [
             "javascript:alert(1)",
             "//evil.test",
@@ -1541,6 +1576,8 @@ mod tests {
             "/review/../settings",
             "/app/tray.html",
             "/review/a?x=1",
+            "/tasks/a/b",
+            "/tasks/%2e%2e",
         ] {
             assert!(route(raw).is_none(), "{raw}");
         }

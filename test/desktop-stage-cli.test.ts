@@ -14,6 +14,7 @@ beforeEach(() => {
   script = join(root, "desktop", "scripts", "stage-cli.sh");
   const original = join(import.meta.dir, "../desktop/scripts/stage-cli.sh");
   if (existsSync(original)) copyFileSync(original, script);
+  writeFileSync(join(root, "pacer-core"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   source = join(root, "pacer binary");
   writeFileSync(source, "#!/bin/sh\nprintf 'fake pacer\\n'\n", { mode: 0o711 });
 });
@@ -65,7 +66,7 @@ test("uses the Rust host triple when no cross-build target is set", () => {
 
 test("builds at the repository root using the BUN executable override", () => {
   const bun = join(root, "bun command");
-  writeFileSync(bun, '#!/bin/sh\nset -eu\n[ "$#" = 2 ] && [ "$1" = run ] && [ "$2" = build ] || exit 2\nmkdir -p dist\npwd > dist/pacer\nchmod 755 dist/pacer\n', { mode: 0o755 });
+  writeFileSync(bun, '#!/bin/sh\nset -eu\n[ "$#" = 2 ] && [ "$1" = run ] && [ "$2" = build ] || exit 2\nmkdir -p dist\npwd > dist/pacer\ncp dist/pacer dist/pacer-core\nchmod 755 dist/pacer dist/pacer-core\n', { mode: 0o755 });
   const result = stage([], { BUN: bun }, join(root, "desktop"));
   expect(result.exitCode).toBe(0);
   expect(readFileSync(join(root, "desktop/src-tauri/binaries/pacer-aarch64-apple-darwin"), "utf8"))

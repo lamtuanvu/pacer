@@ -76,6 +76,18 @@
         "name": "radius-7",
         "value": "7px",
         "provisional": "File viewer board: Source/Preview segmented control."
+      },
+      {
+        "name": "radius-key",
+        "value": "4px",
+        "usage": "Small key caps in the command menu and title-bar search.",
+        "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "radius-tile",
+        "value": "7px",
+        "usage": "Glyph tiles in command menu rows.",
+        "provisional": "Command menu board value; not yet in the design system."
       }
     ]
   },
@@ -211,6 +223,21 @@
         "name": "size-236",
         "value": "236px",
         "provisional": "Tray board value; not yet in the design system."
+      },
+      {
+        "name": "size-76",
+        "value": "76px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-90",
+        "value": "90px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-860",
+        "value": "860px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
       }
     ]
   },

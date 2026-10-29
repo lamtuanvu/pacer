@@ -48,31 +48,19 @@ function App() {
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
     const stop = store.start();
-    const acceptHash = (value: string) => {
-      const [path, ...queryParts] = value.split("?");
-      const query = queryParts.join("?");
-      const params = new URLSearchParams(query);
-      if (params.get("new") !== "task") return value;
-      setDelegate(true);
-      const remaining = query.split("&").filter(part => part && !new URLSearchParams(part).has("new")).join("&");
-      const clean = path + (remaining ? `?${remaining}` : "");
-      history.replaceState(null, "", clean);
-      return clean;
-    };
-    let accepted = acceptHash(location.hash), navigating = false;
-    setHash(accepted);
+    let accepted = location.hash, navigating = false;
     const navigate = async () => {
       const target = location.hash;
       if (target === accepted) return;
       history.replaceState(null, '', accepted);
       if (navigating) return;
       navigating = true;
-      try { if (await canLeaveScreen()) { accepted=acceptHash(target); history.replaceState(null,'',accepted); setHash(accepted); } }
+      try { if (await canLeaveScreen()) { accepted=target; history.replaceState(null,'',target); setHash(target); } }
       finally { navigating=false; }
     };
     const stopControl = startClientControl(api, 'main', async route => {
       if (!await canLeaveScreen()) return false;
-      accepted = acceptHash(`#${route}`);
+      accepted = `#${route}`;
       history.replaceState(null, '', accepted);
       setHash(accepted);
       return true;

@@ -24,9 +24,16 @@ const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
     throw new Error("bun test refuses real user PACER_HOME");
   }
 };
+// Compiled release tests must reuse the provisioned Rust toolchain and targets
+// after HOME changes. Keep caller overrides; otherwise capture the original defaults.
+const toolchainHome = process.env.HOME ?? userInfo().homedir;
+process.env.CARGO_HOME ??= join(toolchainHome, ".cargo");
+process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
 const isolatedHome = mkdtempSync(join(tmpdir(), "pacer-test-home-"));
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
+delete process.env.PACER_ROLE;
+delete process.env.PACER_TASK_ID;
 // A planner shell may point Claude at a real account folder; Claude trust grants follow it.
 delete process.env.CLAUDE_CONFIG_DIR;
 // Executor launches would otherwise run the developer's real login shell; tests opt in with fakes.

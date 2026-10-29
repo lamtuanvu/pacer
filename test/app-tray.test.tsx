@@ -87,6 +87,7 @@ test("all-clear board uses a green check, optional cleared review time and no wa
 test("planner uses its vendor, verdict, mode, meter tick and reset time", () => {
   const html = draw(fixture());
   expect(html).toContain("Gemini</strong>");
+  expect(html).toContain('<strong title="Gemini planner">Gemini</strong>');
   expect(html).toContain("pc-agent-mark--gemini");
   expect(html).not.toContain("Claude");
   expect(html).toContain(">Behind pace</span>");
@@ -323,7 +324,7 @@ test('Escape dismisses tray menus before hiding and reports native hide failures
 
 test("footer starts a task and tray has no platform glyph controls", () => {
   const html = draw(fixture());
-  expect(html).toContain('href="/app/#/?new=task"');
+  expect(html).toContain('href="/app/#/tasks/new"');
   expect(html).toContain('New task <kbd');
   expect(html).toContain('⌘N');
   expect(html).not.toMatch(/[⏸▶⋯⏳]/);
@@ -349,7 +350,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   const cases = await Bun.file("test/fixtures/tray-routes.json").json() as {allowed: string[]; rejected: string[]};
   const allowed = (raw: string) => {
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
-    if (raw.includes("?")) return raw === "/?new=task";
+    if (raw.includes("?")) return false;
     return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
   };
   for (const route of cases.allowed) expect(allowed(route)).toBe(true);

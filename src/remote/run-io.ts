@@ -87,7 +87,9 @@ export class RemoteRunIO implements RunIO {
     try { report = fields((await this.run(SCRIPTS.REPORT, [this.remoteDir])).stdout); }
     catch (e) { throw e instanceof Unreachable ? e : new Unreachable(`host ${this.host.alias}: ${e instanceof Error ? e.message : String(e)}`); }
     mkdirSync(this.localDir, { recursive: true });
-    let pending = false;
+    // REPORT reads the launch marker before exit; _session can publish its
+    // final recording mode between those reads. Re-poll until it is known.
+    let pending = report.session === "full";
     const full = report.session === "builtin";
     if (full) {
       let files:Record<string,string>;

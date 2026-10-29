@@ -115,7 +115,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") { event.preventDefault(); void dismissTray(() => { setMenuOpen(false); setStrategiesOpen(false); if (menuOpen) moreButton.current?.focus(); }, menuOpen ? async () => {} : ipc.hide, setError); return; }
     if (event.metaKey || event.ctrlKey) {
-      const action = ({ n: () => ipc.open("/?new=task"), ",": () => ipc.open("/settings"), o: () => ipc.open("/"), ...(ipc.desktop ? { q: ipc.quit } : {}) } as Record<string, () => Promise<unknown>>)[event.key.toLowerCase()];
+      const action = ({ n: () => ipc.open("/tasks/new"), ",": () => ipc.open("/settings"), o: () => ipc.open("/"), ...(ipc.desktop ? { q: ipc.quit } : {}) } as Record<string, () => Promise<unknown>>)[event.key.toLowerCase()];
       if (action) { event.preventDefault(); act(action); }
       return;
     }
@@ -136,7 +136,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{model.waiting} waiting for a free {nextExecutor} slot{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={planner ? agentInfo(planner.agent).name : "pacer"}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
     </section>
@@ -181,7 +181,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     {error && <p role="alert" className="tray-error">{error}</p>}
     </main><div className="tray-actions">
       <nav className="tray-footer" aria-label="pacer actions">
-        <ButtonLink aria-keyshortcuts="Meta+N" size="xs" variant="primary" href={appHref("/?new=task")} onClick={navigate("/?new=task")}>New task <Kbd>⌘N</Kbd></ButtonLink>
+        <ButtonLink aria-keyshortcuts="Meta+N" size="xs" variant="primary" href={appHref("/tasks/new")} onClick={navigate("/tasks/new")}>New task <Kbd>⌘N</Kbd></ButtonLink>
         <ButtonLink aria-keyshortcuts="Meta+O" size="xs" href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></ButtonLink>
         <span className="tray-grow" />
         <IconButton variant="quiet" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}><Icon name={snapshot?.pause ? "play" : "pause"} /></IconButton>

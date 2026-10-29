@@ -1,0 +1,21 @@
+[package]
+name = "pacer-plugin-decision-protocol"
+version = "0.1.0"
+publish = true
+description = "Generated decision wire types for the pacer plugin protocol; re-exported by pacer-plugin as pacer_plugin::types."
+readme = "README.md"
+repository.workspace = true
+keywords = ["pacer", "plugin", "protocol", "json-rpc"]
+categories = ["development-tools"]
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock"]
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regress = "0.10"
+
+[lints]
+workspace = true

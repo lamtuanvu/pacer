@@ -1,7 +1,6 @@
 {
   "allowed": [
     "/",
-    "/?new=task",
     "/needs-you",
     "/sessions",
     "/sessions/task-1",
@@ -14,9 +13,11 @@
     "/settings/hosts",
     "/settings/dispatcher",
     "/settings/updates",
-    "/settings/hosts/workstation"
+    "/settings/hosts/workstation",
+    "/tasks/new"
   ],
   "rejected": [
+    "/?new=task",
     "/needs-you/a_1",
     "/sessions?filter=waiting",
     "/sessions?filter=done",

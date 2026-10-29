@@ -99,7 +99,7 @@ browserTest("tray board controls, shortcuts and paused Resume call real handlers
     await page.keyboard.press("Meta+o");
     await page.keyboard.press("Meta+,");
     await page.keyboard.press("Meta+q");
-    expect(await calls()).toContainEqual(["open", "/?new=task"]);
+    expect(await calls()).toContainEqual(["open", "/tasks/new"]);
     expect(await calls()).toContainEqual(["open", "/"]);
     expect(await calls()).toContainEqual(["open", "/settings"]);
     expect(await calls()).toContainEqual(["quit"]);
@@ -237,5 +237,22 @@ browserTest("a medium squeeze empties the planner label slot before the name los
       });
       expect(fit.box + 0.01).toBeGreaterThanOrEqual(fit.text);
     }
+  } finally { await browser.close(); }
+}, 20000);
+
+// Ported from #286's identity checks to the board header: the pill and mode chip stay on the header row and inside the popover,
+// and a long planner name ellipsizes instead of running under them.
+for (const width of [340, 260]) browserTest(`tray planner name never runs under the status pill at ${width}px`, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width, height: 300 } });
+    await page.setContent(`<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><span style="display:inline-block;width:18px;height:18px;flex:none"></span><strong>Claude Code Enterprise</strong><span class="tray-planner-label-slot"><span class="tray-planner-label-spacer"></span><span class="tray-planner-label">planner</span></span><span class="tray-grow"></span><span class="pc-pill" style="flex:none">Ahead of pace</span><span class="tray-mode">Normal</span></div></section></main></div>`);
+    await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") });
+    const name = (await page.locator(".tray-line strong").boundingBox())!, pill = (await page.locator(".tray-line .pc-pill").boundingBox())!, mode = (await page.locator(".tray-mode").boundingBox())!;
+    expect(pill.y).toBeLessThan(name.y + name.height);
+    expect(name.x + name.width).toBeLessThanOrEqual(pill.x);
+    expect(mode.x + mode.width).toBeLessThanOrEqual(width);
+    const ellipsized = await page.locator(".tray-line strong").evaluate(node => getComputedStyle(node).textOverflow === "ellipsis");
+    expect(ellipsized).toBe(true);
   } finally { await browser.close(); }
 }, 20000);
