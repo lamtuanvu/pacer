@@ -7,7 +7,7 @@ import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { closeSync, existsSync, openSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName } from "../link/notification";
@@ -347,39 +347,49 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
   if (!o.dryRun) await reconcileHostWork(ctx);
   for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
     if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved)) continue;
-    const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
-    if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
-    if (host) {
-      if (!o.dryRun) cleanTaskRuns(ctx, t);
-      if ("removed" in host) removed.push(t.id);
-      continue;
-    }
-    if (t.run?.mode !== "new") continue;
-    const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
-    const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
-    if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
-    const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
-    if (shared(t, wt)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
-    if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
-    if (o.dryRun) { removed.push(t.id); continue; }
-    if (t.run.host) {
-      try {
-        const host = loadStrategy(ctx).hosts[t.run.host];
-        const origin = await ctx.run(["git", "-C", top, "remote", "get-url", "origin"], 10000);
-        const key = repoKey(origin.stdout.trim()), checkout = key && host?.repos[key];
-        if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
-          kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
-        }
-        const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
-        if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
-      } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
-    }
-    if (existsSync(path)) {
-      const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
-      if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
-    }
-    cleanTaskRuns(ctx, t);
-    removed.push(t.id);
+    // One task's failure is reported as kept; it never stops the rest of the run.
+    try {
+      const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
+      if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
+      if (host) {
+        if (!o.dryRun) cleanTaskRuns(ctx, t);
+        if ("removed" in host) removed.push(t.id);
+        continue;
+      }
+      if (t.run?.mode !== "new") continue;
+      const top = await withTimeout(() => repoFs.realpath(t.brief.repo)).catch(error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return null; throw error; });
+      if (top === null && t.run.host) { kept.push({ id: t.id, reason: "source repository is missing; remote cleanup needs it" }); continue; }
+      const wt = t.run.host ? taskWorktreePath(ctx, top!, t.id) : t.run.workdir;
+      if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
+      const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+      if (shared(t, wt)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
+      if (top === null) {
+        // Without the repository git cannot check or remove the worktree; --force deletes the directory.
+        if (!o.force) { kept.push({ id: t.id, reason: "source repository is missing; use --force to delete the worktree" }); continue; }
+        if (!o.dryRun) { rmSync(path, { recursive: true, force: true }); cleanTaskRuns(ctx, t); }
+        removed.push(t.id); continue;
+      }
+      if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
+      if (o.dryRun) { removed.push(t.id); continue; }
+      if (t.run.host) {
+        try {
+          const host = loadStrategy(ctx).hosts[t.run.host];
+          const origin = await ctx.run(["git", "-C", top, "remote", "get-url", "origin"], 10000);
+          const key = repoKey(origin.stdout.trim()), checkout = key && host?.repos[key];
+          if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
+            kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
+          }
+          const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
+          if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
+        } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
+      }
+      if (existsSync(path)) {
+        const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
+        if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
+      }
+      cleanTaskRuns(ctx, t);
+      removed.push(t.id);
+    } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); }
   }
   if (!o.dryRun) cleanSettledSessions(ctx);
   return { removed, kept };

@@ -1,6 +1,6 @@
 import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
@@ -116,4 +116,64 @@ test("clean keeps an Orca worktree whose ownership name changed", async () => {
   expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "Orca worktree ownership could not be verified"}]);
   expect(removed).toBe(false);
   expect(existsSync(w.path)).toBe(true);
+});
+
+async function finishedIn(ctx: ReturnType<typeof fakeCtx>, o: { dirty?: boolean } = {}) {
+  const repo = gitRepo();
+  const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const info = await gitInfo(realRun, repo); if ("error" in info) throw new Error(info.error);
+  const w = await createTaskWorktree(ctx, info, t.id, "main"); if ("error" in w) throw new Error(w.error);
+  if (o.dirty) writeFileSync(join(w.path, "wip.txt"), "x");
+  const rd = join(ctx.pacerHome, "runs", t.id, "1"); mkdirSync(rd, { recursive: true });
+  writeFileSync(join(rd, "stdout"), "disposable");
+  updateTask(ctx, t.id, (x) => {
+    x.state = "done"; x.worktree = w.workdir;
+    x.run = { dir: rd, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: w.workdir, logFile: "" };
+    x.review = { accepted: true, kind: null, note: null, at: 1 };
+  });
+  return { t, w, repo, rd };
+}
+
+const MISSING = "source repository is missing; use --force to delete the worktree";
+
+test("clean keeps a task whose repository was deleted and still cleans the others", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx, { dirty: true }), ok = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true });
+  const dry = await tasks.clean(ctx, { dryRun: true });
+  expect(dry).toEqual({ removed: [ok.t.id], kept: [{ id: gone.t.id, reason: MISSING }] });
+  expect(existsSync(ok.w.path)).toBe(true);
+  expect(await tasks.clean(ctx)).toEqual({ removed: [ok.t.id], kept: [{ id: gone.t.id, reason: MISSING }] });
+  expect(existsSync(ok.w.path)).toBe(false);
+  expect(existsSync(gone.w.path)).toBe(true);
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+});
+
+test("clean --force deletes the worktree of a deleted repository; --dry-run changes nothing", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx, { dirty: true });
+  rmSync(gone.repo, { recursive: true, force: true });
+  expect(await tasks.clean(ctx, { force: true, dryRun: true })).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(gone.w.path)).toBe(true);
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(gone.w.path)).toBe(false);
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(false);
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
+});
+
+test("clean skips a task whose repository and worktree are both gone", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true });
+  rmSync(gone.w.path, { recursive: true, force: true });
+  expect(await tasks.clean(ctx)).toEqual({ removed: [], kept: [] });
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
+});
+
+test("clean keeps a remote task whose local repository was deleted", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  updateTask(ctx, gone.t.id, x => { x.run!.host = "box"; });
+  rmSync(gone.repo, { recursive: true, force: true });
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [{ id: gone.t.id, reason: "source repository is missing; remote cleanup needs it" }] });
 });
