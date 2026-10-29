@@ -17,7 +17,7 @@ const base = (discovery: RuleInput["discovery"]): RuleInput => ({ now: 1000, tas
 
 test("a found machine raises Pair and Later; an unanswered network raises the advertise question", () => {
   const items = deriveItems(base({
-    rev: 7,
+    networksRev: 7,
     prompted: [{ discoveryId: peer, name: "studio-mac", at: 900 }],
     network: { key: K1, label: "home-wifi", advertise: null, name: "pacer-k3x9" },
   }));
@@ -40,12 +40,12 @@ test("a found machine raises Pair and Later; an unanswered network raises the ad
 });
 
 test("an answered network raises no question and no discovery input raises nothing", () => {
-  expect(deriveItems(base({ rev: 1, prompted: [], network: { key: K1, label: "x", advertise: true, name: "n" } }))).toEqual([]);
+  expect(deriveItems(base({ networksRev: 1, prompted: [], network: { key: K1, label: "x", advertise: true, name: "n" } }))).toEqual([]);
   expect(deriveItems(base(undefined))).toEqual([]);
 });
 
 test("desktop notifications carry only Pair and Later", () => {
-  const items = deriveItems(base({ rev: 1, prompted: [{ discoveryId: peer, name: "studio", at: 900 }], network: null }));
+  const items = deriveItems(base({ networksRev: 1, prompted: [{ discoveryId: peer, name: "studio", at: 900 }], network: null }));
   const [n] = toNotify(items, "important", {});
   expect(n.data.actions.map(a => a.label)).toEqual(["Pair", "Later"]);
 });
@@ -58,7 +58,8 @@ test("the rule input lists prompted, unsilenced machines and the radio's unanswe
   await recordObservations(ctx, [{ id: peer, name: "studio", v: "1", h: "" }, { id: "b".repeat(26), name: "other", v: "1", h: "" }], { now, network: { key: K1, label: "home-wifi" } });
   await updateState(ctx, s => { s.silenced["b".repeat(26)] = "forever"; });
   const input = discoveryRuleInput(ctx, now)!;
-  expect(input.rev).toBe(readState(ctx).rev);
+  expect(input.networksRev).toBe(readState(ctx).networksRev);
+  expect(input.networksRev).not.toBe(readState(ctx).rev);
   expect(input.prompted).toEqual([{ discoveryId: peer, name: "studio", at: now }]);
   expect(input.network).toEqual({ key: K1, label: "home-wifi", advertise: null, name });
   // Old prompts and muted networks raise nothing.

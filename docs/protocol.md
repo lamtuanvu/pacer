@@ -2451,7 +2451,7 @@ Params JSON Schema:
 
 ### `discovery.network.get`
 
-Per-network advertising answers, with a revision for discovery.network.set and the current network's key.
+Per-network advertising answers, with networksRev (the revision discovery.network.set expects) and the current network's key.
 
 Params JSON Schema:
 
@@ -2466,7 +2466,7 @@ Params JSON Schema:
 
 ### `discovery.network.set`
 
-Allow or stop advertising this machine on a network, mute its prompts, or reset its discovery id. Needs the current revision.
+Allow or stop advertising this machine on a network, mute its prompts, or reset its discovery id. expect_rev is networksRev from discovery.list or discovery.network.get; LAN traffic does not change it.
 
 Params JSON Schema:
 

@@ -22,13 +22,14 @@ async function list(ctx: Ctx) {
       discoveryId: x.discoveryId, name: x.name, version: x.version, lastSeen: x.lastSeen, silenced: d.isSilenced(s, x.discoveryId, now),
     })),
     rev: s.rev,
+    networksRev: s.networksRev,
   };
 }
 
 async function networks(ctx: Ctx) {
   const d = await discovery();
   const s = d.readState(ctx), net = await d.currentNetwork(ctx);
-  return { rev: s.rev, current: net?.key ?? null, networks: Object.entries(s.networks).map(([key, n]) => ({ key, label: n.label, advertise: n.advertise, muted: n.muted })) };
+  return { rev: s.rev, networksRev: s.networksRev, current: net?.key ?? null, networks: Object.entries(s.networks).map(([key, n]) => ({ key, label: n.label, advertise: n.advertise, muted: n.muted })) };
 }
 
 /** Writes publish a `discovery` config change, so clients refetch and attention is re-derived. */
@@ -59,8 +60,8 @@ export const discoveryOps: Record<string, OpDef> = {
         return { ok: true as const };
       });
     } }),
-  "discovery.network.get": op({ description: "Per-network advertising answers, with a revision for discovery.network.set and the current network's key.", params: z.object({}), handler: ctx => networks(ctx) }),
-  "discovery.network.set": op({ description: "Allow or stop advertising this machine on a network, mute its prompts, or reset its discovery id. Needs the current revision.",
+  "discovery.network.get": op({ description: "Per-network advertising answers, with networksRev (the revision discovery.network.set expects) and the current network's key.", params: z.object({}), handler: ctx => networks(ctx) }),
+  "discovery.network.set": op({ description: "Allow or stop advertising this machine on a network, mute its prompts, or reset its discovery id. expect_rev is networksRev from discovery.list or discovery.network.get; LAN traffic does not change it.",
     params: z.object({ network: z.string().regex(/^[0-9a-f]{32}$/), advertise: z.boolean().optional(), muted: z.boolean().optional(), resetId: z.boolean().optional(), expect_rev: z.number().int().nonnegative().safe() }),
     handler: (ctx, p) => mutation(ctx, async () => {
       const d = await discovery();

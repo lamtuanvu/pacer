@@ -8,7 +8,8 @@ import { readState } from "./state";
 
 /** What the attention rules need: machines a prompt was taken for, and the current network if its question is open. */
 export interface DiscoveryRuleInput {
-  rev: number;
+  /** The network-answer revision the Allow / Not on this network actions expect. */
+  networksRev: number;
   prompted: { discoveryId: string; name: string; at: number }[];
   network: { key: string; label: string; advertise: boolean | null; name: string } | null;
 }
@@ -29,7 +30,7 @@ export function discoveryRuleInput(ctx: Ctx, now: number): DiscoveryRuleInput | 
   const net = radioStatus().available ? radioNetwork() : null;
   const entry = net ? s.networks[net.key] : undefined;
   const name = machineName(ctx);
-  return { rev: s.rev, prompted, network: net && entry && name ? { key: net.key, label: entry.label, advertise: entry.advertise, name } : null };
+  return { networksRev: s.networksRev, prompted, network: net && entry && name ? { key: net.key, label: entry.label, advertise: entry.advertise, name } : null };
 }
 
 /** Discovered names are untrusted (SEC-16): shown as unverified, never used in an op other than by discovery id. */
@@ -49,8 +50,8 @@ export function discoveryPrompts(input: DiscoveryRuleInput): DiscoveryPrompt[] {
     title: `Let your other machines find this one on ${n.label}?`,
     detail: `It will appear as ${n.name}.`,
     actions: [
-      { label: "Allow", op: "discovery.network.set", params: { network: n.key, advertise: true, expect_rev: input.rev }, style: "primary" },
-      { label: "Not on this network", op: "discovery.network.set", params: { network: n.key, advertise: false, expect_rev: input.rev } },
+      { label: "Allow", op: "discovery.network.set", params: { network: n.key, advertise: true, expect_rev: input.networksRev }, style: "primary" },
+      { label: "Not on this network", op: "discovery.network.set", params: { network: n.key, advertise: false, expect_rev: input.networksRev } },
     ],
   });
   return out;

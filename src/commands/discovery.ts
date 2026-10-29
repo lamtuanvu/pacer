@@ -4,8 +4,8 @@ import type { Ctx } from "../types";
 import type { Command, Result } from "./types";
 
 type Found = { discoveryId: string; name: string; version: string; lastSeen: number; silenced: boolean };
-type Listing = { available: boolean; enabled: boolean; network: { key: string; label: string; advertise: boolean | null; muted: boolean; name: string } | null; found: Found[]; rev: number };
-type Networks = { rev: number; current: string | null; networks: { key: string; label: string; advertise: boolean | null; muted: boolean }[] };
+type Listing = { available: boolean; enabled: boolean; network: { key: string; label: string; advertise: boolean | null; muted: boolean; name: string } | null; found: Found[]; rev: number; networksRev: number };
+type Networks = { rev: number; networksRev: number; current: string | null; networks: { key: string; label: string; advertise: boolean | null; muted: boolean }[] };
 type Respond = { ok: true; pairing?: { handedOver: boolean; plugin?: string } };
 
 const usage = "usage: pacer discovery ls [--json] | pair|later|ignore <id-prefix> | mute-network | network [--advertise on|off] [--json]";
@@ -42,7 +42,7 @@ export async function discoveryCmd(args: string[], ctx: Ctx, connect: (ctx: Ctx)
       const n = await c.call<Networks>("discovery.network.get", {});
       if (verb === "network" && advertise === undefined) return print(n, formatNetworks(n));
       if (!n.current || !n.networks.some(x => x.key === n.current)) return fail("this machine's current network is unknown, so there is nothing to change.");
-      const changed = await c.call<Networks>("discovery.network.set", { network: n.current, ...(verb === "mute-network" ? { muted: true } : { advertise }), expect_rev: n.rev });
+      const changed = await c.call<Networks>("discovery.network.set", { network: n.current, ...(verb === "mute-network" ? { muted: true } : { advertise }), expect_rev: n.networksRev });
       return print(changed, formatNetworks(changed));
     }
     const prefix = more[0].toLowerCase();

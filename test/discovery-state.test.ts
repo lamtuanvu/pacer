@@ -15,7 +15,7 @@ test("sanitizeText strips control and bidi characters and bounds bytes", () => {
 
 test("state starts empty and writes 0600 in a 0700 directory", async () => {
   const ctx = fakeCtx();
-  expect(readState(ctx)).toMatchObject({ rev: 0, networks: {}, seen: {} });
+  expect(readState(ctx)).toMatchObject({ rev: 0, networksRev: 0, networks: {}, seen: {} });
   const s = await updateState(ctx, st => { ensureNetwork(st, "k1", "home"); });
   expect(s.rev).toBe(1);
   const path = join(ctx.pacerHome, "discovery", "state.json");
@@ -34,11 +34,14 @@ test("each network gets a random 26-char discovery id; reset makes a new one", a
   expect(t.networks.k1.discoveryId).not.toBe(a);
 });
 
-test("a stale expectRev is a conflict and writes nothing", async () => {
+test("a stale expected networksRev is a conflict and writes nothing", async () => {
   const ctx = fakeCtx();
   await updateState(ctx, st => { ensureNetwork(st, "k1", "home"); });
   await expect(updateState(ctx, st => { st.networks.k1.advertise = true; }, 0)).rejects.toMatchObject({ code: "conflict" });
-  expect(readState(ctx)).toMatchObject({ rev: 1, networks: { k1: { advertise: null } } });
+  expect(readState(ctx)).toMatchObject({ rev: 1, networksRev: 1, networks: { k1: { advertise: null } } });
+  await updateState(ctx, st => { st.silenced.x = "forever"; });
+  await updateState(ctx, st => { st.networks.k1.advertise = true; }, 1);
+  expect(readState(ctx)).toMatchObject({ rev: 3, networksRev: 2, networks: { k1: { advertise: true } } });
 });
 
 test("read-only contexts cannot write discovery state", async () => {

@@ -476,7 +476,7 @@ pacer machines on the same local network can notice each other and offer to pair
 - `pacer discovery mute-network` stops prompts on the current network.
 - `pacer discovery network [--advertise on|off] [--json]` lists the networks you answered for, marking the current one with `*`, or sets whether this machine is advertised on the current network. It exits 2 when the current network is unknown.
 
-`pacer config set discovery off` turns listening and advertising off. The API equivalents are `discovery.list`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`. Executor sessions may read but not call `discovery.respond` or `discovery.network.set`.
+`pacer config set discovery off` turns listening and advertising off. The API equivalents are `discovery.list`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`, where `expect_rev` is the `networksRev` that `discovery.list` and `discovery.network.get` return; machines seen on the LAN do not change it. Executor sessions may read but not call `discovery.respond` or `discovery.network.set`.
 
 ## Pause and resume delegation
 

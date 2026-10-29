@@ -30,6 +30,7 @@ test("discovery.list shows found machines with their silence state", async () =>
   const r = await call(ctx, "discovery.list", {});
   expect(r.found).toEqual([{ discoveryId: peer, name: "studio", version: "1", lastSeen: 100, silenced: false }]);
   expect(r.rev).toBe(readState(ctx).rev);
+  expect(r.networksRev).toBe(readState(ctx).networksRev);
 });
 
 test("later silences for 7 days, ignore forever, mute-network stops prompts", async () => {
@@ -55,16 +56,42 @@ test("pair with no pairing plugin returns handedOver false", async () => {
   expect(r.pairing).toEqual({ handedOver: false });
 });
 
-test("network.set checks expect_rev and can reset the discovery id", async () => {
+test("network.set checks expect_rev against networksRev and can reset the discovery id", async () => {
   const ctx = fakeCtx();
   await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
   const before = readState(ctx);
-  const r = await call(ctx, "discovery.network.set", { network: K1, advertise: true, resetId: true, expect_rev: before.rev });
+  const r = await call(ctx, "discovery.network.set", { network: K1, advertise: true, resetId: true, expect_rev: before.networksRev });
   expect(r.networks.find((n: any) => n.key === K1).advertise).toBe(true);
+  expect(r.networksRev).toBe(before.networksRev + 1);
   expect(readState(ctx).networks[K1].discoveryId).not.toBe(before.networks[K1].discoveryId);
-  await expect(call(ctx, "discovery.network.set", { network: K1, advertise: false, expect_rev: before.rev })).rejects.toMatchObject({ code: "conflict" });
+  await expect(call(ctx, "discovery.network.set", { network: K1, advertise: false, expect_rev: before.networksRev })).rejects.toMatchObject({ code: "conflict" });
   const got = await call(ctx, "discovery.network.get", {});
-  expect(got).toMatchObject({ rev: readState(ctx).rev, current: null, networks: [{ key: K1, label: "home-wifi", advertise: true, muted: false }] });
+  expect(got).toMatchObject({ rev: readState(ctx).rev, networksRev: readState(ctx).networksRev, current: null, networks: [{ key: K1, label: "home-wifi", advertise: true, muted: false }] });
+});
+
+test("observations between reading and clicking Allow do not make Allow stale", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
+  const read = await call(ctx, "discovery.network.get", {});
+  await recordObservations(ctx, [{ id: peer, name: "studio", v: "1", h: "" }], { now: 100, network: home });
+  await recordObservations(ctx, [{ id: peer, name: "studio", v: "1", h: "" }], { now: 200, network: home });
+  await call(ctx, "discovery.respond", { discoveryId: peer, action: "later" });
+  expect(readState(ctx).rev).toBeGreaterThan(read.rev);
+  const r = await call(ctx, "discovery.network.set", { network: K1, advertise: true, expect_rev: read.networksRev });
+  expect(r.networks[0].advertise).toBe(true);
+});
+
+test("networksRev moves only when network entries change", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
+  const start = readState(ctx).networksRev;
+  expect(start).toBe(1);
+  await updateState(ctx, s => { s.silenced[peer] = "forever"; s.prompts.push(1); });
+  expect(readState(ctx).networksRev).toBe(start);
+  await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
+  expect(readState(ctx).networksRev).toBe(start);
+  await updateState(ctx, s => { s.networks[K1].muted = true; });
+  expect(readState(ctx).networksRev).toBe(start + 1);
 });
 
 test("executor sessions cannot respond or change networks", () => {
@@ -103,7 +130,7 @@ test("the discovery.found parser bounds and rejects malformed data", () => {
 test("v2 clients get no discovery config changes or discovery attention", async () => {
   const ctx = fakeCtx();
   await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
-  await call(ctx, "discovery.network.set", { network: K1, advertise: true, expect_rev: readState(ctx).rev });
+  await call(ctx, "discovery.network.set", { network: K1, advertise: true, expect_rev: readState(ctx).networksRev });
   const { publish } = await import("../src/link/publish");
   await publish(ctx, [{ type: "entity", data: { kind: "attention", id: `discovery:${peer}`, value: { id: `discovery:${peer}`, kind: "discovery" } } }]);
   expect(eventsSince(ctx, 0, 3).events.some(e => e.type === "config" && (e.data as any).area === "discovery")).toBe(true);

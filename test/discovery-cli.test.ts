@@ -56,3 +56,13 @@ test("network and mute-network need a current network; bad usage exits 2; the co
   expect((await discoveryCommand.run(["network", "--advertise", "maybe"], ctx)).code).toBe(2);
   expect(findCommand("discovery")).toBe(discoveryCommand);
 });
+
+test("network --advertise sends networksRev as expect_rev", async () => {
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const calls: [string, any][] = [];
+  const view = { rev: 40, networksRev: 3, current: home.key, networks: [{ key: home.key, label: "home", advertise: null, muted: false }] };
+  const client = { call: async (op: string, params: any) => { calls.push([op, params]); return view; }, close() {} } as any;
+  const r = await discoveryCmd(["network", "--advertise", "on"], setup(), async () => client);
+  expect(r.code).toBe(0);
+  expect(calls[1]).toEqual(["discovery.network.set", { network: home.key, advertise: true, expect_rev: 3 }]);
+});
