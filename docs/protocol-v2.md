@@ -138,7 +138,7 @@ Executor questions settle tasks as `needs_input` (label: Needs your answer). `ta
 
 ## Events
 
-The advertised v2 event types are `budget`, `task`, `mode`, `alert`, `config`, `pause`, `reset`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v2 event types are `budget`, `task`, `mode`, `alert`, `config`, `pause`, `reset`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify` and `machine`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
 
 The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.
 

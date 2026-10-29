@@ -7,7 +7,7 @@ import { base32, rawPublicKey } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBackend } from "./key-store";
 
-export interface MachineMeta { rev: number; name: string; createdAt: number; backend: KeyBackend; rotatedFrom?: string }
+export interface MachineMeta { rev: number; name: string; createdAt: number; backend: KeyBackend; rotatedFrom?: string; saltHash?: string }
 export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject }
 
 const cache = new Map<string, MachineIdentity>();
@@ -53,7 +53,9 @@ export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   if (!privateKey || !meta) {
     privateKey = generateKeyPairSync("ed25519").privateKey;
     await writePrivateKey(ctx, backend, privateKey);
-    meta = { rev: 1, name: meta?.name ?? defaultName(), createdAt: ctx.now, backend };
+    const { writeSalt, saltHash } = await import("./salt");
+    const salt = await writeSalt(ctx, platform);
+    meta = { rev: 1, name: meta?.name ?? defaultName(), createdAt: ctx.now, backend, saltHash: saltHash(salt) };
     writeMeta(ctx, meta);
   }
   const identity = build(meta, privateKey);
