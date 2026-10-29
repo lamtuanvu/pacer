@@ -4,7 +4,7 @@ use crate::serve::native_trust::ProcessIdentity;
 
 #[test]
 fn metadata_read_is_bounded_regular_owned_and_not_redirected() {
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::fs::{PermissionsExt, symlink};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("metadata.json");
     std::fs::write(&path, br#"{"schema":1}"#).unwrap();
