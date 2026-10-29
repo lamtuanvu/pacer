@@ -1,12 +1,12 @@
 import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { guardEventId } from "../src/classify/state";
 import { readLabels } from "../src/tasks/labels";
 import { defaultHooks, type GuardOpinion } from "../src/classify/hooks";
 import type { Status } from "../src/engine/status";
-import { decideGuard, parseGuardInput, renderGuard, runGuard } from "../src/guard/guard";
+import { decideGuard, decideShellGuard, detectShellExecutorLaunch, parseGuardInput, renderGuard, runGuard } from "../src/guard/guard";
 import { fakeCtx } from "./helpers";
 import { tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -201,4 +201,98 @@ test("strict executor guards fail closed on missing identity and malformed hook 
     expect(result.hookSpecificOutput.permissionDecision).toBe("deny");
   }
   expect(readFileSync(marker,"utf8")).toBe("guard-report-failed");
+});
+
+function withManagedAccounts(ctx: ReturnType<typeof fakeCtx>): void {
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
+    "accounts:",
+    "  personal-claude: {kind: claude}",
+    "  claude1: {kind: claude, home: ~/.claude-claude1}",
+    "  personal-codex: {kind: codex}",
+    "  codex1: {kind: codex, home: ~/.codex-codex1}",
+    "planner: claude-code#claude1",
+    "routing:",
+    "  - default: [claude-code, codex]",
+    "",
+  ].join("\n"));
+}
+
+test("detectShellExecutorLaunch matches PACER_ROLE=executor on a known executor CLI, chained or path-qualified", () => {
+  const ctx = fakeCtx();
+  for (const cli of ["claude", "codex", "pi", "opencode"] as const) {
+    expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor ${cli} --model sonnet "do work"`)).toEqual({ cli });
+    expect(detectShellExecutorLaunch(ctx, `cd /repo && PACER_ROLE=executor ${cli} run`)).toEqual({ cli });
+    expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor /usr/local/bin/${cli} run`)).toEqual({ cli });
+    expect(detectShellExecutorLaunch(ctx, `${cli} --help`)).toBeNull();
+  }
+  expect(detectShellExecutorLaunch(ctx, "PACER_ROLE=executor npm test")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "PACER_ROLE=other claude --model sonnet")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "ls -la")).toBeNull();
+});
+
+test("detectShellExecutorLaunch matches a pacer-managed CLAUDE_CONFIG_DIR/CODEX_HOME but not the default folder", () => {
+  const ctx = fakeCtx();
+  withManagedAccounts(ctx);
+  const claudeManaged = join(ctx.home, ".claude-claude1");
+  const codexManaged = join(ctx.home, ".codex-codex1");
+  expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=${claudeManaged} claude --model sonnet --permission-mode bypassPermissions "brief"`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "CLAUDE_CONFIG_DIR=$HOME/.claude-claude1 claude --model sonnet")).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `CODEX_HOME=${codexManaged} codex exec "do work"`)).toEqual({ cli: "codex" });
+  expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=${join(ctx.home, ".claude")} claude --model sonnet`)).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "claude --model sonnet")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=${claudeManaged} pi run`)).toBeNull();
+});
+
+test("detectShellExecutorLaunch matches ;/|/newline chaining, env/exec prefixes, export earlier in the same command, and bash -c/sh -c", () => {
+  const ctx = fakeCtx();
+  expect(detectShellExecutorLaunch(ctx, 'cd /repo; PACER_ROLE=executor claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, 'cd /repo\nPACER_ROLE=executor claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, 'echo hi | PACER_ROLE=executor claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, 'env PACER_ROLE=executor claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, 'exec codex exec "<brief>" --dangerously-bypass-approvals-and-sandbox', )).toBeNull(); // no PACER_ROLE/managed home at all
+  expect(detectShellExecutorLaunch(ctx, 'exec env PACER_ROLE=executor codex exec "<brief>"')).toEqual({ cli: "codex" });
+  expect(detectShellExecutorLaunch(ctx, 'export PACER_ROLE=executor; claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, 'export PACER_ROLE=executor && claude --model sonnet "<brief>"')).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `bash -c 'PACER_ROLE=executor claude --model sonnet "<brief>"'`)).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, `sh -c "PACER_ROLE=executor codex exec '<brief>'"`)).toEqual({ cli: "codex" });
+  // An export that is not reached (never runs before `claude`, or applies to the wrong pipeline stage) must not match.
+  expect(detectShellExecutorLaunch(ctx, 'claude --model sonnet "<brief>"; export PACER_ROLE=executor')).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, 'export PACER_ROLE=executor | claude --model sonnet "<brief>"')).toBeNull();
+  // A bare (non-exported) assignment statement does not persist to a later command.
+  expect(detectShellExecutorLaunch(ctx, 'PACER_ROLE=executor; claude --model sonnet "<brief>"')).toBeNull();
+  // env/bash with other flags in front is a known, documented gap.
+  expect(detectShellExecutorLaunch(ctx, 'env -u HOME PACER_ROLE=executor claude --model sonnet')).toBeNull();
+});
+
+test("decideShellGuard blocks a managed-home executor launch, with the same exemptions as the subagent guard", async () => {
+  const command = `PACER_ROLE=executor CLAUDE_CONFIG_DIR=$HOME/.claude-claude1 claude --model sonnet --permission-mode bypassPermissions "<brief>"`;
+  const { stateHash } = await import("../src/classify/state");
+  const id = stateHash(JSON.stringify({ shell_cli: "claude", command }));
+  const shellReason = `pacer: this shell command starts 'claude' as a pacer-managed executor, so it would spend Claude's own quota outside pacer's routing, review and budget (mode: normal). Delegate execution work with \`pacer delegate --brief-file - --json\` (top executor now: codex) and a self-contained brief: goal, absolute repo path, scope, acceptance command. If this needs planner-level judgement (design, review), do it in the main conversation, or ask the user to start the session with PACER=off.`
+    + ` (pacer event ${id}: if this block was wrong, ask the user to start the session with PACER=off; with the pacer MCP tools connected, call guard_feedback with event_id "${id}" and correct=false)`;
+  const ctx = fakeCtx();
+  const decision = await decideShellGuard(ctx, command, deps);
+  expect(decision).toEqual({ allow: false, reason: shellReason });
+  expect(readLabels(ctx)).toEqual([{ ts: ctx.now, type: "guard_verdict", event_id: id, blocked: true, source: "rules" }]);
+
+  // Same exemptions as the subagent guard.
+  expect((await decideShellGuard(fakeCtx({ env: { PACER: "off" } }), command, deps)).allow).toBe(true);
+  expect((await decideShellGuard(fakeCtx({ env: { PACER_ROLE: "executor" } }), command, deps)).allow).toBe(true);
+  expect((await decideShellGuard(ctx, command, { status: async () => status({ mode: "relaxed" }) })).allow).toBe(true);
+  expect((await decideShellGuard(ctx, command, { status: async () => status({ executors: { ranked: [], excluded: [] } }) })).allow).toBe(true);
+  // Not a recognized executor launch at all.
+  expect((await decideShellGuard(ctx, "ls -la", deps)).allow).toBe(true);
+});
+
+test("runGuard routes claude-code Bash calls through the shell guard, exempt under strict executor mode", async () => {
+  const ctx = fakeCtx();
+  const denyCommand = "PACER_ROLE=executor claude --model sonnet --permission-mode bypassPermissions \"<brief>\"";
+  const denied = JSON.parse(await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Bash", tool_input: { command: denyCommand } }), deps));
+  expect(denied.hookSpecificOutput.permissionDecision).toBe("deny");
+  expect(denied.hookSpecificOutput.permissionDecisionReason).toContain("this shell command starts 'claude'");
+  expect(await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls -la" } }), deps)).toBe("");
+
+  const strict = { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor", PACER_ENFORCEMENT_MODE: "strict" } };
+  expect(await runGuard(strict, "claude-code", JSON.stringify({ tool_name: "Bash", tool_input: { command: denyCommand } }), deps)).toBe("");
 });

@@ -72,12 +72,12 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
             return available;
           })));
       const session = has("SessionStart", "status --hook claude-code");
-      const guard = has("PreToolUse", "guard --planner claude-code", "Agent|Task");
+      const guard = has("PreToolUse", "guard --planner claude-code", "Agent|Task|Bash");
       configured = settings.disableAllHooks !== true && session && guard && !missingExecutable;
       issue = missingExecutable ? "A registered hook command executable is missing or not executable. Reconnect the selected integration after restoring the command. No settings commands were executed."
         : settings.disableAllHooks === true ? "All Claude hooks are disabled in the selected account settings."
-        : !session || !guard ? "Missing or unsupported session-start command or synchronous Agent|Task guard. Custom commands and matchers are not certified by this check."
-        : "Session-start context and synchronous Agent|Task guard are configured. Configuration is not evidence of live invocation.";
+        : !session || !guard ? "Missing or unsupported session-start command or synchronous Agent|Task|Bash guard. Custom commands and matchers are not certified by this check."
+        : "Session-start context and synchronous Agent|Task|Bash guard are configured. Configuration is not evidence of live invocation.";
       if (settings.disableAllHooks !== undefined && typeof settings.disableAllHooks !== "boolean") {
         configured = false; issue = "The disableAllHooks setting has an invalid type.";
       }
@@ -85,7 +85,7 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
   }
   checks.push({ name: "Claude hook configuration", level: configured && !mismatch ? "ok" : "warn", evidence: configured ? "configured" : "unverified", detail: issue,
     ...(!configured ? { fix: "Review disabled hooks and settings in Claude. Preview and reconnect the selected Claude Code integration in Setup; preserve other hooks. Use pacer install claude-code only for the default account, or append #account for a named account." } : {}) });
-  checks.push({ name: "Claude guard scope", level: "info", detail: "The delegation guard covers Agent and Task subagents. It does not intercept normal direct edits. Executor sessions, PACER=off, another selected planner, relaxed mode, unknown planner usage, or no available executor can allow calls." });
+  checks.push({ name: "Claude guard scope", level: "info", detail: "The delegation guard covers Agent and Task subagents, plus a Bash command that starts a known executor CLI (claude, codex, pi, opencode) with PACER_ROLE=executor or a pacer-managed CLAUDE_CONFIG_DIR/CODEX_HOME, including via env/exec, an export earlier in the same command, or bash -c/sh -c. It does not intercept normal direct edits or other shell commands, and it misses a variable exported in an earlier, separate Bash call, a launch hidden behind a script file, env/bash -c used with other flags, parenthesized/subshell grouping, or heredoc bodies (which can also false-positive, since they are not recognized as inert text); it runs an extra process on every Bash call. Executor sessions, PACER=off, another selected planner, relaxed mode, unknown planner usage, or no available executor can allow calls." });
   checks.push({ name: "Claude host invocation", level: "info", evidence: "unverified", detail: "UNVERIFIED: no Claude host invocation evidence is collected. File integrity and fixture probes cannot prove Claude fired these hooks.",
     fix: "In the intended Claude account, inspect /hooks and disabled hooks, project settings and launch overrides. Start a new session with debug logging and inspect SessionStart and PreToolUse Agent or Task invocation and output. Do not share credentials or full session logs." });
   return checks;
@@ -112,6 +112,9 @@ export async function probeClaudeHandlers(): Promise<Check> {
     for (const payload of [{ tool_name: "Edit", tool_input: {} }, { tool_name: "Agent", tool_input: { subagent_type: "Explore" } }]) {
       if (await runGuard(ctx, "claude-code", JSON.stringify(payload), deps) !== "") throw Error("guard allow probe failed");
     }
+    const denyBash = JSON.parse(await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Bash", tool_input: { command: "PACER_ROLE=executor claude --model sonnet" } }), deps));
+    if (denyBash.hookSpecificOutput?.permissionDecision !== "deny") throw Error("bash guard deny probe failed");
+    if (await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls -la" } }), deps) !== "") throw Error("bash guard allow probe failed");
     status.executors.ranked[0]!.eligibility = { ...status.executors.ranked[0]!.eligibility!,
       state: "uncertain", budget: "unknown", reasons: [{ code: "budget_missing", evidenceIds: [] }] };
     if (await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Agent", tool_input: { subagent_type: "general-purpose" } }), deps) !== "") {
@@ -119,7 +122,7 @@ export async function probeClaudeHandlers(): Promise<Check> {
     }
     const session = JSON.parse(renderHook(status, "claude-code"));
     if (session.hookSpecificOutput?.hookEventName !== "SessionStart" || !session.hookSpecificOutput.additionalContext.includes("Subscription budget")) throw Error("session context probe failed");
-    return { name: "Claude handler probes", level: "ok", evidence: "tested", detail: "Tested working in isolated fixtures: Agent and Task deny, exploration and direct-edit allow, session context JSON. Tests this build’s handlers only; installed command launch and Claude host firing remain unverified." };
+    return { name: "Claude handler probes", level: "ok", evidence: "tested", detail: "Tested working in isolated fixtures: Agent and Task deny, a Bash executor-launch deny, exploration and direct-edit allow, session context JSON. Tests this build’s handlers only; installed command launch and Claude host firing remain unverified." };
   } catch {
     return { name: "Claude handler probes", level: "fail", evidence: "unverified", detail: "A fixed handler fixture failed.", fix: "Run the doctor-hook tests from this build and report the failure before reconnecting." };
   } finally { rmSync(home, { recursive: true, force: true }); }
