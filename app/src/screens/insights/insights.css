@@ -1,3 +1,4 @@
+.pc-page--insights{padding:var(--space-7) var(--space-10) var(--space-12);max-width:var(--size-1240)}
 .pc-insights__label{font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted);margin:0}
 .pc-insights__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-insights__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}

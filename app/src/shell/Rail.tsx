@@ -27,7 +27,7 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
   const showSetup = checklist ? !checklist.ready : setupOpen;
   const settingsLabel = attention ? `Settings, ${attention} ${attention === 1 ? "agent needs" : "agents need"} attention` : "Settings";
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
-    {ITEMS.map(item => {
+    {ITEMS.filter(item => !(narrow && showSetup && item.name === "start")).map(item => {
       const n = counts ? item.count(counts) : 0;
       const label = n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
       return <Tooltip key={item.name} text={label}>

@@ -256,7 +256,7 @@ a.pc-btn{text-decoration:none}
 .pc-search-picker__empty{padding:var(--space-3);margin:0;color:var(--ink-secondary);font-size:var(--type-caption-size)}
 @media(max-width:559px){.pc-search-picker{width:100%}.pc-search-picker__popover,.pc-search-picker[data-align=start] .pc-search-picker__popover{left:0;right:auto;width:100%}}
 .pc-segmented{display:inline-flex;flex-wrap:wrap;gap:var(--space-half);padding:var(--space-half);background:var(--surface-lane);border:1px solid var(--line);border-radius:var(--radius-lg)}
-.pc-segmented .pc-btn{flex:1;border-color:transparent;background:transparent;color:var(--ink-secondary)}
+.pc-segmented .pc-btn{white-space:nowrap;flex:1;border-color:transparent;background:transparent;color:var(--ink-secondary)}
 .pc-segmented [aria-pressed=true]{background:var(--surface-page);color:var(--ink);border-color:var(--line)}
 .pc-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--line)}
 .pc-tabs .pc-btn{background:transparent;border:0;border-bottom:var(--stroke-focus) solid transparent;border-radius:0;color:var(--ink-secondary)}

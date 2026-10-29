@@ -159,3 +159,13 @@ test('narrow Settings navigation contains its scrolling intrinsic width', async 
   const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
   expect(css).toMatch(/\.pc-app--narrow \.pc-panel\s*\{[^}]*width:100%[^}]*max-width:100%[^}]*align-self:stretch/);
 });
+
+test("Setup replaces Start work only in bottom navigation", () => {
+  for (const width of [375, 1200]) {
+    for (const setupOpen of [0, 1]) {
+      const html = atWidth(width, () => renderToString(<Layout route={route("#/insights")} state={{ ...state, snapshot: { ...snapshot, counts: { ...snapshot.counts!, setupOpen } } }} title="Insights">body</Layout>));
+      expect(html.includes('aria-label="Start work"')).toBe(width >= 560 || !setupOpen);
+      expect(html.includes('aria-label="Setup · needs you"')).toBe(!!setupOpen);
+    }
+  }
+});

@@ -64,7 +64,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const days = series.data ? bars(series.data.daily, agents, chart.from, CHART_DAYS, max) : [];
   const todayAt = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
-  return <Page width="full"><Stack space="section">
+  return <Page width="full" className="pc-page--insights"><Stack space="section">
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
@@ -76,11 +76,12 @@ export function Insights({ query }: { query: RouteQuery }) {
     {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No root task settled and no attempt ended. Try a longer period." /> : <>
       <Card className="pc-insights__summary">
         <div className="pc-insights__headline"><strong>{compact(total)} tokens went to executors{s.tokens.lowerBound ? " (at least)" : ""}, and planner tokens are not measured yet.</strong>
-          <span>{s.tokens.measuredAttempts} attempts measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
+          <span>{s.tokens.measuredAttempts} {s.tokens.measuredAttempts === 1 ? "attempt" : "attempts"} measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
         <div className="pc-insights__planner"><span className="pc-insights__label">Planner share of tokens</span>
           <div className="pc-insights__stripe" role="img" aria-label="Planner share is not measured" />
           <span className="pc-insights__caption"><b>Not measured</b> for planning and review · <b>{compact(total)}</b> on executors</span></div>
       </Card>
+      <p className="pc-insights__caption">Root tasks count roots first settled in this period; subtasks count all tasks split from those roots.</p>
       <section aria-label="Key numbers" className="pc-insights__kpis">
         <Kpi label="Root tasks" value={String(s.rootTasksHandled)} {...change(s.rootTasksHandled, prev!.rootTasksHandled, "good")} note={prev!.rootTasksHandled || s.rootTasksHandled ? versusWord : undefined} />
         <Kpi label="Subtasks" value={String(s.subtasks)} delta={s.rootTasksHandled ? `${(s.subtasks / s.rootTasksHandled).toFixed(1)}×` : undefined} note="fan-out" />
@@ -102,7 +103,7 @@ export function Insights({ query }: { query: RouteQuery }) {
           <tbody>{days.map(d => <tr key={d.at}><th scope="row">{fullDay(d.at)}</th>{agents.map(a => <td key={a}>{compact(series.data!.daily.find(x => x.at === d.at)?.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></div>}
       </section>
       <section className="pc-insights__card pc-insights__card--flush" aria-labelledby="agents-h">
-        <div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">A root task is what you or the planner asked for; subtasks are what it was split into.</span></div>
+        <div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">Counts below use attempts ended in this period: root tasks count distinct roots reached by each agent, and subtasks count distinct child tasks it ran. These can include roots still running or first settled in another period; a root can appear for several agents.</span></div>
         <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><table className="pc-insights__table"><caption className="sr-only">Agents ranked by tokens</caption>
           <thead><tr><th scope="col">Agent</th><th scope="col">Root tasks</th><th scope="col">Subtasks</th><th scope="col">Attempts</th><th scope="col">Tokens</th><th scope="col">Share</th><th scope="col">Per task</th><th scope="col">Accepted</th><th scope="col">Budget</th></tr></thead>
           <tbody>{s.spread.map(g => { const slot = agentSlot(g.agent), budget = budgetOf(g.agent, accounts.data), accept = g.acceptanceRate;
