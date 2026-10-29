@@ -107,3 +107,12 @@ test('App Workspace includes assistant status and a settings link with or withou
   const nav = renderToString(<SettingsPanel route={resolveRoute('#/settings/app') as Route} counts={null}/>);
   expect(nav).not.toContain('href="#/settings/assistant"');
 });
+
+test('Budget retains board controls and keeps account settings on Accounts', () => {
+  const html = render('planner');
+  for (const label of ['Pacing policy', 'Review integration changes', 'Pace clock', 'Burn before reset', 'aria-label="Planner"']) expect(html).toContain(label);
+  for (const label of ['Multiple accounts', 'Move to the next account at', 'When an executor runs out']) expect(html).not.toContain(label);
+  expect(html).toContain('Budget windows');
+  expect(html).toContain('Readings older than <b>24 hours</b> count as unknown.');
+  expect(html).toContain('aria-label="Mode"');
+});

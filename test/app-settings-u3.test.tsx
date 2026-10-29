@@ -149,13 +149,11 @@ test('Ark CLI quota authentication errors show recovery in the affected account'
  expect(html).not.toContain('No subscription');
 });
 
-test('multiple accounts retains the threshold as a board row, disabled only for Spread',()=>{
+test('Budget removes account distribution controls absent from the board',()=>{
  for(const mode of ['spread','fill']) {
   const html=render(<SettingsGeneral section="planner" initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
-  expect(html).toContain('class="pc-budget-threshold"');
-  expect(html).toContain('Move to the next account at');
-  expect(html).toContain('% used');
-  expect(html).toMatch(mode==='spread'?/max="100" disabled value="80"/:/max="100" value="80"/);
+  expect(html).not.toContain('Account mode');
+  expect(html).not.toContain('Move to the next account at');
  }
 });
 
