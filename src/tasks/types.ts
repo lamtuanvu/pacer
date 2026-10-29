@@ -26,6 +26,8 @@ export interface Brief {
   qa?: { q: string; a: string }[];
   base?: string;
   worktreeBase?: "default" | "head";
+  /** Run the acceptance command with `set -o pipefail`. Off by default: the command runs exactly as written. */
+  pipefail?: boolean;
 }
 
 export interface RoutingNote {
@@ -101,7 +103,11 @@ export interface Attempt {
 
 export interface Verification {
   files: string;
-  acceptance?: { cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null };
+  /** `exitCode` and `shell` are always set by `verifyRepo`; optional so hand-built results (tests, other callers) need not supply them. */
+  acceptance?: {
+    cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null;
+    exitCode?: number; shell?: string; hint?: string;
+  };
 }
 
 export interface TaskResult extends Verification {
