@@ -9,6 +9,9 @@ import { useDialogs } from "../../ds/useDialogs";
 import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
 import { useFrame } from "../../shell/slots";
+import { Icon } from "../../ds/icons";
+import { ButtonLink } from "../../ds/Button";
+import { hrefFor, routes } from "../../router";
 import { useQuery, useTaskContext } from "../task-shared";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { sessionChangeText, sessionDetail } from "./controller";
@@ -78,7 +81,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
-  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={actions} next={next&&{...next,open:openPanel}}/>,
+  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={<><ButtonLink size="sm" variant="quiet" className="pc-trace-entry" aria-label="Dispatch trace" title="Dispatch trace" href={hrefFor(routes.trace(id))}><Icon name="routing"/><span>Dispatch trace</span></ButtonLink>{actions}</>} next={next&&{...next,open:openPanel}}/>,
   panel:(details,files,access)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
    changes={<><WorktreeChanges diff={diff.data} loading={diff.loading} error={diff.error?'Could not load changes. The worktree may have been removed.':undefined}/>{files}</>}
    details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!}/>{details}{data&&<Brief data={data}/>}<div className="pc-session-detail-group">{result}</div>{access}</div>}/>,

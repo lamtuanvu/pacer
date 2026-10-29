@@ -6,7 +6,7 @@ type RouteBase =
   | { name: "plugin"; plugin: string; id: string }
   | { name: "new-task" | "dispatch" | "loading" | "setup" | "insights" }
   | { name: "add-executor"; host?: string }
-  | { name: "review" | "sessions" | "terminal"; id?: string }
+  | { name: "review" | "sessions" | "terminal"; id?: string; view?: "trace" | "review" }
   | { name: "settings"; section?: string }
   | { name: "hosts"; alias?: string }
   ;
@@ -17,7 +17,7 @@ type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
   | { name: "plugin"; plugin: string; id: string; query?: TargetQuery }
   | { name: "new-task" | "dispatch" | "review" | "setup" | "insights"; query?: TargetQuery }
-  | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
+  | { name: "sessions" | "terminal"; id?: string; view?: "trace" | "review"; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
@@ -31,6 +31,8 @@ export const routes = {
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
   newTask: (query?: TargetQuery) => withTargetQuery({ name: "new-task" } as const, query),
   tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
+  trace: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id, view: "trace" } as const, query),
+  taskReview: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id, view: "review" } as const, query),
   task: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id } as const, query),
   terminal: (id?: string | TargetQuery, query?: TargetQuery) => typeof id === "string"
     ? withTargetQuery({ name: "terminal", id } as const, query)
@@ -54,7 +56,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "dispatch": href = "#/"; break;
     case "review": href = "#/needs-you"; break;
     case "new-task": href = "#/tasks/new"; break;
-    case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
+    case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}${target.view ? `/${target.view}` : ""}` : "#/tasks"; break;
     case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
     case "settings": href = target.section?.startsWith("plugins/") ? `#/settings/plugins/${encodeURIComponent(target.section.slice(8))}` : target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
     case "hosts": href = target.alias ? `#/settings/hosts/${encodeURIComponent(target.alias)}` : "#/settings/hosts"; break;
@@ -77,7 +79,7 @@ export function parentFor(route: Route): RouteTarget | null {
   return null;
 }
 /** Insights retains its recorded in-page title deviation. */
-export function pageOwnsTitle(route: Route): boolean { return route.name === "insights"; }
+export function pageOwnsTitle(route: Route): boolean { return route.name === "insights" || (route.name === "sessions" && route.view === "trace"); }
 export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   if (route.name === "new-task") return "New task";
   if (route.name === "sessions" && route.id) return "Task";
@@ -148,6 +150,8 @@ function match(path: string): RouteBase {
   if (path === "/tasks") return {name:"sessions"};
   if (path === "/tasks/new") return {name:"new-task"};
   if (path === "/terminal") return {name:"terminal"};
+  const taskView = /^\/tasks\/([^/]+)\/(trace|review)$/.exec(path);
+  if (taskView) { const id = decode(taskView[1]!); return id === null ? { name: "dispatch" } : { name: "sessions", id, view: taskView[2] as "trace" | "review" }; }
   const terminal = /^\/terminal\/([^/]+)$/.exec(path);
   if (terminal) { const id = decode(terminal[1]!); return id === null ? { name: "dispatch" } : { name: "terminal", id }; }
   const parts = /^\/(review|sessions|tasks)(?:\/([^/]+))?$/.exec(path);
