@@ -4,7 +4,7 @@ import { settingsPageTitle } from "./settings-pages";
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
   | { name: "plugin"; plugin: string; id: string }
-  | { name: "dispatch" | "loading" | "setup" | "insights" }
+  | { name: "new-task" | "dispatch" | "loading" | "setup" | "insights" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions" | "terminal"; id?: string }
   | { name: "settings"; section?: string }
@@ -16,7 +16,7 @@ export type PrimaryRoute = "insights" | "dispatch" | "review" | "sessions" | "te
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
   | { name: "plugin"; plugin: string; id: string; query?: TargetQuery }
-  | { name: "dispatch" | "review" | "setup" | "insights"; query?: TargetQuery }
+  | { name: "new-task" | "dispatch" | "review" | "setup" | "insights"; query?: TargetQuery }
   | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
@@ -29,6 +29,7 @@ export const routes = {
   plugin: (plugin: string, id: string, query?: TargetQuery) => withTargetQuery({ name: "plugin", plugin, id } as const, query),
   dispatch: (query?: TargetQuery) => withTargetQuery({ name: "dispatch" } as const, query),
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
+  newTask: (query?: TargetQuery) => withTargetQuery({ name: "new-task" } as const, query),
   tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
   task: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id } as const, query),
   terminal: (id?: string | TargetQuery, query?: TargetQuery) => typeof id === "string"
@@ -52,6 +53,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "plugin": href = `#/plugins/${encodeURIComponent(target.plugin)}/${encodeURIComponent(target.id)}`; break;
     case "dispatch": href = "#/"; break;
     case "review": href = "#/needs-you"; break;
+    case "new-task": href = "#/tasks/new"; break;
     case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
     case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
     case "settings": href = target.section?.startsWith("plugins/") ? `#/settings/plugins/${encodeURIComponent(target.section.slice(8))}` : target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
@@ -67,7 +69,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
   return `${href}?${params}`;
 }
 export function parentFor(route: Route): RouteTarget | null {
-  if (route.name === "sessions" && route.id) return routes.tasks(route.query);
+  if (route.name === "new-task" || (route.name === "sessions" && route.id)) return routes.tasks(route.query);
   if (route.name === "terminal" && route.id) return routes.terminal(route.query);
   if (route.name === "settings" && route.section) return routes.settings(route.section.startsWith("plugins/") ? "plugins" : undefined, route.query);
   if (route.name === "hosts") return route.alias ? routes.hosts(route.query) : routes.settings(undefined, route.query);
@@ -77,6 +79,7 @@ export function parentFor(route: Route): RouteTarget | null {
 /** Insights retains its recorded in-page title deviation. */
 export function pageOwnsTitle(route: Route): boolean { return route.name === "insights"; }
 export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
+  if (route.name === "new-task") return "New task";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
@@ -86,6 +89,7 @@ export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   return route.name === "dispatch" ? "Dispatch" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Machines" : route.name === "add-executor" ? "Add an agent" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
+  if (route.name === "new-task") return "sessions";
   if (route.name === "insights") return "insights";
   return route.name === "dispatch" || route.name === "review" || route.name === "sessions" || route.name === "terminal" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
 }
@@ -142,6 +146,7 @@ function match(path: string): RouteBase {
   if (path === "/settings/add-executor") return { name: "add-executor" };
   if (path === "/needs-you") return {name:"review"};
   if (path === "/tasks") return {name:"sessions"};
+  if (path === "/tasks/new") return {name:"new-task"};
   if (path === "/terminal") return {name:"terminal"};
   const terminal = /^\/terminal\/([^/]+)$/.exec(path);
   if (terminal) { const id = decode(terminal[1]!); return id === null ? { name: "dispatch" } : { name: "terminal", id }; }

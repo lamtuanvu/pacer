@@ -7,6 +7,7 @@ import type { Route } from '../router';
 import { LazyTaskRoute } from "./LazyTaskRoute";
 import { LazyInsights } from "./LazyInsights";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
+import { LazyNewTask } from "./new-task/LazyNewTask";
 
 import { Sessions } from "./session/controller";
 import { TerminalScreen } from "./terminal/Terminal";
@@ -15,6 +16,7 @@ export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);
  switch(route.name) {
  case 'plugin': return <LazyActivity key={`${route.plugin}/${route.id}`} plugin={route.plugin} id={route.id}/>;
+ case 'new-task': return <LazyNewTask query={route.query}/>;
  case 'setup': return <LazySetup query={route.query}/>;
  case 'insights': return <LazyInsights query={route.query}/>;
  case 'dispatch': return <LazyDispatch view="home" query={route.query}/>;
