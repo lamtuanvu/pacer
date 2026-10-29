@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readyControl } from "../scripts/live/ota-takeover";
+import { readyControl, retryForeground, settingsReady } from "../scripts/live/ota-takeover";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertFixtureLayoutScenario, initialFixtureVersion } from "../scripts/live/ota";
@@ -16,13 +16,29 @@ test("the driver clicks a control only once it is enabled, so the confirm hold i
   expect(readyControl([{ ...button(), role: "heading" }, { ...button(), role: "static text" }], "Use the app's service")).toBeNull();
   expect(readyControl([button()], "Not now")).toBeNull();
 });
+test("native actions retry foreground changes and preserve other failures", async () => {
+  let calls = 0;
+  await retryForeground(async () => { if (++calls < 3) throw Error("foreground_changed"); }, async () => {});
+  expect(calls).toBe(3);
+  calls = 0;
+  await expect(retryForeground(async () => { calls++; throw Error("foreground_changed"); }, async () => {})).rejects.toThrow("foreground_changed");
+  expect(calls).toBe(3);
+  calls = 0;
+  await expect(retryForeground(async () => { calls++; throw Error("identity"); }, async () => {})).rejects.toThrow("identity");
+  expect(calls).toBe(1);
+});
+test("committed Settings accepts the native uppercase Updates section", () => {
+  expect(settingsReady(["UPDATES", "Up to date"], false)).toBe(true);
+  expect(settingsReady(["UPDATES", "Use the app's service"], false)).toBe(false);
+  expect(settingsReady(["Review service replacement"], true)).toBe(false);
+});
 
 test("native fixture drivers run beside the installed app and prove it untouched", () => {
   for (const file of ["ota-takeover.ts", "ota-exercise.ts"]) {
     const source = readFileSync(join(import.meta.dir, "../scripts/live", file), "utf8");
     expect(source).not.toContain("real desktop is running");
     expect(source).toContain("snapshotRealApp(enumerateNativeProcesses())");
-    expect(source).toContain("assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()))");
+    expect(source).toContain("assertRealAppUnchanged(realApp,");
   }
 });
 

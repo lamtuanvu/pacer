@@ -32,6 +32,15 @@ type ControlElement = { ref: string; role: string; name: string; value?: string;
 export function readyControl(elements: ControlElement[], name: string): ControlElement | null {
   return elements.find(element => element.name === name && element.actions.includes("click") && !element.disabled && !["heading", "static text"].includes(element.role.toLowerCase())) ?? null;
 }
+export async function retryForeground(action: () => Promise<void>, pause: () => Promise<void> = () => sleep(300)): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { await action(); return; }
+    catch (error) {
+      if (!String(error).includes("foreground_changed") || attempt === 2) throw error;
+      await pause();
+    }
+  }
+}
 
 async function desktopControls(pid: number) {
   const identity = processIdentitySync(pid);
@@ -48,18 +57,24 @@ async function desktopControls(pid: number) {
     return { window_id, elements: result.elements as ControlElement[] };
   }
   async function activate() {
-    const window_id = await window();
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    });
   }
   async function key(key: string) {
-    const window_id = await window();
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
+    });
   }
   async function scroll(delta_y: number) {
-    const window_id = await window();
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "scroll", delta_y } });
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "scroll", delta_y } });
+    });
   }
   async function texts() {
     const { elements } = await controls();
@@ -85,7 +100,7 @@ async function desktopControls(pid: number) {
       const window_id = await window();
       // Activating the window can start the page's confirm hold, so wait until
       // the control is enabled again after activation before clicking it.
-      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await activate();
       await sleep(300);
       let last: ControlElement[] = [];
       const item = await waitFor(async () => {
@@ -111,6 +126,11 @@ type Controls = Awaited<ReturnType<typeof desktopControls>>;
 const INTERNAL = /\b(prepared|stopping|switched|verifying|committed|recovery-failed)\b|[a-z-]+:(identity|unavailable|invalid|io|timeout|busy)\b|redetect|interrupted:/;
 
 function hasText(texts: string[], text: string) { return texts.some(value => value.includes(text)); }
+export function settingsReady(texts: string[], takeover: boolean): boolean {
+  return takeover
+    ? hasText(texts, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(texts, "Review service replacement")
+    : texts.some(value => value.toLowerCase() === "updates") && !hasText(texts, "Use the app's service");
+}
 
 async function waitFor<T>(read: () => Promise<T | null>, timeout: number, message: string): Promise<T> {
   const end = Date.now() + timeout;
@@ -168,6 +188,8 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   // Each scenario fixes its theme, so light and dark captures are both covered.
   const theme = (["takeover", "takeover-dismiss", "takeover-crash"] as string[]).includes(scenario) ? "light" : "dark";
   const evidence = (name: string) => join(session.root, "evidence", name);
+  writeFileSync(evidence("real-app-before.json"), JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  try {
   const observed: Record<string, unknown> = { scenario, theme, originalPid: null, originalRegistration: null };
   const themeOf = (name: string) => name.includes("dark") ? "dark" as const : "light" as const;
   async function capture(ui: Controls, name: string, text: string) {
@@ -227,9 +249,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     const texts = await waitFor(async () => {
       const seen = await ui.texts();
       last = seen;
-      const ready = takeover
-        ? hasText(seen, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(seen, "Review service replacement")
-        : hasText(seen, "Updates") && !hasText(seen, "Use the app's service");
+      const ready = settingsReady(seen, takeover);
       if (!ready && !takeover && hasText(seen, "App preferences") && scrolls++ < 12) await ui.scroll(400);
       return ready ? seen : null;
     }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`).catch(async error => {
@@ -321,6 +341,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
       const tx = takeoverJournal(state.pacerHome);
       return tx?.journal.state === expected ? tx : null;
     }, 180000, `Takeover did not reach ${expected}`);
+    writeFileSync(evidence("takeover-journal.json"), JSON.stringify(result.journal, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     state = readOtaRecord(id, options);
     if (result.manifest.candidate.registrationSha256 !== originalRegistration || result.manifest.candidate.process.pid !== originalProcess.pid) throw Error("Takeover authorization differs from original service");
     if (state.exercise?.faults.some(f => !f.consumed)) throw Error("Compiled takeover checkpoint was not consumed");
@@ -374,11 +395,18 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     await waitFor(async () => incarnationExited(current) ? true : null, 10000, "Fixture desktop did not exit");
   }
   for (const item of preserved) if (digest(privateFixtureBytes(join(state.pacerHome, item.name), 1048576)) !== item.hash) throw Error(`User data changed: ${item.name}`);
-  assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()));
+  const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
+  writeFileSync(evidence("real-app-after.json"), JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  assertRealAppUnchanged(realApp, realAppAfter);
   observed.realApp = realAppNote(realApp);
   state = readOtaRecord(id, options);
   updateOtaDriverRecord(id, state, { exercise: { ...state.exercise!, state: "complete" }, runtime: { ...state.runtime!, request: null } }, options);
   observed.preserved = preserved.map(item => item.name);
   writeFileSync(evidence("takeover-observed.json"), JSON.stringify(observed, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `Observed: ${JSON.stringify(observed)}. VoiceOver WAIVED (VO-TEMP-2026-10), not tested.` });
+  } finally {
+    if (!existsSync(evidence("real-app-after.json"))) {
+      writeFileSync(evidence("real-app-after.json"), JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    }
+  }
 }

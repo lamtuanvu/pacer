@@ -310,6 +310,9 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       walk(root); return hash.digest("hex");
     };
     writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, oldServiceChoice: oldServiceChoice ? "continue" : null, baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    const head = Bun.spawnSync(["git", "-C", checkout, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "pipe" });
+    if (head.exitCode !== 0) throw Error("Could not identify fixture source HEAD");
+    writeFileSync(join(session.root, "evidence/source-head.txt"), head.stdout.toString().trim() + "\n", { mode: 0o600, flag: "wx" });
     process.stderr.write("OTA fixture source snapshots captured for both versions.\n");
     for (const [index, version] of versions.entries()) {
       readOtaRecord(id); // Refuse changed lease before every build stage.
