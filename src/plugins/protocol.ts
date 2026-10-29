@@ -6,20 +6,22 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.3.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.4.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
+/** Host signatures use this plugin id in the signing domain, so no plugin may claim it. */
+export const RESERVED_PLUGIN_IDS = ["pacer"] as const;
 const SEMVER_RANGE = /^(\^|~|>=)?\d+(\.\d+){0,2}$|^\*$/;
 
 export const manifestSchema = z.object({
-  id: z.string().regex(PLUGIN_ID, "id is 2-64 lowercase letters, digits and hyphens"),
+  id: z.string().regex(PLUGIN_ID, "id is 2-64 lowercase letters, digits and hyphens").refine(id => !(RESERVED_PLUGIN_IDS as readonly string[]).includes(id), { error: issue => `plugin id ${String(issue.input)} is reserved` }),
   version: z.string().refine(isVersion, "version is semver (MAJOR.MINOR.PATCH)"),
   publisher: z.string().min(1).max(128),
   host: z.string().regex(SEMVER_RANGE, "host is a semver range such as ^1 or ^1.2.0"),
@@ -29,15 +31,25 @@ export const manifestSchema = z.object({
   reentrant: z.boolean().default(false),
   tier: z.enum(["free", "commercial"]).default("free"),
 }).superRefine((m, ctx) => {
+  if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
+  m.capabilities.forEach((c, i) => {
+    if (c.name === "identity.sign") (c.scopes ?? []).forEach((scope, j) => {
+      if (!PLUGIN_ID.test(scope)) ctx.addIssue({ code: "custom", path: ["capabilities", i, "scopes", j], message: "identity.sign scopes are signing purposes: 2-64 lowercase letters, digits and hyphens" });
+    });
+  });
   const raw = m.contributes.ui;
   if (raw === undefined) return;
   const ui = uiContributionSchema.safeParse(raw);
   if (!ui.success) { for (const i of ui.error.issues) ctx.addIssue({ code: "custom", path: ["contributes", "ui", ...i.path], message: i.message }); return; }
-  const floor = /^(?:>=|\^|~)?(\d+(?:\.\d+){0,2})$/.exec(m.host)?.[1];
-  const [a = "0", b = "0", c = "0"] = (floor ?? "0").split(".");
-  if (m.host === "*" || compareVersions(`${a}.${b}.${c}`, "1.2.0") < 0) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.ui sets host to >=1.2.0" });
+  if (!hostFloorAtLeast(m.host, "1.2.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.ui sets host to >=1.2.0" });
   if (ui.data.settings.length && !m.capabilities.some(c => c.name === "config.get")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a plugin with a settings page declares the config.get capability" });
 });
+/** Whether the lowest version a host range accepts is at least `min`. */
+function hostFloorAtLeast(host: string, min: string): boolean {
+  const floor = /^(?:>=|\^|~)?(\d+(?:\.\d+){0,2})$/.exec(host)?.[1];
+  const [a = "0", b = "0", c = "0"] = (floor ?? "0").split(".");
+  return host !== "*" && compareVersions(`${a}.${b}.${c}`, min) >= 0;
+}
 /** The validated `contributes.ui`, with defaults, or null when the plugin contributes none. */
 export function uiOf(m: Pick<PluginManifest, "contributes">): UiContribution | null {
   const raw = m.contributes.ui;
@@ -110,7 +122,18 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.secrets.resolve": method({ description: "Resolve the key of the endpoint account the user chose for the assistant. Any other reference is refused.", params: z.object({ ref: z.string().regex(/^endpoint\/[a-z0-9][a-z0-9-]*$/) }), result: z.object({ value: z.string().nullable() }), deadlineMs: 5000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
+  "capability.identity.sign": method({
+    description: "Sign a payload with this machine's key under the domain-separated format \"pacer-machine-sig/v1\" 0x00 plugin_id 0x00 purpose 0x00 payload. purpose must be declared in the manifest scopes for identity.sign. The transport-key purpose requires the payload \"transport-key/v1\" 0x00 followed by a 32-byte key and records it as the plugin's current transport key. payload and signature are base64. Refused with capability_denied while the home looks copied from another machine, until the user rotates the machine key. Every signature is recorded in the host-owned identity audit log. Refusals are recorded there too, at most 10 per minute per plugin; the next refusal in that minute writes one summary line and the rest are counted, not logged.",
+    params: z.object({ purpose: z.string().regex(PLUGIN_ID), payload: z.string().max(87384).regex(/^[A-Za-z0-9+/]*={0,2}$/, "payload is base64").refine(isCanonicalBase64, "payload is canonical base64") }),
+    result: z.object({ signature: z.string(), machineId: z.string() }),
+    deadlineMs: 15000,
+  }),
 };
+
+/** Padded base64 that decodes and re-encodes to the same text, so the host signs exactly the bytes the plugin meant. */
+function isCanonicalBase64(s: string): boolean {
+  return s.length % 4 === 0 && Buffer.from(s, "base64").toString("base64") === s;
+}
 
 export function capabilityOf(method: string): Capability | null {
   if (!method.startsWith("capability.")) return null;
