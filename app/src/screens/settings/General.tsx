@@ -27,6 +27,7 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
+import { Alert } from "../../ds/Alert";
 import {
   accountNeedsSignIn,
   accountStatus,
@@ -593,15 +594,32 @@ function machineDraft(config: ConfigData | undefined): MachineDraft {
     load: typeof load === "number" ? "limit" : "off", loadLimit: typeof load === "number" ? String(load) : "",
   };
 }
-/** The config.set values a draft stands for; only keys that differ from the saved draft are written. */
+/** Each saved setting, how a draft spells it, and the draft fields it covers. */
+const MACHINE_FIELDS = [
+  { key: MACHINE_KEYS.max, value: (d: MachineDraft) => d.cap === "unlimited" ? "unlimited" : Number(d.max), pick: (d: MachineDraft) => ({ cap: d.cap, max: d.max }) },
+  { key: MACHINE_KEYS.pressure, value: (d: MachineDraft) => d.pressure, pick: (d: MachineDraft) => ({ pressure: d.pressure }) },
+  { key: MACHINE_KEYS.load, value: (d: MachineDraft) => d.load === "off" ? "off" : Number(d.loadLimit), pick: (d: MachineDraft) => ({ load: d.load, loadLimit: d.loadLimit }) },
+] as const;
+/** The config.set values a draft stands for; only keys that differ from the draft's base are written. */
 function machineChanges(base: MachineDraft, draft: MachineDraft): { key: string; value: string | number }[] {
-  const cap = (d: MachineDraft) => d.cap === "unlimited" ? "unlimited" : Number(d.max);
-  const load = (d: MachineDraft) => d.load === "off" ? "off" : Number(d.loadLimit);
-  return [
-    ...(cap(draft) !== cap(base) ? [{ key: MACHINE_KEYS.max, value: cap(draft) }] : []),
-    ...(draft.pressure !== base.pressure ? [{ key: MACHINE_KEYS.pressure, value: draft.pressure }] : []),
-    ...(load(draft) !== load(base) ? [{ key: MACHINE_KEYS.load, value: load(draft) }] : []),
-  ];
+  return MACHINE_FIELDS.filter(f => f.value(draft) !== f.value(base)).map(f => ({ key: f.key, value: f.value(draft) }));
+}
+/** Keys the draft would write whose saved value changed since the draft's base. */
+function machineConflicts(base: MachineDraft, draft: MachineDraft, saved: MachineDraft): string[] {
+  return MACHINE_FIELDS.filter(f => f.value(draft) !== f.value(base) && f.value(saved) !== f.value(base)).map(f => f.key);
+}
+/**
+ * Follow new saved values without losing edits: a field the user has not edited, or whose
+ * edit now matches the saved value, takes the saved value. Edited fields keep their base,
+ * so a later save can see that the saved value moved underneath them.
+ */
+function rebaseMachine(form: { base: MachineDraft; draft: MachineDraft }, saved: MachineDraft) {
+  let { base, draft } = form;
+  for (const f of MACHINE_FIELDS) {
+    if (f.value(draft) === f.value(base)) { base = { ...base, ...f.pick(saved) }; draft = { ...draft, ...f.pick(saved) }; }
+    else if (f.value(draft) === f.value(saved)) base = { ...base, ...f.pick(saved) };
+  }
+  return { base, draft };
 }
 const PRESSURE_WORDS: Record<string, string> = { normal: "normal", warning: "warning", critical: "critical" };
 /** What the machine guard sees now, in plain words. */
@@ -617,22 +635,30 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload),
     { state, api } = useTaskContext();
+  const dialogs = useDialogs();
   const saved = machineDraft(query.data), savedKey = JSON.stringify(saved);
-  const [base, setBase] = useState(saved), [draft, setDraft] = useState(saved);
+  // Rebased in render too, so a new saved value never shows stale for a frame before the effect stores it.
+  const [form, setForm] = useState({ base: saved, draft: saved }), { base, draft } = rebaseMachine(form, saved);
   const changes = machineChanges(base, draft), dirty = changes.length > 0;
-  const capError = draft.cap === "limit" && !(/^\d+$/.test(draft.max) && Number(draft.max) >= 1) ? "Enter a whole number of at least 1." : undefined;
+  // A conflict also covers an edit reverted after the saved value moved: the base is stale.
+  const conflict = machineConflicts(base, draft, saved).length > 0 || MACHINE_FIELDS.some(f => f.value(base) !== f.value(saved));
+  // The same predicate as config.set, so Save is never offered for a value the service refuses.
+  const capError = draft.cap === "limit" && !(/^\d+$/.test(draft.max) && Number.isSafeInteger(Number(draft.max)) && Number(draft.max) >= 1) ? "Enter a whole number of at least 1." : undefined;
   const loadError = draft.load === "limit" && !(/^\d+(\.\d+)?$/.test(draft.loadLimit) && Number(draft.loadLimit) > 0) ? "Enter a load per core greater than 0, such as 3." : undefined;
-  // Follow the saved values only while the user has no unsaved edit.
-  useEffect(() => { if (!dirty) { setBase(saved); setDraft(saved); } }, [savedKey]);
-  const edit = (patch: Partial<MachineDraft>) => setDraft(d => ({ ...d, ...patch }));
+  useEffect(() => { setForm(f => rebaseMachine(f, saved)); }, [savedKey]);
+  const edit = (patch: Partial<MachineDraft>) => setForm(f => ({ ...f, draft: { ...f.draft, ...patch } }));
+  const reset = () => setForm({ base: saved, draft: saved });
   const save = async () => {
-    let next = base;
+    // Re-read before writing: a key changed elsewhere since this draft began is not overwritten.
+    let latest: ConfigData;
+    try { latest = await api.call<ConfigData>("config.get", {}); } catch { latest = query.data!; }
+    query.setData(latest);
+    if (machineConflicts(base, draft, machineDraft(latest)).length) return;
     for (const change of changes) {
       if (!(await action.run("config.set", change))) break;
-      next = change.key === MACHINE_KEYS.max ? { ...next, cap: draft.cap, max: draft.max }
-        : change.key === MACHINE_KEYS.pressure ? { ...next, pressure: draft.pressure }
-        : { ...next, load: draft.load, loadLimit: draft.loadLimit };
-      setBase(next);
+      // Record the written value as saved now so the form does not flash the old one.
+      latest = { ...latest, keys: { ...latest.keys, [change.key]: { ...latest.keys[change.key], value: change.value } } };
+      query.setData(latest);
     }
   };
   // Pressure and load change without any setting changing: re-read the guard state while open.
@@ -713,16 +739,24 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             )}
           </div>
         </Field>
+        {conflict && (
+          <Alert tone="warning" title="Settings changed elsewhere">
+            Your draft is preserved. Reload the saved settings before making further changes.{" "}
+            <Button size="sm" onClick={async () => { if (await dialogs.confirm("Discard this draft and load the latest saved settings?", "Reload saved settings", "Reload")) reset(); }}>
+              Reload saved settings
+            </Button>
+          </Alert>
+        )}
         <div className="u3-save-bar">
-          <span>{dirty ? "Unsaved changes" : "All changes saved"}</span>
+          <span>{dirty ? "Unsaved changes" : conflict ? "Settings changed elsewhere" : "All changes saved"}</span>
           <div className="u3-actions">
-            <Button disabled={!dirty || action.busy} onClick={() => setDraft(base)}>
+            <Button disabled={!(dirty || conflict) || action.busy} onClick={reset}>
               Discard
             </Button>
             <Button
               variant="primary"
               busy={action.busy}
-              disabled={!dirty || action.busy || !!capError || !!loadError}
+              disabled={!dirty || conflict || action.busy || !!capError || !!loadError}
               onClick={() => void save()}
             >
               Save changes
@@ -752,6 +786,7 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
         </Field>
       </ResourceState>
       <Feedback action={action} />
+      {dialogs.dialog}
     </Section>
   );
 }

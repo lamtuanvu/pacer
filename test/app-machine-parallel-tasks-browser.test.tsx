@@ -39,6 +39,13 @@ const choice=(page:Page,group:string,name:string)=>page.getByRole('group',{name:
 const field=(page:Page)=>page.getByLabel('Parallel tasks on this machine');
 const save=(page:Page)=>page.getByRole('button',{name:'Save changes'});
 const error=(page:Page)=>page.getByText('Enter a whole number of at least 1.');
+const conflict=(page:Page)=>page.getByText('Your draft is preserved.',{exact:false});
+const pressure=(page:Page)=>page.getByRole('button',{name:/Hold new tasks at memory pressure/});
+/** Another client changes saved settings; invalidate delivers the config event this page would get. */
+async function external(page:Page,change:Partial<Values>,invalidate=true){
+ values={...values,...change};
+ if(invalidate)await page.evaluate(()=>(window as unknown as {invalidateConfig:()=>void}).invalidateConfig());
+}
 
 browserTest('no limit is the default and a hard cap is drafted, then saved only on Save',async()=>{
  const page=await open();
@@ -80,7 +87,13 @@ browserTest('invalid parallel-task limits show an error and cannot be saved',asy
    await error(page).waitFor();
    expect(await save(page).isDisabled()).toBe(true);
   }
+  // The service accepts only safe integers; 2^53 is refused there, so it is refused here too.
+  await field(page).fill('9007199254740992');
+  await error(page).waitFor();
+  expect(await save(page).isDisabled()).toBe(true);
   // There is no upper ceiling on the local cap.
+  await field(page).fill('9007199254740991');
+  expect(await error(page).count()).toBe(0);
   await field(page).fill('40');
   expect(await error(page).count()).toBe(0);
   expect(await save(page).isEnabled()).toBe(true);
@@ -118,5 +131,61 @@ browserTest('Discard restores the saved machine settings',async()=>{
   expect(await choice(page,'Load limit','Off').getAttribute('aria-pressed')).toBe('true');
   expect(await page.getByText('All changes saved').count()).toBe(1);
   expect(sets).toEqual([]);
+ }finally{await page.close();}
+});
+
+browserTest('a change made elsewhere during an edit shows a conflict, and Discard loads the latest saved values',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await field(page).fill('9');
+  await external(page,{'execution.local_max_tasks':6,'execution.local_memory_pressure_limit':'warning'});
+  await conflict(page).waitFor({timeout:5000});
+  // The edited cap keeps the draft; the untouched pressure follows the saved value.
+  expect(await field(page).inputValue()).toBe('9');
+  expect(await pressure(page).textContent()).toContain('Warning');
+  expect(await save(page).isDisabled()).toBe(true);
+  await page.getByRole('button',{name:'Discard'}).click();
+  expect(await field(page).inputValue()).toBe('6');
+  expect(await pressure(page).textContent()).toContain('Warning');
+  expect(await page.getByText('All changes saved').count()).toBe(1);
+  expect(await conflict(page).count()).toBe(0);
+  // Saved values keep following other clients once the draft is clean.
+  await external(page,{'execution.local_max_tasks':7});
+  await page.waitForFunction(()=>(document.querySelector('input[type=number]') as HTMLInputElement|null)?.value==='7',undefined,{timeout:5000});
+  expect(sets).toEqual([]);
+ }finally{await page.close();}
+});
+
+browserTest('saving a key changed elsewhere shows the conflict instead of overwriting it',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await field(page).fill('9');
+  // No event reaches the page: Save itself must notice.
+  await external(page,{'execution.local_max_tasks':5},false);
+  await save(page).click();
+  await conflict(page).waitFor({timeout:5000});
+  expect(sets).toEqual([]);
+  expect(values['execution.local_max_tasks']).toBe(5);
+  expect(await field(page).inputValue()).toBe('9');
+  expect(await page.getByText('Settings changed elsewhere').count()).toBeGreaterThan(0);
+  await page.getByRole('button',{name:'Reload saved settings'}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'Reload'}).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(await field(page).inputValue()).toBe('5');
+  expect(sets).toEqual([]);
+ }finally{await page.close();}
+});
+
+browserTest('a change elsewhere to a different key does not block saving this one',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await pressure(page).click();
+  await page.getByRole('option',{name:'Warning'}).click();
+  await external(page,{'execution.local_max_tasks':6},false);
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(sets).toEqual([{key:'execution.local_memory_pressure_limit',value:'warning'}]);
+  expect(await field(page).inputValue()).toBe('6');
+  expect(await conflict(page).count()).toBe(0);
  }finally{await page.close();}
 });
