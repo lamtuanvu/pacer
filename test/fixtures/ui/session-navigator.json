@@ -1,0 +1,165 @@
+{
+  "tasks": [
+    {
+      "id": "t-20261029-170424-ec4d",
+      "state": "done",
+      "updatedAt": 1793268264,
+      "title": "Add the usage parser",
+      "goal": "Add the usage parser",
+      "executor": "codex#personal",
+      "backend": "direct",
+      "worktree": null,
+      "session": {
+        "host": "none",
+        "live": false,
+        "controller": null,
+        "viewers": 0
+      },
+      "terminalPresent": false,
+      "acceptanceState": "passed",
+      "review": {
+        "accepted": true,
+        "kind": "feature",
+        "note": "Accepted by the parent task",
+        "at": 1793268204
+      },
+      "fullTitle": "Add the usage parser",
+      "rev": 3,
+      "queue": null,
+      "repo": {
+        "key": "fixture/session",
+        "label": "sample",
+        "path": "/tmp/fixture/session"
+      },
+      "kind": "feature",
+      "host": null
+    },
+    {
+      "id": "t-20261029-170424-bdfb",
+      "state": "running",
+      "updatedAt": 1793268264,
+      "title": "Wire the parser into the report",
+      "goal": "Wire the parser into the report",
+      "executor": "codex#personal",
+      "backend": "direct",
+      "worktree": null,
+      "session": {
+        "host": "none",
+        "live": false,
+        "controller": null,
+        "viewers": 0
+      },
+      "terminalPresent": false,
+      "acceptanceState": "none",
+      "progress": {
+        "phase": "working",
+        "lastOutputAt": 1793268264,
+        "files": 1,
+        "commits": 0,
+        "logBytes": 0
+      },
+      "runnerAlive": true,
+      "fullTitle": "Wire the parser into the report",
+      "rev": 2,
+      "queue": null,
+      "repo": {
+        "key": "fixture/session",
+        "label": "sample",
+        "path": "/tmp/fixture/session"
+      },
+      "kind": "feature",
+      "host": null
+    },
+    {
+      "id": "t-20261029-165927-c66d",
+      "state": "running",
+      "updatedAt": 1793267967,
+      "title": "Split the budget store into read and write paths",
+      "goal": "Split the budget store into read and write paths",
+      "executor": "codex#personal",
+      "backend": "direct",
+      "worktree": "/tmp/fixture/session/worktree",
+      "session": {
+        "host": "none",
+        "live": false,
+        "controller": null,
+        "viewers": 0
+      },
+      "terminalPresent": false,
+      "acceptanceState": "pending",
+      "progress": {
+        "phase": "working",
+        "lastOutputAt": 1793268264,
+        "files": 6,
+        "commits": 2,
+        "logBytes": 0
+      },
+      "runnerAlive": true,
+      "fullTitle": "Split the budget store into read and write paths",
+      "rev": 2,
+      "queue": null,
+      "source": "ui",
+      "repo": {
+        "key": "fixture/session",
+        "label": "sample",
+        "path": "/tmp/fixture/session"
+      },
+      "kind": "feature",
+      "host": null
+    }
+  ],
+  "work": [
+    {
+      "id": "t-20261029-170424-ec4d",
+      "parentId": "t-20261029-165927-c66d",
+      "rootId": "t-20261029-165927-c66d",
+      "depth": 1,
+      "title": "Add the usage parser",
+      "state": "done",
+      "rev": 3,
+      "executor": "codex#personal",
+      "createdAt": 1793268264,
+      "review": {
+        "accepted": true,
+        "kind": "feature",
+        "note": "Accepted by the parent task",
+        "at": 1793268204
+      },
+      "branch": null,
+      "tokens": {
+        "total": 11963,
+        "lowerBound": false,
+        "measuredAttempts": 1,
+        "partialAttempts": 0
+      }
+    },
+    {
+      "id": "t-20261029-170424-bdfb",
+      "parentId": "t-20261029-165927-c66d",
+      "rootId": "t-20261029-165927-c66d",
+      "depth": 1,
+      "title": "Wire the parser into the report",
+      "state": "running",
+      "rev": 2,
+      "executor": "codex#personal",
+      "createdAt": 1793268264,
+      "review": null,
+      "branch": null,
+      "tokens": null
+    },
+    {
+      "id": "t-20261029-165927-c66d",
+      "parentId": null,
+      "rootId": "t-20261029-165927-c66d",
+      "depth": 0,
+      "title": "Split the budget store into read and write paths",
+      "state": "running",
+      "rev": 2,
+      "executor": "codex#personal",
+      "createdAt": 1793267967,
+      "review": null,
+      "branch": null,
+      "tokens": null
+    }
+  ]
+}

@@ -154,6 +154,8 @@ test("machine snapshot capacity counts local runs across executors and excludes 
  const ctx=fakeCtx(),{st,s}=capacityFixture();s.execution.local_max_tasks=5;
  const tasks=[record('running',1,{executor:'codex'}),record('running',2,{executor:'cursor'}),record('running',3,{executor:'codex@devbox'}),record('queued',4)].map(t=>apiTask(ctx,t));
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}});
+ expect(model.machine.arch).toBe(process.arch);
+ expect(model.machine.os).toMatch(process.platform === "darwin" ? /^macOS [\d.]+$/ : new RegExp(`^${process.platform}$`));
  expect(model.machine).toMatchObject({used:2,max:5,hardCap:5,unlimited:false,memoryPressure:"normal",memoryPressureLimit:"critical",loadPerCore:0,loadLimit:null,open:true});
 });
 
@@ -174,11 +176,11 @@ test("machine snapshot reports no fixed cap by default and what the guard sees",
  const build=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}}).machine;
  try{
   setMachineReaders({pressure:()=>2,load:()=>({avg1:59,cores:12})});
-  expect(build()).toEqual({used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:"warning",memoryPressureLimit:"critical",loadPerCore:4.92,loadLimit:null,open:true});
+  expect(build()).toMatchObject({used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:"warning",memoryPressureLimit:"critical",loadPerCore:4.92,loadLimit:null,open:true});
   s.execution.local_load_limit=3;
   expect(build()).toMatchObject({open:false,reason:"machine_load",detail:"load 4.9/core over limit 3"});
   setMachineReaders({pressure:()=>null,load:()=>null});
-  expect(build()).toEqual({used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:null,memoryPressureLimit:"critical",loadPerCore:null,loadLimit:3,open:true,detail:"memory pressure signal unavailable"});
+  expect(build()).toMatchObject({used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:null,memoryPressureLimit:"critical",loadPerCore:null,loadLimit:3,open:true,detail:"memory pressure signal unavailable"});
  }finally{setMachineReaders({pressure:()=>1,load:()=>({avg1:0,cores:1})});}
 });
 

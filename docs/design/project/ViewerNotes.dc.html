@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File viewer notes</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--surface-card);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.card h2{margin:0;font-size:14px;line-height:21px;font-weight:650}
+.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--ink-secondary)}
+.card li b{color:var(--ink)}
+.mk{width:22px;height:22px;border-radius:99px;background:var(--ink);color:var(--ink-on-ink);font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.kbd{display:inline-flex;align-items:center;height:20px;padding:0 6px;border:1px solid var(--line);border-radius:4px;font-size:11px;color:var(--ink-secondary);background:var(--surface-page);white-space:nowrap}
+table{border-collapse:collapse;width:100%}
+td{padding:6px 0;border-top:1px solid var(--surface-lane);vertical-align:top;color:var(--ink-secondary)}
+td:first-child{width:150px;padding-right:12px}
+</style>
+</helmet>
+<div style="padding: 32px 40px 40px; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 20px;">
+<header style="display: flex; flex-direction: column; gap: 4px; max-width: 900px;">
+<h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">File viewer · interaction notes</h1>
+<span class="cap">A read-only look at a file the agent mentioned, without leaving or pausing the session. The numbers match the markers on the desktop board.</span>
+</header>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start;">
+
+<section class="card">
+<h2>On the desktop board</h2>
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="display: flex; gap: 10px;"><span class="mk">1</span><span><b>Path links.</b> Workspace-relative paths, with an optional <span class="mono">:line</span> or <span class="mono">:line:col</span>, are underlined in the terminal. One click opens them. Bare words, URLs and paths outside the workspace are not linked.</span></span>
+<span style="display: flex; gap: 10px;"><span class="mk">2</span><span><b>Opens as a side-panel tab.</b> The terminal keeps its size, its scroll position and its keyboard control. Opening another path replaces the file tab. <span class="kbd">⌘</span>-click opens it in an extra tab instead.</span></span>
+<span style="display: flex; gap: 10px;"><span class="mk">3</span><span><b>Read-only, always.</b> There is no edit mode. Copy path and Open in editor hand off to the user’s own tools.</span></span>
+<span style="display: flex; gap: 10px;"><span class="mk">4</span><span><b>Back to terminal</b> <span class="kbd">Esc</span> returns focus to the exact terminal pane and cursor. The tab stays open for later.</span></span>
+<span style="display: flex; gap: 10px;"><span class="mk">5</span><span><b>Where you are.</b> Worktree name, then the path. A Line chip appears when the link carried a line. “Session running” confirms that nothing paused.</span></span>
+<span style="display: flex; gap: 10px;"><span class="mk">6</span><span><b>Target line.</b> The linked line is tinted and its number made bold, and it scrolls to the upper third of the view. Search matches are tinted, and the current match is solid.</span></span>
+</div>
+</section>
+
+<section class="card">
+<h2>Opening and focus</h2>
+<ul>
+<li><b>Pointer.</b> A click on a link opens the viewer and moves focus to its body. The terminal stays interactive, and typed keys still reach it once focus is back.</li>
+<li><b>Keyboard.</b> <span class="kbd">⌃⇧O</span> in the terminal opens the last path printed. <span class="kbd">⌃⇧L</span> lists every path in the visible scrollback to choose from.</li>
+<li><b>Focus order inside.</b> Back to terminal, search, copy, open in editor, the Source/Preview tabs, then the body. The body is a focusable region, so arrow keys and Page Up/Down scroll it.</li>
+<li><b>Never steals input.</b> The viewer never opens on its own when output arrives. Only the user’s click or key opens it.</li>
+<li><b>Closing a tab</b> with <span class="kbd">×</span> or <span class="kbd">⌘W</span> returns focus to the terminal.</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>Keyboard map (viewer focused)</h2>
+<table>
+<tr><td><span class="kbd">⌘F</span></td><td>Search this file. In the terminal, ⌘F still searches its scrollback.</td></tr>
+<tr><td><span class="kbd">Enter</span> <span class="kbd">⇧Enter</span></td><td>Next or previous match. The count is announced politely (“3 of 9”).</td></tr>
+<tr><td><span class="kbd">⌘G</span></td><td>Go to line.</td></tr>
+<tr><td><span class="kbd">← →</span> on tabs</td><td>Switch between Source and Preview (the ARIA tab pattern).</td></tr>
+<tr><td><span class="kbd">Esc</span></td><td>Closes search first; a second Esc goes back to the terminal.</td></tr>
+<tr><td><span class="kbd">⌘C</span></td><td>Copies the selection. Line numbers are never copied.</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>States</h2>
+<ul>
+<li><b>Loading.</b> Filename and path appear at once. The skeleton appears only after 150 ms, so fast reads don’t flash. A polite status reads “Reading src/main.ts…”.</li>
+<li><b>Missing.</b> Names the path and the workspace that were checked, then offers to find similar names and to retry. Paths outside the workspace get the same state with “outside this workspace” in the text.</li>
+<li><b>Large.</b> Over 5 MB or 50,000 lines: the first 2,000 lines, rendered virtually. Search covers the lines loaded and says so. Loading more is always explicit.</li>
+<li><b>Unsupported.</b> NUL bytes or a binary MIME type. Nothing is rendered; it hands off to Open in editor or Reveal in Finder.</li>
+<li><b>Changed on disk.</b> A quiet notice, “The agent changed this file · Reload”. The scroll position is never yanked.</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>Preview isolation</h2>
+<ul>
+<li><b>HTML</b> renders in a sandboxed iframe with no <span class="mono">allow-scripts</span> and no <span class="mono">allow-same-origin</span>, on a separate origin. It gets a CSP of <span class="mono">default-src 'none'; style-src 'unsafe-inline'; img-src data:</span>, so the frame cannot reach pacer, cookies, the session or the network.</li>
+<li><b>The banner lists every blocked script and request</b> by type and address, so a page that looks broken explains itself. Links inside the frame do nothing; the address is shown instead.</li>
+<li><b>Markdown</b> is sanitised. Raw HTML is dropped, remote images become labelled placeholders, and relative links to workspace files open in the viewer.</li>
+<li><b>Source is the default tab.</b> Nothing renders until the user picks Preview.</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>Layout and accessibility</h2>
+<ul>
+<li><b>1100 px and up.</b> A side-panel tab, 560 px wide by default, resizable between 400 px and half the window.</li>
+<li><b>768–1099 px.</b> The panel overlays the details column at 480 px.</li>
+<li><b>Below 768 px.</b> A full-screen sheet with Back to Terminal at the top left and 44 px touch targets.</li>
+<li><b>Semantics.</b> The viewer is a labelled region (“File viewer: src/main.ts”). The source is announced by line, and line numbers are hidden from screen readers. Status always comes with words, never colour alone.</li>
+<li><b>Colour.</b> Syntax colours come from status tokens and meet 4.5:1 in both themes. Reduced motion stops the loading shimmer.</li>
+</ul>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

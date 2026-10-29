@@ -1,7 +1,7 @@
 *{box-sizing:border-box}
 :root{height:100%;background:transparent}
 body{margin:0;width:var(--size-340);max-width:100vw;max-height:var(--size-560);background:var(--surface-page);border:var(--size-1) solid var(--line);border-radius:var(--radius-card);overflow:hidden;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
-.tray{width:100%;max-height:calc(var(--size-560) - var(--size-2));overflow:hidden;position:relative;display:flex;flex-direction:column}
+.tray{--control-compact:var(--size-32);width:100%;max-height:calc(var(--size-560) - var(--size-2));overflow:hidden;position:relative;display:flex;flex-direction:column}
 .tray-main{min-height:0;overflow-y:auto;flex:0 1 auto}
 button,a{-webkit-tap-highlight-color:transparent;font-family:inherit;font-size:inherit;line-height:inherit;font-weight:inherit;color:inherit}
 button{cursor:pointer}button:disabled{cursor:default;opacity:.5}
@@ -11,21 +11,20 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-planner{display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-3) var(--space-3\.5) var(--space-2\.5);border-bottom:1px solid var(--line)}
 .tray-line{display:flex;align-items:center;gap:var(--space-2);white-space:nowrap}
 .tray-grow{flex:1;min-width:0}
-.tray-line strong{flex:0 1 auto;min-width:var(--size-64);overflow:hidden;text-overflow:ellipsis}
-/* Reserve the name, mark, five row gaps and the compact pill's glyph/padding.
-   The mode only loses space once the pace label has no space left. */
-.tray-line .pc-pill{flex:0 1 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
+.tray-line strong{flex:0 0 auto;min-width:var(--size-28);max-width:calc(100% - var(--size-18) - var(--space-2) * 5 - var(--size-40) - var(--size-64) - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis}
+/* Preserve the full name at 340px; reserve the caption, mode and pill glyph
+   before constraining longer names or narrower windows. */
+.tray-line .pc-pill{flex:0 0 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
 .tray-line .pc-glyph{flex:none}
 .tray-pace-label,.tray-mode-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tray-mode{flex:none;min-width:0;max-width:calc(100% - var(--size-64) - var(--size-18) - var(--space-2) * 5 - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tray-planner-label-slot{display:flex;flex-wrap:wrap;align-items:center;flex:1000 1 0;max-width:max-content;min-width:0;height:var(--type-caption-line);overflow:hidden}.tray-planner-label-spacer{width:0;height:var(--type-caption-line)}
 .tray-planner-label{flex:none;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .tray-mode{display:inline-flex;align-items:center;height:var(--size-20);padding:0 var(--space-2);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary);font-size:var(--type-label-size);font-weight:var(--type-label-weight)}
 .tray-caption{display:flex;justify-content:space-between;gap:var(--space-2);font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
 .tray-paused{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-2) var(--space-3\.5);background:var(--warn-tint);border-bottom:1px solid var(--warn-line)}
 .tray-paused>svg{flex:none;color:var(--warn-fg)}
 .tray-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-half);padding:var(--space-1) var(--space-1\.5);border-bottom:1px solid var(--line)}
-.tray-count{display:flex;flex-direction:column;align-items:flex-start;padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-md);white-space:nowrap}
+.tray-count{display:flex;gap:0;flex-direction:column;align-items:flex-start;padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-md);white-space:nowrap}
 .tray-count:hover{background:var(--surface-lane)}
 .tray-count b{font-size:var(--type-tray-count-size);line-height:var(--type-tray-count-line);font-weight:var(--type-tray-count-weight);color:var(--ink)}.tray-count b.tray-muted{color:var(--ink-muted)}.tray-count b.tray-idle{color:var(--warn-fg)}
 .tray-count span{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
@@ -35,7 +34,7 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-section-heading{display:flex;align-items:center;padding:var(--space-half) var(--space-3\.5) var(--space-1)}
 .tray-section-heading .pc-section-heading{flex:1;margin:0}
 .tray-section-heading .tray-attention-heading{color:var(--warn-fg)}
-.tray-section-heading a{font-size:var(--type-caption-size);color:var(--link)}
+.tray-section-heading a{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--link)}
 .tray-attention,.tray-running{padding:var(--size-7) var(--space-3\.5);gap:var(--space-2\.5);border-bottom:0;font-size:var(--type-body-size)}
 .tray-attention .pc-list-row__leading{width:var(--size-14);justify-content:center}
 .tray-attention .pc-list-row__leading svg{width:var(--size-14);height:var(--size-14)}
@@ -48,15 +47,15 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-chevron{display:inline-flex;flex:none;color:var(--ink-muted)}.tray-chevron svg{width:var(--size-14);height:var(--size-14)}.tray-chevron--down{transform:rotate(90deg)}
 .tray-waiting{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-1\.5) var(--space-3\.5) var(--space-2);font-size:var(--type-caption-size);color:var(--ink-secondary)}
 .tray-waiting svg{flex:none;color:var(--ink-muted)}
-.tray-executors{display:flex;flex-wrap:wrap;row-gap:var(--space-2);align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-3\.5) var(--space-2\.5);border-top:1px solid var(--line);white-space:nowrap}
+.tray-executors{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-3\.5) var(--space-2\.5);border-top:1px solid var(--line);white-space:nowrap}
 .tray-executor{display:inline-flex;align-items:center;gap:var(--size-5);font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight)}
 .tray-executor-mark{display:inline-flex}
 .tray-executor-value--good{color:var(--good-fg)}.tray-executor-value--warn{color:var(--warn-fg)}.tray-executor-value--bad{color:var(--bad-fg)}.tray-executor-value--muted,.tray-executor-value--off{color:var(--ink-muted)}
 .tray-actions{flex-shrink:0;margin-top:auto}
 .tray-footer{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-2\.5);border-top:1px solid var(--line);background:var(--surface-card)}
-.tray-footer .pc-btn{flex:none}.tray-footer .pc-kbd{padding:0 var(--size-5);border-radius:var(--radius-4)}.tray-footer .pc-icon-button{width:var(--size-36);height:var(--size-36);margin:0}
+.tray-footer .pc-btn{flex:none;padding-inline:var(--space-2)}.tray-footer .pc-kbd{padding:0 var(--size-5);border-radius:var(--radius-4)}.tray-footer .pc-icon-button{width:var(--size-36);height:var(--size-36);margin:0}
 .tray-more-open{background:var(--surface-lane)}
-.tray-menu{position:absolute;right:var(--space-2\.5);bottom:var(--size-56);z-index:var(--layer-overlay);width:var(--size-236);max-height:min(var(--size-340),calc(100dvh - var(--size-56)));overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);box-shadow:var(--shadow-tray-menu)}
+.tray-menu{position:absolute;right:var(--space-2\.5);bottom:var(--size-56);z-index:var(--layer-overlay);width:var(--size-236);max-height:min(var(--size-340),calc(100dvh - var(--size-56)));overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-page);box-shadow:var(--shadow-tray-menu)}
 .tray-menu .tray-menu-item{font-weight:var(--type-body-weight);display:flex;align-items:center;width:100%;height:var(--size-36);padding:0 var(--space-2\.5);gap:var(--space-2\.5);border-radius:var(--radius-sm);text-align:left}
 .tray-menu-item>svg{flex:none}
 .tray-menu-item:hover{background:var(--surface-lane)}
@@ -75,3 +74,10 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 /* The open menu fills the window ipc.resize sized, inside the body's 1px border; it never needs more than its 340px cap plus the footer offset. */
 .tray--menu-open{min-height:min(calc(100dvh - var(--size-2)),calc(var(--size-340) + var(--size-56)))}
 .tray-menu .tray-strategies .pc-btn{font-weight:var(--type-body-weight)}
+
+.tray-attention-glyph{display:inline-block;width:var(--size-14);text-align:center;font-weight:var(--type-match-strong-weight)}
+.tray-attention-glyph--info{color:var(--info-fg)}.tray-attention-glyph--warn{color:var(--warn-fg)}.tray-attention-glyph--bad{color:var(--bad-fg)}
+.tray-executor{flex:none}.tray-executor[hidden]{display:none}
+.tray .pc-kbd{font-family:var(--font-mono);font-size:var(--type-label-size);line-height:var(--type-label-line);padding:0 var(--size-5);border:1px solid currentColor;border-radius:var(--radius-4);opacity:.7;background:transparent;color:inherit}
+
+.tray-login-icon{width:var(--size-16);height:var(--size-16);fill:none;stroke:currentColor;stroke-width:var(--stroke-icon);stroke-linecap:round;stroke-linejoin:round;flex:none}

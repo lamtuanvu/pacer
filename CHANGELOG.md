@@ -7,6 +7,28 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
+### Changed
+
+- Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
+- Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
+
+### Fixed
+
+- Align Tasks with its board: short task titles and accessible names with full-text tooltips, a sticky selected-task summary with duration, planner-attributed linked work, notes and a dispatch trace link, measured token totals, and the board’s row geometry and selection colours.
+- Match the 340px tray board: preserve eligible executor usage, omit the planner from a single-line executor strip, group off executors and link overflow, restore attention glyphs, board typography and the planner caption, soften shortcut chips, format upcoming resets by weekday, and wire the desktop Open at login switch to native login items. Review rows use the blue review dot, unmetered executors show a muted dash, off tooltips name the actual state, and tray actions retain 32px targets.
+- Keep command-menu scope tabs visible in recent and command views, match board row styling, prefill an empty New task draft from an unmatched query without reloading or replacing existing work, preserve matches across empty scopes, and show only available keyboard actions. Keep selected subtitles and scope counts readable and use the dark backdrop and shadow tokens.
+- Match Dispatch to its design board: sentence-case section headings, four KPI tiles with explicit unmeasured states, planner advice and a single usage caption, Ready routing preview, three attention cards, and a recent dispatch ledger with one row per root, subtask token totals, and compact unknown-token states. Remove the redundant Start work composer and link cards to their task actions.
+- Align the live session with the Session and ViewerDesktop boards: a separate session header, compact Sessions tree with dispatch parent links and a centered status pill, workspace and live usage details, acceptance checks, diff links and file preview tabs.
+- Show rounded percentages, friendly agent and account names, clear readiness reasons and weekly usage in Settings and Work. Show bundled plugin names, versions and descriptions. Keep technical eligibility details in tooltips and hide the unimplemented command-menu open-beside shortcut.
+- Keep resolved failed tasks retryable, retain brief editing when retry is unavailable, show remaining attention after acceptance, and offer result file preview only for a current local direct run.
+
+### Added
+
+- Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
+- Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
+- Add a root task Dispatch trace page with recorded decisions, subtasks, token accounting, candidates and acceptance evidence. Open it from Tasks or the session header.
+- Rebuild Needs you as a tabbed waiting list and add a keyboard-accessible Answer side panel. Answer links from Dispatch and the tray open the question directly; review, failure and trace links target their task pages.
+- Keep the assistant reachable before setup and while capacity is unavailable. Choose an endpoint explicitly in the setup sheet; App preferences can hide the floating button or keep the aurora still while the keyboard shortcut remains available. The button follows the open terminal dock.
 ### Added
 
 - Plugin protocol 1.4.0: the `identity.sign` capability signs a payload with the machine key under the domain-separated format `"pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload`. A plugin may sign only the purposes it declares in the capability's manifest `scopes`, its manifest sets `host` to `>=1.4.0`, and each signature is recorded in the plugin's log by purpose and payload hash. The plugin id `pacer` is reserved for the host's own signatures. The TypeScript plugin SDK adds `host.identitySign(purpose, payload)`.

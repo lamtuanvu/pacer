@@ -114,6 +114,14 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
   }
 }
 
+/** Hide only the exact attention rows acknowledged by a successful review write.
+ * A later question or review with a new timestamp remains visible. */
+export function withoutReviewedAttention(snapshot: SnapshotV2, acknowledged: ReadonlySet<string>): SnapshotV2 {
+  if (!snapshot.attention) return snapshot;
+  const attention = snapshot.attention.filter(item => !acknowledged.has(`${item.id}:${item.since}`));
+  return attention.length === snapshot.attention.length ? snapshot : {...snapshot, attention};
+}
+
 /** Effects live here; the reducer above remains usable without a DOM. */
 export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource = EventSource) {
   let state = initialState();
@@ -122,9 +130,16 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = true;
   let generation = 0;
-  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); for (const listener of listeners) listener(); };
+  let retryDelay = 1000;
+  const acknowledgedReviews = new Set<string>();
+  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
+  const retry = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!stopped && !state.sessionEnded) void refresh(); }, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 30_000);
+  };
   async function refresh() {
     const current = ++generation;
     stream?.close();
@@ -139,12 +154,16 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       const active = () => !stopped && stream === source && !state.sessionEnded;
       source.addEventListener("open", () => {
         if (!active()) return;
+        retryDelay = 1000;
         if (failed) { dispatch({ type: "reconnected" }); void refresh(); }
-        else { state = { ...state, connected: true }; for (const listener of listeners) listener(); }
+        else { state = { ...state, connected: true }; api.setConnected?.(true); for (const listener of listeners) listener(); }
       });
       source.addEventListener("error", () => {
         if (!active()) return;
         failed = true;
+        // Own retries: HTTP errors can permanently close the native EventSource.
+        source.close();
+        retry();
         dispatch({ type: "disconnected" });
         // EventSource does not expose HTTP status. A normal request detects expired cookies.
         void api.hello().catch(error => { if (active() && error instanceof ApiError && error.status === 401) endSession(); });
@@ -163,11 +182,16 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       if (stopped || current !== generation) return;
       if (error instanceof ApiError && error.status === 401) { endSession(); return; }
       dispatch({ type: "disconnected" });
-      timer = setTimeout(() => { void refresh(); }, 1000);
+      retry();
     }
   }
   return {
     getState: () => state,
+    acceptReview(id: string) {
+      if (!state.snapshot) return;
+      for (const item of state.snapshot.attention ?? []) if (item.taskId === id) acknowledgedReviews.add(`${item.id}:${item.since}`);
+      dispatch({type:"snapshot",snapshot:state.snapshot});
+    },
     /** Refetch the snapshot now (an action saw no event in time). */
     refresh: () => refresh(),
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },

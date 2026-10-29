@@ -69,8 +69,8 @@ test("> lists only commands, grouped, and ignores tasks", () => {
   expect(titles(everything)).not.toContain("New task");
   expect(everything.enterHint).toBe("run");
   expect(everything.modEnterHint).toBe("run and keep open");
-  // ⌘↵ "open beside" is announced as coming soon in search and recent modes (no right panel yet); it is not a live action.
-  for (const result of [menu("fix"), menu(""), menu("xyzzy plugin")]) expect(result).toMatchObject({ modEnterHint: "open beside", modEnterSoon: true });
+  // Only implemented actions advertise shortcuts.
+  for (const result of [menu("fix"), menu(""), menu("xyzzy plugin")]) expect(result.modEnterHint).toBeUndefined();
   expect(everything.modEnterSoon).toBeUndefined();
 });
 
@@ -182,4 +182,8 @@ test("without the operation there are no files, in any mode, and the Files tab i
   expect(scopesFor(true).map(scope => scope.id)).toEqual(["all", "tasks", "agents", "files", "commands"]);
   // Commands mode never lists files.
   expect(buildMenu({ query: ">a", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "ready", result: answer({ results: [file("a.ts")] }) } }).groups.map(group => group.title)).not.toContain("Files");
+});
+
+test('services with the assistant expose question mode without interpreting it as a search',()=>{
+ expect(buildMenu({query:'? explain routing',scope:'all',snapshot:null,commands:[],recent:[],now:1,askEnabled:true}).mode).toBe('ask');
 });

@@ -503,13 +503,16 @@ browserTest('saved setups and current setup adapt to a 450px container at a 768p
   } finally { await page.close(); }
 });
 
-browserTest('executor rows separate name and account for assistive technology', async () => {
+browserTest('executor rows expose the name and executor identity for assistive technology', async () => {
   const page = await browser.newPage();
   try {
     await page.goto(`${server.url.href}#setup`);
     await page.getByRole('tab', { name: 'Everything else' }).click();
-    const label = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label').first();
-    // The separator is visually hidden but stays in the text that screen readers announce.
-    expect((await label.textContent())!.replace(/\s+/g, ' ')).toMatch(/^Claude Code · /);
+    const row = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__row').first();
+    expect(await row.locator('.pc-sortable__label').textContent()).toBe('Claude Code');
+    expect(await row.locator('.pc-executor-id').textContent()).toBe('claude-code');
+    const accessible = await row.ariaSnapshot();
+    expect(accessible).toContain('Claude Code');
+    expect(accessible).toContain('claude-code');
   } finally { await page.close(); }
 });

@@ -11,11 +11,8 @@ fn task_parameters_have_their_own_generated_area() {
         &root.join("crates/client-protocol/src/generated.rs"),
     )
     .unwrap();
-    let tasks = xtask::generate_for(
-        &schema,
-        &root.join("crates/task-protocol/src/generated.rs"),
-    )
-    .unwrap();
+    let tasks =
+        xtask::generate_for(&schema, &root.join("crates/task-protocol/src/generated.rs")).unwrap();
     assert!(!client.contains("pub struct TaskDelegateParams"));
     assert!(!client.contains("pub struct TaskSendParams"));
     assert!(tasks.contains("pub struct TaskDelegateParams"));

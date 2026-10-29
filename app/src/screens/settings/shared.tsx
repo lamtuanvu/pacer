@@ -1,3 +1,4 @@
+import { displayPath, settingsText } from "./presentation";
 import { useNotifications } from "../../data/notification-context";
 import { Alert } from "../../ds/Alert";
 import { createContext } from 'preact';
@@ -66,7 +67,7 @@ export interface OperationResult {data:unknown;message:string;hint?:string;comma
 export async function performOperation(call:BrowserApi['call'],op:string,params:unknown):Promise<OperationResult> {
  const data=await call<unknown>(op,params),r=(data&&typeof data==='object'?data:{}) as Record<string,unknown>;
  const candidate=(r.job??(r.steps&&r.id?r:undefined)) as Job|string|undefined;
- return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,warning:typeof r.warning==='string'?r.warning:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
+ return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?settingsText(r.message):typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?settingsText(r.hint):r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,warning:typeof r.warning==='string'?settingsText(r.warning):undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
 export function shouldNotifySuccess(result: OperationResult, enabled = true): boolean {
  return !result.jobId && !result.warning && enabled;
@@ -80,7 +81,7 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
  const completed=useRef<string>();
  useEffect(()=>{if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
  const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active)setResult(r=>r?{...r,job:current}:r);}catch(e){if(active)setError(e);}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state]);
- useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message});onDone?.();}},[job]);
+ useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message ? settingsText(job.error.message) : undefined});onDone?.();}},[job]);
  async function run(op:string,params:unknown,done?:(data:any)=>void) {
   if(pending.current)return;pending.current=true;setBusy(true);setError(undefined);setResult(undefined);
   try{const r=await performOperation(async <T,>(operation:string,payload:unknown)=>{
@@ -89,16 +90,16 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
    if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message+('hint' in outcome&&outcome.hint?` · ${outcome.hint}`:''));
    return runner.result(key) as T;
   },op,params);setResult(r);if(shouldNotifySuccess(r, options.notifySuccess !== false))notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
-  catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
+  catch(e){setError(new Error(settingsText(e instanceof Error ? e.message : String(e))));}finally{pending.current=false;setBusy(false);}
  }
  return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
- return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {step.name}{step.detail&&<span className="u3-muted"> · {step.detail}</span>}</li>)}</ul>{job.error&&<Alert tone="error" title={job.error.message} announce={false}>{job.error.hint}</Alert>}</div>;
+ return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {settingsText(step.name)}{step.detail&&<span className="u3-muted"> · {settingsText(step.detail)}</span>}</li>)}</ul>{job.error&&<Alert tone="error" title={settingsText(job.error.message)} announce={false}>{job.error.hint ? settingsText(job.error.hint) : undefined}</Alert>}</div>;
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
- return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&!action.result.warning&&<span>{action.result.message}</span>}{action.result.warning&&<Alert tone="warning" title={action.result.warning}/>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
+ return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&!action.result.warning&&<span>{settingsText(action.result.message)}</span>}{action.result.warning&&<Alert tone="warning" title={settingsText(action.result.warning)}/>}{action.result.hint&&<p>{settingsText(action.result.hint)}</p>}{action.result.command&&<Button size="sm" onClick={() => void navigator.clipboard.writeText(action.result!.command!)}>Copy terminal instructions</Button>}{action.result.path&&<p>Path: <code>{displayPath(action.result.path)}</code></p>}{action.result.undo&&<p>You can disconnect this integration from Settings.</p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
 export function Segment(props:{variant?:"board";label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
@@ -113,4 +114,9 @@ export function JobList({target,onComplete}:{target:string;onComplete:()=>void})
  useEffect(()=>{if(signature&&last.current!==signature){last.current=signature;onComplete();}},[signature]);
  useEffect(()=>{if(!running)return;const timer=setInterval(query.reload,1500);return()=>clearInterval(timer);},[running]);
  return <><ErrorMessage error={query.error}/>{[...jobs.values()].sort((a,b)=>b.startedAt-a.startedAt).slice(0,3).map(job=><JobProgress key={job.id} job={job}/>)}</>;
+}
+
+/** Let the tooltip dismiss first, then keep Escape from leaving Settings. */
+export function containTooltipEscape(event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">) {
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); }
 }

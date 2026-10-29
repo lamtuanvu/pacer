@@ -65,7 +65,7 @@ test("legacy update check does not retrigger on its own update event", async () 
 test('settings sidebar selects App preferences while update status stays on the page',async()=>{
  const {SettingsPanel}=await import('../app/src/shell/SettingsPanel');
  const html=renderToString(<SettingsPanel route={{name:'settings',section:'updates',query:{repo:null,scope:null}}} counts={null} snapshot={{...emptySnapshot(),desktopUpdates:[desktopStatus({phase:'ready',actions:['restart']})]}}/>);
- expect(html).not.toContain('pc-settings-nav__badge');expect(html).toMatch(/<a(?=[^>]*href="#\/settings\/app")(?=[^>]*aria-current="page")/);
+ expect(html).toContain('Checks not run');expect(html).toMatch(/<a(?=[^>]*href="#\/settings\/app")(?=[^>]*aria-current="page")/);
 });
 test('download preference without configure permission is a fact, not an unexplained disabled control',()=>{
  const html=render(desktopStatus({phase:'ready',target:'0.2.4',actions:['restart']}));

@@ -25,6 +25,8 @@ test('Plugins cards show backed additions, permissions, states and only usable l
   for(const text of ['Installed · 3','Built in','Failing','Settings page','Activity view','Right-panel tab','Status bar item','Diagnostic checks','Terminal sessions','Usage reader','Routing engine','Read tasks','Read its settings','Reach the network: example.test','Where plugins appear']) expect(html).toContain(text);
   expect(html).toContain('&lt;b>Failed&lt;/b>');expect(html).not.toContain('<b>Failed</b>');
   expect(html.match(/>Settings<\/a>/g)).toHaveLength(1);
+  expect(html).not.toContain('role="tablist"');
+  expect(html).toContain('aria-labelledby="plugins-installed-label"');
   for(const text of ['Install from file','Browse','Updates','Update to']) expect(html).not.toContain(text);
   expect(draw(<PluginsPage initialData={{plugins:[]}} initialSurfaces={{surfaces:[]}}/>)).toContain('No plugins installed.');
 });
@@ -244,13 +246,14 @@ browserTest('repository chips display picker labels, remove by key and preserve 
     expect((await calls(page,'plugin.settings.set'))[0].params.values.repos).toEqual(['unknown-repo']);
   } finally {await page.close();}
 });
-browserTest('plugin pages share App preferences frame and board control geometry',async()=>{
+browserTest('App and plugin pages retain the shared frame and controls',async()=>{
   const frame=(page:Page)=>page.locator('.pc-page').evaluate(node=>{const s=getComputedStyle(node),r=node.getBoundingClientRect();return {padding:s.padding,maxWidth:s.maxWidth,x:r.x,width:r.width,content:node.firstElementChild!.getBoundingClientRect().width};});
   const app=await mount({mode:'app'},{viewport:{width:1440,height:900}}), cards=await mount({mode:'plugins'},{viewport:{width:1440,height:900}}), editor=await mount({},{viewport:{width:1440,height:900}});
   const style=(page:Page,selector:string)=>page.locator(selector).first().evaluate(node=>{const s=getComputedStyle(node);return {height:s.height,width:s.width,padding:s.padding,radius:s.borderRadius,color:s.color,fontSize:s.fontSize,weight:s.fontWeight,align:s.alignItems};});
   try {
-    const expected=await frame(app);expect(expected.padding).toBe('28px 40px 48px');expect(expected.maxWidth).toBe('1080px');expect(expected.content).toBe(1000);
-    expect(await frame(cards)).toEqual(expected);expect(await frame(editor)).toEqual(expected);
+    const appFrame=await frame(app);expect(appFrame.padding).toBe('24px 32px 40px');expect(appFrame.maxWidth).toBe('none');expect(appFrame.content).toBe(1376);
+    const expected=await frame(cards);expect(expected.padding).toBe('24px 32px 40px');expect(expected.maxWidth).toBe('none');expect(expected.content).toBe(1376);
+    expect(await frame(editor)).toEqual(expected);
     expect((await style(editor,'.pc-setting-row')).align).toBe('start');
     expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});
     expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'32px',height:'32px',radius:'6px'});
@@ -288,5 +291,40 @@ browserTest('narrow card actions align at the right with and without Settings',a
     }
     const card=page.getByRole('article',{name:'fx-ui',exact:true}),settings=await card.getByRole('link',{name:'Settings',exact:true}).boundingBox(),more=await card.getByRole('button',{name:/More actions/}).boundingBox();expect(settings!.y+settings!.height/2).toBe(more!.y+more!.height/2);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  } finally {await page.close();}
+});
+
+test('bundled plugin cards use host display copy and render actual versions', () => {
+  const html = draw(<PluginsPage initialData={{plugins:[
+    {...pluginFixture,id:'pacer-agent-session',bundled:true,version:'2.3.4',publisher:'pacer'},
+    {...pluginFixture,id:'pacer-assistant',bundled:true,version:'bundled',publisher:'pacer'},
+    {...pluginFixture,id:'third-party',bundled:false},
+    {...pluginFixture,id:'pacer-assistant',bundled:false},
+  ]}}/>);
+  for (const text of ['Agent sessions','Live terminal sessions for delegated tasks','Assistant','The always-on assistant behind ⌘J','2.3.4 · pacer','bundled · pacer','third-party']) expect(html).toContain(text);
+  expect(html).toContain('aria-label="Enable Agent sessions"');
+  expect(html).toContain('<b>pacer-assistant</b>');
+  expect(html).not.toContain('<b>pacer-agent-session</b>');
+});
+
+test('plugin metadata omits by and empty version separators',()=>{
+  for (const version of ['1.0.0','']) {
+    const html=draw(<PluginsPage initialData={{plugins:[{...pluginFixture,id:'pacer-assistant',bundled:true,version,publisher:'pacer'}]}} initialSurfaces={surfaces}/>);
+    expect(html).toContain(version ? '1.0.0 · pacer' : '>pacer</span>');
+    expect(html).not.toContain(' · by ');
+    expect(html).not.toContain('> · pacer');
+    expect(html).toContain('pc-plugin-card__description');
+  }
+});
+
+browserTest('plugin card descriptions use the board body type and secondary ink',async()=>{
+  const page=await mount({mode:'plugins',plugins:[{...pluginFixture,id:'pacer-assistant',bundled:true}]});
+  try {
+    expect(await page.locator('.pc-plugin-card__description').evaluate(node=>{
+      const style=getComputedStyle(node), sample=document.createElement('span');
+      sample.style.color='var(--ink-secondary)';node.append(sample);
+      const secondary=getComputedStyle(sample).color;sample.remove();
+      return {size:style.fontSize,line:style.lineHeight,secondary:style.color===secondary};
+    })).toEqual({size:'13px',line:'19px',secondary:true});
   } finally {await page.close();}
 });

@@ -19,6 +19,12 @@ const summary = {
   planner: { coverage: "unknown" }, decision: { coverage: "unknown" }, ranOutsidePlanner: null,
   previous: { rootTasksHandled: 34, subtasks: 50, retryAttempts: 8, acceptedFirstTryRate: 0.7, tokens: { ...sums(16_000_000), attempts: 100, lowerBound: true } },
 };
+if (new URLSearchParams(location.search).has("unmeasured")) {
+  summary.tokens = { ...sums(0), attempts: 12, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 12, lowerBound: true };
+  summary.spread = [];
+  summary.daily = [];
+  summary.retryTokens = { attempts: 9, total: 0, unknownAttempts: 9 };
+}
 const api = { call: async (op: string) => op === "insights.summary" ? summary : op === "account.list" ? [] : null } as never;
 const actions = { run: async () => ({ status: "done" }), result: () => null } as never;
 render(<ActionContext.Provider value={actions}><TaskContext.Provider value={{ state: { ...initialState(), connected: true }, api }}><Insights query={{ repo: null, scope: null }} /></TaskContext.Provider></ActionContext.Provider>, document.getElementById("root")!);

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings navigation</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.sn{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;text-decoration:none;font-weight:600}
+.sn:hover{background:var(--surface-lane)}
+</style>
+</helmet>
+<nav aria-label="Settings" style="width: 240px; height: 100%; min-height: 600px; flex-shrink: 0; box-sizing: border-box; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line); background: var(--surface-card); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px;">
+<div style="display: flex; align-items: center; gap: 8px; padding: 0 6px 12px;">
+<a href="Main.dc.html" aria-label="Back to Dispatch" style="width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-secondary);"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;"><path d="M15 6l-6 6 6 6"></path></svg></a>
+<span style="font-size: 16px; line-height: 22px; font-weight: 650;">Settings</span>
+</div>
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<span style="font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-muted); padding: 12px 10px 6px;">{{g.name}}</span>
+<sc-for list="{{g.items}}" as="i" hint-placeholder-count="3">
+<a class="sn" href="{{i.href}}" aria-current="{{i.current}}" style="color: {{i.fg}}; background: {{i.bg}};">
+<svg viewBox="0 0 24 24" aria-hidden="true" style="width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;"><path d="{{i.icon}}"></path></svg>
+<span style="flex-grow: 1;">{{i.label}}</span>
+<sc-if value="{{i.badge}}" hint-placeholder-val="{{ false }}"><span aria-label="{{i.badgeLabel}}" style="font-size: 11px; font-weight: 700; padding: 0 7px; border-radius: 99px; background: {{i.badgeBg}}; color: {{i.badgeFg}};">{{i.badge}}</span></sc-if>
+<sc-if value="{{i.plugin}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; font-weight: 600; padding: 0 6px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink-muted);">plugin</span></sc-if>
+</a>
+</sc-for>
+</sc-for>
+<span style="flex-grow: 1;"></span>
+<div style="padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-page); display: flex; flex-direction: column; gap: 2px;">
+<span style="font-size: 12px; font-weight: 600;">Nothing saves silently</span>
+<span style="font-size: 12px; line-height: 16px; color: var(--ink-muted);">Lists and editors show unsaved changes until you save. Switches save at once.</span>
+</div>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","agents","routing","budget","machines","plugins","app","diagnostics"],"default":"overview"},"$preview":{"width":240,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active ?? 'overview';
+    const P = {
+      overview: 'M3 12l9-8 9 8M5 10v10h14V10',
+      agents: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+      routing: 'M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10',
+      budget: 'M3 12h18M3 6h18M3 18h10',
+      machines: 'M4 5h16v10H4zM8 20h8M12 15v5',
+      plugins: 'M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4',
+      app: 'M4 4h16v16H4zM4 9h16',
+      diagnostics: 'M3 12h4l3-7 4 14 3-7h4',
+      release: 'M9 11l3 3 8-8M20 12v7H4V5h11'
+    };
+    const item = (id, label, extra = {}) => ({
+      id, label, icon: P[id] ?? P.release, href: extra.href ?? '#',
+      current: id === active ? 'page' : 'false',
+      fg: id === active ? 'var(--ink)' : 'var(--ink-secondary)',
+      bg: id === active ? 'var(--surface-lane)' : 'transparent',
+      badge: '', plugin: false, ...extra
+    });
+    const warn = { badgeBg: 'var(--warn-bg)', badgeFg: 'var(--warn-fg)' };
+    const bad = { badgeBg: 'var(--bad-bg)', badgeFg: 'var(--bad-fg)' };
+    return {
+      groups: [
+        { name: 'Dispatch', items: [
+          item('overview', 'Overview', { href: 'SettingsOverview.dc.html' }),
+          item('agents', 'Agents', { href: 'SettingsAgents.dc.html', badge: '2', badgeLabel: '2 agents need attention', ...bad }),
+          item('routing', 'Dispatcher', { href: 'SettingsRouting.dc.html' }),
+          item('budget', 'Budget & pacing', { href: 'SettingsBudget.dc.html' }),
+          item('machines', 'Machines', { href: 'SettingsMachines.dc.html' })
+        ]},
+        { name: 'Extend', items: [
+          item('plugins', 'Plugins', { href: 'SettingsPlugins.dc.html', badge: '1', badgeLabel: '1 plugin update', ...warn }),
+          item('release', 'Release checklist', { plugin: true, href: 'SettingsPluginPage.dc.html' })
+        ]},
+        { name: 'App', items: [
+          item('app', 'App preferences', { href: 'SettingsApp.dc.html' }),
+          item('diagnostics', 'Diagnostics', { href: 'SettingsDiagnostics.dc.html', badge: '!', badgeLabel: 'Checks not run yet', badgeBg: 'var(--surface-lane)', badgeFg: 'var(--ink-secondary)' })
+        ]}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
