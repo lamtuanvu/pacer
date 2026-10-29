@@ -74,8 +74,8 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <figcaption><b>pacer is not running</b> <span class="cap">· the service stopped or the app lost its connection</span></figcaption>
 <div class="frame">
 <div class="bar"><x-import component-from-global-scope="Pacer.Mark" size="{{n18}}"></x-import></div>
-<div role="alert" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--warn-tint); border-bottom: 1px solid var(--warn-line);"><span aria-hidden="true" style="color: var(--warn-fg); font-weight: 700;">◐</span><span style="flex-grow: 1;"><b>Reconnecting to pacer…</b> <span class="cap">Last update 1 min ago. Running tasks keep going; what you see may be out of date.</span></span><x-import component-from-global-scope="Pacer.Button" size="sm">Restart pacer</x-import></div>
-<div style="flex-grow: 1; padding: 24px 32px; display: flex; flex-direction: column; gap: 12px; opacity: .6;">
+<div role="alert" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--warn-tint); border-bottom: 1px solid var(--warn-line);"><span aria-hidden="true" style="color: var(--warn-fg); font-weight: 700;">◐</span><span style="flex-grow: 1;"><b>Reconnecting to pacer…</b> <span class="cap">Last update 1 min ago. Running tasks keep going; what you see may be out of date, and actions are paused until pacer is back.</span></span><x-import component-from-global-scope="Pacer.Button" size="sm">Restart pacer</x-import></div>
+<div style="flex-grow: 1; padding: 24px 32px; display: flex; flex-direction: column; gap: 12px;">
 <h2 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Dispatch</h2>
 <div style="height: 90px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);"></div>
 <div style="height: 140px; border: 1px solid var(--line); border-radius: 12px;"></div>
