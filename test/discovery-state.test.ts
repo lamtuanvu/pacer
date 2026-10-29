@@ -63,8 +63,10 @@ test("a state file that exists but does not parse turns discovery off and is fla
   expect(readState(ctx)).toMatchObject({ enabled: false, corrupt: true });
   writeFileSync(path, "[]");
   expect(readState(ctx)).toMatchObject({ enabled: false, corrupt: true });
-  // The next write replaces the corrupt file and does not persist the flag.
-  await updateState(ctx, st => { st.enabled = true; });
+  // Only the switch (discovery.set) replaces the corrupt file, and it does not persist the flag (N12).
+  await expect(updateState(ctx, st => { st.silenced.x = "forever"; })).rejects.toMatchObject({ code: "conflict" });
+  expect(readFileSync(path, "utf8")).toBe("[]");
+  await updateState(ctx, st => { st.enabled = true; }, undefined, { recover: true });
   expect(readState(ctx).enabled).toBe(true);
   expect(readState(ctx).corrupt).toBeUndefined();
   expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("corrupt");

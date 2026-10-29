@@ -49,7 +49,7 @@ export const discoveryOps: Record<string, OpDef> = {
   "discovery.set": op({ description: "Turn LAN discovery (listening and advertising) on or off on this machine. Off closes the open prompts. It is machine-local state, not strategy, so it works before setup. expect_rev is networksRev from discovery.list or discovery.network.get.",
     params: z.object({ enabled: z.boolean(), expect_rev: z.number().int().nonnegative().safe().optional() }),
     handler: (ctx, p) => mutation(ctx, async () => {
-      const s = await (await discovery()).updateState(ctx, st => { st.enabled = p.enabled; }, p.expect_rev);
+      const s = await (await discovery()).updateState(ctx, st => { st.enabled = p.enabled; }, p.expect_rev, { recover: true });
       return { enabled: s.enabled, rev: s.rev, networksRev: s.networksRev };
     }) }),
   "discovery.respond": op({ description: "Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed; a hand-over closes the prompt), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).",

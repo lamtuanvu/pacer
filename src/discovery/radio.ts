@@ -38,7 +38,7 @@ export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo |
   const found = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
   lastNetwork = found;
   if (!found) return { rev: readState(ctx).rev, enabled: true, listen: false, ...NO_IFACE, advertise: null };
-  const v4 = (deps.ipv4 ?? interfaceIPv4)(found.iface);
+  const v4 = deps.ipv4 ? deps.ipv4(found.iface) : interfaceIPv4(found.iface, undefined, found.gw);
   const iface = { iface: found.iface, ifaceAddr: v4?.addr ?? null, ifaceMask: v4?.mask ?? null };
   let s = readState(ctx);
   const known = findNetwork(s, found);
@@ -63,6 +63,8 @@ export async function recordObservations(ctx: Ctx, batch: Observation[], deps: {
   const network = deps.network ?? null;
   const prompted: string[] = [];
   let accepted = 0;
+  // A corrupt state file leaves discovery off, and only the switch may replace it (N12).
+  if (readState(ctx).corrupt) return { accepted, prompted };
   const s = await updateState(ctx, s => {
     const own = new Set(Object.values(s.networks).map(n => n.discoveryId));
     const muted = network ? s.networks[network.key]?.muted === true : false;

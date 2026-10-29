@@ -90,7 +90,11 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
   return { events, last: after.at(-1)?.seq ?? since, reset, discoveryOpen };
 }
 
-/** For each counts entity in the outbox, how many discovery attention items were open then; v2 counts leave them out. */
+/**
+ * For each counts entity in the outbox, how many discovery attention items were open then; v2 counts leave them out.
+ * The open set is rebuilt from the retained outbox only, so once the item's raise is trimmed away the v2 counts over-report
+ * by that item until the client fetches the next snapshot (N10). That is acceptable for a legacy client.
+ */
 function openDiscoveryAtCounts(all: { seq: number; envelope: OutboxEvent }[]): Map<number, number> {
   const open = new Set<string>(), at = new Map<number, number>();
   for (const { seq, envelope: env } of all) {

@@ -189,6 +189,20 @@ test("discovery.list reports a corrupt state file as off with a warning (N7)", a
   expect(r.warning).toContain("could not be read");
 });
 
+test("while the state file is corrupt only discovery.set writes; the warning stays until then (N12)", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, K1, "home-wifi"); });
+  const path = join(ctx.pacerHome, "discovery", "state.json");
+  writeFileSync(path, "{");
+  await expect(call(ctx, "discovery.network.set", { network: K1, advertise: true, expect_rev: 0 })).rejects.toMatchObject({ code: "conflict" });
+  expect(await recordObservations(ctx, [{ id: peer, name: "x", v: "1", h: "" }], { now: 1, network: home })).toEqual({ accepted: 0, prompted: [] });
+  expect((await call(ctx, "discovery.list", {})).warning).toContain("could not be read");
+  await call(ctx, "discovery.set", { enabled: false });
+  const r = await call(ctx, "discovery.list", {});
+  expect(r.warning).toBeUndefined();
+  expect(r.enabled).toBe(false);
+});
+
 test("v2 clients get no discovery notifications; other notifications pass (S2)", async () => {
   const ctx = fakeCtx();
   const { publish } = await import("../src/link/publish");

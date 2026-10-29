@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
@@ -203,26 +203,61 @@ test("a sender rotating ids cannot grow the seen list past its bound; entries no
   expect(Object.keys(readState(ctx).seen)).toEqual([idOf(n)]);
 });
 
-test("a late router advertisement keeps the approved network: the entry adopts the new key as an alias (S3)", async () => {
+test("a router identity change seen moments ago keeps the approved network: the entry adopts the new key as an alias (S3, NS2)", async () => {
   const ctx = fakeCtx();
-  const byMac = { key: "a".repeat(32), label: "home-wifi", iface: "en0", group: "g".repeat(32) };
-  const byRa = { ...byMac, key: "b".repeat(32) };
-  await buildRadioConfig(ctx, { network: byMac });
-  await updateState(ctx, s => { s.networks[byMac.key].advertise = true; });
+  const first = { key: "a".repeat(32), label: "home-wifi", iface: "en0", group: "g".repeat(32), kind: "ra" as const, continues: [] };
+  const next = { ...first, key: "b".repeat(32), continues: [first.key] };
+  await buildRadioConfig(ctx, { network: first });
+  await updateState(ctx, s => { s.networks[first.key].advertise = true; });
   const rev = readState(ctx).networksRev;
-  const cfg = await buildRadioConfig(ctx, { network: byRa });
+  const cfg = await buildRadioConfig(ctx, { network: next });
   expect(cfg.advertise).not.toBeNull();
   const s = readState(ctx);
-  expect(Object.keys(s.networks)).toEqual([byMac.key]);
-  expect(s.networks[byMac.key].aliases).toEqual([byRa.key]);
-  expect(radioNetwork()!.key).toBe(byMac.key);
+  expect(Object.keys(s.networks)).toEqual([first.key]);
+  expect(s.networks[first.key].aliases).toEqual([next.key]);
+  expect(radioNetwork()!.key).toBe(first.key);
   // Known aliases match without another write.
-  await buildRadioConfig(ctx, { network: { ...byRa, group: undefined } });
+  await buildRadioConfig(ctx, { network: { ...next, group: undefined, continues: [] } });
   expect(readState(ctx).networksRev).toBe(rev + 1);
-  expect(radioNetwork()!.key).toBe(byMac.key);
+  expect(radioNetwork()!.key).toBe(first.key);
+  // A key that continues an alias also adopts.
+  await buildRadioConfig(ctx, { network: { ...next, key: "d".repeat(32), continues: [next.key] } });
+  expect(readState(ctx).networks[first.key].aliases).toEqual([next.key, "d".repeat(32)]);
   // A different SSID or gateway is a different network.
-  await buildRadioConfig(ctx, { network: { ...byRa, key: "c".repeat(32), group: "h".repeat(32) } });
-  expect(Object.keys(readState(ctx).networks).sort()).toEqual([byMac.key, "c".repeat(32)]);
+  await buildRadioConfig(ctx, { network: { ...next, key: "c".repeat(32), group: "h".repeat(32) } });
+  expect(Object.keys(readState(ctx).networks).sort()).toEqual([first.key, "c".repeat(32)]);
+});
+
+test("the same SSID and gateway with another router identity seen days later is a new, unanswered network (NS2)", async () => {
+  resetNetworkForTests();
+  const ctx = fakeCtx();
+  const t0 = 1_800_000_000;
+  const probe = (ra: string | null, now: number) => currentNetwork(fakeCtx({ run: async (argv: string[]) => {
+    const map: Record<string, string> = {
+      "/sbin/route -n get default": "    gateway: 192.168.1.1\n  interface: en0\n",
+      "/usr/sbin/ipconfig getsummary en0": "  SSID : linksys\n",
+      "/usr/sbin/arp -n 192.168.1.1": "? (192.168.1.1) at a4:2b:b0:11:22:33 on en0\n",
+      ...(ra ? { "/sbin/route -n get -inet6 default": `    gateway: ${ra}%en0\n  interface: en0\n` } : {}),
+    };
+    const k = argv.join(" ");
+    return k in map ? { code: 0, stdout: map[k], stderr: "" } : { code: 1, stdout: "", stderr: "" };
+  } }), { platform: "darwin", now: () => now });
+  const ipv4 = () => ({ addr: "192.168.1.10", mask: "255.255.255.0" });
+  await buildRadioConfig(ctx, { network: await probe("fe80::1", t0), ipv4 });
+  const home = radioNetwork()!.key;
+  await updateState(ctx, s => { s.networks[home].advertise = true; });
+  const cafe = await buildRadioConfig(ctx, { network: await probe("fe80::99", t0 + 3 * 86400), ipv4 });
+  expect(cafe.advertise).toBeNull();
+  const s = readState(ctx);
+  const other = radioNetwork()!.key;
+  expect(other).not.toBe(home);
+  expect(s.networks[other]).toMatchObject({ advertise: null });
+  expect(s.networks[other].discoveryId).not.toBe(s.networks[home].discoveryId);
+  expect(s.networks[home].aliases).toBeUndefined();
+  // A gateway MAC right after a router advertisement is another kind of identity, so it is not adopted either.
+  await buildRadioConfig(ctx, { network: await probe(null, t0 + 3 * 86400 + 30), ipv4 });
+  expect(radioNetwork()!.key).not.toBe(other);
+  expect(readState(ctx).networks[radioNetwork()!.key].advertise).toBeNull();
 });
 
 test("an existing entry without a group learns it, so later identity changes can match (S3)", async () => {
@@ -230,6 +265,32 @@ test("an existing entry without a group learns it, so later identity changes can
   await updateState(ctx, s => { ensureNetwork(s, "a".repeat(32), "home-wifi").advertise = true; });
   await buildRadioConfig(ctx, { network: { key: "a".repeat(32), label: "home-wifi", iface: "en0", group: "g".repeat(32) } });
   expect(readState(ctx).networks["a".repeat(32)].group).toBe("g".repeat(32));
+});
+
+test("the radio asks for the interface address on the gateway's subnet (N17)", async () => {
+  const ctx = fakeCtx();
+  const v4 = (address: string) => ({ address, netmask: "255.255.255.0", family: "IPv4" as const, internal: false, mac: "00:00:00:00:00:00", cidr: null });
+  const os = await import("node:os");
+  const spy = spyOn(os, "networkInterfaces").mockReturnValue({ en0: [v4("10.8.0.5"), v4("192.168.1.10")] });
+  try {
+    expect(await buildRadioConfig(ctx, { network: { ...home, gw: "192.168.1.1" } })).toMatchObject({ ifaceAddr: "192.168.1.10" });
+  } finally { spy.mockRestore(); }
+});
+
+test("a Later re-prompt arrives through repeated radio observations once the silence expires (NS1)", async () => {
+  const ctx = fakeCtx();
+  const id = "p".repeat(26), obs = [{ id, name: "studio", v: "1", h: "" }];
+  const t0 = 1_800_000_000;
+  const at = async (s: number) => { setSystemTime(new Date(s * 1000)); return recordObservations(ctx, obs, { network: home }); };
+  try {
+    expect((await at(t0)).prompted).toEqual([id]);
+    const { OPS } = await import("../src/api/ops");
+    await (OPS as any)["discovery.respond"].handler(ctx, { discoveryId: id, action: "later" }, {});
+    // The engine re-reports a peer still on the link every few minutes.
+    for (let t = t0 + 300; t < t0 + SILENCE_LATER_S; t += 6 * 3600) expect((await at(t)).prompted).toEqual([]);
+    expect(readState(ctx).seen[id].lastSeen).toBeGreaterThan(t0 + SILENCE_LATER_S - 6 * 3600);
+    expect((await at(t0 + SILENCE_LATER_S + 300)).prompted).toEqual([id]);
+  } finally { setSystemTime(); }
 });
 
 test("observations use the network of the radio's last config pull (N4)", async () => {

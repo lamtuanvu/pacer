@@ -63,7 +63,7 @@ test("macOS: the router advertisement identifies the network without ARP", async
   const map: Record<string, string> = { ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::FEB2:D6FF:FEF4:17C7, length 176, hop limit 64, lifetime 1800s") };
   const ctx = fakeCtx({ run: async (argv: string[]) => { calls.push(argv); return runner(map)(argv, 0); } });
   const n = await currentNetwork(ctx, { platform: "darwin" });
-  expect(n).toEqual({ key: v2("ra:fe80::feb2:d6ff:fef4:17c7", "home-wifi"), label: "home-wifi", iface: "en0", group: group("192.168.100.1", "home-wifi") });
+  expect(n).toMatchObject({ key: v2("ra:fe80::feb2:d6ff:fef4:17c7", "home-wifi"), label: "home-wifi", iface: "en0", group: group("192.168.100.1", "home-wifi") });
   expect(calls.some(c => c[0] === "/usr/sbin/arp")).toBe(false);
 });
 
@@ -245,4 +245,43 @@ test("Linux: a wired interface needs no SSID, and without nmcli the key is consi
   const noNm = await currentNetwork(fakeCtx({ run: runner(WLAN) }), { platform: "linux", exists: has("/sys/class/net/wlp2s0/wireless") });
   expect(noNm!.key).toBe(v2("mac:11:22:33:44:55:66"));
   expect(noNm!.group).toBeUndefined();
+});
+
+const HW_PORTS = (type: string) => ({ "/usr/sbin/networksetup -listallhardwareports": `\nHardware Port: Thunderbolt Bridge\nDevice: bridge0\n\nHardware Port: ${type}\nDevice: en0\nEthernet Address: a4:2b:b0:11:22:33\n` });
+
+test("macOS: a failed ipconfig summary on a Wi-Fi port keeps the last network instead of an SSID-less one (N11)", async () => {
+  resetNetworkForTests();
+  const base = { ...ROUTE, ...V6ROUTE("fe80::1%en0") };
+  const ok = await currentNetwork(fakeCtx({ run: runner({ ...base, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::1, length 176") }) }), { platform: "darwin" });
+  expect(ok!.key).toBe(v2("ra:fe80::1", "home-wifi"));
+  expect(await currentNetwork(fakeCtx({ run: runner({ ...base, ...HW_PORTS("Wi-Fi") }) }), { platform: "darwin" })).toEqual(ok);
+  resetNetworkForTests();
+  expect(await currentNetwork(fakeCtx({ run: runner({ ...base, ...HW_PORTS("Wi-Fi") }) }), { platform: "darwin" })).toBeNull();
+  // On a wired port a missing summary just means no SSID.
+  const wired = await currentNetwork(fakeCtx({ run: runner({ ...base, ...HW_PORTS("USB 10/100/1000 LAN") }) }), { platform: "darwin" });
+  expect(wired!.key).toBe(v2("ra:fe80::1"));
+});
+
+test("a new key continues only keys seen in the last 10 minutes with the same group and router kind (NS2)", async () => {
+  resetNetworkForTests();
+  const t0 = 1_800_000_000;
+  const byRa = (ra: string) => runner({ ...ROUTE, ...V6ROUTE(`${ra}%en0`), "/usr/sbin/ipconfig getsummary en0": "  SSID : home-wifi\n" });
+  const probe = (run: RunFn, now: number) => currentNetwork(fakeCtx({ run }), { platform: "darwin", now: () => now });
+  const a = (await probe(byRa("fe80::1"), t0))!;
+  expect(a).toMatchObject({ kind: "ra", gw: "192.168.100.1", continues: [] });
+  const b = (await probe(byRa("fe80::2"), t0 + 60))!;
+  expect(b.continues).toEqual([a.key]);
+  // The gateway MAC is another kind of identity, so it continues nothing.
+  const byMac = runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": "  SSID : home-wifi\n", "/usr/sbin/arp -n 192.168.100.1": "? (192.168.100.1) at fc:b2:d6:f4:17:c7 on en0\n" });
+  expect((await probe(byMac, t0 + 120))!).toMatchObject({ kind: "mac", continues: [] });
+  expect((await probe(byRa("fe80::3"), t0 + 60 + 600))!.continues).toEqual([b.key]);
+  expect((await probe(byRa("fe80::4"), t0 + 3 * 86400))!.continues).toEqual([]);
+});
+
+test("the interface address on the gateway's subnet feeds the on-link filter (N17)", () => {
+  const v4 = (address: string, netmask: string) => ({ address, netmask, family: "IPv4" as const, internal: false, mac: "00:00:00:00:00:00", cidr: null });
+  const interfaces = { en0: [v4("10.8.0.5", "255.255.255.0"), v4("192.168.1.10", "255.255.255.0")] };
+  expect(interfaceIPv4("en0", interfaces, "192.168.1.1")).toEqual({ addr: "192.168.1.10", mask: "255.255.255.0" });
+  expect(interfaceIPv4("en0", interfaces, "172.16.0.1")).toEqual({ addr: "10.8.0.5", mask: "255.255.255.0" });
+  expect(interfaceIPv4("en0", interfaces)).toEqual({ addr: "10.8.0.5", mask: "255.255.255.0" });
 });

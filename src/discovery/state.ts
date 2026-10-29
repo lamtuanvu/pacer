@@ -27,7 +27,7 @@ const LOCK = "discovery";
 const path = (ctx: Ctx) => join(ctx.pacerHome, "discovery", "state.json");
 const empty = (): DiscoveryState => ({ rev: 0, networksRev: 0, enabled: true, networks: {}, silenced: {}, seen: {}, prompts: [] });
 
-/** A file that exists but does not parse fails closed: discovery is off and corrupt is set until the next write replaces it. */
+/** A file that exists but does not parse fails closed: discovery is off and corrupt is set until discovery.set replaces it. */
 export function readState(ctx: Ctx): DiscoveryState {
   if (!existsSync(path(ctx))) return empty();
   const corrupt = (): DiscoveryState => ({ ...empty(), enabled: false, corrupt: true });
@@ -39,11 +39,15 @@ export function readState(ctx: Ctx): DiscoveryState {
   } catch { return corrupt(); }
 }
 
-/** Locked read-modify-write (SEC-7). A stale expectNetworksRev is a typed conflict and writes nothing. */
-export async function updateState(ctx: Ctx, fn: (s: DiscoveryState) => void, expectNetworksRev?: number): Promise<DiscoveryState> {
+/**
+ * Locked read-modify-write (SEC-7). A stale expectNetworksRev is a typed conflict and writes nothing. While the file is corrupt only
+ * a recover write (the on/off switch) may replace it; any other write is a conflict, so the warning stays until the user acts (N12).
+ */
+export async function updateState(ctx: Ctx, fn: (s: DiscoveryState) => void, expectNetworksRev?: number, opts: { recover?: boolean } = {}): Promise<DiscoveryState> {
   if (ctx.readOnly) throw new CoreError("not_allowed", "pacer is read-only here");
   return withLock(ctx, LOCK, async () => {
     const s = readState(ctx);
+    if (s.corrupt && !opts.recover) throw new CoreError("conflict", "The discovery state file could not be read", "Turn discovery on again to start over.");
     if (expectNetworksRev !== undefined && s.networksRev !== expectNetworksRev) throw new CoreError("conflict", "Discovery settings changed in another client", "Reload and try again.", { expected: expectNetworksRev, actual: s.networksRev });
     const settings = () => JSON.stringify([s.enabled, s.networks]);
     const before = settings();
@@ -78,18 +82,21 @@ export function ensureNetwork(s: DiscoveryState, key: string, label: string, gro
   return s.networks[key] ??= { label, advertise: null, discoveryId: newId(), muted: false, ...(group ? { group } : {}) };
 }
 
-type NetworkRef = { key: string; label: string; group?: string };
+type NetworkRef = { key: string; label: string; group?: string; continues?: string[] };
 
 /**
- * The entry key for a network: its own key, an entry that lists it as an alias, or an entry with the same group
- * (same gateway IPv4 and SSID) whose router identity changed. adopt is true when the entry should record it (S3).
+ * The entry key for a network: its own key, an entry that lists it as an alias, or an entry with the same group (same gateway IPv4
+ * and SSID) whose key or alias this process saw within the last 10 minutes with the same kind of router identity (net.continues).
+ * A same-group entry not seen that recently is a different network that only shares an SSID and gateway, so it is not adopted
+ * (NS2). adopt is true when the entry should record the key (S3).
  */
 export function findNetwork(s: DiscoveryState, net: NetworkRef): { key: string; adopt: boolean } | null {
   const own = s.networks[net.key];
   if (own) return { key: net.key, adopt: !!net.group && own.group !== net.group };
   const alias = Object.entries(s.networks).find(([, n]) => n.aliases?.includes(net.key));
   if (alias) return { key: alias[0], adopt: false };
-  const same = net.group ? Object.entries(s.networks).find(([, n]) => n.group === net.group) : undefined;
+  const recent = new Set(net.continues ?? []);
+  const same = net.group ? Object.entries(s.networks).find(([key, n]) => n.group === net.group && [key, ...n.aliases ?? []].some(k => recent.has(k))) : undefined;
   return same ? { key: same[0], adopt: true } : null;
 }
 
