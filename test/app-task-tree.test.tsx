@@ -62,11 +62,11 @@ test('leaf_root_has_no_toggle', () => {
   expect(html).not.toContain('subtask');
 });
 
-test('missing_facts_render_nothing', () => {
+test('missing_facts_show_unknown_branch_and_tokens', () => {
   const html = card(leaf('t-5', { meta: [], agents: [] }));
-  // The token and branch columns keep their width so rows align, but hold no text when nothing is known.
-  expect(html).not.toMatch(/pc-task-card__tokens"[^>]*>[^<]/);
-  expect(html).not.toMatch(/pc-task-card__branch"[^>]*>[^<]/);
+  // Unknown values retain the board columns and use an explicit placeholder.
+  expect(html).toContain('pc-task-card__tokens">—</span>');
+  expect(html).toContain('pc-task-card__branch">—</span>');
   expect(html).not.toContain('pc-meta-row');
   expect(html).not.toContain('pc-agent-stack');
   expect(html).not.toContain('pc-pill');

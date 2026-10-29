@@ -11,7 +11,9 @@ import type { TaskBucket, TaskNodeView } from "../../../../src/view-model/task-t
 import { treeSummary } from "../../../../src/view-model/task-tree";
 import type { RepoRef } from "../../../../src/api/read-model/types";
 import { ResourceView } from "./Session";
-import { LazyTaskAside } from "./LazyTaskAside";
+import { useTaskContext } from "../task-shared";
+import { taskHeading } from "../../../../src/view-model/titles";
+import { LazyTaskAside, LazyTaskBranch } from "./LazyTaskAside";
 import { taskHref } from "./task-href";
 import { withQuery, type RouteQuery } from "../../router";
 
@@ -46,6 +48,8 @@ export interface TasksPageProps {
 
 /** The Tasks board: header, filters and the task tree beside the selected task. */
 export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork }: TasksPageProps) {
+  const {state} = useTaskContext();
+  const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [shown, setShown] = useState(PAGE);
@@ -70,7 +74,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         {/* The title bar still carries the page's h1 until the frame drops its route title; this stays a heading, not a second h1. */}<h2 className="pc-tasks-page__title">Tasks</h2>
-        {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{summary.tokens ? ` · ${summary.tokens}` : ""}</span>}
+        {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{` · ${summary.tokens ?? "— tokens"}`}</span>}
       </div>
       <label className="pc-tasks-page__search"><span className="sr-only">Search tasks</span><Icon name="overview" />
         <TextInput type="search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />
@@ -85,7 +89,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     <div className="pc-tasks-page__columns" role="tabpanel" id={`task-filter-${filter}-panel`} aria-labelledby={`task-filter-${filter}-tab`}>
       <section className="pc-tasks-page__tree" aria-label="Task tree">
         <ResourceView value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
-          {list => <TaskTree nodes={list} density="regular" href={href} viewHref={viewHref} selectedId={here?.node.id} onSelect={setSelected} label="Tasks" />}
+          {list => <TaskTree nodes={list} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label="Tasks" />}
         </ResourceView>
         {nodes && roots.length > 0 && <div className="pc-tasks-page__more">
           <span className="pc-tasks-page__caption" role="status">Showing {Math.min(shown, visible.length)} of {visible.length} root tasks</span>
