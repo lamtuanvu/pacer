@@ -21,6 +21,7 @@ subtle = "2"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
+mdns-sd = { version = "0.21.6", default-features = false, features = ["async"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }
