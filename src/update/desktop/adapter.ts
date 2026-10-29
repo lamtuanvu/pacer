@@ -15,9 +15,15 @@ const messages: Record<AdapterFailure, string> = {
   timeout: "Desktop update adapter operation timed out",
   remote: "Desktop update adapter could not complete the operation",
 };
+/** The check that rejected a helper stream. Only enumerated values and integers, never frame payloads. */
+export type AdapterRejection = {
+  check: "frame" | "schema" | "binding" | "sequence" | "terminal" | "hello" | "identity" | "order";
+  kind: AdapterFrame["kind"] | null; sequence: number | null; expectedSequence: number;
+  phase: "initial" | "prepared" | "authorizing" | "authorized"; hello: boolean;
+};
 /** Private handoff classification MUST survive core error handling; uncertainty never permits releasing admission. */
 export class AdapterError extends CoreError {
-  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none") {
+  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection) {
     super("not_allowed", messages[reason], handoff === "none"
       ? "Reconnect the verified desktop and retry."
       : "Retain the reservation and reconcile the private transaction journal before retrying.");
@@ -188,7 +194,7 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
   let pipe: VerifiedPipe | undefined, reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
   let handoff: HandoffState = "none", stopped = false, hello = false, sequence = 0;
-  let phase: "initial" | "prepared" | "authorizing" | "authorized" = "initial";
+  let phase: AdapterRejection["phase"] = "initial", rejection: AdapterRejection | undefined;
   let prepared: PreparedFrame | undefined, terminal: AdapterResult | undefined;
   let eof = false, exitCode: number | undefined, downloadedBytes = 0, totalBytes: number | null = null;
   let timeout: ReturnType<typeof setTimeout> | undefined, stall: ReturnType<typeof setTimeout> | undefined;
@@ -201,12 +207,12 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
     void reader?.cancel().catch(() => {});
     void writer?.close().catch(() => {});
   };
-  const fail = (reason: AdapterFailure) => {
+  const fail = (reason: AdapterFailure, detail?: AdapterRejection) => {
     if (stopped) return;
     stopped = true;
     // A partial authorization write may have reached the helper. Only recovery can resolve that uncertainty.
     if (handoff === "none" && pipe) void Promise.resolve().then(() => pipe!.abort()).catch(() => {});
-    cleanup(); reject(new AdapterError(reason, handoff));
+    cleanup(); reject(new AdapterError(reason, handoff, detail));
   };
   const cancel = () => fail("cancelled");
   const finish = () => {
@@ -235,42 +241,53 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
       await writer!.write(bytes);
     } catch { fail("closed"); }
   };
+  const rejected = (check: AdapterRejection["check"], frame: AdapterFrame | undefined, expectedSequence: number) => {
+    rejection = { check, kind: frame?.kind ?? null, sequence: frame?.sequence ?? null, expectedSequence, phase, hello };
+    return invalid();
+  };
   const accept = (value: unknown) => {
-    const frame = parseAdapterFrame(value);
-    if (!bound(frame) || frame.sequence !== sequence++ || terminal) throw invalid();
+    const expected = sequence++;
+    let frame: AdapterFrame;
+    try { frame = parseAdapterFrame(value); } catch { throw rejected("schema", undefined, expected); }
+    if (!bound(frame)) throw rejected("binding", frame, expected);
+    if (frame.sequence !== expected) throw rejected("sequence", frame, expected);
+    if (terminal) throw rejected("terminal", frame, expected);
     if (!hello) {
-      if (frame.kind !== "hello" || frame.version !== pipe!.identity.version || frame.arch !== pipe!.identity.arch || frame.bundleId !== pipe!.identity.bundleId) throw invalid();
+      // A bound, correctly sequenced error before hello is the helper refusing the command, not a malformed stream.
+      if (frame.kind === "error") { fail("remote"); return; }
+      if (frame.kind !== "hello") throw rejected("hello", frame, expected);
+      if (frame.version !== pipe!.identity.version || frame.arch !== pipe!.identity.arch || frame.bundleId !== pipe!.identity.bundleId) throw rejected("identity", frame, expected);
       hello = true; return;
     }
-    if (frame.kind === "hello") throw invalid();
+    if (frame.kind === "hello") throw rejected("order", frame, expected);
     if (frame.kind === "error") { fail("remote"); return; }
     if (frame.kind === "checked") {
-      if (command.command !== "check") throw invalid();
+      if (command.command !== "check") throw rejected("order", frame, expected);
       terminal = frame; return;
     }
     if (frame.kind === "progress" || frame.kind === "downloaded") {
       if (command.command !== "download" || frame.downloadedBytes < downloadedBytes ||
           (frame.totalBytes !== null && frame.downloadedBytes > frame.totalBytes) ||
-          (totalBytes !== null && frame.totalBytes !== totalBytes)) throw invalid();
+          (totalBytes !== null && frame.totalBytes !== totalBytes)) throw rejected("order", frame, expected);
       if (frame.downloadedBytes > downloadedBytes) progressDeadline();
       downloadedBytes = frame.downloadedBytes; totalBytes = frame.totalBytes;
       if (frame.kind === "progress") { options.onProgress?.(structuredClone(frame)); return; }
-      if (!frame.totalBytes || frame.downloadedBytes !== frame.totalBytes || JSON.stringify(frame.candidate) !== JSON.stringify(command.candidate)) throw invalid();
+      if (!frame.totalBytes || frame.downloadedBytes !== frame.totalBytes || JSON.stringify(frame.candidate) !== JSON.stringify(command.candidate)) throw rejected("order", frame, expected);
       terminal = frame; clearTimeout(stall); return;
     }
     if (frame.kind === "prepared") {
-      if (!["install", "adopt"].includes(command.command) || phase !== "initial" || frame.reservationId !== command.transactionId) throw invalid();
+      if (!["install", "adopt"].includes(command.command) || phase !== "initial" || frame.reservationId !== command.transactionId) throw rejected("order", frame, expected);
       phase = "prepared"; prepared = frame; void authorize(frame); return;
     }
     if (frame.kind === "authorized") {
-      if (!["install", "adopt"].includes(command.command) || phase !== "authorizing" || frame.reservationId !== prepared?.reservationId || frame.journalSha256 !== prepared?.journalSha256) throw invalid();
+      if (!["install", "adopt"].includes(command.command) || phase !== "authorizing" || frame.reservationId !== prepared?.reservationId || frame.journalSha256 !== prepared?.journalSha256) throw rejected("order", frame, expected);
       handoff = "acknowledged"; phase = "authorized"; options.onAuthorized?.(structuredClone(frame)); return;
     }
     if (frame.kind === "outcome") {
-      if (!["recover", "recover-adoption"].includes(command.command) && (!["install", "adopt"].includes(command.command) || phase !== "authorized")) throw invalid();
+      if (!["recover", "recover-adoption"].includes(command.command) && (!["install", "adopt"].includes(command.command) || phase !== "authorized")) throw rejected("order", frame, expected);
       terminal = frame; return;
     }
-    throw invalid();
+    throw rejected("order", frame, expected);
   };
   options.signal?.addEventListener("abort", cancel, { once: true });
   timeout = setTimeout(() => fail("timeout"), timeoutMs);
@@ -295,7 +312,11 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
             }
             for (const frame of decoder.push(next.value)) { if (stopped) return; accept(frame); }
           }
-        } catch { fail("protocol"); }
+        } catch {
+          const detail = rejection ?? { check: "frame", kind: null, sequence: null, expectedSequence: sequence, phase, hello };
+          if (!stopped) console.error(`pacer: desktop update adapter rejected ${command.command} stream: check=${detail.check} kind=${detail.kind ?? "none"} sequence=${detail.sequence ?? "none"} expected=${detail.expectedSequence} phase=${detail.phase} hello=${detail.hello}`);
+          fail("protocol", detail);
+        }
       };
       void read();
       const bytes = encodeFrame(command);
