@@ -101,6 +101,18 @@ test("a turn's report also reaches a sender that is not the parent", async () =>
   expect(reportsTo(ctx, "human", id)).toEqual(["[done] answered"]);
 });
 
+// F1 (re-review 3)
+test("a legacy task with no origin still replies to the sender of its turn", async () => {
+  const { ctx, id } = finished();
+  updateTask(ctx, id, t => { delete t.origin; });
+  const { spawn } = spawner();
+  await sendMessage(ctx, { to: `task:${id}`, body: "from the human" }, { appAuthenticated: true, spawnRunner: spawn });
+  claimTurnMessages(ctx, readTask(ctx, id)!);
+  endRun(ctx, id, "done", "answered");
+  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  expect(reportsTo(ctx, "human", id)).toEqual(["[done] answered"]);
+});
+
 // R2
 test("turn ids are unique even when a run ends before any attempt", async () => {
   const { ctx, id } = finished("codex", t => { t.messaging = { max_turns: 50 }; });

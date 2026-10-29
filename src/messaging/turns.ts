@@ -191,11 +191,12 @@ export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
   const since = t.pendingTurn?.at ?? t.attempts[0]?.startedAt ?? t.createdAt;
   // Only a report the agent already sent replaces the run-end report; progress messages and questions do not.
   const reported = store.sentSince(ctx, `task:${id}`, since).some(m => m.to === parent && agentReport(m));
-  if (parent && !limited && t.state !== "needs_input") {
+  if (!limited && t.state !== "needs_input") {
     const body = rejected ? `The agent could not resume its session, and a replay could not start; your messages are still pending.\n\n${t.result?.report ?? ""}`
       : t.result?.report ?? `Run ended: ${t.state}`;
-    if (!reported) report(ctx, id, parent, `[${t.state}]`, body, `report:${turnId}`, spawn);
-    // Senders other than the parent wait for a reply too; a report is never echoed back to the task that sent one.
+    if (parent && !reported) report(ctx, id, parent, `[${t.state}]`, body, `report:${turnId}`, spawn);
+    // Senders other than the parent wait for a reply too, even when the task has no report reader (legacy tasks);
+    // a report is never echoed back to the task that sent one.
     const others = new Set(turnMessages.filter(m => m.from !== parent && m.from !== `task:${id}` && m.kind !== "report").map(m => m.from));
     for (const to of others) report(ctx, id, to, `[${t.state}]`, body, `report:${turnId}:${to}`, spawn);
   }
