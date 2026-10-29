@@ -8,6 +8,8 @@ with local pages excluded:
   `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
   `allow-rounded-window-supported` (read-only transparent-window capability),
   `allow-native-titlebar-supported` (read-only macOS title-bar overlay capability),
+  `allow-takeover-open` (asks the desktop to show its bundled service replacement
+  page; it returns nothing, and only works while a takeover was detected),
   `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,
   `core:window:allow-start-dragging` and `core:window:allow-internal-toggle-maximize`.
   Window commands are restricted to the main window on the active service origin.
@@ -37,3 +39,21 @@ for main-window visibility/geometry, tray visibility, launch at login and quit.
 It validates the caller label and active origin; it cannot execute scripts or
 arbitrary Tauri commands. Requests target a connected page and report completion
 only after applying an action; process exit may leave the outcome unacknowledged.
+
+The service replacement page (`tauri://localhost/index.html?state=takeover`) is
+bundled, because the service's web app is served by the unverified build. It has
+no capability and calls no IPC command: Rust injects its inspection data, progress
+and a single-use action token with `window.eval`, as it does for recovery pages,
+and only while its cached page is that bundled page. Its actions are sentinels:
+`takeover-confirm?relink=0|1&token=<token>` and `takeover-dismiss?token=<token>`.
+The restored page (`?state=takeoverRestored`) gets a token for `takeover-dismiss`
+only. Rust accepts a sentinel only when its token equals the one issued to the
+current bundled page and the shell still holds the service candidate the token
+was issued for. A token is 32 random bytes in hex. It is consumed by any
+well-formed attempt, kept across re-renders while the inspected candidate
+(registration hash, process identity and program identity) is unchanged,
+replaced when the candidate changes, and void as soon as any main-window
+navigation or page load starts, so a service page loading after the bundled page
+can never use it. The page marks **Use the app's service** `aria-disabled` and
+ignores it for one second after a new token arrives or the window regains focus. A service page can only ask for the bundled page through `takeover_open`;
+there is no service-page sentinel for it.

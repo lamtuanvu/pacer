@@ -153,6 +153,17 @@ test("new placement runs in a pacer worktree on branch pacer/<task-id>; the repo
   expect(readTask(ctx, task.id)).toMatchObject({ placement: { mode: "new" }, worktree: o.worktree, run: { attempt: 1, executor: "codex", mode: "new" } });
 });
 
+test("in-place placement records the start commit once so later attempts keep counting earlier commits", async () => {
+  const { ctx, task, repo } = await setup("cursor-agent", 'echo x >> work.txt; git add work.txt; git -c user.name=t -c user.email=t@t commit -qm work; echo report', { git: true });
+  const start = (await realRun(["git", "-C", repo, "rev-parse", "HEAD"], 10000)).stdout.trim();
+  task.placement = { requested: "current", reason: "in place" };
+  expect((await runAttempt(ctx, s.providers.cursor, task)).exec.code).toBe(0);
+  expect(readTask(ctx, task.id)).toMatchObject({ startSha: start, placement: { mode: "current" } });
+  expect((await runAttempt(ctx, s.providers.cursor, readTask(ctx, task.id)!)).exec.code).toBe(0);
+  expect(readTask(ctx, task.id)?.startSha).toBe(start);
+  expect(readTask(ctx, task.id)?.baseSha).toBeUndefined();
+}, 20_000);
+
 test("non-git repo runs in place with a note", async () => {
   const { ctx, task } = await setup("cursor-agent", "echo done");
   const o = await runAttempt(ctx, s.providers.cursor, task);

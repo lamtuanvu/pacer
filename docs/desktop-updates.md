@@ -50,6 +50,51 @@ Once service adoption is validated and available, a compatible service can use
 the managed update transaction described below. The desktop never starts a
 legacy service update automatically.
 
+### Service replaced by another build
+
+If a previously consented desktop service runs from a build the app cannot
+verify, the desktop offers **Use the app's service** before its normal version
+check. The confirmation is a page bundled with the app, not the service's web
+app. It shows both command paths, the version the other build reports, the
+service label, port, data home and any work counts it can read. **Not now**
+keeps the current service and is remembered for that executable identity. A
+changed executable causes the choice to appear again. While the offer is open,
+the desktop checks the service about every 30 seconds instead of continuously.
+
+**Settings → Updates** explains that the service was replaced and offers
+**Review service replacement**, which opens the same confirmation page, also
+after **Not now**. Settings also notes when the terminal command and the
+service run different builds.
+
+Confirming stops the inspected service job, registers the signed CLI bundled
+with the app and verifies the new service. Settings and task data stay in the
+same home; the original command file stays in place. The optional terminal
+checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
+`~/.local/bin/pacer` to the bundled CLI. If that step fails after the service
+was replaced, a notification says so; move `~/.local/bin/pacer` aside and reopen
+pacer, which offers to recreate the command. If the service changed after you
+reviewed it, nothing is changed. **Use the app's service** is shown as
+unavailable, and ignores clicks, for a second after the page appears or the
+window regains focus.
+
+If startup fails, the original registration and service are restored. A
+separate recovery job finishes the restore even if the helper or the desktop
+stops during the switch. If the helper stopped before that job was set up, the
+desktop runs the recovery itself, once per desktop launch, but only when this
+app started the transaction since the Mac last started up. Until the
+transaction finishes, the desktop shows that
+the service is being replaced and does not install, start or sign in to the
+service. It then shows **Kept your current service** with the reason. **Continue
+current service** also hides the offer for that build, like **Not now**. If
+recovery cannot verify the original service, the desktop shows **Service
+replacement needs attention** on every launch. It shows the same page when a
+transaction record can't be read, when the recovery run in this launch left it
+unfinished, or when another app copy or an earlier startup of the Mac began it.
+Keep the transaction files under
+`$PACER_HOME/desktop-updates/native/takeover/` and follow the recovery guidance
+below. Older committed, restored or never-started transactions are removed once
+a newer one exists; recovery-failed and unreadable ones are kept.
+
 ## Updating
 
 Open **Settings → Updates** while the desktop is connected. Pacer checks daily

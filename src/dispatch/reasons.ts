@@ -3,7 +3,7 @@ import { z } from "zod";
 /** Every reason code `dispatch.explain` can return. Adding a code is additive (P4, API-1); clients show generic copy for unknown ones. */
 export const REASON_CODES = [
   // why an executor was chosen
-  "step_match", "capacity_comfortable", "capacity_usable", "capacity_unknown", "override",
+  "rank_match", "no_executor_ranked", "step_match", "capacity_comfortable", "capacity_usable", "capacity_unknown", "override",
   // why an executor was left out
   "planner_account", "runner_disabled", "not_configured", "blocked_by_user", "quota_exhausted", "not_installed", "signed_out",
   "unavailable", "ineligible", "runner_unhealthy", "requirements_not_met", "pinned_to_other_model",
@@ -15,7 +15,7 @@ export const REASON_CODES = [
   "planner_not_measured", "too_few_samples", "planner_is_executor",
   // facts that could change the outcome
   "cached_preview", "capacity_unmeasured", "default_model_unresolved", "enforcement_unverified", "engine_not_running",
-  "learning_unavailable", "tasks_unavailable", "reserved_capacity", "admission_hooks",
+  "learning_unavailable", "tasks_unavailable", "reserved_capacity", "admission_hooks", "ranked_inputs_ignored",
 ] as const;
 export const reasonCodeSchema = z.enum(REASON_CODES);
 export type ReasonCode = z.infer<typeof reasonCodeSchema>;
@@ -24,6 +24,8 @@ export interface Reason { code: ReasonCode; outcome: "pass" | "fail" | "info"; s
 
 const num = (v: unknown) => (typeof v === "number" ? String(Math.round(v)) : "?");
 const TEXT: Record<ReasonCode, (f: ReasonFacts, s?: string) => string> = {
+  rank_match: f => `Executor ranking selected this executor (${f.reason}).`,
+  no_executor_ranked: () => "No executor is available in the routing rank.",
   step_match: f => `Ladder step "${f.stepId}" matched${f.kind ? ` for kind "${f.kind}"` : ""}.`,
   capacity_comfortable: f => `${num(f.headroomPct)}% of its budget window is free, enough to run comfortably.`,
   capacity_usable: f => `${num(f.headroomPct)}% of its budget window is free; usable, not comfortable.`,
@@ -68,6 +70,7 @@ const TEXT: Record<ReasonCode, (f: ReasonFacts, s?: string) => string> = {
   learning_unavailable: () => "Learned fit was skipped because no history store exists yet.",
   tasks_unavailable: () => "Running tasks could not be read; none were counted.",
   reserved_capacity: () => "Capacity reserved by running work may change this at admission.",
+  ranked_inputs_ignored: f => `Executor ranking ignores these dispatch inputs: ${f.fields}.`,
   admission_hooks: () => "Configured admission hooks are not run by this preview.",
 };
 

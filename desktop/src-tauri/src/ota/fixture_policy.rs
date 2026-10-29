@@ -197,6 +197,9 @@ impl FixturePolicy {
     pub fn external_cli(&self) -> PathBuf {
         self.root.join("external/pacer")
     }
+    pub fn takeover_cli(&self) -> PathBuf {
+        self.home.join(".local/bin/pacer")
+    }
     pub fn permits_path(&self, path: &Path) -> bool {
         if self.validate_live().is_err() {
             return false;
@@ -206,7 +209,8 @@ impl FixturePolicy {
         };
         canonical == path
             && (path.starts_with(&self.root)
-                || path.starts_with(self.home.join("desktop-updates/native")))
+                || path.starts_with(self.home.join("desktop-updates/native"))
+                || path == self.takeover_cli())
     }
 }
 
@@ -295,6 +299,14 @@ mod tests {
         policy.validate_live().unwrap();
         std::fs::create_dir(policy.current_app.clone()).unwrap();
         assert!(policy.permits_path(&policy.current_app));
+        std::fs::create_dir_all(policy.home.join(".local/bin")).unwrap();
+        std::fs::write(policy.takeover_cli(), b"fixture").unwrap();
+        assert!(policy.permits_path(&policy.takeover_cli()));
+        for other in [policy.home.join("pacer"), policy.home.join(".local/pacer"), policy.home.join(".local/bin/other"), policy.home.join(".local/bin/pacer2"), policy.home.join(".local/bin/sub/pacer")] {
+            std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+            std::fs::write(&other, b"fixture").unwrap();
+            assert!(!policy.permits_path(&other), "unexpected permitted path: {other:?}");
+        }
         assert!(!policy.permits_path(Path::new("/Applications/pacer.app")));
         for key in [
             "root",
