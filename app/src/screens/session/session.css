@@ -225,3 +225,4 @@
 .pc-session-node__toggle.pc-btn{height:var(--size-22);min-height:var(--size-22);padding:0 var(--size-7);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-page)}
 .pc-session-node__children .pc-session-node__meta{padding-left:var(--size-15)}
 .pc-session-bar>.pc-text-action,.pc-session-details .pc-text-action{color:var(--link)}
+@media(max-width:1100px){.pc-trace-entry{display:none}}

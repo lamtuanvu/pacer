@@ -20,6 +20,8 @@ import type { AccountSummary } from "../../../../src/api/read-model/types";
 import type { SessionFileResult } from "../../../../src/session/files";
 import { parseDiff } from "../../model/diff";
 import { useFrame, useFrameHeading } from "../../shell/slots";
+import { useNavigation } from "../../navigation";
+import { hrefFor, routes } from "../../router";
 
 export type SessionPanelTab = "changes" | "details" | "work";
 export interface ChangedFile { path: string; added: number; removed: number; status?: "added" | "modified" | "deleted" | "renamed" }
@@ -103,6 +105,7 @@ export function WorktreeChanges({ diff, loading, error }: { diff?: TaskDiff | nu
 
 /** The frame owns the h1; the session header retains its content and actions. */
 export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?: () => void; busy?: boolean }) {
+  const {current} = useNavigation();
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
   useFrameHeading({ title, agent: markAgent(task.executor ?? "unknown") });
   const header = useRef<HTMLElement>(null), couldEnd = useRef(!!onEnd);
@@ -118,7 +121,7 @@ export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?:
   return <header ref={header} className="pc-session-bar"><AgentMark agent={markAgent(task.executor ?? "unknown")} size={20}/>
     <h2 title={title}>{title}</h2><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
     <StatusPill status={taskStatus(task)}/><span className="pc-session-bar__spacer"/>
-    <a className="pc-text-action" href={`#/tasks/${encodeURIComponent(task.id)}/trace`}>Dispatch trace</a>
+    <a className="pc-text-action" href={hrefFor(routes.trace(task.id,current.query))}>Dispatch trace</a>
     {onEnd && <Button size="bar" className="pc-session-end" busy={busy} onClick={onEnd} title="End session (asks to confirm)">End session</Button>}
   </header>;
 }

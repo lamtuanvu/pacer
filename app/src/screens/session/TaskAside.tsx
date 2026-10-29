@@ -1,3 +1,5 @@
+import {useNavigation} from "../../navigation";
+import {hrefFor,routes} from "../../router";
 import {ButtonLink,TextAction} from "../../ds/Button";
 import {AgentMark} from "../../ds/AgentMark";
 import {DensityContext} from "../../ds/Density";
@@ -14,6 +16,7 @@ import type {TaskAsideProps} from "./LazyTaskAside";
 const tone=(node:TaskAsideProps["node"])=>node.attention!=="none"?node.attention:node.state.tone;
 /** The sticky "Selected task" panel: what the selected card is, where it came from and its latest activity. */
 export function TaskAside({node,parent,position,href}:TaskAsideProps){
+ const {current}=useNavigation();
  const detail=useQuery<TaskDetail>("task.get",{id:node.id}).data;
  const {state}=useTaskContext();
  const planner=state.snapshot?plannerMeter(state.snapshot):null;
@@ -21,7 +24,6 @@ export function TaskAside({node,parent,position,href}:TaskAsideProps){
  const agent=node.agents[0];
  const notes=detail?.question?.text??detail?.reviewRequest?.note??detail?.brief?.constraints??detail?.brief?.context??detail?.brief?.scope;
  const ran=detail?.startedAt!=null?duration((detail.endedAt??Date.now()/1000)-detail.startedAt):undefined;
- const traceHref=href(node.id).replace(/(\?[^]*)?$/, "/trace$1");
  const activity=detail?timelineCopy(detail.timeline).slice(-4).reverse():[];
  return <aside className="pc-task-aside" aria-label="Selected task">
   <div className="pc-task-aside__section pc-task-aside__head">
@@ -29,7 +31,7 @@ export function TaskAside({node,parent,position,href}:TaskAsideProps){
    <span className="pc-task-aside__caption">{[position,agent&&agentInfo(agent).name,ran,node.tokens].filter(Boolean).join(" · ")}</span>
    <DensityContext.Provider value="settings"><span className="pc-task-aside__buttons">
     <ButtonLink variant="primary" href={href(node.id)}>Open session</ButtonLink>
-    <ButtonLink href={traceHref}>Dispatch trace</ButtonLink>
+    <ButtonLink href={hrefFor(routes.trace(node.id,current.query))}>Dispatch trace</ButtonLink>
    </span></DensityContext.Provider>
   </div>
   <div className="pc-task-aside__section"><span className="pc-task-aside__label"><Icon name="routing"/>Linked work</span>

@@ -149,7 +149,7 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const now=Date.now()/1000;
   const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.
-  const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab");
+  const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab") ?? (location.hash.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
   const panelTab = ({ changes: "changes", brief: "details", work: "work" } as const)[requested as "changes"];
   const active = ["queued", "running"].includes(task.data.state);
   return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
