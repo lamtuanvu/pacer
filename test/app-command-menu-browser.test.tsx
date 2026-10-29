@@ -100,7 +100,7 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   const input = page.getByRole("combobox");
   await input.fill(">panel");
   await expect(page.locator(".pc-command__prefix").textContent()).resolves.toBe("Commands");
-  await expect(page.getByRole("tablist", { name: "Search in" }).count()).resolves.toBe(0);
+  await expect(page.getByRole("tablist", { name: "Search in" }).count()).resolves.toBe(1);
   const options = await labels(page);
   expect(options).toContain("Toggle left panel");
   expect(options).not.toContain("Add SSH keepalive to remote runs");
@@ -135,21 +135,23 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await focused(page, 'input[role="combobox"]');
   await page.keyboard.press("Shift+Tab");
   await expect(pressed()).resolves.toMatch(/^All/);
-  // A scope with no matches falls back to All instead of showing an empty list.
+  // A scope with no matches falls back to All, keeping matches elsewhere visible.
   await page.getByRole("tab", { name: /^Agents/ }).click();
   await expect(pressed()).resolves.toMatch(/^Agents/);
   await input.fill("keepalive");
+  await page.getByRole("option", { name: /Add SSH keepalive/ }).waitFor();
   expect(await labels(page)).toEqual(["Add SSH keepalive to remote runs"]);
   await expect(pressed()).resolves.toMatch(/^All/);
   // Nothing matches: say so, offer New task, and let Enter run it.
   await input.fill("xyzzy plugin");
   await expect(page.getByRole("status").filter({ hasText: "Nothing matches" }).textContent()).resolves.toContain("xyzzy plugin");
-  await expect(labels(page)).resolves.toEqual(["New task", "Browse all tasks"]);
+  await expect(labels(page)).resolves.toEqual(["New task: “xyzzy plugin”", "Browse all tasks"]);
   // The aria-activedescendant still points at the first fallback.
-  expect((await activeOption(page)).label).toBe("New task");
+  expect((await activeOption(page)).label).toBe("New task: “xyzzy plugin”");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   await page.waitForFunction(() => (window as any).newTask === 1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1")!).request)).toBe("xyzzy plugin");
   // ? is plain text until the assistant exists.
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("?why");
@@ -233,10 +235,10 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
-  // Outside commands mode ⌘↵ "open beside" is announced as coming soon and does nothing.
+  // Unavailable actions have no shortcut hint and do nothing.
   const footer = await page.locator(".pc-command__footer").textContent();
-  expect(footer).toContain("open beside");
-  expect(footer).toContain("Coming soon");
+  expect(footer).not.toContain("open beside");
+  expect(footer).not.toContain("Coming soon");
   expect(footer).not.toContain("keep open");
   await input.fill("fix");
   await page.keyboard.press("Control+Enter");
@@ -256,14 +258,15 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
 }));
 
-browserTest("mod_enter_closes_the_menu_for_a_command_that_opens_a_dialog", () => withPage(async (page, built) => {
+browserTest("dialog_opening_commands_offer_only_plain_enter", () => withPage(async (page, built) => {
   await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill(">shortcuts");
   await page.getByRole("option", { name: /^Show keyboard shortcuts/ }).waitFor();
   expect(await labels(page)).toEqual(["Show keyboard shortcuts"]);
-  // The shortcuts overlay is a dialog of its own, which a modal menu would leave inert, so ⌘↵ closes the menu like Enter does.
-  await page.keyboard.press("Control+Enter");
+  expect(await page.locator(".pc-command__footer").textContent()).not.toContain("run and keep open");
+  // The shortcuts overlay is a dialog of its own; only plain Enter is offered.
+  await page.keyboard.press("Enter");
   await page.waitForFunction(() => (window as any).helped === 1);
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   // Focus goes back to what had it when the menu opened (the page's main area).
@@ -279,7 +282,7 @@ browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(
   expect(await labels(page)).toEqual(["Pause dispatch", "Budget & pacing"]);
   // The Commands chip stays, so later queries are the text after it.
   await input.fill("saved setup");
-  await expect(page.getByRole("option").count()).resolves.toBe(0);
+  expect(await labels(page)).toEqual(["New task: “saved setup”"]);
   await input.fill("budget");
   expect(await labels(page)).toEqual(["Budget & pacing"]);
   await input.fill("pause");
@@ -308,7 +311,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
       scopeH: Math.round(box(".pc-command__scope").height), scopeRadius: css(".pc-command__scope").borderTopLeftRadius, kbd: [css(".pc-command__footer kbd").borderTopLeftRadius, css(".pc-command__footer kbd").fontSize, Math.round(box(".pc-command__footer kbd").height)],
       placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
   });
-  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
+  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "12px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "6px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
     placeholder: "Search tasks, agents, files or type > for commands", label: "Search tasks, agents, files or run a command" });
 }));
 
@@ -454,13 +457,13 @@ browserTest("a webview that refuses the clipboard API still copies through the f
   expect(await page.locator("body > span.sr-only").count()).toBe(0);
 }));
 
-browserTest("results arrive in a polite live region and an empty Files answer falls back to All", () => withPage(async (page, built) => {
+browserTest("results arrive in a polite live region and an empty Files scope falls back to All", () => withPage(async (page, built) => {
   await open(page, built, "#/");
   await filesAnswer(page, { results: [] });
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("fix");
-  // Tasks match; the empty Files answer must not leave the Files tab selected with the tasks hidden.
+  // An empty scope cannot hide existing results.
   await page.getByRole("tab", { name: /^Files 0/ }).waitFor();
   await page.getByRole("tab", { name: /^Files/ }).click();
   await expect(page.locator('.pc-command__scope[aria-selected="true"]').textContent()).resolves.toMatch(/^All/);
@@ -469,4 +472,96 @@ browserTest("results arrive in a polite live region and an empty Files answer fa
   // The combobox is described by the footer hint (what Enter does).
   const described = await input.getAttribute("aria-describedby");
   expect(await page.evaluate(id => document.getElementById(id!.split(" ").at(-1)!)?.textContent, described)).toContain("open");
+}));
+
+
+browserTest("recent_and_commands_keep_scope_tabs_and_keyboard_switching", () => withPage(async (page, built) => {
+  await open(page, built, "#/");
+  await page.keyboard.press("Control+k");
+  const selected = page.locator('.pc-command__scope[aria-selected="true"]');
+  expect(await page.getByRole("tab").count()).toBe(5);
+  expect(await selected.textContent()).toBe("All");
+  expect(await page.locator(".pc-command__scopes").textContent()).toContain("Tab switch");
+  await page.keyboard.press("Tab");
+  expect(await selected.textContent()).toMatch(/^Tasks/);
+  expect(await page.locator(".pc-command__heading").allTextContents()).toEqual(["Recent", "Suggested"]);
+  await page.keyboard.press("Shift+Tab");
+  expect(await selected.textContent()).toMatch(/^All/);
+  await page.keyboard.press("Shift+Tab");
+  expect(await selected.textContent()).toBe("Commands");
+  expect(await page.locator(".pc-command__prefix").textContent()).toBe("Commands");
+  await page.keyboard.press("Tab");
+  expect(await selected.textContent()).toMatch(/^All/);
+  expect(await page.locator(".pc-command__prefix").count()).toBe(0);
+  expect(await page.locator(".pc-command__footer").textContent()).not.toContain("ask assistant");
+  await page.getByRole("combobox").fill(">xyzzy plugin");
+  expect(await labels(page)).toEqual(["New task: “xyzzy plugin”"]);
+  expect(await page.locator(".pc-command__footer").textContent()).not.toContain("run and keep open");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => (window as any).newTask === 1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1")!).request)).toBe("xyzzy plugin");
+}));
+
+browserTest("empty_state_preserves_an_existing_new_task_draft", () => withPage(async (page, built) => {
+  await open(page, built, "#/");
+  const draft = { request: "Earlier request", repo: "acme/api", checks: '[{"id":"keep","text":"Keep this check","on":true}]', issueSource: "old issue", issueText: "Earlier request" };
+  await page.evaluate(draft => localStorage.setItem("pacer.new-task.v1", JSON.stringify(draft)), draft);
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("xyzzy replacement");
+  const option = page.getByRole("option", { name: /New task: “xyzzy replacement”/ });
+  await option.waitFor();
+  expect(await option.locator(".pc-command__sub").count()).toBe(0);
+  expect(await page.locator(".pc-command__footer").textContent()).toContain("↵ run");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => (window as any).newTask === 1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1")!))).toEqual(draft);
+}));
+
+browserTest("prefilling_a_mounted_composer_updates_in_place_only_when_empty", () => withPage(async (page, built) => {
+  await open(page, built, "#/tasks/new");
+  // Expose the composer's input boundary; the live harness also exercises the real NewTask screen.
+  await page.evaluate(() => {
+    const input = document.createElement("textarea"); input.id = "nt-request";
+    input.addEventListener("input", () => { (window as any).composerRequest = input.value; });
+    document.querySelector("#main-content")!.appendChild(input);
+    (window as any).pageMarker = "same page";
+  });
+  for (const query of ["xyzzy first", "xyzzy second"]) {
+    await page.keyboard.press("Control+k");
+    await page.getByRole("combobox").fill(query);
+    await page.getByRole("option", { name: new RegExp(`New task: “${query}”`) }).waitFor();
+    await page.keyboard.press("Enter");
+    expect(await page.locator("#nt-request").inputValue()).toBe("xyzzy first");
+    expect(await page.evaluate(() => (window as any).composerRequest)).toBe("xyzzy first");
+    expect(await page.evaluate(() => (window as any).pageMarker)).toBe("same page");
+    expect(await page.evaluate(() => (window as any).newTask)).toBeUndefined();
+  }
+}));
+
+browserTest("subtitles_and_scope_counts_meet_contrast_and_dark_overlay_uses_tokens", () => withPage(async (page, built) => {
+  await open(page, built, "#/");
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("a");
+  for (const theme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    const measured = await page.evaluate(() => {
+      const rgb = (value: string) => value.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+      const luminance = (value: string) => rgb(value).map(n => n / 255).map(n => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4).reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i]!, 0);
+      const contrast = (foreground: string, background: string) => { const a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05); };
+      const dialog = document.querySelector(".pc-command")!;
+      const ratios = [...document.querySelectorAll(".pc-command__sub,.pc-command__count")].map(element => {
+        let background: Element | null = element;
+        while (background && getComputedStyle(background).backgroundColor === "rgba(0, 0, 0, 0)") background = background.parentElement;
+        return contrast(getComputedStyle(element).color, getComputedStyle(background!).backgroundColor);
+      });
+      return { ratios, backdrop: getComputedStyle(dialog, "::backdrop").backgroundColor, shadow: getComputedStyle(dialog).boxShadow };
+    });
+    expect(measured.ratios.length).toBeGreaterThan(0);
+    for (const ratio of measured.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+    if (theme === "dark") {
+      expect(measured.backdrop).toBe("rgba(0, 0, 0, 0.6)");
+      expect(measured.shadow).toBe("rgba(0, 0, 0, 0.13) 0px 6px 24px 0px");
+    }
+  }
 }));

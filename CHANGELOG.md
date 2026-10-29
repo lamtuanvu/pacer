@@ -8,6 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Align Tasks with its board: short task titles and accessible names with full-text tooltips, a sticky selected-task summary with duration, planner-attributed linked work, notes and a dispatch trace link, measured token totals, and the board’s row geometry and selection colours.
 - Match the 340px tray board: preserve eligible executor usage, omit the planner from a single-line executor strip, group off executors and link overflow, restore attention glyphs, board typography and the planner caption, soften shortcut chips, format upcoming resets by weekday, and wire the desktop Open at login switch to native login items. Review rows use the blue review dot, unmetered executors show a muted dash, off tooltips name the actual state, and tray actions retain 32px targets.
+- Keep command-menu scope tabs visible in recent and command views, match board row styling, prefill an empty New task draft from an unmatched query without reloading or replacing existing work, preserve matches across empty scopes, and show only available keyboard actions. Keep selected subtitles and scope counts readable and use the dark backdrop and shadow tokens.
 
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
