@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Match the 340px tray board: preserve eligible executor usage, omit the planner from a single-line executor strip, group off executors and link overflow, restore attention glyphs, board typography and the planner caption, soften shortcut chips, format upcoming resets by weekday, and wire the desktop Open at login switch to native login items. Review rows use the blue review dot, unmetered executors show a muted dash, off tooltips name the actual state, and tray actions retain 32px targets.
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.
