@@ -1,26 +1,33 @@
-import { withQuery, type RouteQuery } from '../../router';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ExecutorRow } from '../../../../src/api/read-model/types';
 import { executorLabel } from '../../../../src/view-model/words';
-import { executorEligibility, capacityNote } from '../../../../src/view-model/capacity';
+import { executorEligibility } from '../../../../src/view-model/capacity';
 import { createExecutorDraft, executorSavePayload, isExecutorDraftDirty, matchesExecutorDraft, moveExecutor, validateExecutorDraft, type ExecutorDraft, type ExecutorSettings } from '../../model/executor-settings';
 import { useTaskContext, ErrorMessage } from '../task-shared';
 import { registerNavigationGuard, canLeaveScreen } from '../../data/navigation-guard';
 import { useNotifications } from '../../data/notification-context';
 import { Alert } from '../../ds/Alert';
-import { Button, TextAction } from '../../ds/Button';
+import { Button, ButtonLink, IconButton, TextAction } from '../../ds/Button';
 import { AgentMark } from '../../ds/AgentMark';
-import { Checkbox, Disclosure, Field, TextInput } from '../../ds/Controls';
+import { Field, TextInput, Switch } from '../../ds/Controls';
 import { Dialog } from '../../ds/Dialog';
 import { StatusPill } from '../../ds/StatusPill';
 import { Pill } from '../../ds/Pill';
+import { UsageMeter } from '../../ds/UsageMeter';
+import { Card, ListRow, NavTabs, PageColumns } from '../../ds/Patterns';
+import { SectionHeading } from '../../ds/SectionHeading';
+import { Icon } from '../../ds/icons';
+import { SettingRow } from '../../ds/SettingRow';
 import { useDialogs } from '../../ds/useDialogs';
-import { Section, useResource, useOperation, Feedback, time } from './shared';
+import { useResource, useOperation, Feedback, SettingsBoard, time, useScoped } from './shared';
 
-export function ExecutorsSection({ query: routeQuery = { repo: null, scope: null } }: { query?: RouteQuery }) {
+export function ExecutorsSection() {
+  const scoped = useScoped();
+  const [selected, select] = useState<string>();
   const {state, api} = useTaskContext(), query = useResource<ExecutorSettings>('runner.settings.get');
   const notifications = useNotifications(), dialogs = useDialogs();
   const [saved, setSaved] = useState<ExecutorSettings>(), [draft, setDraft] = useState<ExecutorDraft>();
+  const [enabledBusy, setEnabledBusy] = useState(false), [enabledError, setEnabledError] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [announcement, announce] = useState('');
   const pending = useRef(false), leave = useRef<(value:boolean)=>void>();
   const [leaving, setLeaving] = useState(false);
@@ -33,9 +40,9 @@ export function ExecutorsSection({ query: routeQuery = { repo: null, scope: null
   for(const row of rows??[])knownRows.current.set(row.id,row);
   const current = useRef({dirty,busy,save:async()=>false});
   useEffect(()=>{
-    if (query.data && !dirty && !pending.current) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
+    if (query.data && query.data.revision!==saved?.revision && !dirty && !pending.current) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
   },[query.data]);
-  const reload = () => { if(query.data){setSaved(query.data);setDraft(createExecutorDraft(query.data));setError(undefined);}query.reload(); };
+  const reload = () => { setEnabledError(''); if(query.data){setSaved(query.data);setDraft(createExecutorDraft(query.data));setError(undefined);}query.reload(); };
   const edit = (fn:(next:ExecutorDraft)=>void) => {
     if (!draft || busy) return;
     const next = {order:[...draft.order], runners:Object.fromEntries(Object.entries(draft.runners).map(([id,r])=>[id,{...r}]))};
@@ -62,12 +69,59 @@ export function ExecutorsSection({ query: routeQuery = { repo: null, scope: null
         query.setData(confirmed);
         throw new Error('Settings changed after this save. Your draft is preserved. Reload saved settings before retrying.');
       }
-      setSaved(confirmed);setDraft(createExecutorDraft(confirmed));query.setData(confirmed);
+      setSaved(confirmed);setDraft(createExecutorDraft(confirmed));query.setData(confirmed);setEnabledError('');
       notifications?.notify({key:'executor-save',tone:'success',title:'Executor settings saved'});
       if(result.warnings?.length)notifications?.notify({key:'executor-save-warnings',tone:'warning',title:'Routing needs attention',message:result.warnings.join(' ')});
       return true;
     } catch(failure){setError(failure);return false;}
     finally {pending.current=false;setBusy(false);}
+  };
+  // Takes work is an immediate write based exclusively on saved settings.
+  const saveEnabled = async (id:string, enabled:boolean) => {
+    if (!saved || pending.current || !state.connected) throw new Error('Wait for the service before changing Takes work.');
+    pending.current = true;
+    setEnabledBusy(true);
+    try {
+      const latest = await api.call<ExecutorSettings>('runner.settings.get', {});
+      if (latest.revision !== saved.revision) {
+        query.setData(latest);
+        throw new Error('Settings changed elsewhere. Reload saved settings before retrying.');
+      }
+      const next = createExecutorDraft(latest);
+      if (!next.runners[id]) throw new Error('This executor was removed. Reload saved settings.');
+      next.runners[id].enabled = enabled;
+      let result:ExecutorSettings & {warnings?:string[]};
+      try { result = await api.call('runner.settings.save', executorSavePayload(next, latest)); }
+      catch (failure) {
+        const actual = await api.call<ExecutorSettings>('runner.settings.get', {}).catch(() => null);
+        if (!actual || actual.revision === latest.revision || !matchesExecutorDraft(next, actual)) {
+          query.reload();
+          throw failure;
+        }
+        result = actual;
+      }
+      const confirmed = await api.call<ExecutorSettings>('runner.settings.get', {});
+      if (!matchesExecutorDraft(next, confirmed)) {
+        query.setData(confirmed);
+        throw new Error('Settings changed after this save. Reload saved settings before retrying.');
+      }
+      setSaved(confirmed);
+      // Preserve order and task-limit edits made in the page draft.
+      setDraft(current => current ? {...current, runners:{...current.runners, [id]:{...current.runners[id], enabled}}} : createExecutorDraft(confirmed));
+      query.setData(confirmed);
+      setEnabledError('');
+      if (!notifications) announce('Executor settings saved');
+      notifications?.notify({key:'executor-save', tone:'success', title:'Executor settings saved'});
+      if (result.warnings?.length) notifications?.notify({key:'executor-save-warnings', tone:'warning', title:'Routing needs attention', message:result.warnings.join(' ')});
+    } catch (failure) {
+      const message = `Could not change Takes work for ${executorLabel(id)}: ${failure instanceof Error ? failure.message : String(failure)}`;
+      setEnabledError(message);
+      notifications?.notify({key:'executor-enabled-error', tone:'error', title:message});
+      throw failure;
+    } finally {
+      pending.current = false;
+      setEnabledBusy(false);
+    }
   };
   current.current={dirty,busy,save};
   useEffect(()=>{
@@ -86,23 +140,73 @@ export function ExecutorsSection({ query: routeQuery = { repo: null, scope: null
     await action();
   };
   const ordered = rows ? [ ...rows.filter(r=>r.rank==='planner'&&!draft?.order.includes(r.id)), ...(draft?.order ?? rows.filter(r=>r.rank!=='planner').map(r=>r.id)).map(id=>rows.find(r=>r.id===id)??knownRows.current.get(id)).filter((r):r is ExecutorRow=>!!r)] : [];
-  return <Section id="executors" title="Agents" detail="Set executor priority and capacity, then save your changes." actions={<><TextAction href={withQuery("#/settings/accounts", routeQuery)}>Accounts</TextAction><TextAction href={withQuery("#/settings/add-executor", routeQuery)}>Add executor</TextAction></>}>
+  const picked = ordered.find(e=>e.id===selected), pickedAt = picked ? draft?.order.indexOf(picked.id) ?? -1 : -1;
+  return <SettingsBoard id="executors" title="Agents" caption="Who plans, who executes, and what each one is allowed to use." actions={<ButtonLink variant="primary" href={scoped("#/settings/add-executor")}>Add agent</ButtonLink>}>
     {dialogs.dialog}
     {leaving&&<Dialog title="Unsaved executor changes" close={()=>finishLeave(false)}><p>Save your executor settings before leaving?</p><div className="u3-actions"><Button disabled={busy} onClick={()=>finishLeave(false)}>Stay</Button><Button disabled={busy} onClick={()=>{reload();finishLeave(true);}}>Discard changes</Button><Button variant="primary" busy={busy} disabled={!state.connected||!!conflict||Object.keys(errors).length>0} onClick={async()=>{if(await current.current.save())finishLeave(true);}}>Save and leave</Button></div><ErrorMessage error={error}/></Dialog>}
+    <AgentsIntro tab="executors"/>
     <ErrorMessage error={query.error}/><ErrorMessage error={error}/>
     {conflict&&<Alert tone="warning" title="Settings changed elsewhere">Your draft is preserved. Reload the saved settings before making further changes. <Button size="sm" onClick={async()=>{if(await dialogs.confirm('Discard this draft and load the latest saved settings?','Reload saved settings','Reload'))reload();}}>Reload saved settings</Button></Alert>}
-    {!rows?<p>Loading executors…</p>:!rows.length?<p>No executors yet. Add one.</p>:<div className="u3-table-wrap"><table><thead><tr>{['Priority','Executor','Model','Runs on','Parallel tasks','Last check','Enabled','Actions'].map(v=><th key={v} scope="col">{v}</th>)}</tr></thead><tbody>{ordered.map(executor=><ExecutorRowEditor key={executor.id} executor={executor} removed={!rows!.some(r=>r.id===executor.id)} position={draft?.order.indexOf(executor.id)??rows!.filter(r=>r.rank!=='planner').findIndex(r=>r.id===executor.id)} count={draft?.order.length??0} value={draft?.runners[executor.id]} error={errors[executor.id]} disabled={busy||!draft} edit={edit} announce={announce} independent={independent}/>)}</tbody></table></div>}
-    <div className="u3-save-bar"><span>{dirty?'Unsaved changes':'All changes saved'}</span><div className="u3-actions"><Button disabled={!dirty||busy} onClick={reload}>Discard</Button><Button variant="primary" busy={busy} disabled={!dirty||!state.connected||!!conflict||Object.keys(errors).length>0} onClick={()=>void save()}>Save changes</Button></div></div>
+    {enabledError&&<Alert tone="error" title={enabledError}><Button size="sm" onClick={()=>setEnabledError('')}>Dismiss</Button></Alert>}
+    <PageColumns layout="agents" className="u3-agents" main={!rows?<p>Loading executors…</p>:!rows.some(r=>r.rank!=='planner'||draft?.order.includes(r.id))?<p>No executors yet. Add an agent.</p>:<div className="u3-table-wrap u3-agents-table"><div className="u3-agents-scroll"><table><thead><tr>{['Executor','Status','This week','Parallel','Actions'].map(v=><th key={v} scope="col">{v}</th>)}</tr></thead><tbody>{ordered.filter(e=>draft?!!draft.order.includes(e.id):e.rank!=='planner').map(executor=><ExecutorRowEditor key={executor.id} executor={executor} selected={executor.id===selected} select={()=>select(id=>id===executor.id?undefined:executor.id)} removed={!rows!.some(r=>r.id===executor.id)} value={draft?.runners[executor.id]}/>)}</tbody></table></div></div>}
+      aside={picked&&<ExecutorDetail key={picked.id} executor={picked} planner={pickedAt<0} position={pickedAt} count={draft?.order.length??0} announce={announce} saveEnabled={saveEnabled} savedEnabled={saved?.runners.find(r=>r.id===picked.id)?.enabled} value={draft?.runners[picked.id]} error={errors[picked.id]} disabled={busy||enabledBusy||!draft} edit={edit} independent={independent} close={()=>select(undefined)}/>}/>
+    {!!(dirty||busy||error)&&<div className="u3-save-bar"><span>{busy?'Saving changes…':dirty?'Unsaved changes':'Changes could not be saved'}</span><div className="u3-actions"><Button disabled={!dirty||busy} onClick={reload}>Discard</Button><Button variant="primary" busy={busy} disabled={!dirty||enabledBusy||!state.connected||!!conflict||Object.keys(errors).length>0} onClick={()=>void save()}>Save changes</Button></div></div>}
     {Object.keys(errors).length>0&&<Alert tone="error" title="Check parallel task limits">Enter a whole number from 1 to 16 for each executor.</Alert>}
     {!state.connected&&<Alert tone="warning" title="Reconnecting">Your edits are preserved. Save will be available when the service reconnects.</Alert>}
-    <p className="u3-muted">Priority applies within eligible routing choices under the Priority policy. Task and repository routing rules still apply. Saved changes apply on the next routing decision.</p>
-    <p className="u3-muted">Checks run immediately and do not save your edits. Unavailable executors are skipped; warning states may still receive work.</p>
+    <p className="u3-muted">Priority applies under the Priority policy, within the <TextAction href={scoped("#/settings/dispatcher")}>Dispatcher</TextAction> rules. Saved changes apply on the next routing decision. Unavailable executors are skipped; warning states may still receive work.</p>
     <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
-  </Section>;
+  </SettingsBoard>;
 }
-function ExecutorRowEditor({executor,removed,position,count,value,error,disabled,edit,announce,independent}:{executor:ExecutorRow;removed:boolean;position:number;count:number;value?:{enabled:boolean;maxTasks:string};error?:string;disabled:boolean;edit:(fn:(draft:ExecutorDraft)=>void)=>void;announce:(text:string)=>void;independent:(action:()=>void|Promise<void>)=>Promise<void>}) {
-  const {state}=useTaskContext(), action=useOperation(), dialogs=useDialogs();
-  const planner=position<0, name=executorLabel(executor.id), readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
+/** The planner and the Executors and Accounts tabs, shared by both tabs of the Agents page. */
+export function AgentsIntro({tab}:{tab:'executors'|'accounts'}) {
+  const scoped = useScoped();
+  const {state}=useTaskContext(), planner=state.snapshot?.planner, executors=state.snapshot?.executors?.filter(e=>e.rank!=='planner').length, accounts=state.snapshot?.accounts?.length;
+  return <>{tab==='executors'&&planner&&<ListRow outlined layout="planner" aria-label="Planner" leading={<AgentMark agent={planner.agent} size={32}/>} content={<><strong>{executorLabel(planner.runner)}</strong> <Pill tone="info">Planner</Pill><div className="u3-muted">{planner.advice}</div></>} actions={<ButtonLink size="sm" href={scoped("#/settings/planner")}>Change planner</ButtonLink>}/>}
+    <NavTabs label="Agent view" items={[{href:scoped('#/settings/executors'),label:`Executors${executors===undefined?'':` · ${executors}`}`,current:tab==='executors'},{href:scoped('#/settings/accounts'),label:`Accounts${accounts===undefined?'':` · ${accounts}`}`,current:tab==='accounts'}]}/></>;
+}
+function ExecutorRowEditor({executor,selected,select,removed,value}:{executor:ExecutorRow;selected:boolean;select:()=>void;removed:boolean;value?:{enabled:boolean;maxTasks:string}}) {
+  const {state}=useTaskContext();
+  const name=executorLabel(executor.id), readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
+  return <tr className={[selected&&'u3-row--selected',(executor.state==='failing'||readiness.tone==='bad')&&'u3-row--bad'].filter(Boolean).join(' ')}>
+    <td data-label="Executor"><div className="u3-agent"><AgentMark agent={executor.agent} size={24} labelled={false}/><div><strong>{name}</strong>{!(value?.enabled??executor.enabled)&&<span className="u3-muted"> · off</span>}<span className="u3-executor-model" title={executor.model??'Agent default'}>{executor.model??'Agent default'}</span>{removed&&<Alert tone="warning" title="Removed elsewhere" announce={false}>This executor is no longer configured. Your unsaved edits are retained until you reload.</Alert>}</div></div></td>
+    <td data-label="Status"><StatusPill status={readiness}/><div className="u3-muted">{[readiness.detail,readiness.age].filter(Boolean).join(' · ')}</div></td>
+    <td data-label="This week">{executor.usedPct==null?<span className="u3-muted">No usage reported</span>:<UsageMeter used={executor.usedPct} pace={executor.pacePct??null} tone={executor.tone==='muted'?'neutral':executor.tone} size="slim" text="compact" label={`${name} usage`} paceReason={executor.paceReason} stale={executor.stale}/>}</td>
+    <td data-label="Parallel"><strong>{value?.maxTasks??executor.slots.max}</strong>{state.snapshot?.machine?.max!==undefined&&<span className="u3-muted"> of {state.snapshot.machine.max}</span>}</td>
+    <td data-label="Actions"><IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${name}`} aria-expanded={selected} data-details={executor.id} onClick={select}/></td></tr>;
+}
+/** One executor's state and immediate Takes work switch; task limits join the page draft. */
+function ExecutorDetail({executor,planner,position,count,announce,value,error,disabled,edit,independent,close,saveEnabled,savedEnabled}:{executor:ExecutorRow;planner:boolean;position:number;count:number;announce:(text:string)=>void;saveEnabled:(id:string,enabled:boolean)=>Promise<void>;savedEnabled?:boolean;value?:{enabled:boolean;maxTasks:string};error?:string;disabled:boolean;edit:(fn:(draft:ExecutorDraft)=>void)=>void;independent:(action:()=>void|Promise<void>)=>Promise<void>;close:()=>void}) {
+  const scoped = useScoped();
+  const {state}=useTaskContext(), action=useOperation(), dialogs=useDialogs(), name=executorLabel(executor.id), panel=useRef<HTMLDivElement>(null);
+  // Opening moves focus into the panel (it sits below the table on narrow screens); closing returns it to the row's button.
+  useLayoutEffect(()=>{panel.current?.focus();panel.current?.scrollIntoView?.({block:'nearest'});},[]);
+  const closePanel=()=>{close();queueMicrotask(()=>document.querySelector<HTMLElement>(`[data-details="${CSS.escape(executor.id)}"]`)?.focus());};
+  useLayoutEffect(() => {
+    const escape = (event:KeyboardEvent) => {
+      const target = event.target;
+      if (event.key !== 'Escape' || event.defaultPrevented || !(target instanceof Element)) return;
+      const opener = document.querySelector(`[data-details="${CSS.escape(executor.id)}"]`);
+      if (!panel.current?.contains(target) && target !== opener && target !== opener?.closest('tr')) return;
+      // Editable controls and overlays retain Escape; keep the shell's Settings
+      // shortcut from navigating away while those controls own the key.
+      if (event.isComposing || target.closest('input:not([role="switch"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="listbox"], [role="menu"], [popover]:popover-open, [role="tooltip"]')) {
+        event.stopPropagation(); return;
+      }
+      if (document.querySelector('dialog[open]')) return;
+      event.preventDefault(); closePanel();
+    };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, []);
+  const [switchBusy, setSwitchBusy] = useState(false), [optimistic, setOptimistic] = useState<boolean>();
+  const switching = useRef(false);
+  const toggle = async (enabled:boolean) => {
+    if (switching.current) return;
+    switching.current = true; setSwitchBusy(true); setOptimistic(enabled);
+    try { await saveEnabled(executor.id, enabled); }
+    catch { /* The page owns immediate-save failure feedback, even after this panel closes. */ }
+    finally { switching.current = false; setSwitchBusy(false); setOptimistic(undefined); }
+  };
   const up=useRef<HTMLButtonElement>(null), down=useRef<HTMLButtonElement>(null), moved=useRef<number>();
   useLayoutEffect(()=>{
     if(moved.current===undefined)return;
@@ -110,14 +214,18 @@ function ExecutorRowEditor({executor,removed,position,count,value,error,disabled
     target.current?.focus();moved.current=undefined;
   },[position]);
   const move=(by:number)=>{moved.current=by;edit(d=>moveExecutor(d,executor.id,by));announce(`${name} moved to priority ${position+by+1}.`);};
-  const blocked=executor.state==='blocked'||executor.eligibility?.reasons.some(r=>r.code==='blocked');
-  return <><tr><td data-label="Priority">{planner?'Planner':<div className="u3-executor-order"><span>{position+1}</span><Button ref={up} size="sm" aria-label={`Move ${name} up`} title={position===0?'Already first in priority':'Move up'} disabled={disabled||position<=0} onClick={()=>move(-1)}>↑</Button><Button ref={down} size="sm" aria-label={`Move ${name} down`} title={position===count-1?'Already last in priority':'Move down'} disabled={disabled||position===count-1} onClick={()=>move(1)}>↓</Button></div>}</td>
-    <td data-label="Executor"><div className="u3-agent"><AgentMark agent={executor.agent}/><div><strong>{name}</strong>{removed&&<Alert tone="warning" title="Removed elsewhere" announce={false}>This executor is no longer configured. Your unsaved edits are retained until you reload.</Alert>}<code>{executor.id}</code><StatusPill status={readiness}/><div className="u3-muted">{[readiness.detail,readiness.age].filter(Boolean).join(' · ')}</div>{blocked&&<Button size="sm" disabled={action.busy||disabled} onClick={()=>void independent(async()=>{await action.run('runner.unblock',{id:executor.id});})}>Unblock {name}</Button>}{readiness.detail.includes('Sign-in')&&<TextAction href="#/settings/accounts">Fix sign-in</TextAction>}</div></div></td>
-    <td data-label="Model"><span className="u3-executor-model" title={executor.model??'Agent default'}>{executor.model??'Agent default'}</span></td><td data-label="Runs on">{executor.host?<TextAction href={`#/settings/hosts/${encodeURIComponent(executor.host)}`}>{executor.host}</TextAction>:'This machine'}</td>
-    <td data-label="Parallel tasks">{planner?'—':<Field label={<span className="sr-only">Parallel tasks for {name}</span>} error={error}><TextInput type="number" min="1" max="16" step="1" required aria-label={`Parallel tasks for ${executor.id}`} value={value?.maxTasks??String(executor.slots.max)} disabled={disabled} onInput={e=>{const text=e.currentTarget.value;edit(d=>{d.runners[executor.id].maxTasks=text;});}}/><small className="u3-muted">1–16 tasks</small>{state.snapshot&&capacityNote(executor,state.snapshot)&&<small className="u3-muted">{capacityNote(executor,state.snapshot)}</small>}</Field>}</td>
-    <td data-label="Last check">{executor.lastCheck?<Pill tone={executor.lastCheck.passed?'good':'bad'}>{executor.lastCheck.passed?'Passed':'Failed'} · {time(executor.lastCheck.at)}</Pill>:'Not checked'}<Button size="sm" aria-label={`Run check for ${name}`} disabled={action.busy} onClick={()=>void action.run('runner.check',{id:executor.id})}>Run check</Button></td>
-    <td data-label="Enabled">{planner?<span>Always enabled <small className="u3-muted">— planner</small></span>:<label className="pc-checkbox"><Checkbox className="pc-checkbox__input" aria-label={`Enable ${executor.id}`} checked={value?.enabled??executor.enabled} disabled={disabled} onChange={e=>{const enabled=e.currentTarget.checked;edit(d=>{d.runners[executor.id].enabled=enabled;});}}/>{(value?.enabled??executor.enabled)?'Enabled':'Disabled'}</label>}</td>
-    <td data-label="Actions">{!planner&&<Button size="sm" disabled={action.busy||disabled} aria-label={`Remove ${name}`} onClick={()=>void independent(async()=>{if(await dialogs.confirm(`Remove executor ${name}?`,'Remove executor','Remove'))await action.run('runner.remove',{id:executor.id});})}>Remove</Button>}</td></tr>
-    {(action.job||action.error)&&<tr><td colSpan={8}><Disclosure summary={`Check details for ${name}`}><Feedback action={action}/></Disclosure></td></tr>}{dialogs.dialog&&<tr><td colSpan={8}>{dialogs.dialog}</td></tr>}
-  </>;
+  const readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
+  const blocked=executor.state==='blocked'||executor.eligibility?.reasons.some(r=>r.code==='blocked'), signIn=readiness.detail.includes('Sign-in');
+  return <div role="region" aria-label={`${name} details`} tabIndex={-1} ref={panel} className="u3-agent-detail">
+    {dialogs.dialog}
+    <div className="u3-agent"><AgentMark agent={executor.agent} size={32}/><div><SectionHeading as="h2" variant="headline">{name}</SectionHeading><code>{executor.id}</code></div><Button size="sm" variant="quiet" aria-label={`Close ${name} details`} onClick={closePanel}><Icon name="close"/></Button></div>
+    {(readiness.tone==='bad'||readiness.tone==='warn')&&<Card tone={readiness.tone==='bad'||executor.state==='failing'?'bad':undefined}><strong>{readiness.label}</strong><p className="u3-muted">{readiness.detail}</p>{(blocked||signIn)&&<div className="u3-actions">{blocked&&<Button size="sm" disabled={action.busy||disabled} onClick={()=>void independent(async()=>{await action.run('runner.unblock',{id:executor.id});})}>Unblock {name}</Button>}{signIn&&<TextAction href={scoped("#/settings/accounts")}>Fix sign-in</TextAction>}</div>}</Card>}
+    <dl className="u3-agent-facts"><dt>Account</dt><dd>{executor.account}</dd><dt>Model</dt><dd>{executor.model??'Agent default'}</dd><dt>Runs on</dt><dd>{executor.host?<TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction>:'This machine'}</dd></dl>
+    {!planner&&<SettingRow layout="stacked" label="Priority" description="Saved with the page"><div className="u3-executor-order"><span>{position+1}</span><Button ref={up} size="sm" aria-label={`Move ${name} up`} title={position===0?'Already first in priority':'Move up'} disabled={disabled||position<=0} onClick={()=>move(-1)}>↑</Button><Button ref={down} size="sm" aria-label={`Move ${name} down`} title={position===count-1?'Already last in priority':'Move down'} disabled={disabled||position===count-1} onClick={()=>move(1)}>↓</Button></div></SettingRow>}
+    {!planner&&<SettingRow layout="stacked" label="Takes work" description="Applies now"><Switch aria-label={`Enable ${executor.id}`} checked={optimistic??savedEnabled??executor.enabled} disabled={disabled||switchBusy||!state.connected} aria-busy={switchBusy} onChange={e=>void toggle(e.currentTarget.checked)}/></SettingRow>}
+    {!planner&&<SettingRow layout="stacked" label="Parallel tasks" description={state.snapshot?.machine?.max!==undefined?`This machine's limit is ${state.snapshot.machine.max}.`:'Saved with the page'}><Field label={<span className="sr-only">Parallel tasks for {name}</span>} error={error}><TextInput className="u3-detail-parallel" type="number" min="1" max="16" step="1" required aria-label={`Parallel tasks for ${executor.id}`} value={value?.maxTasks??String(executor.slots.max)} disabled={disabled} onInput={e=>{const text=e.currentTarget.value;edit(d=>{d.runners[executor.id].maxTasks=text;});}}/></Field></SettingRow>}
+    <SettingRow layout="stacked" label="Test task" description={executor.lastCheck?`${executor.lastCheck.passed?'Passed':'Failed'} ${time(executor.lastCheck.at)}`:'Not run yet'}><Button size="sm" disabled={action.busy} onClick={()=>void action.run('runner.check',{id:executor.id})}>Run test task<span className="sr-only"> for {name}</span></Button></SettingRow>
+    <Feedback action={action}/>
+    {!planner&&<footer className="u3-detail-footer"><span className="u3-muted">Removing keeps its task history.</span><Button size="sm" disabled={action.busy||disabled} onClick={()=>void independent(async()=>{if(await dialogs.confirm(`Remove executor ${name}?`,'Remove executor','Remove'))await action.run('runner.remove',{id:executor.id},()=>{close();queueMicrotask(()=>document.querySelector<HTMLElement>('#executors .u3-board-actions a')?.focus());});})}>Remove agent</Button></footer>}
+  </div>;
 }

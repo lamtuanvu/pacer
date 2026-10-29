@@ -14,6 +14,7 @@ import type { BrowserApi } from '../../data/api';
 import { useActions } from "../../data/action-context";
 import { Button } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
+import { withQuery, type RouteQuery } from "../../router";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
@@ -25,12 +26,23 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
  return polled??event;
 }
 export const SettingsPageContext = createContext<string | null>(null);
+/** The route's repo and scope, so links between settings pages keep them. */
+export const SettingsQueryContext = createContext<RouteQuery>({ repo: null, scope: null });
+export function useScoped() { const query = useContext(SettingsQueryContext); return (href: string) => withQuery(href, query); }
 
 export function Section({id,title,detail,actions,children,step}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren;step?:number}) {
  useSettingsStyles();
  const page = useContext(SettingsPageContext) === id;
  if (step !== undefined) return <section aria-label={title} id={id} className="pc-settings-step"><span className="pc-settings-step__number" aria-hidden="true">{step}</span><div className="pc-settings-step__body"><div className="pc-settings-step__heading"><h2>{title}</h2>{detail && <p>{detail}</p>}{actions}</div>{children}</div></section>;
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
+}
+/** Board page heading and block rhythm shared by the Slice 6b editors. */
+export function SettingsBoard({id,title,caption,actions,children}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren}) {
+ useSettingsStyles();
+ return <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
+  <header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header>
+  {children}
+ </section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.

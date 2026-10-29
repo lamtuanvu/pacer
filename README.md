@@ -185,6 +185,8 @@ Use `pacer open sessions` to open a screen, `pacer open --print` to print the si
 link, or `pacer open --logout` to sign out all browser sessions. See the
 [app guide](docs/app.md) for screens, security and troubleshooting.
 
+Agents settings lists executors in priority order. Use an executor's More actions button to edit Priority and Parallel tasks, then save the page draft; Takes work saves immediately. Narrow settings containers show labelled cards with all actions visible. The Add agent wizard wraps its steps above the form when space is limited and keeps your draft if you leave. Machines cards and rows adapt to their available width.
+
 ## Uninstall
 
 ```sh

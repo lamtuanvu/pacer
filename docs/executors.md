@@ -323,3 +323,19 @@ pacer task worktree: the run's `--settings` file approves them and carries your
 rejected stays off. If either file exists but cannot be read or parsed, pacer
 approves nothing and the attempt log says Claude's MCP prompt may appear. A task in
 an existing Orca worktree (current placement or a retry) keeps Claude's MCP prompt.
+Orca's worker-start API cannot carry a permission policy, so selecting the Orca
+backend (including `PACER_BACKEND=orca`) uses direct execution instead. The
+attempt log records the fallback. The direct backend owns worktree placement.
+
+### Agent settings keyboard feedback
+
+In Settings → Agents, opening Details moves focus to the panel. Escape from its
+Close button, Takes work switch or the opening Details button closes the panel
+and returns focus to Details. Escape in Parallel tasks preserves the open panel
+and draft, and a confirmation dialog handles its own Escape key.
+
+Takes work saves immediately. A failed save names the agent in a dismissible
+alert above the table, even if its details were closed before the response, and
+also appears in notifications. A successful save or reloading saved settings
+clears the inline error. In Add agent, Check again focuses the first newly found
+agent and announces its name; when nothing new is found, focus stays on Check again.
