@@ -16,6 +16,7 @@ import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
+import { readTask } from "./tasks/store";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -504,6 +505,12 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         if(cmd==="retry") {
           if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          const own=readTask(ctx,pos[0]);
+          if(own&&core.tasks.userStartedRoot(ctx,own)){
+            // A work root a person started restarts as managed work in place (dispatch.retry semantics).
+            const r=await callOp(ctx,"task.retry",{id:pos[0],...(str(opts.executor)?{executor:str(opts.executor)}:{})},{spawnRunner:cliDeps.spawnRunner}) as {retry:ReturnType<typeof summarizeTask>};
+            return {code:0,out:opts.json?JSON.stringify(r.retry,null,1):`${pos[0]} queued (managed retry)`,err:""};
+          }
           const r=await core.tasks.retry(ctx,pos[0],{executor:str(opts.executor)},{delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
           return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
         }

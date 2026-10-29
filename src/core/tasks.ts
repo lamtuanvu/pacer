@@ -42,6 +42,12 @@ export { taskActivity } from "../tasks/activity";
 import { taskActivity } from "../tasks/activity";
 import { autoCleanTask } from "../tasks/cleanup";
 
+/** A work root a person started. It keeps the usual task controls; managed children and planner roots use dispatch.*. */
+export function userStartedRoot(ctx: Ctx, t: TaskRecord): boolean {
+  const work = getWork(ctx, t.id);
+  return !!work && !work.parentId && t.origin === "human";
+}
+
 export function checkRev(ctx: Ctx, t: TaskRecord, expect?: number): void {
   if (expect !== undefined && expect !== t.rev) {
     throw new CoreError("conflict", "task changed", undefined, { task: apiTask(ctx, t) });

@@ -261,7 +261,8 @@ export class Dashboard {
         const current = await this.deps.client.call<{ rev: number }>("task.get", { id: params.id });
         params = { ...params, expect_rev: current.rev };
       }
-      const result = await this.deps.client.call<Record<string, unknown> | null>(action.op, params);
+      const call = (op: string, p: Record<string, unknown>) => this.deps.client.call<Record<string, unknown> | null>(op, p);
+      const result = (fallback ? await withManagedFallback(call, { op: action.op, params }, fallback) : await call(action.op, params)) as Record<string, unknown> | null;
       this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
       if (action.op === "task.review") this.afterReview(String(action.params.id));
     } catch (error) {

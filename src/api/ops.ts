@@ -179,6 +179,16 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 }
 
 /** Check before any liveness refresh, label write, process signal or spawn. */
+/**
+ * task.retry on a work root a person started restarts it as managed work, keeping its lineage, worktree and delegation
+ * policy. The request id is stable per revision, so a repeated click retries once. Other managed work returns null.
+ */
+function userStartedRetry(ctx: Ctx, id: string, expectRev: number | undefined, executor: string | undefined, deps: OpDeps) {
+  const task = readTask(ctx, id);
+  if (!task || !core.tasks.userStartedRoot(ctx, task)) return null;
+  const rev = expectRev ?? task.rev;
+  return retryWork(ctx, id, { expectRev: rev, requestId: `retry-${id}-${rev}`, ...(executor ? { executor } : {}) }, deps.spawnRunner ?? spawnRunner).then(summarizeTask);
+}
 function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, action: () => T): T {
   return withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
@@ -425,7 +435,11 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+      if(getWork(ctx,p.id)){
+        const managed=userStartedRetry(ctx,p.id,p.expect_rev,p.executor,deps);
+        if(!managed)throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+        const r=await managed;return { retry: r, of: r };
+      }
       const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
@@ -439,7 +453,11 @@ export const OPS: Record<string, OpDef> = {
       const skipped: { id: string; reason: string }[] = [];
       for (const id of [...new Set<string>(p.ids)]) {
         try {
-          if(getWork(ctx,id))throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+          if(getWork(ctx,id)){
+            const managed=userStartedRetry(ctx,id,undefined,p.executor,deps);
+            if(!managed)throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+            const r=await managed;retried.push({ of: r, retry: r });continue;
+          }
           const r = await core.tasks.retry(ctx, id, { executor: p.executor, fromPanel: p.from_panel }, {
             delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
           });
