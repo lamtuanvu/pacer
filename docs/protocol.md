@@ -3720,7 +3720,7 @@ Params JSON Schema:
 
 ### `insights.summary`
 
-Where the work and tokens went in a period: root tasks handled (first settle in the period), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison.
+Where the work and tokens went in a period: distinct root tasks and child tasks reached by attempts ended in the period (the union across agent rows, not their sum), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison. Acceptance and retry counts retain the first-settle cohort.
 
 Params JSON Schema:
 

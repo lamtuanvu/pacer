@@ -212,6 +212,9 @@
   --size-140: 140px;
   --size-110: 110px;
   --size-9: 9px;
+  --size-76: 76px;
+  --size-90: 90px;
+  --size-860: 860px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --layer-base: 1;

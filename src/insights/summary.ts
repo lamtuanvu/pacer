@@ -36,18 +36,16 @@ function addRow(s: Sums, r: Row): void {
 /** Core figures for one period; the previous period of equal length is computed the same way for deltas. */
 function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bucket: "day" | "week") {
   const db = dispatchDatabase(ctx);
-  // Root task: a work node with no parent, or a task with no work node. Handled: its first settle falls in the period.
+  // Acceptance retains the first-settle cohort; workload counts below use ended attempts.
   const roots = db.query<{ id: string; accepted: number | null; repo: string | null }, [number, number, string, string]>(
     `SELECT t.id, json_extract(t.record,'$.review.accepted') AS accepted FROM tasks t JOIN task_first_settle f ON f.task_id=t.id
      LEFT JOIN work_nodes n ON n.task_id=t.id
      WHERE f.at>=? AND f.at<? AND (n.task_id IS NULL OR n.parent_id IS NULL) AND (?='' OR json_extract(t.record,'$.repo.key')=?)`).all(from, to, repo ?? "", repo ?? "");
-  const rootIds = roots.map(r => r.id);
   const inTree = db.query<{ task_id: string; root_id: string; attempts: number }, [string]>(
     `SELECT t.id AS task_id, COALESCE(n.root_id,t.id) AS root_id, json_array_length(t.record,'$.attempts') AS attempts FROM tasks t LEFT JOIN work_nodes n ON n.task_id=t.id WHERE COALESCE(n.root_id,t.id)=?`);
-  let subtasks = 0, attemptsInTrees = 0, retryAttempts = 0, acceptedFirstTry = 0, reviewed = 0;
+  let attemptsInTrees = 0, retryAttempts = 0, acceptedFirstTry = 0, reviewed = 0;
   for (const root of roots) {
     const tasks = inTree.all(root.id);
-    subtasks += tasks.filter(t => t.task_id !== root.id).length;
     attemptsInTrees += tasks.reduce((n, t) => n + t.attempts, 0);
     retryAttempts += tasks.reduce((n, t) => n + Math.max(0, t.attempts - 1), 0);
     if (root.accepted !== null) reviewed++;
@@ -61,14 +59,18 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
        json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.fallback') AS fallback,
        json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.why') AS why
      FROM attempt_usage u LEFT JOIN tasks t ON t.id=u.task_id WHERE u.ended_at>=? AND u.ended_at<? AND (?='' OR u.repo_key=?)`).all(from, to, repo ?? "", repo ?? "");
-  const all = sums(), byAgent = new Map<string, { agent: string; tasks: Set<string>; roots: Set<string>; attempts: number; sums: Sums; accepted: number; judged: number }>();
+  const all = sums(), byAgent = new Map<string, { agent: string; tasks: Set<string>; roots: Set<string>; children: Set<string>; attempts: number; sums: Sums; accepted: number; judged: number }>();
   const series = new Map<number, Map<string, number>>(), kinds = new Map<string, Map<string, Set<string>>>(), ladder = new Map<string, number>(), steps = new Map<string, number>(), skips = new Map<string, number>();
   const step = BUCKET[bucket], retryTokens = { attempts: 0, total: 0, unknownAttempts: 0 };
+  const rootIds = new Set<string>(), childIds = new Set<string>();
   for (const r of rows) {
+    rootIds.add(r.root_id);
+    if (r.task_id !== r.root_id) childIds.add(r.task_id);
     addRow(all, r);
     const agent = agentOf(r.executor);
-    const g = byAgent.get(agent) ?? { agent, tasks: new Set(), roots: new Set(), attempts: 0, sums: sums(), accepted: 0, judged: 0 };
+    const g = byAgent.get(agent) ?? { agent, tasks: new Set(), roots: new Set(), children: new Set(), attempts: 0, sums: sums(), accepted: 0, judged: 0 };
     byAgent.set(agent, g); g.tasks.add(r.task_id); g.roots.add(r.root_id); g.attempts++; addRow(g.sums, r);
+    if (r.task_id !== r.root_id) g.children.add(r.task_id);
     if (r.outcome === "accepted" || r.outcome === "rejected") { g.judged++; if (r.outcome === "accepted") g.accepted++; }
     const at = Math.floor(r.ended_at / step) * step, day = series.get(at) ?? new Map<string, number>();
     series.set(at, day); day.set(agent, (day.get(agent) ?? 0) + (r.total ?? 0));
@@ -88,13 +90,13 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
     } catch { /* malformed routing note: not counted */ }
   }
   const spread = [...byAgent.values()].sort((a, b) => b.sums.total - a.sums.total || a.agent.localeCompare(b.agent)).map(g => ({
-    agent: g.agent, rootTasks: g.roots.size, tasks: g.tasks.size, subtasks: [...g.tasks].filter(id => !g.roots.has(id)).length, attempts: g.attempts, ...g.sums,
+    agent: g.agent, rootTasks: g.roots.size, tasks: g.tasks.size, subtasks: g.children.size, attempts: g.attempts, ...g.sums,
     // A share of zero tokens is unknown, not 0%.
     share: all.total > 0 ? g.sums.total / all.total : null, tokensPerTask: g.tasks.size ? Math.round(g.sums.total / g.tasks.size) : null,
     acceptanceRate: g.judged ? g.accepted / g.judged : null,
   }));
   return {
-    rootTasksHandled: roots.length, subtasks, attempts: attemptsInTrees, retryAttempts, acceptedFirstTry, reviewedRoots: reviewed,
+    rootTasksHandled: rootIds.size, subtasks: childIds.size, attempts: attemptsInTrees, retryAttempts, acceptedFirstTry, reviewedRoots: reviewed,
     acceptedFirstTryRate: reviewed ? acceptedFirstTry / reviewed : null,
     tokens: { ...all, attempts: rows.length, lowerBound: all.unknownAttempts > 0 || all.partialAttempts > 0 },
     spread,
@@ -104,7 +106,6 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
     rules: [...ladder.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([rule, count]) => ({ rule, count })),
     retryTokens,
     skipReasons: [...skips.entries()].map(([k, count]) => { const [agent, reason] = JSON.parse(k) as [string, string]; return { agent, reason, count }; }).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)).slice(0, 20),
-    rootIds: rootIds.length,
   };
 }
 
@@ -115,7 +116,7 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
 export function insightsSummary(ctx: Ctx, input: InsightsInput) {
   const { from, to, repo, bucket } = input;
   const current = period(ctx, from, to, repo, bucket), span = to - from, previous = period(ctx, from - span, from, repo, bucket);
-  const { rootIds: _a, ...cur } = current, { rootIds: _b, ...prev } = previous;
+  const cur = current, prev = previous;
   return {
     from, to, bucket, ...(repo ? { repo } : {}), ...cur,
     // Planner tokens are not measured yet: clients show "Planner: not measured" and hide "ran outside the planner".

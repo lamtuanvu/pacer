@@ -67,13 +67,13 @@ export function Insights({ query }: { query: RouteQuery }) {
   return <Page width="full" className="pc-page--insights"><Stack space="section">
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
-      <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
+      <SegmentedControl variant="insights" label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
       <SearchPicker label={query.repo ? `Repo · ${repos.find(r => r.key === query.repo)?.label ?? query.repo}` : `All repos · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
         value={query.repo || null} onChange={goRepo} options={[{ value: null, label: "All repos" }, ...repos.map(r => ({ value: r.key, label: r.label, searchText: `${r.label} ${r.key}` }))]} />
       {csv && s ? <ButtonLink href={csv} download={`pacer-insights-${new Date(s.from * 1000).toISOString().slice(0, 10)}.csv`}>Export CSV</ButtonLink> : <Button disabled>Export CSV</Button>}
     </header>
     {result.error && <ErrorMessage error={result.error} />}
-    {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No root task settled and no attempt ended. Try a longer period." /> : <>
+    {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
       <Card className="pc-insights__summary">
         <div className="pc-insights__headline"><strong>{compact(total)} tokens went to executors{s.tokens.lowerBound ? " (at least)" : ""}, and planner tokens are not measured yet.</strong>
           <span>{s.tokens.measuredAttempts} {s.tokens.measuredAttempts === 1 ? "attempt" : "attempts"} measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
@@ -81,7 +81,6 @@ export function Insights({ query }: { query: RouteQuery }) {
           <div className="pc-insights__stripe" role="img" aria-label="Planner share is not measured" />
           <span className="pc-insights__caption"><b>Not measured</b> for planning and review · <b>{compact(total)}</b> on executors</span></div>
       </Card>
-      <p className="pc-insights__caption">Root tasks count roots first settled in this period; subtasks count all tasks split from those roots.</p>
       <section aria-label="Key numbers" className="pc-insights__kpis">
         <Kpi label="Root tasks" value={String(s.rootTasksHandled)} {...change(s.rootTasksHandled, prev!.rootTasksHandled, "good")} note={prev!.rootTasksHandled || s.rootTasksHandled ? versusWord : undefined} />
         <Kpi label="Subtasks" value={String(s.subtasks)} delta={s.rootTasksHandled ? `${(s.subtasks / s.rootTasksHandled).toFixed(1)}×` : undefined} note="fan-out" />
@@ -103,8 +102,8 @@ export function Insights({ query }: { query: RouteQuery }) {
           <tbody>{days.map(d => <tr key={d.at}><th scope="row">{fullDay(d.at)}</th>{agents.map(a => <td key={a}>{compact(series.data!.daily.find(x => x.at === d.at)?.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></div>}
       </section>
       <section className="pc-insights__card pc-insights__card--flush" aria-labelledby="agents-h">
-        <div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">Counts below use attempts ended in this period: root tasks count distinct roots reached by each agent, and subtasks count distinct child tasks it ran. These can include roots still running or first settled in another period; a root can appear for several agents.</span></div>
-        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><table className="pc-insights__table"><caption className="sr-only">Agents ranked by tokens</caption>
+        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">Distinct roots and subtasks · attempts ended in this period</span></div>
+        <table className="pc-insights__table pc-insights__agents"><caption className="sr-only">Agents ranked by tokens</caption>
           <thead><tr><th scope="col">Agent</th><th scope="col">Root tasks</th><th scope="col">Subtasks</th><th scope="col">Attempts</th><th scope="col">Tokens</th><th scope="col">Share</th><th scope="col">Per task</th><th scope="col">Accepted</th><th scope="col">Budget</th></tr></thead>
           <tbody>{s.spread.map(g => { const slot = agentSlot(g.agent), budget = budgetOf(g.agent, accounts.data), accept = g.acceptanceRate;
             return <tr key={g.agent}>
@@ -119,8 +118,8 @@ export function Insights({ query }: { query: RouteQuery }) {
       <div className="pc-insights__pair">
         <section className="pc-insights__card" aria-labelledby="kind-h"><h2 id="kind-h">Who got which kind of work</h2><span className="pc-insights__caption">Tasks by kind and agent · darker = more</span>
           {s.kindByAgent.length ? <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Task kinds table, scrollable"><table className="pc-insights__table pc-insights__heat"><caption className="sr-only">Tasks by kind and agent</caption>
-            <thead><tr><th scope="col">Kind</th>{agents.map(a => <th scope="col" key={a} aria-label={label(a)}><AgentMark agent={a} size={20} labelled={false} /></th>)}</tr></thead>
-            <tbody>{s.kindByAgent.map(k => <tr key={k.kind}><th scope="row">{k.kind}</th>{agents.map(a => { const n = k.byAgent[a] ?? 0; return <td key={a} className={`pc-insights__cell pc-insights__cell--${n === 0 ? 0 : n < 4 ? 1 : n < 10 ? 2 : 3}`}>{n}</td>; })}</tr>)}</tbody></table></div>
+            <thead><tr><td aria-hidden="true" />{agents.map(a => <th scope="col" key={a} aria-label={label(a)}><AgentMark agent={a} size={20} labelled={false} /></th>)}</tr></thead>
+            <tbody>{s.kindByAgent.map(k => <tr key={k.kind}><th scope="row" title={k.kind}>{k.kind}</th>{agents.map(a => { const n = k.byAgent[a] ?? 0; return <td key={a} className={`pc-insights__cell pc-insights__cell--${n === 0 ? 0 : n < 4 ? 1 : n < 10 ? 2 : 3}`}>{n}</td>; })}</tr>)}</tbody></table></div>
             : <p className="pc-insights__caption">No attempts in this period.</p>}
         </section>
         <section className="pc-insights__card" aria-labelledby="ladder-h"><h2 id="ladder-h">How the dispatcher decided</h2><span className="pc-insights__caption">{s.ladder.reduce((n, l) => n + l.count, 0)} decisions · which ladder step picked the agent</span>

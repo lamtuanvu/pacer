@@ -27,13 +27,13 @@ const mk = (ctx: ReturnType<typeof fakeCtx>, goal: string, parent?: string) => {
   registerWork(ctx, t.id, parent ? {} : { allowDelegation: true }, parent); if (!parent) updateTask(ctx, t.id, x => { x.state = "running"; }); return t;
 };
 
-test("root tasks are handled once, at their first settle, and retries do not recount them", () => {
+test("root tasks count distinct roots with ended attempts in each period", () => {
   const ctx = fakeCtx(), root = mk(ctx, "r");
   settle(ctx, root.id, 86400, false, [attempt("codex", 86400, tok("partial", 100))]);
   ctx.now = 3 * 86400; updateTask(ctx, root.id, t => { t.state = "running"; });
   settle(ctx, root.id, 4 * 86400, true, [attempt("claude-code", 4 * 86400, tok("measured", 50))]);
   const early = insightsSummary(ctx, input({ from: 0, to: 2 * 86400 })), later = insightsSummary(ctx, input({ from: 3 * 86400, to: 5 * 86400 }));
-  expect([early.rootTasksHandled, later.rootTasksHandled]).toEqual([1, 0]);
+  expect([early.rootTasksHandled, later.rootTasksHandled]).toEqual([1, 1]);
   expect(later.tokens.total).toBe(50);
 });
 
@@ -83,4 +83,24 @@ test("input is validated", () => {
   expect(insightsInputSchema.safeParse({ from: 5, to: 5 }).success).toBe(false);
   expect(insightsInputSchema.safeParse({ from: 0, to: 999 * 86400 }).success).toBe(false);
   expect(insightsInputSchema.safeParse({ from: 0, to: 10, bucket: "year" }).success).toBe(false);
+});
+
+test("workload KPIs are the union of agent rows, including running and previously settled roots", () => {
+  const ctx = fakeCtx(), running = mk(ctx, "running"), old = mk(ctx, "old");
+  const child = mk(ctx, "child", running.id), unrun = mk(ctx, "no ended attempt", running.id);
+  settle(ctx, old.id, 100, false, [attempt("codex", 100, tok("measured", 1))]);
+  settle(ctx, old.id, 400, true, [attempt("claude-code", 400, tok("measured", 10))]);
+  settle(ctx, child.id, 450, null, [attempt("codex", 420, tok("partial", 20)), attempt("claude-code", 450, tok("measured", 30))]);
+  // Boundary rows are excluded, and a child without an ended attempt is never counted.
+  settle(ctx, unrun.id, 600, null, [attempt("codex", 600, tok("measured", 99))]);
+  const s = insightsSummary(ctx, input({ from: 200, to: 600 }));
+  expect(readTask(ctx, running.id)!.state).toBe("running");
+  expect([s.rootTasksHandled, s.subtasks, s.tokens.attempts]).toEqual([2, 1, 3]);
+  expect(s.spread.map(g => [g.agent, g.rootTasks, g.subtasks])).toEqual([["claude-code", 2, 1], ["codex", 1, 1]]);
+  // Shared tasks belong to each agent row but only once to the global union.
+  expect(s.spread.reduce((n, g) => n + g.rootTasks, 0)).toBe(3);
+  expect(s.spread.reduce((n, g) => n + g.subtasks, 0)).toBe(2);
+  expect([s.previous.rootTasksHandled, s.previous.subtasks]).toEqual([1, 0]);
+  const oneAgent = insightsSummary(ctx, input({ from: 420, to: 450 }));
+  expect([oneAgent.rootTasksHandled, oneAgent.subtasks]).toEqual([oneAgent.spread[0]!.rootTasks, oneAgent.spread[0]!.subtasks]);
 });

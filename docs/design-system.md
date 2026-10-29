@@ -388,3 +388,14 @@ Reload errors leave the last loaded list and inline operation feedback visible.
 ### ActionMenu
 
 `ActionMenu({ label, items: [{ label, onSelect }] })` is the compact overflow menu used by Plugins cards. Its DS Button trigger uses the three-circle `more` SVG icon, measures 32px on desktop, and honours `--control-touch` on coarse pointers and narrow screens. It owns its trigger, menu semantics, arrow/Home/End navigation, Escape/outside dismissal and return focus. Enter/Space use native buttons; Tab closes the menu and continues through the page. Styles load with its lazy consumer through an adopted stylesheet. It is authored in-repo, with no upstream dependency. SettingsNav items may set `plugin: true` to show a text marker, included in their accessible name as “, plugin”.
+
+### Insights board
+
+`SegmentedControl variant="insights"` retains pressed-button semantics and keyboard
+behavior, with 3px group padding, 8px group radius and 32px segments. Narrow
+viewports and coarse pointers use the shared touch target token (48px). Only the
+Insights Period filter uses this additive variant; other densities are unchanged.
+The screen owns its chart and semantic tables in `insights.css`: agent rows use
+the board's fixed numeric columns and flexible Agent/Share columns, while the
+kind matrix keeps a 76px row-label column with full labels available by title.
+Provisional board dimensions live in `tokens.local.json`.

@@ -1,4 +1,4 @@
-.pc-page--insights{padding:var(--space-7) var(--space-10) var(--space-12);max-width:var(--size-1240)}
+.pc-page--insights{padding:var(--space-7) var(--space-10) var(--space-12);max-width:var(--size-1240);margin-inline:0 auto}
 .pc-insights__label{font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted);margin:0}
 .pc-insights__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-insights__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
@@ -20,7 +20,7 @@
 .pc-insights__card--flush{padding:0;gap:0;overflow:hidden}
 .pc-insights__cardhead{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4)}
 .pc-insights__cardhead h2{flex-grow:1}
-.pc-insights__cardhead--bar{padding:calc(var(--space-1) * 3.5) var(--space-5);background:var(--surface-card);border-bottom:1px solid var(--line);gap:var(--space-2)}
+.pc-insights__cardhead--bar{min-width:var(--size-860);flex-wrap:nowrap;white-space:nowrap;padding:calc(var(--space-1) * 3.5) var(--space-5);background:var(--surface-card);border-bottom:1px solid var(--line);gap:var(--space-2)}
 .pc-insights__legend{display:flex;flex-wrap:wrap;gap:var(--space-1\.5) var(--space-4);list-style:none;padding:0;margin:0;font-size:var(--type-caption-size)}
 .pc-insights__legend li,.pc-insights__agent{display:inline-flex;align-items:center;gap:var(--space-2)}
 .pc-insights__legend li{gap:var(--space-1\.5)}
@@ -58,8 +58,10 @@ progress.pc-insights__c0::-moz-progress-bar{background:var(--chart-1)}progress.p
 progress.pc-insights__c0,progress.pc-insights__c1,progress.pc-insights__c2,progress.pc-insights__c3,progress.pc-insights__c4,progress.pc-insights__c5{background:var(--surface-lane)}
 .pc-insights__p-1::-webkit-progress-value{background:var(--good-fill)}.pc-insights__p-2::-webkit-progress-value{background:var(--warn-fill)}.pc-insights__p-P::-webkit-progress-value{background:var(--chart-2)}.pc-insights__p-Q::-webkit-progress-value{background:var(--ink-muted)}
 .pc-insights__p-1::-moz-progress-bar{background:var(--good-fill)}.pc-insights__p-2::-moz-progress-bar{background:var(--warn-fill)}.pc-insights__p-P::-moz-progress-bar{background:var(--chart-2)}.pc-insights__p-Q::-moz-progress-bar{background:var(--ink-muted)}
-.pc-insights__heat{min-width:0}
+.pc-insights__heat{min-width:0;table-layout:fixed}
+.pc-insights__heat tr>:first-child{width:var(--size-76);padding-inline:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-insights__heat thead th{text-align:center}
+.pc-insights__heat thead td{border-top:0;padding:0}
 .pc-insights__heat td.pc-insights__cell{text-align:center;border-top:0;font-weight:var(--type-body-strong-weight);border-radius:var(--radius-sm);height:calc(var(--space-1) * 8.5);padding-block:0;background-clip:padding-box}
 .pc-insights__table.pc-insights__heat tbody th{border-top:0;padding-block:0;font-weight:var(--type-body-strong-weight)}
 .pc-insights__cell--0{background:var(--surface-card);color:var(--ink-muted)}
@@ -77,3 +79,14 @@ progress.pc-insights__c0,progress.pc-insights__c1,progress.pc-insights__c2,progr
 .pc-insights__skiplist{gap:var(--space-2)}
 .pc-insights__skiplist li{display:flex;align-items:center;gap:var(--space-2)}
 .pc-insights__why{flex-grow:1}
+
+.pc-insights__kpi:last-child{border-right:0}
+.pc-insights__agents{display:block;min-width:calc(var(--size-180) + var(--size-140) + var(--size-70) * 2 + var(--size-80) * 2 + var(--size-90) * 2 + var(--size-110) + var(--space-3) * 8 + var(--space-5) * 2)}
+.pc-insights__agents thead,.pc-insights__agents tbody{display:block}
+.pc-insights__agents tr{display:grid;grid-template-columns:minmax(var(--size-180),1.4fr) var(--size-70) var(--size-80) var(--size-70) var(--size-80) minmax(var(--size-140),1fr) var(--size-90) var(--size-90) var(--size-110);gap:var(--space-3);align-items:center;padding:var(--space-2) var(--space-5)}
+.pc-insights__agents tr>*{min-width:0}
+.pc-insights__agents tbody tr{border-top:1px solid var(--surface-lane)}
+.pc-insights__agents thead th,.pc-insights__agents td,.pc-insights__agents tbody th,.pc-insights__agents th:first-child{padding:0;border-top:0}
+.pc-insights__agents .pc-insights__share{display:flex}
+.pc-insights__agents .pc-insights__share progress{width:0;min-width:0}
+@media(max-width:480px){.pc-insights__days li:nth-child(odd){visibility:hidden}}

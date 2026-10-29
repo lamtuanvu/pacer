@@ -56,7 +56,7 @@ for (const [width, scheme] of [[375, "light"], [375, "dark"], [768, "light"], [1
 }
 
 for (const measured of [1, 3]) {
-  browserTest(`Insights explains the task count cohorts and pluralizes ${measured} measured attempts`, async () => {
+  browserTest(`Insights keeps the table caption short and and pluralizes ${measured} measured attempts`, async () => {
     const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
     try {
       await page.goto(`${server.url}?measured=${measured}`);
@@ -64,8 +64,41 @@ for (const measured of [1, 3]) {
       const copy = await page.locator(".pc-insights__headline").textContent();
       expect(copy).toContain(`${measured} ${measured === 1 ? "attempt" : "attempts"} measured`);
       const captions = await page.locator(".pc-insights__caption").allTextContents();
-      expect(captions).toContain("Root tasks count roots first settled in this period; subtasks count all tasks split from those roots.");
-      expect(captions.some(text => text.includes("Counts below use attempts ended in this period") && text.includes("roots still running or first settled in another period") && text.includes("a root can appear for several agents"))).toBe(true);
+      expect(captions).toContain("Distinct roots and subtasks · attempts ended in this period");
+      expect(captions.some(text => text.includes("first settled"))).toBe(false);
+    } finally { await page.close(); }
+  });
+}
+
+for (const width of [375, 1440]) {
+  browserTest(`Insights board geometry and readable day labels at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    try {
+      await page.goto(String(server.url));
+      await page.getByRole("heading", { name: "Agents, ranked by tokens" }).waitFor();
+      const labels = await page.locator(".pc-insights__days li").evaluateAll(nodes => nodes.filter(n => getComputedStyle(n).visibility !== "hidden").map(n => {
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        const r = range.getBoundingClientRect();
+        return { left: r.left, right: r.right };
+      }));
+      expect(labels).toHaveLength(width === 375 ? 7 : 14);
+      for (let i = 1; i < labels.length; i++) expect(labels[i]!.left).toBeGreaterThanOrEqual(labels[i - 1]!.right);
+      expect(await page.locator(".sr-only table tbody tr").count()).toBe(14);
+      const buttons = await page.getByRole("group", { name: "Period" }).getByRole("button").evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().height));
+      expect(buttons.every(h => h === (width === 375 ? 48 : 32))).toBe(true);
+      const group = await page.getByRole("group", { name: "Period" }).evaluate(n => ({ padding: getComputedStyle(n).padding, radius: getComputedStyle(n).borderRadius }));
+      expect(group).toEqual({ padding: "3px", radius: "8px" });
+      const matrix = page.locator(".pc-insights__heat");
+      expect(await matrix.locator("thead").textContent()).not.toContain("Kind");
+      expect(await matrix.locator("tbody th").first().evaluate(n => n.getBoundingClientRect().width)).toBe(76);
+      if (width === 1440) {
+        expect(await page.locator(".pc-page--insights").evaluate(n => n.getBoundingClientRect().left)).toBe(0);
+        const cols = await page.locator(".pc-insights__agents thead th").evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().width));
+        expect([cols[1], cols[2], cols[3], cols[4], cols[6], cols[7], cols[8]]).toEqual([70, 80, 70, 80, 90, 90, 110]);
+        const header = await page.locator(".pc-insights__cardhead--bar").evaluate(n => Array.from(n.children).map(c => c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2));
+        expect(header[0]).toBe(header[1]);
+      }
     } finally { await page.close(); }
   });
 }

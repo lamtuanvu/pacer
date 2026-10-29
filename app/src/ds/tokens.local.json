@@ -209,6 +209,21 @@
         "value": "9px",
         "usage": "Flush TaskCard row vertical padding.",
         "provisional": "Dispatch board value; not yet in the design system."
+      },
+      {
+        "name": "size-76",
+        "value": "76px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-90",
+        "value": "90px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-860",
+        "value": "860px",
+        "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
       }
     ]
   },

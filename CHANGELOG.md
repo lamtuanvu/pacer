@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Add the Insights screen and the read operation `insights.summary`: root tasks handled, subtasks, retries, accepted first try, tokens with coverage, the spread per agent, a daily series, task kinds by agent and the dispatcher's ladder rules and skip reasons, compared with the previous period. A first-settle index keeps retried tasks from being counted twice.
+- Add the Insights screen and the read operation `insights.summary`: root tasks handled, subtasks, retries, accepted first try, tokens with coverage, the spread per agent, a daily series, task kinds by agent and the dispatcher's ladder rules and skip reasons, compared with the previous period. Workload counts use distinct roots and child tasks from attempts ended in the period, matching the union of the agent rows. Acceptance and retry counts retain the first-settle cohort. Narrow chart labels no longer collide; Insights table columns, frame and period control follow the board.
 
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 
