@@ -918,6 +918,31 @@ test("answering an interactive lane with a live worker delivers the answer live 
   expect(readTask(x.ctx, retry.id)?.live).toBeUndefined();
 });
 
+test("stopping an answered group lane removes its original worktree and empty group parent", async () => {
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const x = ref.x = setup([
+    [O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})],
+    agentInForeground,
+    [O("terminal", "send"), envelope({})],
+    [O("orchestration", "check"), () => {
+      updateTask(x.ctx, retry.id, t => { t.state = "stopped"; });
+      return envelope({messages: []});
+    }],
+    ...groupLaneShows(ref, state),
+  ], {}, {}, laneGit(() => ref.x!.root, 0));
+  updateOrcaState(x.ctx, s => { s.groups["repo-1:feature-x"] = {selector: "path:/work/pacer-group-feature-x"}; });
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.interactive = true; t.group = "feature-x"; t.baseBranch = "main"; });
+  const retry = answerOf(x, asked, "go with B");
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, retry);
+  expect(out.worktree).toBeUndefined();
+  expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree")))
+    .toEqual([`id:${x.wt}`, "id:repo-1::/work/pacer-group-feature-x"]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({});
+  expect(readTask(x.ctx, asked.id)?.state).not.toBe("needs_input");
+  expect(readTask(x.ctx, asked.id)?.dismissed).toBe(true);
+});
+
 test("a second question and answer reattach to the same worker again, and pacer send reaches it after an answer", async () => {
   const x = setup([
     [O("orchestration", "worker-show"), envelope({worker: {state: "running"}})], agentInForeground,
@@ -1232,12 +1257,12 @@ test("pacer stop on a kept-alive group lane also removes its unused worktree and
   expect(loadOrcaState(x.ctx).groups).toEqual({});
 });
 
-test("an idle-expired lane's worker is released but its worktree stays", async () => {
+test("an idle-expired lane releases its unused worktree", async () => {
   const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
   const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
   const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
   askedLane(x);
   await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, [x.backend]);
   expect(workerStops(x)).toBe(1);
-  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+  expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"))).toEqual([`id:${x.wt}`]);
 });

@@ -237,11 +237,11 @@ export async function liveAgentProblem(c: OrcaClient, live: LiveWorker): Promise
  * worktree with work stays for review and `pacer clean`. Returns whether the worktree was removed. Never throws.
  */
 async function releaseStoppedLane(
-  ctx: Ctx, c: OrcaClient, task: TaskRecord, w: OwnedWorktree | null, log: (line: string) => void, sleep?: (ms: number) => Promise<void>,
+  ctx: Ctx, c: OrcaClient, task: TaskRecord, w: OwnedWorktree | null, log: (line: string) => void, sleep?: (ms: number) => Promise<void>, settled = false,
 ): Promise<boolean> {
   try {
     const current = readTask(ctx, task.id);
-    if (!w || current?.state !== "stopped" || current.interactionMode !== "conversation") return false;
+    if (!w || !current || (current.state !== "stopped" && !settled) || current.interactionMode !== "conversation") return false;
     const unchanged = await worktreeUnchanged(ctx, w.path, current.baseSha ?? current.baseBranch);
     if (unchanged !== true) {
       log(`kept the stopped lane's Orca worktree ${w.id}: ${unchanged === false ? "it holds work" : "git could not tell whether it holds work"}; pacer clean removes it after review`);
@@ -261,7 +261,7 @@ async function releaseStoppedLane(
 
 /** The pacer-created lane worktree a live worker runs in, identified through Orca by its path and lane name. */
 async function liveLaneWorktree(ctx: Ctx, c: OrcaClient, task: TaskRecord, live: LiveWorker): Promise<OwnedWorktree | null> {
-  const recorded = loadOrcaState(ctx).workers[live.worker]?.worktree ?? task.worktree;
+  const recorded = loadOrcaState(ctx).workers[live.worker]?.worktree ?? readTask(ctx, task.id)?.worktree ?? task.worktree;
   if (!recorded || realpathSafe(recorded) === realpathSafe(task.brief.repo)) return null;
   const top = await ctx.run(["git", "-C", recorded, "rev-parse", "--show-toplevel"], 10_000);
   const path = top.code === 0 ? top.stdout.trim() : "";
@@ -284,11 +284,14 @@ async function releaseLive(ctx: Ctx, c: OrcaClient, task: TaskRecord, why: strin
   const closed = await closeCreatedTerminal(c, live.terminal);
   log(`closed pacer terminal ${live.terminal}: ${closed.failure ?? "ok"}`);
   if (!closed.proof) await recordUnclosed(ctx, task.id, live.terminal, log);
-  const lane = readTask(ctx, task.id)?.state === "stopped" ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
+  const current = readTask(ctx, task.id);
+  const releaseLane = current?.state === "stopped" || (current?.state === "needs_input" && why === "idle limit reached while waiting for an answer")
+    || current?.state === "done" || current?.state === "partial" || current?.state === "failed" || current?.state === "limit";
+  const lane = releaseLane ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[live.worker]; }); });
   updateTask(ctx, task.id, t => { if (t.live?.worker === live.worker) delete t.live; });
   taskActivity(ctx, task, "message", `Stopped the live ${live.agent} worker: ${why}`);
-  await releaseStoppedLane(ctx, c, task, lane, log);
+  await releaseStoppedLane(ctx, c, task, lane, log, undefined, releaseLane);
 }
 
 /**
@@ -328,8 +331,21 @@ async function reattachOrcaAttempt(
   const log = (line: string) => { lines.push(line); };
   // The answering attempt takes ownership, so `pacer send` and the next answer find the worker under this task.
   const owned = { ...live, since: ctx.now };
-  if (reattach.asked.id !== task.id) updateTask(ctx, reattach.asked.id, t => { if (t.live?.worker === dispatchId) delete t.live; });
-  updateTask(ctx, task.id, t => { t.live = owned; if (worktree) t.worktree = worktree; });
+  if (reattach.asked.id !== task.id) updateTask(ctx, reattach.asked.id, t => {
+    if (t.live?.worker === dispatchId) delete t.live;
+    t.state = "partial";
+    if (t.result) t.result = { ...t.result, status: "partial", report: `${t.result.report}\nSuperseded by answer task ${task.id}.` };
+    t.dismissed = true;
+    t.settledAt = ctx.now;
+  });
+  updateTask(ctx, task.id, t => {
+    t.live = owned;
+    if (worktree) t.worktree = worktree;
+    t.group = reattach.asked.group;
+    t.baseBranch = reattach.asked.baseBranch;
+    t.baseSha = reattach.asked.baseSha;
+    t.placement = reattach.asked.placement;
+  });
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { if (s.workers[dispatchId]) s.workers[dispatchId].taskId = task.id; }); });
   const answerText = task.brief.qa?.at(-1)?.a;
   if (answerText) {
@@ -396,6 +412,8 @@ async function reattachOrcaAttempt(
       book("live worker", () => updateTask(ctx, task.id, t => { if (t.live?.worker === dispatchId) delete t.live; }));
     }
   }
+  const lane = !keepAlive ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
+  const removed = !keepAlive && await releaseStoppedLane(ctx, c, task, lane, log, deps.sleep, m.settled);
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
   const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
   const reason = brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
@@ -404,7 +422,7 @@ async function reattachOrcaAttempt(
   const logFile = join(dir, `${task.id}.${cfg.id}.log`);
   await Bun.write(logFile, `${lines.join("\n")}\n--- summary\n${m.summary}\n--- worker output (tail)\n${tailText}\n`);
   return {
-    exec, report: tail(m.summary, REPORT_CHARS), backend: "orca", ...(worktree ? { worktree } : {}),
+    exec, report: tail(m.summary, REPORT_CHARS), backend: "orca", ...(!removed && worktree ? { worktree } : {}),
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt, ...(reason ? { brokenReason: reason } : {}),
       exitCode: m.code, timedOut: m.timedOut, limitHit: !reason && detectLimit(cfg.id, exec), log: logFile,
