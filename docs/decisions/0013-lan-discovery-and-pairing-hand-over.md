@@ -14,7 +14,7 @@ A user with pacer on several machines on one LAN has to find and pair them by ha
 - **Untrusted values.** Discovered names are shown as unverified and sanitized. They are never used to build URLs or commands. Prompts are rate-limited and can be silenced per discovery id or per network. Only an interactive local client can answer a prompt.
 - **Neutral pairing extension point.** A plugin that declares `contributes.pairing` receives **Pair** as a `pairing.start` call. The host keeps no list of plugin ids. When no plugin declares it, **Pair** opens a local page that explains machine pairing in neutral terms and says that pairing is provided by plugins. The page lists no plugins.
 - **The host computes the SAS.** Pairing must use commit-then-reveal: both sides fix their machine id and certified transport key first, the initiator commits to its nonce and both identities and keys, and only then are nonces exchanged. Each plugin hands the transcript to its host. The host checks it, rejects reused nonces, checks its own slot and both transport-key certificates, recomputes the commitment and computes and renders a 6-digit SAS with the tiers being granted. Only after the user confirms on both machines does the host record the peer as confirmed, which minting a peer credential requires.
-- **Off switch.** Discovery can be turned off in config and in settings.
+- **Off switch.** Discovery can be turned off on this machine and in settings (implemented as machine-local state, see below).
 - **Never blocks or degrades open features.** Discovery and pairing are additive. With discovery off, or with no pairing plugin, every open feature works as before.
 
 ## Consequences
@@ -23,5 +23,15 @@ A user with pacer on several machines on one LAN has to find and pair them by ha
 - An attacker in the network path cannot grind a matching SAS by generating keys, because the commitment fixes both keys before any nonce is revealed. A plugin that lies to its host is outside the threat model.
 - The open host may describe that plugins provide pairing, in neutral terms, without naming or recommending any.
 - How a network is identified on wired or VPN links without a gateway MAC or SSID is still open.
+
+## Implemented with deviations (2026-10-30)
+
+The implementation follows this decision with these differences, recorded in [.project/decisions.md](../../.project/decisions.md):
+
+- **Off switch.** The switch is machine-local state in `$PACER_HOME/discovery/state.json` (`discovery.set`, `pacer discovery on|off` and the Settings switch), not a config key, so it works before `pacer setup`. An unreadable state file leaves discovery off.
+- **Network identity.** On macOS the router is identified by the default IPv6 router's link-local address (or, without one, the router advertisement's source), falling back to the gateway's hardware address. On Wi-Fi a hash of the gateway IPv4 address and the SSID lets a known network keep its answer when the router identity changes. Linux uses the gateway's hardware address.
+- **IPv4 only.** The responder (`pacer-mdns`) advertises and listens over IPv4 only, on the default route's interface.
+- **On-link rules.** "Answers only link-local sources" is implemented as: packets whose source is outside the interface's IPv4 subnet or 169.254.0.0/16 are dropped, only multicast queries from port 5353 are answered and answers go to the multicast group. The IP TTL is not checked, so a forged on-link source can still deliver a one-way announcement.
+- **Bounds.** At most 256 found machines are kept and those not seen for 30 days expire. A successful hand-over closes the found-machine prompt.
 
 Spec: [machine peers](../specs/2026-10-28-machine-peers-design.md), sections 8 and 10.

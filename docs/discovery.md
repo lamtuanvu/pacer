@@ -13,7 +13,7 @@ A machine is advertised only on networks you allowed. Its record (mDNS service `
 | `v` | The pacer version. |
 | `h` | Optional, opaque hints from an enabled pairing plugin, at most 200 bytes. |
 
-The whole record is at most 400 bytes. It never contains the machine id, the OS user name or the host name; the record's host is the discovery id. The default machine name, `pacer-` plus four random characters, keeps the host name out; rename the machine if you want something easier to recognize.
+The whole record is at most 400 bytes. It never contains the machine id, the OS user name or the host name; the record's host is the discovery id. The record's address is the interface's IPv4 address, the one other machines on the link already see; no IPv6 address is published. The default machine name, `pacer-` plus four random characters, keeps the host name out; rename the machine if you want something easier to recognize.
 
 Every pacer with discovery on listens, including on networks it is not advertised on, so it can show you the machines it finds. It listens and advertises only on the interface of the default route (for example `en0` or `wlp2s0`), never on VPN tunnels, container bridges or other interfaces, and it ignores answers heard on any other interface. When the default route moves to another interface, discovery moves with it.
 
@@ -21,9 +21,11 @@ Discovery stays on the local network link. pacer runs its own small mDNS respond
 
 ## Ask once per network
 
-pacer recognizes a network by its router and, on Wi-Fi, its name (SSID); it stores only a hash of the two. On macOS the router is identified by the IPv6 link-local address in its router advertisement, which needs no Local Network permission, and by the default gateway's hardware address only when the router sends no advertisement. On Linux it is the default gateway's hardware address. The first time pacer sees a network it asks once: **Let your other machines find this one on {network}?**, showing the exact name it will advertise, with **Allow** and **Not on this network**. Nothing is advertised until you choose Allow. When pacer cannot identify the network, for example on a VPN-only connection, it neither listens nor advertises there and does not ask.
+pacer recognizes a network by its router and, on Wi-Fi, its name (SSID); it stores only a hash of the two. On macOS the router is identified by its IPv6 link-local address, which needs no Local Network permission: the default IPv6 router's when there is one, otherwise the source of the router advertisement shown for the interface, and the default gateway's hardware address only when there is no advertisement. Mesh nodes and smart-home border routers also send advertisements, so the default router is preferred. On Linux it is the default gateway's hardware address.
 
-To identify the network pacer runs the system's own tools by absolute path, so a service started without `/sbin` on its `PATH` still finds them: `/sbin/route`, `/usr/sbin/ipconfig` and, without a router advertisement, `/usr/sbin/arp` on macOS; `ip` from `/usr/sbin`, `/sbin`, `/usr/bin` or `/bin` and `/usr/bin/nmcli` on Linux.
+The router identity can still change, for example when the advertisement arrives a few seconds after joining. On Wi-Fi, pacer also keeps a hash of the gateway's IPv4 address and the SSID with each network it knows. When a new router identity shows up with the same gateway address and SSID, pacer treats it as the same network and keeps your answer. Networks without an SSID are matched only by their router identity, because many unrelated wired networks share a gateway address. The first time pacer sees a network it asks once: **Let your other machines find this one on {network}?**, showing the exact name it will advertise, with **Allow** and **Not on this network**. Nothing is advertised until you choose Allow. When pacer cannot identify the network, for example on a VPN-only connection, it neither listens nor advertises there and does not ask.
+
+To identify the network pacer runs the system's own tools by absolute path, so a service started without `/sbin` on its `PATH` still finds them: `/sbin/route` (for the IPv4 and IPv6 default routes), `/usr/sbin/ipconfig` and, without a router advertisement, `/usr/sbin/arp` on macOS; `ip` from `/usr/sbin`, `/sbin`, `/usr/bin` or `/bin` and `/usr/bin/nmcli` on Linux.
 
 To change an answer later:
 
@@ -44,8 +46,9 @@ The app's notice and `pacer discovery pair|later|ignore|mute-network` offer all 
 - A machine is offered once per silence period: when it is first seen, and again only if it is still being seen after its last prompt is 7 days old and it is not silenced, for example once a Later has expired. Its prompt stays open for up to 7 days, until you answer it. A machine that was not offered because of the hourly limit is offered the next time it is seen.
 - At most 3 prompts are raised per hour in total, however many machines appear.
 - A muted network raises none.
+- When a pairing plugin accepts Pair, the prompt closes everywhere: in Needs you, in the app's notice and in notifications. pacer records the hand-over, so the machine is offered again only after another 7 days of being seen, like after a Later. When no plugin accepts it, the prompt stays open.
 
-`pacer discovery ls` lists every machine seen, with silenced ones marked.
+`pacer discovery ls` lists the machines seen, most recent first, with silenced ones marked. Anyone on the link can announce many made-up machines, so pacer keeps at most 256 of them, forgets a machine not seen for 30 days and evicts the least recently seen first, keeping machines with an open prompt or a silence. `discovery.list` returns at most the 100 most recently seen.
 
 ### Names are unverified
 
@@ -53,11 +56,13 @@ Anyone on the network can announce any name. pacer shows discovered names as tex
 
 ## Pairing needs a plugin
 
-pacer itself does not pair machines. Pair calls `pairing.start` on the first enabled plugin that provides pairing and accepts it ([plugin protocol](plugin-protocol.md)); the app then says which plugin continues. When no such plugin is installed and enabled, Pair in the app's notice, in Needs you, in the tray and in desktop notifications opens the **Pair machines** page, which says that pairing is provided by plugins and links to Plugins settings, and the CLI says that none is installed.
+pacer itself does not pair machines. Pair calls `pairing.start` on the first enabled plugin that provides pairing and accepts it ([plugin protocol](plugin-protocol.md)); the app then says which plugin continues. Plugins are tried in turn within 10 seconds in total; a plugin that fails, times out or returns an invalid result is skipped and the reason is written to its plugin log. When no such plugin is installed and enabled, Pair in the app's notice, in Needs you, in the tray and in desktop notifications opens the **Pair machines** page, which says that pairing is provided by plugins and links to Plugins settings, and the CLI says that none is installed.
 
 ## Turn discovery off
 
-`pacer discovery off`, or the **Find machines on this network** switch in Settings › Machines, stops both listening and advertising and closes the open prompts. `pacer discovery on` turns it back on; your per-network answers are kept. The switch belongs to this machine, not to the routing strategy: it is kept in `$PACER_HOME/discovery/state.json`, so it works on a fresh install before `pacer setup`. The API operation is `discovery.set { enabled }`.
+`pacer discovery off`, or the **Find machines on this network** switch in Settings › Machines, stops both listening and advertising and closes the open prompts. `pacer discovery on` turns it back on; your per-network answers are kept. The switch belongs to this machine, not to the routing strategy: it is kept in `$PACER_HOME/discovery/state.json`, so it works on a fresh install before `pacer setup`. The API operation is `discovery.set { enabled }`. If that file exists but cannot be read, discovery stays off and `pacer discovery ls` and `discovery.list` say so (`warning`); turning discovery on again starts over with a fresh file.
+
+Discovery is part of client protocol 3 only. Protocol 2 clients get none of its operations, events, attention items or notifications, and their attention counts leave discovery items out.
 
 ## Where discovery runs
 

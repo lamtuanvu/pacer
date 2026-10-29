@@ -465,19 +465,19 @@ Every pacer home has a machine identity: a long-lived key, an id derived from it
 - `pacer machine rename <name> [--json]` changes the name. Names are display-only (1–64 characters; control and bidirectional characters are removed) and never change the id. A rename that races another client fails with `conflict`.
 - `pacer machine rotate --yes [--json]` replaces the key, prints the old and new ids, and forgets every plugin's recorded transport key. Machines paired with the old id must be told or pair again. Without `--yes` it refuses and exits 2.
 
-The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Through the API, executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
+The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`, through the API or the CLI: `pacer machine rename` and `rotate` exit 2 when `PACER_ROLE=executor`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
 
 ## Discovery
 
 pacer machines on the same local network can notice each other and offer to pair. Names and versions they announce are unverified. See [LAN discovery](discovery.md) for what is advertised and how prompts are limited.
 
-- `pacer discovery ls [--json]` shows whether this machine is advertised on the current network, under which name, and the pacer machines found (`<id prefix>  <name>  <version>`, marked `silenced` when you answered Later or Ignore).
+- `pacer discovery ls [--json]` shows whether this machine is advertised on the current network, under which name, and up to 100 of the pacer machines found, most recent first (`<id prefix>  <name>  <version>`, marked `silenced` when you answered Later or Ignore). It prints a warning when discovery's state file could not be read and discovery was turned off.
 - `pacer discovery on|off [--json]` turns listening and advertising on or off on this machine. It works before `pacer setup`, because the switch is kept in discovery's own state, not in the strategy.
 - `pacer discovery pair|later|ignore <id-prefix>` answers a found machine. The prefix must match exactly one machine; otherwise the command exits 2. `pair` hands the machine to a plugin that provides pairing, or says that none is installed. `later` silences it for 7 days and `ignore` permanently.
 - `pacer discovery mute-network` stops prompts on the current network.
 - `pacer discovery network [--advertise on|off] [--json]` lists the networks you answered for, marking the current one with `*`, or sets whether this machine is advertised on the current network. It exits 2 when the current network is unknown.
 
-The API equivalents are `discovery.list`, `discovery.set { enabled, expect_rev? }`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`, where `expect_rev` is the `networksRev` that `discovery.list` and `discovery.network.get` return; machines seen on the LAN do not change it. Executor sessions may read but not call `discovery.set`, `discovery.respond` or `discovery.network.set`.
+The API equivalents are `discovery.list`, `discovery.set { enabled, expect_rev? }`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`, where `expect_rev` is the `networksRev` that `discovery.list` and `discovery.network.get` return; machines seen on the LAN do not change it. Executor sessions may read but not call `discovery.set`, `discovery.respond` or `discovery.network.set`: `pacer discovery on|off|pair|later|ignore|mute-network` and `network --advertise` exit 2 when `PACER_ROLE=executor`.
 
 ## Pause and resume delegation
 

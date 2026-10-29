@@ -178,11 +178,13 @@ Requests with a peer credential are logged with the peer machine id; owner task 
 
 ## 8. LAN discovery and the pairing prompt
 
-A new open module, `src/discovery/`, presence only. It can be turned off (`discovery: off` in config and a settings toggle).
+A new open module, `src/discovery/`, presence only. It can be turned off with a machine-local switch kept in `$PACER_HOME/discovery/state.json` (`discovery.set`, `pacer discovery on|off` and a settings toggle), so it works before setup; an unreadable state file leaves it off. *(Amended 2026-10-30 to match the implementation; it was `discovery: off` in config.)*
 
-**Advertising asks once per network.** Listening for adverts is always on unless discovery is off. On a network it hasn't seen (identified by the gateway's MAC address and the SSID where available), the host asks once: "Let your other machines find this one on *home-wifi*? It will appear as **pacer-k3x9**." The prompt shows the exact name that will be advertised and offers to change it. It advertises only on networks where the user said yes. The answer is stored per network under `$PACER_HOME/discovery/` (0600, SEC-7) and can be changed in settings.
+**Advertising asks once per network.** Listening for adverts is always on unless discovery is off. On a network it hasn't seen (identified by its router and the SSID where available), the host asks once: "Let your other machines find this one on *home-wifi*? It will appear as **pacer-k3x9**." The prompt shows the exact name that will be advertised and offers to change it. It advertises only on networks where the user said yes. The answer is stored per network under `$PACER_HOME/discovery/` (0600, SEC-7) and can be changed in settings.
 
-**The advert.** mDNS service `_pacer._udp.local`, answering only link-local sources and with bounded record sizes (RFC 6762). The TXT record holds:
+*Network identity (amended 2026-10-30).* On Linux the router is the gateway's MAC address. On macOS it is the default IPv6 router's link-local address, or the router advertisement's source when there is no default IPv6 route, and the gateway's MAC address only without either; this needs no Local Network permission and prefers the main router over mesh nodes and Thread border routers. On Wi-Fi a hash of the gateway IPv4 address and the SSID is stored with each network, and a new router identity with the same hash is recorded as an alias of the known network, so the answer survives a late or changed advertisement. Only hashes are stored.
+
+**The advert.** mDNS service `_pacer._udp.local`, answering only link-local sources and with bounded record sizes (RFC 6762). *(Amended 2026-10-30.)* The responder (`pacer-mdns`) runs over IPv4 only, on the default route's interface. It drops packets whose source is outside that interface's IPv4 subnet or 169.254.0.0/16, answers only multicast queries from port 5353 and sends answers to the multicast group. It does not check the IP TTL, so a host off the link that forges an on-link source can still deliver a one-way announcement but never gets an answer. The host keeps at most 256 found machines, evicting the least recently seen (but not those with an open prompt or a silence), and forgets machines not seen for 30 days. The TXT record holds:
 
 - a random **per-network discovery id** (not the machine id, and rotated when the network's answer is reset),
 - the machine name,
@@ -196,7 +198,8 @@ It never carries the OS user name or the machine id, and the module never opens 
 - the app, desktop notification and `pacer discovery ls` show "Found pacer on **studio-mac** (unverified name)",
 - a warning is added when the name matches a machine already paired,
 - actions: **Pair**, **Later** (silences that discovery id for 7 days), **Not mine** (silences it permanently), **Stop on this network** (no more prompts on this network),
-- at most one prompt per discovery id per silence period, and at most three prompts per hour in total.
+- at most one prompt per discovery id per silence period, and at most three prompts per hour in total,
+- a successful hand-over to a pairing plugin closes the prompt (amended 2026-10-30).
 
 **Operations, events and CLI.** `discovery.list`, `discovery.respond {discoveryId, action}`, `discovery.network.get` and `discovery.network.set {network, advertise, expect_rev}`; the client event `discovery.found`; CLI `pacer discovery ls`, and one verb per action: `pair`, `later`, `ignore` (Not mine) and `mute-network` (Stop on this network); `pacer discovery network` shows and changes advertising per network. `discovery.respond` is callable only by an interactive local client (app cookie session or CLI with the owner token), never with a peer credential or by a plugin.
 
