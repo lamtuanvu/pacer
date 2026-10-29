@@ -11,6 +11,7 @@ import type { Act, Item } from "../state";
 import { blank, defined, empty, GAP, MARK, time, wrapLines, serviceAct } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
 import {workRows} from "./work";
+import { threadActs, threadMessages, threadRows } from "./thread";
 
 export const KINDS = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
 
@@ -61,11 +62,12 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   }:undefined;
   const managedAnswer=managedAnswerAct(ctx,id,rev,detail);
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
+  const { reply, answer } = threadActs(ctx, id, detail);
   return {
     id: `review:${id}`, actions: defined([
       a.kind !== "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed" ? {...accept,label:"Mark accepted (optional verdict)"} : undefined,
-      sendBack, reject, retry, managedAnswer, managedRetry, path]),
-    keys: { ...(acceptAllowed ? {a:accept} : {}), ...(sendBack?{s:sendBack}:{}), r: reject, ...(retry ? { t: retry } : {}), ...(managedAnswer?{a:managedAnswer}:{}), ...(managedRetry?{t:managedRetry}:{}), ...(path ? { o: path } : {}) },
+      sendBack, reject, retry, managedAnswer, managedRetry, path, reply, answer]),
+    keys: { ...(acceptAllowed ? {a:accept} : {}), ...(sendBack?{s:sendBack}:{}), r: reject, ...(retry ? { t: retry } : {}), ...(managedAnswer?{a:managedAnswer}:{}), ...(managedRetry?{t:managedRetry}:{}), ...(path ? { o: path } : {}), ...(reply ? { p: reply } : {}), ...(answer ? { y: answer } : {}) },
   };
 }
 
@@ -149,6 +151,7 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   if (d.cost?.executor) why.push(...wrapLines([], `Cost: ${costCopy(d.cost.executor ?? null)}`, width - 4, { fg: "secondary" }));
   rows.push(...box(theme, `Why ${executorLabel(executor)}`, why, width).map(line => ({ line })));
   if(d.work)rows.push(blank(),...workRows(ctx,d,width));
+  if (ctx.supports("msg.log") && threadMessages(d)) rows.push(...threadRows(ctx, d, threadMessages(d)?.value, width));
 
   // Changes
   rows.push(blank());

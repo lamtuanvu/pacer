@@ -11,6 +11,7 @@ import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
 import { errorRows, managedAnswerAct, reviewDetail, reviewItem } from "./review";
 import {workRows} from "./work";
+import { threadActs, threadMessages, threadRows } from "./thread";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
 const ACTIVE = new Set(["running", "queued"]);
@@ -62,10 +63,11 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   // waiting for its answer is not a result yet, so it gets an answer action instead of verdicts.
   const verdictItem = !active && !asking && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
+  const { reply, answer: threadAnswer } = threadActs(ctx, t.id, detail);
   return {
     id: `session:${t.id}`, primary: watch ?? review ?? answer,
-    actions: [...defined([watch && review, answer && (watch || review) ? answer : undefined, terminal, tmux, stop, dismiss]),...(verdictItem?.actions??[])],
-    keys: { ...verdictItem?.keys, ...(answer ? { a: answer } : {}), ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}) },
+    actions: [...defined([watch && review, answer && (watch || review) ? answer : undefined, terminal, tmux, stop, dismiss, reply, threadAnswer]),...(verdictItem?.actions??[])],
+    keys: { ...verdictItem?.keys, ...(answer ? { a: answer } : {}), ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}), ...(reply ? { p: reply } : {}), ...(threadAnswer ? { y: threadAnswer } : {}) },
   };
 }
 
@@ -155,6 +157,7 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   if (acceptance?.cmd) rows.push(...wrapAfter([], "pacer runs it after the executor exits, records the checks with the result.", width, { fg: "muted" }));
 
   if(d?.work)rows.push(blank(),...workRows(ctx,d,width));
+  if (ctx.supports("msg.log") && threadMessages(d)) rows.push(...threadRows(ctx, d!, threadMessages(d)?.value, width));
   rows.push(blank(), { line: heading(theme, "Timeline") });
   if (resource?.error && !d) rows.push(...errorRows(ctx, resource.error));
   else if (!d) rows.push({ line: [span(ctx.spinner ? `${ctx.spinner} Loading session…` : "Loading session…", { fg: "muted" })] });

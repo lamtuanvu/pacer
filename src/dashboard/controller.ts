@@ -15,6 +15,8 @@ import { updateState, type UpdateState } from "./screens/common";
 import type { SessionPreparation } from "../session/capabilities";
 import { agentInfo } from "../view-model/agents";
 import { machineStep, type MachineKey } from "./screens/settings";
+import type { Message } from "../messaging/types";
+import { threadMessages, type ThreadDetail } from "./screens/thread";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -51,7 +53,7 @@ export class Dashboard {
   /** When the last successful snapshot read finished. */
   private readAt: number | undefined;
   theme: TerminalTheme;
-  data: { history?: DashData["history"]; details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
+  data: { history?: DashData["history"]; details: Map<string, Resource<ThreadDetail> & { stamp?: string; threadStamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
   /** `untilRead` keeps the message until the next successful read, then for the usual 5 s. */
   private message?: { text: string; tone: StatusTone; until: number; untilRead?: boolean };
   private frame = 0;
@@ -139,8 +141,25 @@ export class Dashboard {
       if (current && (current.loading || current.stamp === stamp && (!current.value?.work || current.value.state!=="running"))) continue;
       this.data.details.set(id, { ...current, loading: true, stamp });
       this.track(this.deps.client.call<TaskDetail>("task.get", { id })
-        .then(async value => { if(value.work&&this.supports("dispatch.tree")){try{value.workTree=await this.deps.client.call<NonNullable<TaskDetail["workTree"]>>("dispatch.tree",{id});}catch{}}this.data.details.set(id, { value, stamp }); })
+        .then(async value => { if(value.work&&this.supports("dispatch.tree")){try{value.workTree=await this.deps.client.call<NonNullable<TaskDetail["workTree"]>>("dispatch.tree",{id});}catch{}}const before=this.data.details.get(id);this.data.details.set(id, { ...before, value: { ...value, messages: threadMessages(before?.value) }, stamp, loading:false }); })
         .catch(error => { this.data.details.set(id, { ...this.data.details.get(id), loading: false, stamp, error: errorOf(error) }); }));
+    }
+    if (this.supports("msg.log")) for (const id of view.needs ?? []) {
+      const task = this.snapshot.tasks.find(t => t.id === id);
+      const seq = this.snapshot.seq;
+      const current = this.data.details.get(id);
+      const last = threadMessages(current?.value)?.value?.at(-1)?.id ?? "";
+      const stamp = `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}:${seq}:${last}`;
+      if (current?.threadStamp === stamp || threadMessages(current?.value)?.loading) continue;
+      const value = current?.value ?? { id, state: task?.state ?? "unknown" };
+      this.data.details.set(id, { ...current, value: { ...value, messages: { ...threadMessages(value), loading: true } }, threadStamp: stamp });
+      this.track(this.deps.client.call<{ messages: Message[] }>("msg.log", { task: id })
+        .then(result => { const before = this.data.details.get(id); if (!before) return;
+          this.data.details.set(id, { ...before, value: { ...before.value!, messages: { value: result.messages } }, threadStamp: `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}:${seq}:${result.messages.at(-1)?.id ?? ""}` });
+        })
+        .catch(error => { const before = this.data.details.get(id); if (!before) return;
+          this.data.details.set(id, { ...before, value: { ...before.value!, messages: { value: threadMessages(before.value)?.value, error: errorOf(error) } } });
+        }));
     }
     if (screen === "settings") for (const key of view.settingsNeeds ?? []) {
       if (this.settingsLoaded.has(key)) continue;
