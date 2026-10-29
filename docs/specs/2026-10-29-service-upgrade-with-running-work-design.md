@@ -1,191 +1,121 @@
-# Upgrade the service while work is running
+# Upgrade the service without interrupting running work
 
 Date: 2026-10-29
 
 Status: Proposed. Decision record: [ADR: service upgrade with running work](../decisions/2026-10-29-service-upgrade-with-running-work.md).
 
+This is part B of three. It covers the service and its helper processes when updating with `pacer update`, the `update.apply` operation, or `pacer service restart`/`install`, on macOS and Linux. The other parts:
+- **[Part A](2026-10-29-desktop-fixture-bundle-identifier-design.md)** gives fixture desktop builds their own bundle identifier, so live validation never needs the user's app quit.
+- **[Part C](2026-10-29-desktop-update-with-running-work-design.md)** moves desktop native updates off wait-for-idle and builds on this part.
+
 ## Problem
 
-pacer's upgrade paths treat running work in three different ways, and none of them both upgrades promptly and keeps the work going:
+pacer's upgrade paths disagree about running work:
 
-- **Desktop updates** wait for idle. `reserveIdle` (`src/update/desktop/service.ts`) retries until no task, run, job or lease is active, and blocks new work in the meantime (`beginWorkSync`, `src/update/desktop/admission.ts`). With long agent tasks or an open terminal, the update can wait for hours. The native check `assertNativeProcessCoverage` (`src/update/desktop/native-provider.ts`) also refuses whenever any pacer process is running that is not enrolled work.
-- **`pacer update`, the `update.apply` operation and `pacer service install`/`restart`** restart the service without checking for running work (`src/update/update.ts`, `src/service/index.ts`, `src/api/ops.ts`).
-- **On Linux**, the systemd unit sets no `KillMode`. The default `control-group` mode kills every process in the service's cgroup on restart, including detached task runners and terminal hosts.
+- **Desktop updates** wait until nothing is running (ADR 0001). On a busy machine they can wait for hours.
+- **`pacer update`, `update.apply` and `service restart`/`install`** never check. They replace the binary and restart the service (`src/update/update.ts`, `src/service/index.ts:264`, `src/api/ops.ts`). Nothing records what happens to running work, and nothing tests it.
+- **On Linux**, the systemd unit sets no `KillMode` (`src/service/index.ts:79-94`). The default, `control-group`, kills every process in the service's cgroup on restart. That includes detached task runners and session hosts, so a Linux upgrade loses running work.
 
-Most running work already lives outside the service:
+Most work already runs outside the service:
 
-- Each task runs in a detached `pacer _run` process (`src/tasks/api.ts`). Its agent runs from `run.sh` in its own session (`src/supervisor/run.ts`).
-- PTYs are held by a separate `pacer _session` host on `session.sock` (`src/session/host.ts`), not by the service.
-- Agents report by writing `report.json` (`src/session/reports.ts`), not over HTTP.
-- The service's 5-second sweep (`superviseTasks`) restarts a runner for any run that is still alive.
+| Process | Runs | Version after an upgrade today |
+| --- | --- | --- |
+| Agent (Claude Code, Codex, Cursor, …) | external CLI, started by `run.sh` (headless) or by a session host (interactive) | not pacer code |
+| `pacer _run <task>` runner | detached, one per task (`src/tasks/api.ts:93-101`) | old, until its attempt ends |
+| `pacer _session <dir>` host | detached, one per interactive run or terminal; owns the PTY and the agent (`src/supervisor/run.ts:51-57`, `src/session/host.ts`) | old, until the session ends |
 
-So the missing piece is not keeping processes alive. It is a controlled way to stop agents at a good moment and resume them on the new version.
+When a runner dies while its run is still alive, the service sweep starts a new runner, and `resumeAttempt` reattaches to the same live agent through `finishRun` (`src/tasks/api.ts:225-233`, `src/exec/direct.ts:543`). Agents report by writing files (`src/session/reports.ts`), not over HTTP.
+
+So agents already survive a service restart on macOS. The gaps are these:
+- Nothing defines whether old helper processes and a new service can work together.
+- Old runners keep supervising work with old code.
+- Linux kills everything.
+- No upgrade path tells you what it did to running work.
 
 ## Outcome
 
-Every upgrade path upgrades without waiting for work to finish:
+An upgrade never stops a running agent or a terminal command:
 
-1. pacer holds new work.
-2. It stops each running agent task at a safe point, forcing any that are left after a deadline.
-3. It installs the new version.
-4. It resumes every parked task in the same agent conversation, telling the agent the service was upgraded.
+- The service restarts onto the new version.
+- **Runners hand over** to new-version runners, which reattach to the same live agents.
+- **Session hosts keep running** and stay connected through a versioned handshake.
 
-Terminal sessions keep running throughout. Nothing is lost silently: every parked task either resumes or ends with a stated reason and a **Retry**.
+Every upgrade path reports what kept running. The guarantee starts with the first upgrade *from* a version containing this feature. Upgrading *into* it still uses the old code paths, and the release notes say so.
 
-## Upgrade journal and states
+## Compatibility contract
 
-The coordinator records its progress in `~/.pacer/state/upgrade/journal.json`. It is written with write-then-rename and owner-only permissions, and changes before every action. The schema is versioned (`schema: 1`). A reader that cannot parse the journal, or meets an unknown schema, never acts on it. It shows **Upgrade needs attention** and lists the parked task IDs it could still read.
+Runners and session hosts from version N must keep working with a service from version N+1. A service from N+1 must also leave N's processes working after a rollback to N.
 
-| State | Meaning |
-| --- | --- |
-| `requested` | The target version and upgrade path are recorded, and the hold is active. |
-| `parking` | Tasks are being stopped at safe points. Each parked task has a record. |
-| `installing` | The upgrade path's installer is running. |
-| `resuming` | A service at startup is resuming parked tasks. |
-| `done` | Every parked task has resumed or ended with a reason, and the hold is released. |
-| `failed` | Stopped before install. Parked tasks resume on the current version and the hold is released. |
+1. **Additive formats.** Run directory files (`pid`, `exit`, `child`, `interactive.json`, `report.json`, `admission.json`, session logs), task records and the session socket change only additively in a minor release. No new task state is added. Readers ignore unknown fields, and stay strict about the fields they rely on.
+2. **Session socket.** The socket's existing `hello` frame (`src/session/framing.ts`, socket v1) gains `versions: [min, max]` and `pacer: "<version>"`. A peer that doesn't send `versions` is v1. Each side uses the highest version both support. If they share none, the service shows the session as **Reopen to update** and never kills it. Unknown frame types are already ignored (`src/session/viewers.ts`).
+3. **Fixture tests.** CI keeps a recorded set of run directories, task records and socket transcripts from the previous minor release. The new version must read and serve them.
 
-Each parked task gets a record with these fields: `taskId`, `attempt`, `agent`, `sessionId`, `worktree`, `runDir`, `parkedAt`, `forced`, `resume` (`pending`, `resumed` or `failed`) and an optional `reason`.
+## Runner handover
 
-## Hold
+A runner hands over when the new service starts. Before that moment it keeps supervising its run, and the agent never pauses.
 
-The existing admission layer becomes a general upgrade hold:
+1. **Advertising support.** A runner that supports handover writes `runner.json` in its run directory: `{ "pid", "startedAt", "pacer": "<version>", "handover": 1 }`, owner-only, written with write-then-rename.
+2. **Finding old runners.** After a new service passes its health check, it lists running tasks whose runner reports `handover: 1` from an older version. For each one, it checks that the live process matches the recorded PID, start time and pacer executable before signalling, so a reused PID is never signalled.
+3. **Signalling.** The service sends `SIGUSR2`. The runner then:
+   1. stops polling;
+   2. finishes any store write it has started, under the task lock;
+   3. writes `handover.json` with the attempt and a lease reference its replacement can take, owner-only;
+   4. exits with status 0 **without** recording an attempt outcome.
+4. **Replacing.** The existing sweep sees a dead runner with a live run and starts a new-version runner. That runner claims the handed-over lease and reattaches through `resumeAttempt`. If the runner hasn't exited after 30 seconds, the service leaves it running. A runner that stays is harmless: the old version simply keeps supervising.
+5. **Runners without handover support.** Runners from versions without this feature (the first upgrade) are never signalled. A runner without a `SIGUSR2` handler would be killed by it and leave a work lease that can't be reclaimed. Those runners finish their attempt on the old code.
 
-- While the hold is active, `delegate` and other task starts **accept and queue** new work instead of refusing it. The queue launcher (`drainQueue`, `src/tasks/drain.ts`) already leaves queued tasks queued while admission is reserved. The hold extends that behaviour to direct starts.
-- Queued tasks show **Starts after the upgrade**.
-- Background jobs that admission already gates are deferred, not failed.
-- The hold is released when the journal reaches `done` or `failed`.
+Remote-host runs follow the same rules on the local side. The remote process is never touched.
 
-The desktop update keeps its existing admission reservation, now implemented as this hold.
+## Session hosts
 
-## Safe points and parking
+Session hosts are never stopped by an upgrade, whether they run a terminal or an interactive agent. They connect to the new service through the handshake. A host ends when its session ends, as it does today. Hosts carry no task-supervision logic: the runner supervises interactive runs too, so an old host keeps only the PTY and the socket.
 
-A task is parked when it reaches a safe point:
+## Service supervisor settings
 
-- **Interactive agent sessions:** the latest report is `turn-ended` or `needs-input`. Or the session has produced no output for 30 seconds and no descendant process of the agent is using CPU. These are the signals `src/exec/direct.ts` already tracks.
-- **Headless agent runs** (`-p`, `exec`): no turn boundary is visible. They are parked only at the deadline.
-
-To park a task, pacer does these steps in order:
-
-1. Writes the task's record to the journal.
-2. Sends SIGINT to the agent's process group.
-3. After 10 seconds, sends SIGTERM.
-4. After another 5 seconds, sends SIGKILL.
-5. Stops the task's runner and marks the task `parked`. This is a new task state, shown as **Paused for upgrade**.
-
-The agent's session ID comes from the run's existing records. A task without one cannot be resumed. It is never parked early. If it is still running at the deadline, it is stopped and fails with "stopped for an upgrade; it could not be resumed", and offers **Retry**.
-
-**Deadline.** Parking waits up to `upgrade.park_deadline`, 10 minutes by default and configurable. Any task still running at the deadline is parked with `forced: true`.
-
-**Remote runners** run on other hosts and are not stopped. The new service reattaches them through the existing sweep.
-
-## Install
-
-When every local task is parked or excluded, the journal moves to `installing` and the path's existing installer runs unchanged:
-
-- the native helper for desktop updates;
-- binary replacement and restart for `pacer update`;
-- bootout and bootstrap for `service restart`.
-
-Terminal session hosts are left running.
-
-## Resume
-
-A service starting up runs `resumeParked()` **before** its first `superviseTasks` pass. This keeps the orphan sweep from treating parked tasks as crashed. For each pending record, pacer resumes the same task and attempt with `resumeLaunchFor` (`src/exec/launch.ts`), using the recorded session ID and worktree, and sends one of these first messages:
-
-- **Normal:** "pacer was upgraded to v<version> while you were working. Continue where you left off."
-- **Forced:** the same, followed by "Your last action may not have completed; check its result before continuing."
-
-A resumed task keeps its attempt number and does not count against retry limits.
-
-If resuming fails because the agent CLI is missing, the session has expired or the worktree is gone, that task's record becomes `failed` with the reason. The task fails with "could not resume after the upgrade: <reason>" and offers **Retry**. Other tasks still resume.
-
-Resume runs on whichever version is running after the install: the new version, or the old one if the installer rolled back. After the last record, the journal moves to `done` and the hold is released.
-
-## Terminal sessions
-
-Terminal and session hosts keep running through the upgrade, along with any command running in them.
-
-- **Version handshake.** `session.sock` gains one at connect time. Both sides state the protocol versions they support and use the newest one they share. If they share none, the new service shows that terminal as **Reopen to update** and never kills it.
-- **Desktop updates on macOS.** Session hosts run the bundled CLI from the previous app bundle. The coordinator records each surviving host in the journal: its PID, start time and executable cdhash, verified as the app's own signed CLI. `assertNativeProcessCoverage` and the native process inventory accept recorded, verified survivors as a second allowed class. They keep refusing any other pacer process.
-- **Linux.** The systemd unit gains `KillMode=process`, so restarting the service no longer kills detached task runners or terminal hosts.
+- **Linux.** The generated unit gains `KillMode=process`. `pacer update`, `update.apply` and `service restart` compare the installed unit with the generated one. If they differ, the path rewrites the unit and runs `systemctl --user daemon-reload` before restarting. That way existing installs pick up the change on their next upgrade.
+- **macOS.** `kickstart -k` and bootout send signals to the job's process group. Runners and session hosts are started in their own sessions, so they survive. Live validation confirms this. If it doesn't hold, the plist gains `AbandonProcessGroup`.
 
 ## Upgrade paths
 
-Every path calls the same operation on the running service, then installs:
+`pacer update`, `update.apply`, `service restart` and `service install` on a running service each work in three steps:
 
-- **Desktop updates** call `upgrade.prepare(target, "desktop")` in place of the wait-for-idle loop. They install once it returns ready.
-- **`pacer update` and the `update.apply` operation** call `upgrade.prepare(target, "cli")` before replacing the binary.
-- **`pacer service restart` and `service install` on a running service** call `upgrade.prepare(current, "restart")`.
+1. **Before restarting,** they read active work: running tasks, open session hosts and remote runs.
+2. **After the restart** and a passed health check, the new service performs runner handover.
+3. **They report** "Updated to v<version>. N tasks and M terminal sessions kept running." In the CLI this is the command output. For `update.apply` it is the operation result, and the web app shows it.
 
-If no service is running, there is nothing to park and the path proceeds as today.
-
-There are three operations: `upgrade.prepare`, `upgrade.status` and `upgrade.abort`. They are service operations with the same authentication as other control operations. `prepare` handles concurrent requests as follows:
-
-- A second request with the same target **joins** the one in progress.
-- A request with a different target is **refused** with the target in progress.
-
-`abort` is allowed before `installing`. It moves the journal to `failed`, resumes parked tasks on the current version and releases the hold.
-
-## Failure handling
-
-| Failure | Result |
-| --- | --- |
-| Service crashes during parking | The next service start reads the journal, resumes the tasks already parked, leaves running ones alone and releases the hold. |
-| Installer refuses or fails before changing anything | The journal moves to `failed`. Parked tasks resume on the current version. |
-| Installer rolls back | Resume runs on the restored version. |
-| Resume fails for one task | That task fails with the reason and a **Retry**. The others still resume. |
-| Unreadable or unknown journal | Nothing is resumed automatically. **Upgrade needs attention** lists what is known, with **Resume parked tasks** and **Discard**. |
-| Task without a resumable session | It is not parked early. At the deadline it fails with a stated reason and **Retry**. |
+**Callers.** Executor sessions may not upgrade the service. A request to `update.apply`, `service.restart` or `service.install` made with an executor run's credentials, or from a process carrying `PACER_ROLE=executor`, is refused with "upgrades are not allowed from a delegated task". The CLI checks this before it makes any change.
 
 ## Visibility
 
-- **The desktop, the web app (Settings → Updates and the task list) and `pacer status`** show:
-  - the phase;
-  - the time left to the deadline;
-  - each task's state: **Waiting for a safe point**, **Paused for upgrade**, **Resumed** or **Could not resume**.
-- **Notifications** fire when parking starts, when tasks resume, and on any failure.
-- **Public status** carries states and counts only, never paths.
+- **Task details** show "Reattached on v<version>" after a handover.
+- **`pacer status` and Settings → Updates** list sessions still running an older host version.
+- **Sessions with no shared protocol** show **Reopen to update**.
+- **Public status** carries versions and counts, never paths.
 
 ## Out of scope
 
-- Moving running work between machines.
-- Upgrading remote host runners.
-- Checkpointing an agent mid-tool-call. A forced park is announced to the agent instead.
-- Automatic scheduling such as "upgrade at night". Paths keep their current triggers.
-
-## Prerequisite
-
-Fixture desktop builds get their own bundle identifier, for example `dev.pacer.desktop.fixture`. Live validation then never hands off to the user's installed app through Tauri's single-instance plugin. Today every live desktop run requires quitting the real app. This prerequisite is delivered first and validated on its own.
+- Desktop native updates, which are part C.
+- Stopping and resuming agents. Nothing in this part needs it. A later design may add it for incompatible session hosts if that case occurs.
+- Upgrading remote host software.
 
 ## Validation
 
-**Unit tests (TypeScript):**
+**Unit tests:**
+- Runner handover: the right signal, `handover.json` written, no attempt recorded, the new runner claims and reattaches.
+- Runners without handover support are never signalled.
+- A reused PID is not signalled.
+- The handshake chooses the highest shared version, treats a peer without `versions` as v1, and shows **Reopen to update** when no version is shared.
+- The generated systemd unit contains `KillMode=process`, and a differing unit is rewritten and reloaded.
+- Executor callers are refused.
+- The previous release's fixtures are read and served.
 
-- **Journal:** every transition, fail-closed parsing, and a record from an earlier schema still readable.
-- **Safe points:** a `turn-ended` report, a `needs-input` report, 30 seconds of silence with an idle subtree, and a headless run with no safe point.
-- **Parking:** the record is written before the stop; signals escalate from SIGINT to SIGTERM to SIGKILL; `forced` is set at the deadline.
-- **Hold:** new work queues instead of being refused, and the hold is released on `done`, `failed` and `abort`.
-- **Resume:** `resumeLaunchFor` gets the correct note; attempt and retry counts are unchanged; one task's failure doesn't block the others.
-- **Startup order:** `resumeParked` runs before the first sweep, and the sweep never touches parked tasks.
-- **Operations:** concurrent `prepare` joins or is refused, and `abort` is allowed only before `installing`.
+**CI:** a Linux job, where systemd user sessions are available, checks that a detached run and a session host survive `systemctl --user restart`. If GitHub runners can't run a user systemd instance, this check is recorded as UNVERIFIED, and live validation covers it on a Linux machine.
 
-**Rust and desktop tests:**
+**Live validation (CT-11), with real agents (Claude Code and Codex):**
+1. **`upgrade-headless`:** a headless task is mid-turn. `pacer update` installs a newer fixture build. The agent is not interrupted, the runner hands over, and the task completes with its report recorded once.
+2. **`upgrade-interactive`:** the same for an interactive task, whose agent runs inside an old session host.
+3. **`upgrade-terminal`:** a terminal running a long command survives the upgrade, and its window reconnects with output intact.
+4. **`upgrade-first-hop`:** upgrading from a pre-feature version leaves running work on the old code, and nothing is signalled.
+5. **`upgrade-rollback`:** after upgrading and then reinstalling the previous version, its runners and session hosts still work.
 
-- The process inventory accepts recorded, verified surviving session hosts and still refuses unknown pacer processes.
-- The desktop update calls `upgrade.prepare` instead of waiting for idle.
-
-**Linux:**
-
-- A unit test that the generated systemd unit contains `KillMode=process`.
-- A CI test that a detached run survives `systemctl --user restart`.
-
-**Live validation (CT-11):** new scenarios with a fake agent that supports session resume:
-
-1. **`upgrade-safe-point`:** a task reaches the end of its turn and is parked, the upgrade installs, and the task resumes on the new version and completes.
-2. **`upgrade-forced`:** a task that never goes quiet is forced at a short test deadline and resumes with the incomplete-action note.
-3. **`upgrade-terminal`:** an open terminal running a command survives the upgrade, and its window reconnects.
-4. **`upgrade-crash`:** the service is killed during parking, and the next start resumes the parked tasks and releases the hold.
-5. **`upgrade-desktop`:** the same flow through the desktop's native update in the signed fixture, including survivor enrollment.
-
-Each scenario records the task's agent session ID before and after, to show the same conversation resumed.
+Each scenario records the agent's process identity before and after the upgrade, to show it never restarted. A Linux run of scenarios 1 and 3 is required before the Linux claim is made. Without it, Linux stays UNVERIFIED.
