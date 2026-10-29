@@ -601,3 +601,9 @@ flexible content, actions), with 14px/16px row padding and a 12px closed border.
 Its kind tabs, quick-answer chips and answer textarea use canonical DS controls
 with the board's recorded geometry. The API always includes an answer in the
 retry brief; the checked checkbox explains that fixed behavior visibly.
+
+The frame's assistant clearance adapters expose measured dock height through
+`--pc-dock-height` and the session header's bottom relative to the body through
+`--pc-assistant-header-height` (nonnegative CSS pixels). AppFrame owns these
+read-only layout measurements; the open launcher clamps below that header.
+Neither channel accepts user input or changes the closed launcher's spacing.

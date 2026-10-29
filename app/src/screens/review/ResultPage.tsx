@@ -44,7 +44,7 @@ export function ResultHeader({task, query, failure, actions, requesting, subtask
       <Pill tone={failure ? "bad" : accepted === true ? "good" : requesting ? "warn" : accepted === false ? "bad" : "info"}>{status}</Pill>
       {!failure && <Pill tone={task.acceptance.state === "passed" ? "good" : task.acceptance.state === "failed" ? "bad" : "neutral"}>{task.acceptance.state === "passed" ? "Checks passed · 1 of 1" : task.acceptance.state === "failed" ? "Checks failed · 1 of 1" : "No final checks"}</Pill>}
       {task.kind && <Pill>{task.kind}</Pill>}<span className="pc-result-caption pc-result-mono">{task.repo.label} · {task.branch ?? "Branch unknown"}{!failure && task.base ? ` → ${task.base}` : ""}</span>
-      <span className="pc-result-caption">· {failure ? `${task.attempts.length} attempts on ${executorLabel(task.executor ?? task.attempts.at(-1)?.executor)}` : `${subtasks ? `${subtasks} subtasks · ` : ""}${[...new Set(task.attempts.map(a => executorLabel(a.executor)))].join(", ") || executorLabel(task.executor)}`} · {tokenCount(task.tokens && task.tokens.unknownAttempts === task.attempts.length ? null : task.tokens?.total)}{failure && task.endedAt ? ` · last ${clock(task.endedAt, Date.now()/1000)}` : ""}</span>
+      <span className="pc-result-caption">· {failure ? `${task.attempts.length} attempt${task.attempts.length === 1 ? "" : "s"} on ${executorLabel(task.executor ?? task.attempts.at(-1)?.executor)}` : `${subtasks ? `${subtasks} subtasks · ` : ""}${[...new Set(task.attempts.map(a => executorLabel(a.executor)))].join(", ") || executorLabel(task.executor)}`} · {tokenCount(task.tokens && task.tokens.unknownAttempts === task.attempts.length ? null : task.tokens?.total)}{failure && task.endedAt ? ` · last ${clock(task.endedAt, Date.now()/1000)}` : ""}</span>
     </div></div><div className="pc-result-actions">{actions}</div></header></>;
 }
 export function ResultPage({id, query, failure}: ResultPageProps) {
@@ -85,7 +85,7 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
       } finally {reload();}
     });
   };
-  const remaining = state.snapshot?.attention?.filter(item => item.taskId !== task.id).length;
+  const remaining = state.snapshot?.attention ? new Set(state.snapshot.attention.filter(item => item.taskId && item.taskId !== task.id).map(item => item.taskId)).size : undefined;
   const canOpen = state.features.ops.has("session.file.read") && canOpenResultFile(task, session.data, path);
   const accepted = recorded === "accept" || task.review?.accepted === true;
   const openFile = async () => {
@@ -100,7 +100,7 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
     {childrenReady ? <Button variant="primary" busy={action.busy} onClick={() => submit("accept")}>Accept result</Button> : <span className="pc-result-caption">Review required child work before accepting.</span>}
   </>}/>
     <ErrorMessage error={action.error}/>
-    {accepted && <div role="status" className="pc-result-accepted"><span className="pc-result-good" aria-hidden="true">✓</span><span><b>Accepted.</b> Branch <span className="pc-result-mono">{task.branch ?? "(unknown)"}</span> is kept with its {task.files.length} files; the report is filed on the task. {remaining === 0 ? "Nothing else needs you." : remaining === undefined ? "" : `${remaining} more need you · `}{remaining !== undefined && remaining > 0 && <TextAction className="pc-result-good" href={hrefFor(routes.needsYou(query))}>Open Needs you</TextAction>}</span><ButtonLink size="sm" href={hrefFor(routes.tasks(query))}>Back to Tasks</ButtonLink></div>}
+    {accepted && <div role="status" className="pc-result-accepted"><span className="pc-result-good" aria-hidden="true">✓</span><span><b>Accepted.</b> Branch <span className="pc-result-mono">{task.branch ?? "(unknown)"}</span> is kept with its {task.files.length} files; the report is filed on the task. {remaining === 0 ? "Nothing else needs you." : remaining === undefined ? "" : `${remaining} more ${remaining === 1 ? "needs" : "need"} you · `}{remaining !== undefined && remaining > 0 && <TextAction className="pc-result-good" href={hrefFor(routes.needsYou(query))}>Open Needs you</TextAction>}</span><ButtonLink size="sm" href={hrefFor(routes.tasks(query))}>Back to Tasks</ButtonLink></div>}
     {recorded === "reject" && <p role="status">Result rejected. The verdict is filed on the task.</p>}
     {recorded === "send_back" && <p role="status">Changes requested. Sent back to {executor}.</p>}
     {(requesting || rejecting) && <section className="pc-result-request" aria-labelledby="request-heading"><h2 id="request-heading">{rejecting ? "Why reject this result?" : "What should change?"}</h2>

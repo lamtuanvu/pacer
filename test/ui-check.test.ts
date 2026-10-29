@@ -263,3 +263,12 @@ test("only the frame's assistant offset accepts measured dock height", () => {
   for (const bad of [source.replace("--pc-dock-height", "height"), source.replace(".height", ".width"), source.replace("?? 0", "?? 20"), source.replace("root.style", "other.style")]) expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
   expect(checkUiSource("app/src/shell/Other.tsx", source)).not.toEqual([]);
 });
+
+test("assistant header clearance is a scoped measured geometry channel", () => {
+  const source = 'root.style.setProperty("--pc-assistant-header-height", `${sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0}px`);';
+  expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);
+  expect(checkUiSource("app/src/screens/session/TasksPage.tsx", source)).not.toEqual([]);
+  for (const bad of [source.replace("sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0", "clearance"), source.replace("Math.max(0,", "Math.max(20,"), 'const clearance = input; root.style.setProperty("--pc-assistant-header-height", `${clearance}px`);', 'const clearance = 20; root.style.setProperty("--pc-assistant-header-height", `${clearance}px`);']) {
+    expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
+  }
+});

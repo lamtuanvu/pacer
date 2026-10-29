@@ -157,10 +157,13 @@ test("Live dispatch groups two subtasks into one root row with its total tokens"
   }));
   const html = section(view(null, { ...snap, tasks: [root, ...children] }, { workRows }), "live-dispatch");
   expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(1);
-  expect(strip(html)).toContain("· 2 subtasks");
+  expect(strip(html).match(/· 2 subtasks/g)).toHaveLength(1);
   expect(html).toContain('class="pc-dispatch-decision__tokens">12k</strong>');
   expect(html).not.toContain("Child 1");
   expect(html).not.toContain("Child 2");
+  const running = section(view(null, { ...snap, tasks: [root, ...children].map(task => ({...task, state: "running"})), counts: {...snap.counts!, running: 3} }, { workRows: workRows.map(row => ({...row,state:"running"})) }), "live-dispatch");
+  expect(strip(running)).toContain("1 running");
+  expect(strip(running)).not.toContain("3 running");
 });
 
 test("Live dispatch shows unknown tokens as a muted dash with an explanation", () => {
@@ -549,4 +552,10 @@ test("the ledger preserves waiting/idle conversations and pairs failed-check cop
   }
   const html = section(view(null, { ...snap, tasks: [{ ...task, state: "partial", acceptanceState: "failed" }] }), "live-dispatch");
   expect(html).toContain('pc-pill pc-pill--bad">Checks failed</span>');
+});
+
+test("task.answer has one link path without an unreachable ActionButton branch", async () => {
+  const source = await Bun.file("app/src/screens/dispatch/Dispatch.tsx").text();
+  expect(source.match(/action.op === "task.answer"/g)).toHaveLength(1);
+  expect(source).toContain('action={action}');
 });

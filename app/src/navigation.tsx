@@ -12,9 +12,14 @@ export function NavigationProvider({route,children,pluginTitle,location=globalTh
   useEffect(()=>{
     document.title=titleFor(route,pluginTitle);
   },[location.hash,pluginTitle]);
+  const [path, search] = location.hash.split("?");
+  const pageQuery = new URLSearchParams(search);
+  pageQuery.delete("answer");
+  // Opening or closing the Answer panel preserves its invoker; page navigation focuses the landmark.
+  const focusLocation = `${path}?${pageQuery}`;
   useEffect(()=>{
     document.getElementById("main-content")?.focus();
-  },[location.hash]);
+  },[focusLocation]);
   return <NavigationContext.Provider value={{current:route,navigate(target,options){const href=hrefFor(target,route.query);options?.replace?location.replace(href):location.hash=href;}}}>{children}</NavigationContext.Provider>;
 }
 export function useNavigation():NavigationValue{return useContext(NavigationContext);}

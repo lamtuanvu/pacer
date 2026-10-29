@@ -1,12 +1,12 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import { cycleDialogFocus } from "./Dialog";
 import { Button } from "./Button";
 
 /** A native modal side panel; Escape closes, Tab cycles, and focus returns to its invoker. */
 export function SideDialog({ title, mark, close, footer, children, onKeyDown }: { title: string; mark?: ComponentChildren; close: () => void; footer: ComponentChildren; children: ComponentChildren; onKeyDown?: JSX.KeyboardEventHandler<HTMLDialogElement> }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current!, invoking = document.activeElement as HTMLElement | null;
     dialog.showModal();
     return () => { dialog.close(); if (invoking?.isConnected) invoking.focus(); };

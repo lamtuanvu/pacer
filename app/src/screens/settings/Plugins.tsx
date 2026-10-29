@@ -42,7 +42,7 @@ export function PluginsSection() {
       const errorId = `plugin-${plugin.id}-error`;
       return <li className="pc-settings-plugin" key={plugin.id}>
         <span className="pc-settings-plugin__icon" aria-hidden="true"><Icon name="plugin" /></span>
-        <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{presentation.name}</b><span className="pc-settings-board__caption">{plugin.version} · by {plugin.publisher}</span></div>
+        <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{presentation.name}</b><span className="pc-settings-board__caption">{[plugin.version, plugin.publisher].filter(Boolean).join(" · ")}</span></div>
           {presentation.description && <span className="pc-settings-board__caption">{presentation.description}</span>}
           {adds && <span className="pc-settings-board__caption">{adds}</span>}
           {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}

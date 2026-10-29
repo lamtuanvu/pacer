@@ -16,11 +16,11 @@ const api = {async call(op:string, params:unknown) {
   if (op === "task.session") return {host:"builtin",machine:null,attempt:1,...settings.session};
   if (op === "dispatch.tree") return {nodes:[]};
   if (op === "task.diff") return {patch:"@@ -1 +1 @@\n-old\n+new"};
-  if (op === "task.retry_options") return [{id:"antigravity",state:"ready",reason:"available"}];
+  if (op === "task.retry_options") return settings.retryOptions ?? [{id:"antigravity",state:"ready",reason:"available"}];
   if (op === "session.file.read") throw new Error("File no longer exists");
   if (op === "task.review") return {retry:{id:"retried"}};
   return {};
 }};
-const store = {...initialState(), connected:true, snapshot:{...snapshot,attention:settings.attention ?? [],executors:[{id:task.executor,state:"ready"}]}, features:{readModel:true,ops:new Set(["task.review","task.session","session.file.read"])} };
+const store = {...initialState(), connected:true, snapshot:{...snapshot,attention:settings.attention ?? [],executors:settings.executors ?? [{id:task.executor,state:"ready"}]}, features:{readModel:true,ops:new Set(["task.review","task.session","session.file.read"])} };
 const runner = createActionRunner({call:api.call as any, waitFor:async()=>true, refetch:()=>{},navigate:()=>{}});
 render(<TaskContext.Provider value={{api:api as any,state:store as any}}><ActionContext.Provider value={runner}><ResultPage id={task.id} query={{repo:null,scope:null}} failure={settings.failure}/></ActionContext.Provider></TaskContext.Provider>,document.getElementById("app")!);

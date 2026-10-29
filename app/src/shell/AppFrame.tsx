@@ -20,8 +20,12 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   useLayoutEffect(() => {
     const root = frame.current;
     if (!root) return;
-    let dock: HTMLElement | null = null;
-    const measureDock = () => root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
+    let dock: HTMLElement | null = null, sessionHeader: HTMLElement | null = null;
+    const measureDock = () => {
+      root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
+      const body = root.querySelector(".pc-body");
+      root.style.setProperty("--pc-assistant-header-height", `${sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0}px`);
+    };
     const observer = new ResizeObserver(measureDock);
     const observeDock = () => {
       const next = root.querySelector<HTMLElement>(":scope > .pc-dock > .pc-dock__panel");
@@ -29,6 +33,12 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
         if (dock) observer.unobserve(dock);
         dock = next;
         if (dock) observer.observe(dock);
+      }
+      const header = root.querySelector<HTMLElement>(".pc-session-bar");
+      if (header !== sessionHeader) {
+        if (sessionHeader) observer.unobserve(sessionHeader);
+        sessionHeader = header;
+        if (sessionHeader) observer.observe(sessionHeader);
       }
       measureDock();
     };
