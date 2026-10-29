@@ -4,7 +4,7 @@ The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`
 
 ## Tokens and density
 
-Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. The tray adds provisional `size-236` (More menu width), `shadow-tray-menu` (More menu elevation, coloured by the light/dark `shadow-tray-menu-tint`) and `tray-count` (count typography). `Button`/`ButtonLink` size `xs` uses space-2 horizontal padding and space-1 gap in default and compact density, using the shared `control-compact` minimum height in both densities and retaining keyboard semantics. The tray footer consumes it.
+Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. The tray adds provisional `size-236` (More menu width), `shadow-tray-menu` (More menu elevation, coloured by the light/dark `shadow-tray-menu-tint`) and `tray-count` (count typography). `Button`/`ButtonLink` size `xs` uses space-2 horizontal padding and space-1 gap in default and compact density, using the shared density minimum height and retaining keyboard semantics. The tray footer consumes it.
 
 `tokens.local.json` holds documented provisional additions only; it currently holds the Tasks board values the design system lacks: `radius-card` (12 px), `space-3.5`, `space-7`, `space-10` (14, 28, 40 px) and `size-10`, `size-14`, `size-15`, `size-21`, `size-34`, `size-52`, `size-272`, `size-1240`, plus the app-frame chrome values `size-3/4/5/84/420/neg-6` (`size-10/14/52` are shared), `radius-xs`, the colour `ink-on-fill` (white in light, `#18181b` in dark to keep 4.5:1 on the lighter dark fill) and the type style `count-badge` (10px/700), plus the command menu values `size-72` and the type style `match-strong` (13/19, weight 700), plus the Dispatcher board's column widths `size-220`, `size-140` and `size-110`, until the design system adds them. The command menu also reuses the frame chrome's `size-420`, the Tasks board's `size-15` and `size-52`, and the file viewer board's `radius-4` (key caps) and `radius-7` (row glyph tiles). The file viewer board adds `size-12.5`, `size-10.5`, `size-5`, `size-440`, `radius-2`, `radius-4`, `radius-5` and `radius-7`. Generate CSS and TypeScript with `bun scripts/ds-sync.ts app/src/ds/tokens.json` or `bun run app:build`. Never edit generated `tokens.css`/`tokens.ts` or embedded app assets manually. The app build also refreshes the generated token prefix in `desktop/ui/shell.css`, preserving the handwritten startup-shell suffix at its existing boundary comment; a missing boundary fails the build rather than overwriting it.
 
@@ -14,11 +14,11 @@ Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit colo
 
 `chart-1`–`chart-5` provide a calm categorical series and identity fills. Every value reaches at least 3:1 against `surface-page` and `surface-lane` in both themes. Neighbouring series can have similar luminance, so charts separate segments with gaps and carry a text legend. `aurora-1`–`aurora-3` reserve soft assistant-sheet glows; they are decorative only, never status. Neither palette replaces semantic status tokens.
 
-All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal 44px and touch 48px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
+All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal (Comfortable) 32px and touch 44px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
 
-Compact is the desktop default, including dialogs outside the shell. `DensityProvider value="compact"` also scopes the tray, including list rows, pills and meters. Buttons (all variants and button links), text inputs and choice pickers share the 28px compact minimum, caption typography and medium radius. The top-bar Delegate is the reference control. Settings forms retain their shared 32px density; small settings actions remain 28px. Explicit `normal` density remains available at 44px for a documented need, rather than becoming a page-local override.
+Comfortable (`normal`) is the default for new installs and existing installs with no saved density choice, including dialogs outside the shell. An explicit saved Comfortable or Compact choice is preserved. Shared page-header, toolbar and card action buttons use DS `sm`: 32px in Comfortable and 28px in Compact. All variants and button links share one density rule; Settings action buttons inherit the app preference. Comfortable single-line inputs keep 13px body text at 32px height; Compact inputs use 12px caption text at 28px. Settings fields retain their shared 32px form density. Icon and segmented controls retain their board geometry on desktop.
 
-`NarrowContext`, owned by DS and reexported by shell for compatibility, selects 48px touch targets for narrow/repository-scoped views. At viewport widths up to 560px, DS supplies touch targets and readable input typography even for dialogs mounted outside shell context. An explicit compact surface wrapper keeps the desktop tray compact at popover widths. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
+`NarrowContext`, owned by DS and reexported by shell for compatibility, selects 44px touch targets for narrow/repository-scoped views. At viewport widths up to 560px or with coarse pointers, DS supplies 44px control targets, including filter chips and tabs, even for dialogs mounted outside shell context. The tray keeps its independent `sm` 32px action size at popover widths, using its own compact token. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
 
 ## Catalog and API contracts
 
@@ -168,10 +168,10 @@ list density, sibling action slots and keyboard behavior are unchanged.
 
 `DensityContext` additionally supports `settings`: 32px minimum form buttons,
 inputs, selects and range hit areas, using `control-settings`. Small row actions
-retain the 28px compact minimum; segmented choices use 32px. Body/field text stays
+inherit the app preference (Comfortable 32px, Compact 28px); segmented choices use their board size. Body/field text stays
 13px, help 12px and pills 11px. Narrow layouts resolve to touch density; settings
-controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
-The existing compact tray density and normal app density are unchanged.
+controls outside the shell also retain 44px targets at narrow/coarse-pointer sizes.
+The tray keeps its own 32px action size.
 
 Settings screens mount one editor per route. `settings-pages.ts` owns page
 labels, icons, menu groups, Overview descriptions, shell titles and the
@@ -257,7 +257,7 @@ sections, cards, sticky detail navigation, action panels and disclosure bodies h
 replaces it. Do not layer a child margin over that gap.
 
 `Section` bodies, disclosure bodies and action panels stack content at 12px.
-`DisclosurePanel` summaries have a 36px desktop minimum and a 48px narrow-layout
+`DisclosurePanel` summaries have a 36px desktop minimum and a 44px narrow-layout
 minimum, with full-width keyboard targets and unchanged native details semantics.
 Related task disclosures live in one compact stack. Task Result, settings cards,
 the Dispatch home, session reports and task lists consume this contract.
@@ -375,7 +375,7 @@ with no upstream adaptation. Native validation retains its existing controls.
 14px vertical padding and lane-colored top separator. Its existing label/help
 association remains intact; narrow layouts stack the columns. `SegmentedControl
 variant="board"` (also exposed by the settings `Segment`) adds a bordered,
-3px-padded group with 30px buttons and 6px corners; touch targets expand to 48px.
+3px-padded group with 30px buttons and 6px corners; touch targets expand to 44px.
 `Card tone="sunken"` uses the card surface. `Switch size="sm"` reuses the native
 checkbox keyboard and label behavior with role=switch, explicit aria-checked,
 a 36×20px track, a 16px white thumb and good-fill on state. The default Switch
@@ -450,7 +450,7 @@ unchanged. New task opens the New task composer at `/tasks/new` (#460).
 
 `SegmentedControl variant="insights"` retains pressed-button semantics and keyboard
 behavior, with 3px group padding, 8px group radius and 32px segments. Narrow
-viewports and coarse pointers use the shared touch target token (48px). Only the
+viewports and coarse pointers use the shared touch target token (44px). Only the
 Insights Period filter uses this additive variant; other densities are unchanged.
 The screen owns its chart and semantic tables in `insights.css`: agent rows use
 the board's fixed numeric columns and flexible Agent/Share columns, while the

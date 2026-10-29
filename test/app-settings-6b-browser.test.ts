@@ -309,7 +309,7 @@ browserTest('Add agent board geometry, install guidance, radio keyboard choices 
   const model=page.getByRole('button',{name:'Model',exact:true});expect(await model.evaluate(el=>el.getBoundingClientRect().width)).toBe(280);
   await model.click();await page.getByRole('option',{name:'Fixture model',exact:true}).click();
   await page.getByRole('button',{name:'Tests',exact:true}).click();
-  expect(await page.getByRole('button',{name:'Tests',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBe(28);
+  expect(await page.getByRole('button',{name:'Tests',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
   await page.setViewportSize({width:375,height:1000});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const testBlock=page.locator('.u3-test-task');

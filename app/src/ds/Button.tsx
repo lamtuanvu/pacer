@@ -14,7 +14,7 @@ function buttonClasses(variant: ButtonVariant, size: string, density: string, cl
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({
-  variant = 'secondary', size = 'md', type = 'button', className, children, busy, disabled, ...rest
+  variant = 'secondary', size = 'sm', type = 'button', className, children, busy, disabled, ...rest
 }, ref) {
   const density = useDensity();
   return <button {...rest} ref={ref} type={type} disabled={disabled || busy} aria-busy={busy || rest['aria-busy']}
@@ -23,7 +23,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 /** Navigation remains an anchor: supports browser history, modifiers and native destinations. */
 export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(function ButtonLink({
-  variant = 'secondary', size = 'md', className, children, ...rest
+  variant = 'secondary', size = 'sm', className, children, ...rest
 }, ref) {
   const density = useDensity();
   return <a {...rest} ref={ref} className={buttonClasses(variant, size, density, className)}>{children}</a>;

@@ -434,8 +434,8 @@ function NotificationsSection({
 }
 function AppearanceSection() {
   const [density, setDensity] = useState(() => {
-    try { return localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"; }
-    catch { return "compact"; }
+    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
+    catch { return "normal"; }
   });
   const [theme, setTheme] = useState(() => {
       try {
@@ -453,7 +453,7 @@ function AppearanceSection() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   useEffect(() => {
-    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"); } catch { /* device storage unavailable */ } };
+    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"); } catch { /* device storage unavailable */ } };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);

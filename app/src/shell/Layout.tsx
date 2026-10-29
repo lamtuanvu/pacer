@@ -48,15 +48,15 @@ function Skeleton() {
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
   const [density, setDensity] = useState<"normal" | "compact">(() => {
-    try { return localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"; }
-    catch { return "compact"; }
+    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
+    catch { return "normal"; }
   });
   useEffect(() => {
     const sync = (event: Event) => {
       let value: unknown;
       try { value = event instanceof CustomEvent ? event.detail : localStorage.getItem("pacer.density"); }
       catch { return; }
-      setDensity(value === "normal" ? "normal" : "compact");
+      setDensity(value === "compact" ? "compact" : "normal");
     };
     window.addEventListener("pacer:density", sync);
     window.addEventListener("storage", sync);

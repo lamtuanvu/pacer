@@ -304,7 +304,7 @@ test.skipIf(!browserPath)('setting_row_toggle_hit_area_meets_density', async () 
     }
     // Settings density on desktop; touch size when narrow. Width counts as much as height.
     expect(sizes[0]!.width).toBeGreaterThanOrEqual(32); expect(sizes[0]!.height).toBeGreaterThanOrEqual(32);
-    expect(sizes[1]!.width).toBeGreaterThanOrEqual(48); expect(sizes[1]!.height).toBeGreaterThanOrEqual(48);
+    expect(sizes[1]!.width).toBeGreaterThanOrEqual(44); expect(sizes[1]!.height).toBeGreaterThanOrEqual(44);
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -367,7 +367,7 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
     expect(await page.locator('.pc-settings-nav__header').isVisible()).toBe(false);
     expect(await page.locator('.pc-settings-nav__footer').isVisible()).toBe(false);
     expect(await page.locator('.pc-settings-nav').evaluate(node => getComputedStyle(node).flexDirection)).toBe('row');
-    expect(await page.locator('.pc-settings-nav__item').first().evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+    expect(await page.locator('.pc-settings-nav__item').first().evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
     await page.getByRole('link', { name: 'Diagnostics' }).focus();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally { await browser.close(); }
