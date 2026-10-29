@@ -136,3 +136,35 @@ async fn progress_and_eof_fail_pending_calls() {
     drop(io.tx); // EOF: pending call fails, handler settles, serve returns
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn identity_sign_encodes_the_payload_and_decodes_the_signature() {
+    let p = Plugin::new(manifest()).handle("diagnostic.ping", |_p, c| async move {
+        let signed = c.host.identity_sign("greeting", b"hi\x00\xff").await?;
+        let bad = c.host.identity_sign("greeting", b"").await;
+        Ok(json!({"ok": true, "uptimeS": 0, "sig": signed.signature, "id": signed.machine_id, "bad": bad.err().map(|e| e.code)}))
+    });
+    let (mut io, task) = start(p);
+    io.send(hello()).await;
+    io.next().await;
+    io.send(json!({"jsonrpc":"2.0","id":2,"method":"diagnostic.ping","params":{}}))
+        .await;
+    let req = io.next().await;
+    assert_eq!(req["method"], "capability.identity.sign");
+    assert_eq!(
+        req["params"],
+        json!({"purpose": "greeting", "payload": "aGkA/w=="})
+    );
+    io.send(json!({"jsonrpc":"2.0","id":req["id"],"result":{"signature":"AQID","machineId":"m1"}}))
+        .await;
+    let req = io.next().await;
+    assert_eq!(req["params"]["payload"], "");
+    io.send(json!({"jsonrpc":"2.0","id":req["id"],"result":{"signature":"not base64!","machineId":"m1"}}))
+        .await;
+    let r = io.next().await;
+    assert_eq!(r["result"]["sig"], json!([1, 2, 3]));
+    assert_eq!(r["result"]["id"], "m1");
+    assert_eq!(r["result"]["bad"], "internal");
+    drop(io);
+    task.await.unwrap().unwrap();
+}

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { redactEndpointError } from "../endpoints/state";
 import type { Ctx } from "../types";
+import { cachedMachineId } from "../identity/store";
 
 import { ACTIVITY_KINDS, type ActivityKind } from "./types";
 export { ACTIVITY_KINDS, type ActivityKind } from "./types";
@@ -19,6 +20,8 @@ export interface ActivityEntry {
   taskId?: string;
   executor?: string;
   host?: string;
+  /** The machine id, once this pacer home has an identity. */
+  machineId?: string;
 }
 export interface ActivityOptions { before?: string; limit?: number; repo?: string; kinds?: ActivityKind[]; taskId?: string; maxBytes?: number }
 const stateDir = (ctx: Ctx) => join(ctx.pacerHome, "state");
@@ -67,7 +70,7 @@ function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
       const e = JSON.parse(line);
       if (!e || typeof e.id !== "string" || !Number.isFinite(e.at) || !ACTIVITY_KINDS.includes(e.kind)
         || !["info", "warn", "error"].includes(e.level) || typeof e.text !== "string"
-        || ["repo", "taskId", "executor", "host"].some(k => e[k] !== undefined && typeof e[k] !== "string")) return [];
+        || ["repo", "taskId", "executor", "host", "machineId"].some(k => e[k] !== undefined && typeof e[k] !== "string")) return [];
       return [e as ActivityEntry];
     } catch { return []; }
   });
@@ -75,7 +78,8 @@ function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
 
 /** Append in one write and publish to API clients. */
 export function appendActivity(ctx: Ctx, e: Omit<ActivityEntry, "id" | "at">, onAppend: (entry: ActivityEntry) => void = () => {}): ActivityEntry {
-  const entry: ActivityEntry = { ...e, text: safeText(e.text), id: `${ctx.now}-${randomBytes(2).toString("hex")}`, at: ctx.now };
+  const machineId = cachedMachineId(ctx);
+  const entry: ActivityEntry = { ...e, text: safeText(e.text), id: `${ctx.now}-${randomBytes(2).toString("hex")}`, at: ctx.now, ...(machineId ? { machineId } : {}) };
   withLogLock(ctx, () => appendFileSync(logPath(ctx), JSON.stringify(entry) + "\n", { mode: 0o600 }));
   void publish(ctx, [{ type: "entity", data: { kind: "activity", id: entry.id, value: entry } }]);
   onAppend(entry);

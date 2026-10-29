@@ -45,7 +45,7 @@ test("method tables include observation and decision adapters without new host c
   expect(EXTENSION_METHODS["agentSession.delegationControl"].result.safeParse({mechanism:"hook",entryPoints:["Agent","Task"]}).success).toBe(true);
   expect(EXTENSION_METHODS["agentSession.delegationControl"].result.safeParse({mechanism:"hook",entryPoints:[]}).success).toBe(false);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
-  expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.log", "capability.secrets.resolve"]);
+  expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.identity.sign", "capability.log", "capability.secrets.resolve"]);
   expect(capabilityOf("capability.config.get")).toBe("config.get");
   expect(capabilityOf("capability.shell")).toBeNull();
   expect(helloResult.safeParse({ protocol: "1.0.0", id: "x", version: "1.0.0", contributes: [] }).success).toBe(true);

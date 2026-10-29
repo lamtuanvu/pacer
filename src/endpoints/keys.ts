@@ -3,15 +3,14 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { KeySource } from "../config/accounts";
 import type { Ctx, RunResult } from "../types";
+import { security as runSecurity } from "../identity/security";
 
 function validate(name: string, source: KeySource): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error("invalid endpoint name");
   if (!/^(keychain|file|none|env:[A-Za-z_][A-Za-z0-9_]*)$/.test(source)) throw Error("invalid endpoint key source");
 }
-async function security(ctx: Ctx, args: string[], stdin?: string): Promise<RunResult> {
-  // Never propagate a subprocess error: it may contain credentials or argv.
-  try { return await ctx.run(["security", ...args], 10000, stdin === undefined ? undefined : { stdin }); }
-  catch { throw Error("endpoint keychain operation failed"); }
+function security(ctx: Ctx, args: string[], stdin?: string): Promise<RunResult> {
+  return runSecurity(ctx, args, "endpoint keychain operation failed", stdin);
 }
 function check(result: RunResult): void {
   if (result.code !== 0) throw Error("endpoint keychain operation failed");

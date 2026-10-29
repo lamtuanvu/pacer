@@ -6,14 +6,14 @@ export const PROTOCOL_VERSION = "3.0.0";
 
 export const PREVIOUS = "2.8.0";
 export function helloBody() {
-  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["desktop.update", "plugin", "pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify", "assistant"] };
+  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["desktop.update", "plugin", "pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify", "machine", "assistant"] };
 }
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
 export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string; data?: Record<string, unknown> } }
-export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant"; data: unknown }
+export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "machine" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant"; data: unknown }
 
-export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant"> };
+export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant" | "machine"> };
 export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "budget" | "alert"> };
 
 const STATUS: Record<ApiErrorCode, number> = {

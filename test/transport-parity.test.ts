@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { companionFile, hostTarget } from "../src/update/manifest";
 import { fakeCtx } from "./helpers";
+import { keychainStubPath } from "./keychain-stub";
 import { createTask } from "../src/tasks/store";
 import { socketPath } from "../src/session/host";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
@@ -23,7 +24,7 @@ test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP au
   const children: Bun.Subprocess[] = [];
   const environment = (name: string) => {
     const home = join(temporary, name); mkdirSync(home, { mode: 0o700 });
-    return { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C", TZ: "Asia/Ho_Chi_Minh", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" };
+    return { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: keychainStubPath(home), LANG: "C", TZ: "Asia/Ho_Chi_Minh", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" };
   };
   const exchange = async (binary: string, name: string) => {
     const input = [

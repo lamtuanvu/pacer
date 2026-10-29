@@ -9,6 +9,15 @@ const envs: OutboxEvent[] = [
   { type: "alert", data: { key: "a", level: "info", title: "hi", body: "there", at: 1 } },
 ];
 describe("link envelope", () => {
+  test("accepts a machine entity and rejects malformed machine entities", () => {
+    const machine = { type: "entity", data: { kind: "machine", id: "machine-1", value: { label: "Local" } } } as const;
+    expect(parseOutboxEvent(machine)).toEqual(machine);
+    expect(parseOutboxEvent({ type: "entity", data: { kind: "machine", id: "machine-1", removed: true } }))
+      .toEqual({ type: "entity", data: { kind: "machine", id: "machine-1", removed: true } });
+    for (const data of [null, { kind: "machine" }, { kind: "machine", id: "" }, { kind: "machine", id: 1 }, { kind: "machine", id: "x".repeat(129) }, { kind: "machines", id: "machine-1" }]) {
+      expect(parseOutboxEvent({ type: "entity", data })).toBeNull();
+    }
+  });
   test("four envelope types round trip", () => { for (const e of envs) expect(parseOutboxEvent(JSON.parse(JSON.stringify(e)))).toEqual(e); });
   test("rejects invalid version, type, missing data and malformed budget", () => {
     for (const x of [{ v: 2, type: "mode", data: {} }, { type: "what", data: {} }, { type: "mode" }, { type: "budget", data: { generatedAt: 1, strategy: "x", mode: "normal" } }]) expect(parseOutboxEvent(x)).toBeNull();

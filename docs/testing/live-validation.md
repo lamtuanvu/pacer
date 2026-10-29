@@ -32,6 +32,18 @@ All seed files are written under the sandbox's `home/`. In this mode only, `HOME
 
 The service and D8 guard proxy run detached from this checkout on two different free loopback ports, neither 4317. `session.json` records the public `port`, private `innerPort`, service `pid` and `proxyPid`. All clients use the public port (`PACER_PORT`); only the service binds `innerPort` via `--port`. Startup verifies the proxy identity, inner service identity and forwarded `/health`. Inspect `logs/serve.log` and `logs/proxy.log` if startup fails. `bun run live status` lists all sandboxes, including stopped ones retained with `--keep`.
 
+### Machine identity and the Keychain
+
+On macOS the machine identity keeps its private key and install salt in the login Keychain (see [Machine identity](../machine-identity.md)), and `pacer serve` creates them at startup. By default `up` therefore puts a `security` stub first on the sandbox `PATH` (`bin/security`). The stub keeps generic passwords as files under the sandbox's `keychain/` directory, so a sandbox writes nothing to the login Keychain. The conformance runner uses the same stub.
+
+To exercise the real Keychain, opt in when the sandbox is created:
+
+```sh
+bun run live up --id my-change --real-keychain
+```
+
+`session.json` then records `realKeychain: true`. `down`, with or without `--keep`, deletes the `machine-identity/<homeTag>`, `machine-identity-staging/<homeTag>` and `machine-install-salt/<homeTag>` items of the sandbox `home/` and of every copied home directly under the sandbox root that has `identity/machine.json` (for example a `home-copy/` made to test copied homes). It refuses before deleting anything if a home has the tag of your real `~/.pacer`, and it records the deleted accounts in the evidence log. Remove Keychain items of homes created elsewhere yourself. `--real-keychain` is valid only for `up`.
+
 ### M1 runtime and artifact layout
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority.
@@ -227,7 +239,7 @@ bun run live report --id my-change
 bun run live down --id my-change --keep
 ```
 
-`down` stops the sandbox proxy, inner service and tmux session. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+`down` stops the sandbox proxy, inner service and tmux session, and in a `--real-keychain` sandbox deletes the sandbox's machine identity Keychain items. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
 
 ## Disposable desktop OTA fixtures
 

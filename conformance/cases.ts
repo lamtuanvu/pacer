@@ -1,3 +1,4 @@
+import { createPublicKey, verify } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installFixture, type FixtureName } from "./install";
@@ -11,6 +12,15 @@ export interface CaseContext {
 }
 export interface ConformanceCase { name: string; run(t: CaseContext): Promise<void> }
 
+/** Verify an ed25519 signature against a machine id: the RFC 4648 base32 (lowercase, unpadded) raw public key. */
+function machineVerifies(machineId: string, message: Buffer, signature: Buffer): boolean {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  let bits = 0, value = 0; const raw: number[] = [];
+  for (const ch of machineId) { const i = alphabet.indexOf(ch); if (i < 0) return false; value = (value << 5) | i; bits += 5; if (bits >= 8) { raw.push((value >>> (bits - 8)) & 0xff); bits -= 8; } }
+  if (raw.length !== 32) return false;
+  const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(raw)]), format: "der", type: "spki" });
+  return verify(null, message, key, signature);
+}
 export function assert(cond: unknown, message: string): asserts cond { if (!cond) throw new Error(`conformance: ${message}`); }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 type Info = { id: string; state: string; pid: number | null; error: string | null; version: string };
@@ -127,6 +137,20 @@ export const CASES: ConformanceCase[] = [
     assert(!denied.ok && /^capability_denied/.test(denied.error ?? ""), `an undeclared capability is refused (got ${denied.error})`);
     const unimplemented = await doctor(h, "fx-over");
     assert(!unimplemented.ok && /^capability_denied/.test(unimplemented.error ?? ""), "a declared but unavailable capability is refused without side effects");
+  } },
+  { name: "identity.sign: declared purpose signs and verifies; undeclared purpose is refused", async run(t) {
+    const dir = t.install("identity-sign");
+    t.install("identity-sign", { manifest: { id: "fx-identity-sign-other" }, fixture: { capabilityParams: { purpose: "other", payload: "Y29uZm9ybWFuY2U=" }, capabilityResultFile: undefined } });
+    const h = await t.host();
+    for (const id of ["fx-identity-sign", "fx-identity-sign-other"]) await h.call("plugin.enable", { id, grant: true });
+    const signed = await doctor(h, "fx-identity-sign");
+    assert(signed.ok, `a declared purpose signs (got ${signed.error})`);
+    const r = JSON.parse(readFileSync(join(dir, "capability-result.json"), "utf8")) as { signature: string; machineId: string };
+    const message = Buffer.concat([Buffer.from("pacer-machine-sig/v1\0fx-identity-sign\0conformance\0", "latin1"), Buffer.from("conformance")]);
+    assert(machineVerifies(r.machineId, message, Buffer.from(r.signature, "base64")), "the signature verifies under the domain-separated format with the machine id's key");
+    assert(!machineVerifies(r.machineId, Buffer.concat([Buffer.from("pacer-machine-sig/v1\0other\0conformance\0", "latin1"), Buffer.from("conformance")]), Buffer.from(r.signature, "base64")), "the signature is bound to the plugin id");
+    const refused = await doctor(h, "fx-identity-sign-other");
+    assert(!refused.ok && /^capability_denied/.test(refused.error ?? ""), `an undeclared purpose is refused (got ${refused.error})`);
   } },
   { name: "grants: needs_grant until granted, and again when a version asks for more", async run(t) {
     const dir = t.install("good");

@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Ctx } from "../types";
+import { cachedMachineId } from "../identity/store";
 import { TERMINAL_STATES, type Brief, type TaskRecord, type TaskState } from "./types";
 
 const ID_RE = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
@@ -189,8 +190,9 @@ export function createTask(
   onCreate?: (task: TaskRecord, db: Database) => void,
 ): TaskRecord {
   const { db } = connection(ctx);
+  const machineId = cachedMachineId(ctx);
   for (let i = 0; i < 65; i++) {
-    const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
+    const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, ...(machineId ? { machineId } : {}), state: "queued", attempts: [] };
     const created = db.transaction(() => {
       const result = db.query(`INSERT OR IGNORE INTO tasks (${columns}) VALUES (${placeholders})`).run(...values(task, ctx.now));
       if (!result.changes) return false;

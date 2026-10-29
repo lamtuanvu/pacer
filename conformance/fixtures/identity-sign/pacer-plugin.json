@@ -1,0 +1,1 @@
+{"id":"fx-identity-sign","version":"1.0.0","publisher":"pacer-conformance","host":">=1.4.0","entry":"main.ts","capabilities":[{"name":"identity.sign","scopes":["conformance"]}]}
