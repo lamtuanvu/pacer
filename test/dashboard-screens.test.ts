@@ -549,9 +549,18 @@ describe("Sessions keeps a conversation's list status and detail in agreement", 
     const t = { ...s.tasks.find(t => t.id === "t-0412")!, interactionMode: "conversation", ...patch } as ClientSnapshot["tasks"][number];
     return { s: { ...s, tasks: [t] }, t };
   };
-  const view = (s: ClientSnapshot, d: Partial<DashData>) => ({
-    text: renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state: { screen: "sessions" } }).replace(/\s+/g, " "),
-    item: screenItems(s, s.at, { state: { screen: "sessions" }, data: d }).find(i => i.id === "session:t-0412")!,
+  const view = (s: ClientSnapshot, d: Partial<DashData>, ops?: string[]) => ({
+    text: renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state: { screen: "sessions" }, ops }).replace(/\s+/g, " "),
+    item: screenItems(s, s.at, { state: { screen: "sessions" }, data: d, ops }).find(i => i.id === "session:t-0412")!,
+  });
+  const waiting = (patch: Partial<TaskDetail>, question: Record<string, unknown> | null = { text: "Keep the legacy flag?", at: 1 }) => {
+    const { s, t } = conversation({ state: "needs_input", rev: 7, question: question ?? undefined });
+    return { s, t, d: { ...data(), details: new Map([["t-0412", { value: { ...detail, state: "needs_input", ...patch } as TaskDetail }]]) } };
+  };
+  const managed = (allowed: boolean): Partial<TaskDetail> => ({
+    rev: 7, question: { text: "Keep the legacy flag?" }, work: { rootId: "t-0412", parentId: null, depth: 0 },
+    workTree: { totals: { tasks: 1, running: 0, queued: 0, executionSeconds: 1, dependencyWaitSeconds: 0, childWaitSeconds: 0, capacityWaitSeconds: 0, usagePools: [] },
+      nodes: [{ taskId: "t-0412", depth: 0, title: "Lane", state: "needs_input", model: null, actualModel: null, dependencies: [], review: null, attempts: [], decisions: [], retryEligibility: { allowed } }] },
   });
 
   test("a conversation waiting for its answer shows the question and an answer action, not a result or verdicts", () => {
@@ -569,6 +578,38 @@ describe("Sessions keeps a conversation's list status and detail in agreement", 
     expect(item.actions.map(a => a.label)).not.toContain("Reject");
     expect(item.keys.r).toBeUndefined();
     expect(item.keys.s?.label).toBe("End session");
+  });
+
+  test("B: with the question not loaded, neither the answer key nor its hint is offered", () => {
+    const { s, t, d } = waiting({}, null);
+    const { text, item } = view(s, d);
+    expect(text).toContain("The question is not loaded yet.");
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("a answer");
+    expect(item.keys.a).toBeUndefined();
+  });
+
+  test("C: a service without task.answer gets a plain reason, not an answer hint", () => {
+    const { s, t, d } = waiting({});
+    const { text, item } = view(s, d, ["task.stop", "task.dismiss"]);
+    expect(text).toContain("This pacer service does not offer answering.");
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("a answer");
+    expect(item.keys.a).toBeUndefined();
+  });
+
+  test("D: managed work is answered through dispatch.answer, and pacer answer is never offered for it", () => {
+    const { s, t, d } = waiting(managed(true));
+    const { text, item } = view(s, d);
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).toContain(`pacer dispatch answer --id ${t.id}`);
+    expect(item.keys.a?.label).toBe("Answer work question");
+    const prompt = item.keys.a?.effect as { type: string; prompt: { submit: (v: string) => unknown } };
+    expect(prompt.prompt.submit("yes")).toMatchObject({ action: { op: "dispatch.answer", params: { id: t.id, expect_rev: 7, text: "yes" } } });
+    const blocked = view(waiting(managed(false)).s, waiting(managed(false)).d);
+    expect(blocked.text).toContain("This work step's question cannot be answered from here.");
+    expect(blocked.text).not.toContain("a answer");
+    expect(blocked.item.keys.a).toBeUndefined();
   });
 
   test("a settled conversation is reviewed like a delegated task", () => {
