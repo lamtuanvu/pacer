@@ -6,7 +6,7 @@ import { useDialogs } from "../ds/useDialogs";
 import { Button } from "../ds/Button";
 
 /** One button for one service action, with its own pending, error and already-handled state. */
-export function ActionButton({ runner, id, action, confirmDone, strong = false }: { runner: ActionRunner; id: string; action: Action; confirmDone?: (s: StoreState) => boolean; strong?: boolean }) {
+export function ActionButton({ runner, id, action, confirmDone, strong = false, "aria-label": ariaLabel }: { runner: ActionRunner; id: string; action: Action; confirmDone?: (s: StoreState) => boolean; strong?: boolean; "aria-label"?: string }) {
   const dialogs = useDialogs();
   const [state, setState] = useState(runner.state(id));
   useEffect(() => runner.subscribe(() => setState(runner.state(id))), [runner, id]);
@@ -16,7 +16,7 @@ export function ActionButton({ runner, id, action, confirmDone, strong = false }
     void runner.run(id, action, confirmDone);
   };
   return <span className="pc-action">
-    <Button size="sm" variant={action.style === "danger" ? "danger" : strong ? "primary" : "secondary"} busy={state.status === "pending"} onClick={click}>{state.status === "pending" ? `${action.label}…` : action.label}</Button>
+    <Button aria-label={ariaLabel} size="sm" variant={action.style === "danger" ? "danger" : strong ? "primary" : "secondary"} busy={state.status === "pending"} onClick={click}>{state.status === "pending" ? `${action.label}…` : action.label}</Button>
     {dialogs.dialog}
     {state.status === "error" && <span className="op-error" role="status">{state.message}{state.hint ? ` · ${state.hint}` : ""}</span>}
     {state.status === "handled" && <span className="muted" role="status">{state.message}</span>}

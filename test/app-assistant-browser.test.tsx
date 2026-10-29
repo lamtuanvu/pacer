@@ -16,7 +16,7 @@ async function build() {
 }
 async function open(page: Page, built: { source: string; css: string }) {
   await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>assistant</title><div id="app"></div>' }));
-  await page.goto("http://pacer.test/#/overview");
+  await page.goto("http://pacer.test/#/dispatch");
   await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
   await page.locator("#main-content").waitFor();

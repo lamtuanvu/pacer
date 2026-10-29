@@ -43,11 +43,11 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 const state = { ...initialState(), connected: true, snapshot: fixture as any, features: { readModel: true, ops: new Set(["assistant.status"]) } };
 function App() {
-  const [hash, setHash] = useState(location.hash || "#/overview");
+  const [hash, setHash] = useState(location.hash || "#/dispatch");
   useEffect(() => { const update = () => setHash(location.hash); addEventListener("hashchange", update); keys.setScope((resolveRoute(hash) as Route).name); return () => removeEventListener("hashchange", update); }, [hash]);
   const route = resolveRoute(hash) as Route;
   return <TaskContext.Provider value={{ api: api as any, state }}><NavigationProvider route={route}>
-    <Layout route={route} state={state} title="Overview">
+    <Layout route={route} state={state} title="Dispatch">
       <Page width="full"><PageBody><Section title="Work" description="Sample page."><Button>Sample action</Button></Section></PageBody></Page>
     </Layout>
   </NavigationProvider></TaskContext.Provider>;

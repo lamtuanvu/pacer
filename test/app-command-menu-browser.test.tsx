@@ -36,7 +36,7 @@ const activeOption = (page: Page) => page.evaluate(() => {
 const labels = (page: Page) => page.locator('[role="option"] .pc-command__label').allTextContents();
 
 browserTest("combobox_aria_and_arrow_home_end_enter", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.getByRole("button", { name: /Search tasks/ }).click();
   const input = page.getByRole("combobox");
   await input.waitFor();
@@ -70,7 +70,7 @@ browserTest("combobox_aria_and_arrow_home_end_enter", () => withPage(async (page
 }));
 
 browserTest("escape_returns_focus_to_the_opener", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   const opener = page.getByRole("button", { name: /Search tasks/ });
   await opener.focus();
   await page.keyboard.press("Enter");
@@ -117,7 +117,7 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
 }));
 
 browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("a");
@@ -157,7 +157,7 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
 }));
 
 browserTest("menu_fits_a_375px_screen", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("combobox").waitFor();
   const box = await page.locator("dialog.pc-command").boundingBox();
@@ -167,20 +167,20 @@ browserTest("menu_fits_a_375px_screen", () => withPage(async (page, built) => {
 }, { width: 375, height: 700 }));
 
 browserTest("enter_while_composing_does_not_pick", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("fix");
   // An IME candidate confirmation arrives as Enter with isComposing set.
   await input.evaluate(element => element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
-  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  expect(await page.evaluate(() => location.hash)).toBe("#/");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
 }));
 
 browserTest("shift_ctrl_k_and_clicks", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+Shift+K");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   await page.keyboard.press("Control+k");
@@ -196,7 +196,7 @@ browserTest("shift_ctrl_k_and_clicks", () => withPage(async (page, built) => {
 }));
 
 browserTest("a new query puts the highlight back on the first result", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("a");
@@ -213,7 +213,7 @@ browserTest("a new query puts the highlight back on the first result", () => wit
 }));
 
 browserTest("escape_returns_focus_to_the_trigger_when_a_click_does_not_focus_it", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   // WebKit (Safari, the desktop shell) leaves focus on the body when a button is clicked; stopping mousedown does the same here.
   await page.evaluate(() => document.querySelector(".pc-command-trigger")!.addEventListener("mousedown", event => event.preventDefault()));
   await page.locator(".pc-command-trigger").click();
@@ -230,7 +230,7 @@ browserTest("escape_returns_focus_to_the_trigger_when_a_click_does_not_focus_it"
 }));
 
 browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   // Outside commands mode ⌘↵ "open beside" is announced as coming soon and does nothing.
@@ -241,7 +241,7 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await input.fill("fix");
   await page.keyboard.press("Control+Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
-  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  expect(await page.evaluate(() => location.hash)).toBe("#/");
   await input.fill(">count");
   await expect(page.locator(".pc-command__footer").textContent()).resolves.toContain("run and keep open");
   await expect(page.locator(".pc-command__footer").textContent()).resolves.not.toContain("Coming soon");
@@ -257,7 +257,7 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
 }));
 
 browserTest("mod_enter_closes_the_menu_for_a_command_that_opens_a_dialog", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill(">shortcuts");
   await page.getByRole("option", { name: /^Show keyboard shortcuts/ }).waitFor();
@@ -271,7 +271,7 @@ browserTest("mod_enter_closes_the_menu_for_a_command_that_opens_a_dialog", () =>
 }));
 
 browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill(">dispatch");
@@ -294,7 +294,7 @@ browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(
 }));
 
 browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   const trigger = page.locator(".pc-command-trigger");
   const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-command-trigger__text")!.textContent }; });
   expect(t).toMatchObject({ w: 420, h: 30, radius: "8px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
@@ -313,7 +313,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
 }));
 
 browserTest("the commands chip replaces the leading greater-than and backspace removes it", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill(">pa");
@@ -334,7 +334,7 @@ browserTest("the commands chip replaces the leading greater-than and backspace r
 }));
 
 browserTest("select_all_works_in_the_input", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("fix");
@@ -347,7 +347,7 @@ browserTest("select_all_works_in_the_input", () => withPage(async (page, built) 
 const filesAnswer = (page: Page, answer: object) => page.evaluate(value => { (window as any).filesAnswer = value; (window as any).fileCalls = []; }, answer);
 
 browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_by_subtitle", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { results: [
     { repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh/keepalive.ts", ranges: [[4, 7]], changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] },
     { repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] },
@@ -384,7 +384,7 @@ browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_
 }));
 
 browserTest("a file no running task changed copies its path on Enter and says so", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as any).copied = text; } } }); });
   await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
   await page.keyboard.press("Control+k");
@@ -399,12 +399,12 @@ browserTest("a file no running task changed copies its path on Enter and says so
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   expect(await page.evaluate(() => (window as any).copied)).toBe("docs/ssh.md");
-  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  expect(await page.evaluate(() => location.hash)).toBe("#/");
   await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Path copied"));
 }));
 
 browserTest("a failed copy says so", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); document.execCommand = () => false; });
   await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
   await page.keyboard.press("Control+k");
@@ -415,7 +415,7 @@ browserTest("a failed copy says so", () => withPage(async (page, built) => {
 }));
 
 browserTest("repositories that could not be searched are named with a reason and an error is explained", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { truncated: true, repos: [{ key: "github.com/acme/web", state: "too_large" }, { key: "github.com/lamtuanvu/pacer", state: "timeout" }],
     results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh.ts", ranges: [[4, 7]] }] });
   await page.keyboard.press("Control+k");
@@ -438,7 +438,7 @@ browserTest("repositories that could not be searched are named with a reason and
 }));
 
 browserTest("a webview that refuses the clipboard API still copies through the fallback", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } });
     document.execCommand = (name: string) => { (window as any).copiedBy = [name, window.getSelection()?.toString() ?? null]; return true; };
@@ -455,7 +455,7 @@ browserTest("a webview that refuses the clipboard API still copies through the f
 }));
 
 browserTest("results arrive in a polite live region and an empty Files answer falls back to All", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { results: [] });
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");

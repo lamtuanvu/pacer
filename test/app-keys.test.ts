@@ -69,7 +69,7 @@ test("only Ctrl-] works while a terminal is in control", () => {
 test("scoped shortcuts run only in their scope", () => {
   const { registry, ran, add } = setup();
   add("a", "review");
-  registry.setScope("overview");
+  registry.setScope("dispatch");
   registry.handle(key("a"));
   expect(ran).toEqual([]);
   registry.setScope("review");
