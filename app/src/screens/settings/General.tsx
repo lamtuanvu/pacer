@@ -314,7 +314,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Planner" description="Who plans and reviews. Changing it rewires that agent's hooks and status line.">
           <div className="pc-budget-planner">
-            <ChoicePicker sizing="content" aria-label="Planner" value={value("planner")} placeholder="Choose a planner" disabled={action.busy} options={config.planners.map(planner => ({ value: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/>
+            <ChoicePicker sizing="content" aria-label="Planner" value={value("planner")} placeholder="Choose a planner" disabled={action.busy} options={config.planners.map(planner => ({ value: planner, agent: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/>
             <Button size="sm" disabled={action.busy || !value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
           </div>
         </SettingRow>

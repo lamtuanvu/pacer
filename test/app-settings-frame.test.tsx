@@ -520,7 +520,7 @@ test('Budget planner selection retains the configured choices and consent review
   try {
     const html = render(<SettingsGeneral section="planner" initialData={settings} />);
     expect(choice.value).toBe('codex#team');
-    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, label: executorLabel(value) })));
+    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, agent: value, label: executorLabel(value) })));
     expect(html).toContain('Review integration changes');
     expect(html).not.toContain('Planner integration changes');
   } finally { options.vnode = old; }

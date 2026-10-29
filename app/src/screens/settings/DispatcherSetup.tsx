@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { executorReadiness } from "../../../../src/view-model/capacity";
 import { executorLabel } from "../../../../src/view-model/words";
 import type { ComponentChildren } from "preact";
@@ -53,7 +54,7 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
           const { runner, status } = metadata(item.id ?? item.key);
           const name = executorLabel(item.id ?? item.key);
           return { ...item, displayLabel: name,
-            leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
+            leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={agentKey(markAgent(runner?.id ?? item.id ?? item.key, runner?.account)) ?? "opencode"} size={24} labelled={false} /></>,
             detail: item.detail,
             trailing: status && <span className="pc-executor-state" onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><Pill tone={status.tone}>{status.label}</Pill></span></Tooltip></span> };
         })} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
@@ -66,7 +67,7 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
             const { runner, status } = metadata(item.id ?? item.key);
             const unavailable = runner && (runner.eligibility?.state === "ineligible" || ["disabled", "blocked", "down", "failing", "exhausted"].includes(runner.state));
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
-              <AgentMark agent={runner?.agent ?? item.key} size={20} labelled={false} />
+              <AgentMark agent={agentKey(markAgent(runner?.id ?? item.id ?? item.key, runner?.account)) ?? "opencode"} size={20} labelled={false} />
               <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span onKeyDown={containTooltipEscape}>{status ? <Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip> : <span className="pc-executor-caption">Refresh to confirm availability</span>}</span></span>
               {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;

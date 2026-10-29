@@ -24,7 +24,7 @@ export function AssistantSettingsSection() {
   }, [settings.data?.rev]);
   if (!settings.data || !candidates.data) return <Section id="assistant" title="Assistant"><LoadingState label="Loading assistant settings…" />{settings.error ? <ErrorMessage error={settings.error} /> : null}</Section>;
   const chosen = candidates.data.accounts.find(a => a.account === account);
-  const runnerOptions = [{ value: "", label: "The account’s default model" }, ...(chosen?.runners ?? []).map(r => ({ value: r.id, label: r.model ? `${r.id} · ${r.model}` : r.id }))];
+  const runnerOptions = [{ value: "", agent: chosen?.runners[0]?.id ?? chosen?.account ?? "opencode", label: "The account’s default model" }, ...(chosen?.runners ?? []).map(r => ({ value: r.id, agent: r.id, label: r.model ? `${r.id} · ${r.model}` : r.id }))];
   const act = async (work: () => Promise<unknown>, message: string) => {
     setBusy(true); setError(undefined); setSaved(null);
     try { await work(); setSaved(message); settings.reload(); status.reload(); } catch (e) { setError(e); } finally { setBusy(false); }
@@ -33,7 +33,7 @@ export function AssistantSettingsSection() {
   return <Section id="assistant" title="Assistant" detail="Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.">
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
-        <ChoicePicker value={account ?? ""} placeholder="Off — choose an account" options={[{ value: "", label: "Off" }, ...candidates.data.accounts.map(a => ({ value: a.account, label: a.isPlanner ? `${a.account} (planner)` : a.account }))]} onValueChange={value => { setAccount(value || null); setRunner(""); }} />
+        <ChoicePicker value={account ?? ""} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({ value: a.account, agent: a.runners[0]?.id ?? a.account, label: a.isPlanner ? `${a.account} (planner)` : a.account }))]} onValueChange={value => { setAccount(value || null); setRunner(""); }} />
       </Field>
       {chosen?.isPlanner && <Alert tone="warning" title="This is your planner’s account">The assistant follows the planner’s pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.</Alert>}
       {chosen && <Field label="Model"><ChoicePicker value={runner} options={runnerOptions} onValueChange={setRunner} /></Field>}

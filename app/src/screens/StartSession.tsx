@@ -148,7 +148,7 @@ export function StartSessionForm(p: FormProps) {
             value={p.executor}
             searchable
             placeholder="Choose an executor…"
-            options={p.preparation?.executors.map((e) => ({ value: e.id, label: `${agentInfo(e.agent).name} · ${e.account}`, disabled: !e.available, reason: e.reason })) ?? []}
+            options={p.preparation?.executors.map((e) => ({ value: e.id, agent: `${e.agent}#${e.account}`, label: `${agentInfo(e.agent).name} · ${e.account}`, disabled: !e.available, reason: e.reason })) ?? []}
             onValueChange={(value) => p.onField("executor", value)}
           />
         </Field>

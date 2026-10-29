@@ -118,7 +118,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
         <form className="pc-card" onSubmit={e => { e.preventDefault(); void action.run("account.add", { name, kind }, () => { setAdding(false); setName(""); }); }}>
           <div className="u3-settings-grid">
             <Field label="Account name"><TextInput value={name} required pattern="[a-z0-9][a-z0-9-]*" onInput={e => setName(e.currentTarget.value)} /></Field>
-            <Field label="Agent"><ChoicePicker value={kind} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} onValueChange={setKind} /></Field>
+            <Field label="Agent"><ChoicePicker value={kind} options={[{ value: "codex", agent: "codex", label: "Codex" }, { value: "claude", agent: "claude", label: "Claude Code" }]} onValueChange={setKind} /></Field>
           </div>
           <Button type="submit" disabled={action.busy}>Create account</Button>
           <p><TextAction href={scoped("#/settings/add-executor")}>Connect an API endpoint through Add agent</TextAction></p>

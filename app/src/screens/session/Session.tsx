@@ -178,7 +178,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
       <div className="pc-form">
         <p>{active ? 'The current run will stop before a new attempt starts.' : 'Start a new attempt with an available executor.'}</p>
         <Field label="Retry on"><ChoicePicker id={`session-${data.id}-retry`} value={retry?.id ?? ''} onValueChange={setSelected} disabled={busy}
-          placeholder="No available executor" searchable options={retries.map(option => ({ value: option.id, label: option.label, disabled: !option.available, reason: option.reason }))} /></Field>
+          placeholder="No available executor" searchable options={retries.map(option => ({ value: option.id, agent: option.id, label: option.label, disabled: !option.available, reason: option.reason }))} /></Field>
         {!retry && <p className="pc-session-muted">No executor is available. Try again when a slot is free.</p>}
         {actionError && <p role="alert">{actionError}</p>}
         <div className="row-actions"><Button onClick={() => setRetryOpen(false)}>Cancel</Button>
