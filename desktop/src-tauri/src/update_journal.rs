@@ -432,6 +432,17 @@ fn restoring_state(dir: &File, manifest: &PreparedManifest) -> Checked<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn takeover_manifest_is_not_update_or_adoption() {
+        let bytes = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/desktop-update/takeover-manifest.json"));
+        assert!(serde_json::from_slice::<PreparedManifest>(bytes).is_err());
+        assert!(serde_json::from_slice::<AdoptionManifest>(bytes).is_err());
+        let fixture = fixture();
+        let path = private_dirs(&fixture, "inst", "fixture-tx");
+        write(&path.join("adoption-prepared.json"), bytes);
+        let dir = open_path(&path).unwrap();
+        assert!(read_transaction(&dir, "inst", "fixture-tx").is_err());
+    }
     use pacer_desktop::ota::{
         journal::OriginalBundleProof,
         wire::{AuthorizationKind, InstallAuthorization},

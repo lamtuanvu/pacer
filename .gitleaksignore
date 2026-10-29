@@ -1,0 +1,2 @@
+# Test fixture token in test/desktop-shell.test.ts (not a credential); the file now builds it at runtime.
+8f00fc407ab65e9dba8b7665648dd1c4a7690bf0:test/desktop-shell.test.ts:generic-api-key:49
