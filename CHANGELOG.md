@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
 ### Changed
 
@@ -147,7 +148,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
 - Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
