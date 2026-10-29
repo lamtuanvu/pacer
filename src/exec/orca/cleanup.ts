@@ -138,6 +138,39 @@ export async function discardCreatedWorktree(ctx: Ctx, c: OrcaClient, taskId: st
   log(`Orca worktree ${w.id} not removed (${failure}); pacer clean removes it`);
 }
 
+/**
+ * A `--group` parent lives while any lane worktree is nested under it. Once pacer has removed a lane's worktree, it
+ * removes the parent too when Orca shows no lane left under it and the parent has no uncommitted changes; otherwise
+ * the parent stays, and the removal of its last lane retries. Never throws.
+ */
+export async function releaseEmptyGroup(ctx: Ctx, c: OrcaClient, repoId: string, group: string, log: (l: string) => void, over: Partial<CleanupDeps> = {}): Promise<void> {
+  const deps = { ...DEFAULTS, ...over };
+  const key = `${repoId}:${group}`;
+  try {
+    await withLock(ctx, "orca-group", async () => {
+      const entry = loadOrcaState(ctx).groups[key];
+      if (!entry) return;
+      const shown = await c.worktreeShowBy(entry.selector);
+      if (!shown.ok) {
+        if (shown.error.code === "selector_not_found") updateOrcaState(ctx, s => { delete s.groups[key]; });
+        else log(`group ${group} parent kept: orca worktree show failed (${shown.error.code})`);
+        return;
+      }
+      const w = shown.result.worktree, path = entry.selector.slice("path:".length);
+      const children = w?.childWorktreeIds;
+      if (!Array.isArray(children)) { log(`group ${group} parent kept: Orca does not list its lanes`); return; }
+      if (children.length) { log(`group ${group} parent kept: ${children.length} lane worktree(s) still under it`); return; }
+      if (await worktreeDirty(ctx, path) !== false) { log(`group ${group} parent kept: it has uncommitted changes or git could not tell`); return; }
+      const owned = await verifyOwned(c, entry.selector, { name: `pacer-group-${group}`, path });
+      if ("error" in owned) { log(`group ${group} parent kept: ${owned.error}`); return; }
+      const failure = await removeOwned(ctx, c, owned.id, path, false, deps);
+      if (failure) { log(`group ${group} parent kept: ${failure}`); return; }
+      updateOrcaState(ctx, s => { delete s.groups[key]; });
+      log(`removed group ${group} parent worktree ${owned.id}`);
+    });
+  } catch (e) { log(`group ${group} parent kept: ${String(e instanceof Error ? e.message : e)}`); }
+}
+
 async function removeStranded(ctx: Ctx, c: OrcaClient, s: StrandedWorktree, force: boolean, deps: CleanupDeps): Promise<string | null> {
   const owned = await verifyOwned(c, `id:${s.id}`, s);
   const failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(ctx, c, s.id, s.path, force, deps);

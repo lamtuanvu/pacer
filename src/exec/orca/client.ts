@@ -29,7 +29,7 @@ export interface WorkerStartResult {
 export interface WorkerClosureResult { dispatchId?: string; state?: string; processAction?: string; close?: { handle?: string; ptyKilled?: boolean } }
 export interface WorkerRow { state?: string; stage?: string; worktreeId?: string; agentTerminalHandle?: string; lastError?: string | null }
 export interface WorkerListRow { dispatchId?: string; workerState?: string; agentTerminalHandle?: string; resource?: { terminalHandle?: string } }
-export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean }
+export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean; childWorktreeIds?: string[] }
 export interface OrcaMessage { id: string; type: string; from_handle?: string; subject?: string; body?: string; payload?: string | null }
 export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage[]; timedOut?: boolean; acknowledged?: string | null }
 

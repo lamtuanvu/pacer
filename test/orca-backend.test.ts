@@ -806,14 +806,31 @@ test("group: creates one parent worktree per group, nests each lane's own worktr
   expect(loadOrcaState(x.ctx).groups).toEqual({"repo-1:feature-x": {selector: "path:/work/pacer-group-feature-x"}});
 });
 
-test("group: a refused worker-start removes the orphaned lane worktree it just created", async () => {
-  const x = setup([[O("orchestration", "worker-start"), failure("task_not_startable")]]);
+/** `orca worktree show` for a group parent: Orca lists the lanes still nested under it. */
+const groupShow = (children: () => string[]) => [O("worktree", "show", "--worktree", "path:/work/pacer-group-feature-x"),
+  () => envelope({worktree: {id: "repo-1::/work/pacer-group-feature-x", path: "/work/pacer-group-feature-x", displayName: "pacer-group-feature-x", isMainWorktree: false, childWorktreeIds: children()}})] as Route;
+const groupClean = [["git", "-C", "/work/pacer-group-feature-x", "status"], raw("")] as Route;
+const groupRemoved = (calls: string[][]) => calls.some(a => a[1] === "worktree" && a[2] === "rm" && arg(a, "--worktree") === "id:repo-1::/work/pacer-group-feature-x");
+
+test("group: a refused worker-start removes the lane worktree and the group parent it just created, so a direct fallback leaves nothing in Orca", async () => {
+  let lane = true;
+  const x = setup([[O("orchestration", "worker-start"), failure("task_not_startable")],
+    [O("worktree", "rm"), (a: string[]) => {if (arg(a, "--worktree") !== "id:repo-1::/work/pacer-group-feature-x") lane = false; return envelope({});}],
+    groupShow(() => lane ? [`repo-1::/work/pacer-x`] : []), groupClean]);
   const task = updateTask(x.ctx, x.task.id, t => {t.group = "feature-x";});
   const out = await x.backend.runAttempt(x.ctx, x.cfg, task);
   expect(out.backend).toBe("direct");
   const removes = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm");
-  expect(removes).toHaveLength(1);
-  expect(arg(removes[0], "--worktree")).toBe(`id:${x.wt}`);
+  expect(removes.map(a => arg(a, "--worktree"))).toEqual([`id:${x.wt}`, "id:repo-1::/work/pacer-group-feature-x"]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({});
+});
+
+test("group: a fallback keeps a group parent that another lane still uses", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("task_not_startable")], groupShow(() => ["repo-1::/work/pacer-other-lane"]), groupClean]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.group = "feature-x";}));
+  expect(out.backend).toBe("direct");
+  expect(groupRemoved(x.f.calls)).toBe(false);
+  expect(loadOrcaState(x.ctx).groups["repo-1:feature-x"]).toEqual({selector: "path:/work/pacer-group-feature-x"});
 });
 
 test("group: a second lane in the same group reuses the cached parent worktree", async () => {

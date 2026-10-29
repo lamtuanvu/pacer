@@ -25,7 +25,7 @@ import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
 import { laneWorktreeName } from "./names";
 import { OrcaClient, type Placement, type TerminalRow, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
-import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, type WorkerLookup, worktreeTerminals } from "./cleanup";
+import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, releaseEmptyGroup, type WorkerLookup, worktreeTerminals } from "./cleanup";
 import { ensureCoordinator, ensureGroupWorktree, ensureRepo, gitInfo, realpathSafe } from "./setup";
 import { loadOrcaState, updateOrcaState, withLock } from "./state";
 import { SETTLED_STATES, type WaitResult, waitForWorker } from "./wait";
@@ -441,7 +441,12 @@ async function runOrcaAttempt(
     if (unproven.length) throw Error(`orca worktree initial terminal ${unproven.join(", ")} could not be verified closed`);
   };
   const worktreeId = () => selector ? selector.slice("id:".length) : undefined;
-  const discard = async () => { if (created) await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep }); };
+  // A fallback leaves nothing in Orca: the lane's worktree, then its group parent once no other lane uses it.
+  const discard = async () => {
+    if (!created) return;
+    await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep });
+    if (task.group && p.placement.kind === "new-child") await releaseEmptyGroup(ctx, c, p.placement.repoId, task.group, log, { sleep: deps.sleep });
+  };
   try {
     const kind = p.placement.kind === "new-child" ? "create" : "show";
     const placement = p.placement.kind === "new-child"
