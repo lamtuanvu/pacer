@@ -283,6 +283,11 @@ test("detectShellExecutorLaunch carries inline and exported environment into bas
   expect(detectShellExecutorLaunch(ctx, `CLAUDE_CONFIG_DIR=$HOME/.claude bash -c 'claude --model sonnet'`)).toBeNull();
   expect(detectShellExecutorLaunch(ctx, `PACER_ROLE=executor bash -c 'npm test'`)).toBeNull();
   expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; PACER_ROLE=other; claude run")).toBeNull();
+  // `unset` removes an exported variable for later commands; `unset -f` only removes functions.
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -v PACER_ROLE; claude --help")).toBeNull();
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset -f PACER_ROLE; claude run")).toEqual({ cli: "claude" });
+  expect(detectShellExecutorLaunch(ctx, "export PACER_ROLE=executor; unset PACER_ROLE | cat; claude run")).toEqual({ cli: "claude" });
 });
 
 test("detectShellExecutorLaunch splits control operators outside quotes only, and tells || from | (PR #463 review)", () => {

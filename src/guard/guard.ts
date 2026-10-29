@@ -202,7 +202,7 @@ const MAX_SHELL_DEPTH = 8;
  * inherit the environment in effect where they start) are all recognized; quoted and commented text is inert.
  * Best effort, not a shell parser: a variable exported in an *earlier, separate* Bash tool call, a launch hidden
  * behind a script file, variable expansion, `env`/`bash -c` with other flags in front, parenthesized/subshell
- * grouping (e.g. `(export ... && claude ...)`), `unset`, and heredoc bodies (which can false-positive, since they
+ * grouping (e.g. `(export ... && claude ...)`), and heredoc bodies (which can false-positive, since they
  * are not recognized as inert text) are not caught here.
  */
 export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: Record<string, string> = {}, depth = 0): ShellLaunch | null {
@@ -235,6 +235,11 @@ export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: 
           if (w.assign !== -1) { const name = w.text.slice(0, w.assign); env[name] = vars[name] = w.text.slice(w.assign + 1); }
           else if (NAME.test(w.text) && vars[w.text] !== undefined) env[w.text] = vars[w.text]!;
         }
+        continue;
+      }
+      if (words[0]!.text === "unset" && words[0]!.assign === -1) {
+        // `unset -f` removes functions; plain and `-v` names remove variables.
+        if (!words.slice(1).some(w => w.text === "-f")) for (const w of words.slice(1)) { delete env[w.text]; delete vars[w.text]; }
         continue;
       }
       const { assignments, program } = parseSimpleCommand(words);
