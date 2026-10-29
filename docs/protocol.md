@@ -4431,7 +4431,7 @@ Params JSON Schema:
 
 ### `machine.rotate`
 
-Replace this machine's key and id. Paired machines must be told or pair again.
+Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.
 
 Params JSON Schema:
 

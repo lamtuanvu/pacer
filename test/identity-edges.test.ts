@@ -8,12 +8,12 @@ import { clearIdentityCache, ensureIdentity, readMeta, setIdentityPlatformForTes
 import { cloneSuspected } from "../src/identity/salt";
 import { homeTag } from "../src/identity/key-store";
 import { rotateIdentity } from "../src/identity/rotate";
-import { auditSignature, identityAuditPath, AUDIT_MAX_BYTES } from "../src/identity/audit";
+import { auditSignature, identityAuditPath, AUDIT_MAX_BYTES, setAuditClockForTests } from "../src/identity/audit";
 import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
 import type { Ctx } from "../src/types";
 
-beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("darwin"); });
+beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("darwin"); setAuditClockForTests(); });
 
 const saltAccount = (ctx: Ctx) => `machine-install-salt/${homeTag(ctx)}`;
 const announcements = (ctx: Ctx) => existsSync(outboxPath(ctx)) ? readFileSync(outboxPath(ctx), "utf8").split("\"rotated\"").length - 1 : 0;
@@ -114,7 +114,53 @@ test("refused identity.sign requests are audited at most 10 a minute per plugin,
   const later = { ...ctx, now: ctx.now + 60 };
   await answerCapability(later, noisy, "capability.identity.sign", { purpose: "other", payload: b64("x") }).catch(() => {});
   lines = audit(ctx);
-  expect(lines.at(-1)).toMatchObject({ at: later.now, pluginId: "noisy", outcome: "refused", suppressed: 15 });
+  expect(lines.filter(l => l.pluginId === "noisy" && l.outcome === "refused")).toHaveLength(10);
+});
+
+// F1: the registry keeps one ctx for a plugin's lifetime, so the window must follow the wall clock, not ctx.now.
+test("the refusal window reopens after a minute for a plugin that keeps one ctx", async () => {
+  setIdentityPlatformForTests("linux");
+  let clock = 1_000_000;
+  setAuditClockForTests(() => clock);
+  const ctx = fakeCtx();
+  const noisy = plugin("long-lived", [{ name: "identity.sign", scopes: ["greeting"] }]);
+  const refuse = () => answerCapability(ctx, noisy, "capability.identity.sign", { purpose: "other", payload: b64("x") }).catch(() => {});
+  for (let i = 0; i < 16; i++) await refuse();
+  clock += 59;
+  await refuse();
+  expect(audit(ctx).filter(l => l.outcome === "refused")).toHaveLength(10);
+  clock += 2;
+  for (let i = 0; i < 3; i++) await refuse();
+  const lines = audit(ctx);
+  expect(lines.filter(l => l.outcome === "refused")).toHaveLength(13);
+  expect(lines.filter(l => l.outcome === "suppressed")).toHaveLength(1);
+  expect(lines.at(-3)).toMatchObject({ pluginId: "long-lived", outcome: "refused", suppressed: 7 });
+  expect(lines.at(-1)!.suppressed).toBeUndefined();
+});
+
+// F2: a second process that rotates while this one waits must not lose the generation it moved to `.1`.
+test("audit rotation takes the identity-audit lock and rechecks the size under it", async () => {
+  const ctx = fakeCtx();
+  const path = identityAuditPath(ctx);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, "x".repeat(AUDIT_MAX_BYTES) + "\n", { mode: 0o600 });
+  const ready = join(ctx.pacerHome, "other-ready");
+  const other = Bun.spawn([process.execPath, "-e", `
+    const { withLockSync } = await import(${JSON.stringify(join(import.meta.dir, "../src/core/lock"))});
+    const { appendFileSync, renameSync, writeFileSync } = await import("node:fs");
+    withLockSync({ pacerHome: ${JSON.stringify(ctx.pacerHome)} }, "identity-audit", () => {
+      writeFileSync(${JSON.stringify(ready)}, "");
+      Bun.sleepSync(300);
+      renameSync(${JSON.stringify(path)}, ${JSON.stringify(path + ".1")});
+      appendFileSync(${JSON.stringify(path)}, JSON.stringify({ pluginId: "other" }) + "\\n");
+    });
+  `], { stdout: "inherit", stderr: "inherit" });
+  for (let i = 0; i < 100 && !existsSync(ready); i++) await Bun.sleep(20);
+  expect(existsSync(ready)).toBe(true);
+  auditSignature(ctx, { pluginId: "demo", purpose: "greeting", outcome: "signed", machineId: "m" });
+  expect(await other.exited).toBe(0);
+  expect(readFileSync(path + ".1", "utf8")[0]).toBe("x");
+  expect(audit(ctx).map(l => l.pluginId)).toEqual(["other", "demo"]);
 });
 
 // N-D
