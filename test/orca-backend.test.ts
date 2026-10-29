@@ -881,10 +881,10 @@ const shellInForeground = [O("terminal", "show"), envelope({terminal: {handle: t
 const liveWorker = [O("orchestration", "worker-show"), [envelope({worker: {state: "ready"}}), envelope({worker: {state: "ready"}}), envelope({worker: {state: "succeeded"}})]] as Route;
 const LIVE = {backend: "orca", worker: "ctx_live", terminal, executor: "codex", agent: "codex", incarnation: "inc", since: 1};
 
-/** A plain interactive lane that asked a question and kept its worker `ctx_live` alive. */
+/** A plain interactive lane, started from base commit aaaa…, that asked a question and kept its worker `ctx_live` alive. */
 function askedLane(x: ReturnType<typeof setup>, answer?: string) {
   const asked = updateTask(x.ctx, x.task.id, t => {
-    t.interactionMode = "conversation"; t.state = "needs_input"; t.worktree = x.root; t.live = {...LIVE};
+    t.interactionMode = "conversation"; t.state = "needs_input"; t.worktree = x.root; t.baseSha = "a".repeat(40); t.live = {...LIVE};
     t.question = {text: "which approach?", at: 1, ...(answer ? {answer} : {})};
   });
   updateOrcaState(x.ctx, s => {
@@ -943,6 +943,30 @@ test("stopping an answered group lane removes its original worktree and empty gr
   expect(readTask(x.ctx, asked.id)?.state).not.toBe("needs_input");
   expect(readTask(x.ctx, asked.id)?.dismissed).toBe(true);
   expect(readTask(x.ctx, retry.id)?.worktree).toBeUndefined();
+});
+
+test("stopping an answered lane keeps its worktree when it holds commits beyond the asking lane's base", async () => {
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const askedBase = "a".repeat(40);
+  const x = ref.x = setup([
+    [O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})],
+    agentInForeground,
+    [O("terminal", "send"), envelope({})],
+    [O("orchestration", "check"), () => {
+      updateTask(x.ctx, retry.id, t => { t.state = "stopped"; });
+      return envelope({messages: []});
+    }],
+    ...groupLaneShows(ref, state),
+    // Two commits beyond the lane's own base; none beyond its current head.
+  ], {}, {}, laneGit(() => ref.x!.root, range => range === `${askedBase}..HEAD` ? 2 : 0));
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.interactive = true; });
+  // The answer was delegated from the asking worktree's head, which is not where the lane started.
+  const retry = updateTask(x.ctx, answerOf(x, asked, "go with B").id, t => { t.baseSha = LANE_HEAD; });
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, retry);
+  expect(out.worktree).toBe(x.root);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+  expect(attemptLog(out)).toContain("it holds work");
 });
 
 test("Orca agent receives the task's pacer home and port", async () => {
@@ -1214,9 +1238,9 @@ test("a runner id with an account (codex#work) names its lane worktree the way O
 
 /** Git in a lane's worktree, routed after the defaults: clean, with `commits` commits beyond its base, at LANE_HEAD. */
 const LANE_HEAD = "b".repeat(40);
-const laneGit = (root: () => string, commits: number): Route[] => [
+const laneGit = (root: () => string, commits: number | ((range: string) => number)): Route[] => [
   [["git", "-C"], (a: string[]) => a[2] !== root() ? raw("", 99)
-    : a[3] === "status" ? raw("") : a[3] === "rev-list" ? raw(`${commits}\n`)
+    : a[3] === "status" ? raw("") : a[3] === "rev-list" ? raw(`${typeof commits === "number" ? commits : commits(a[5])}\n`)
     : a[3] === "rev-parse" ? raw(a[4] === "--verify" ? `${LANE_HEAD}\n` : `${root()}\n`) : raw("", 99)],
 ];
 /** `orca worktree show` that knows a group lane: its own worktree by path or id, and the group parent listing it until removed. */
@@ -1281,7 +1305,7 @@ test("an idle-expired lane keeps its worktree, so its open question can still be
   const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
   const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
   const asked = askedLane(x);
-  updateTask(x.ctx, asked.id, t => { t.baseSha = "a".repeat(40); t.result = {status: "needs_input", executor: "codex", model: null, files: "", report: "asked", backend: "orca", worktree: x.root}; });
+  updateTask(x.ctx, asked.id, t => { t.result = {status: "needs_input", executor: "codex", model: null, files: "", report: "asked", backend: "orca", worktree: x.root}; });
   await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, [x.backend]);
   expect(workerStops(x)).toBe(1);
   expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
