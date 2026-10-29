@@ -55,9 +55,9 @@ test("review records the verdict and refuses unknown kinds", async () => {
   await expect(tasks.review(ctx, t.id, { accepted: true, kind: "dance" })).rejects.toThrow(/unknown kind/);
 });
 
-test("dismiss reports unknown ids and still dismisses known ones", () => {
+test("dismiss reports unknown ids and still dismisses known ones", async () => {
   const { ctx, t } = mk();
-  const r = tasks.dismiss(ctx, ["missing-1", t.id, "missing-2"]);
+  const r = await tasks.dismiss(ctx, ["missing-1", t.id, "missing-2"]);
   expect(r.dismissed.map((x) => x.id)).toEqual([t.id]);
   expect(r.unknown).toEqual(["missing-1", "missing-2"]);
   expect(readTask(ctx, t.id)?.dismissed).toBe(true);

@@ -203,3 +203,18 @@ test("pacer clean --dry-run --json prints the plan", async () => {
   expect(r.code).toBe(0);
   expect(JSON.parse(r.out)).toEqual({ removed: [], kept: [] });
 });
+
+test("delegate reports current placement overridden to new with its reason", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const {updateTask} = await import("../src/tasks/store");
+  const previous = cliDeps.spawnRunner;
+  cliDeps.spawnRunner = (c, id) => {
+    updateTask(c, id, t => {t.placement = {requested: "current", mode: "new", why: "executor requires an isolated checkout"};});
+    return 1;
+  };
+  try {
+    const result = await main(["delegate", "--goal", "placement output", "--repo", ctx.home, "--worktree", "current"], ctx);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("current overridden to new (executor requires an isolated checkout)");
+  } finally {cliDeps.spawnRunner = previous;}
+});
