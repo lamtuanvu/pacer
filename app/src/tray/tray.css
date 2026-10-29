@@ -13,7 +13,7 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-line{display:flex;align-items:center;gap:var(--space-1\.5);white-space:nowrap}.tray-grow{flex:1;min-width:0}
 .tray-identity,.tray-state{display:inline-flex;align-items:center;gap:var(--space-1\.5)}.tray-identity{flex:1 1 auto;min-width:0;overflow:hidden}.tray-state{flex:none}
 .tray-identity strong{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.tray-planner-label{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:var(--type-caption-size);color:var(--ink-muted)}
+.tray-planner-label{flex-shrink:100;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:var(--type-caption-size);color:var(--ink-muted)}
 
 .tray-mode{height:var(--size-18);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary);font-size:var(--type-label-size);line-height:var(--type-caption-line)}
 
