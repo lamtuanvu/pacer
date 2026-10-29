@@ -5,6 +5,9 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { shellCommand } from "../../install/fsx";
 import { launchArgvFor, providerEnv } from "../launch";
+import { recordDefaultFolder } from "../account-folder";
+import { profileKeys, terminalEnv, type TerminalEnv } from "../login-env";
+import { prepareInteractive } from "../../session/reports";
 import { readJson, writeJsonAtomic } from "../../fsutil";
 import { type ExecutionCfg, validateExecution } from "../../config/execution";
 import { type ProviderCfg, loadStrategy } from "../../config/strategy";
@@ -12,7 +15,7 @@ import { readTask, tasksDir, listTasksWhere, updateTask } from "../../tasks/stor
 import { resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
-import { type AttemptOutcome, REPORT_CHARS, runAttempt as directAttempt, tail } from "../direct";
+import { type AttemptOutcome, REPORT_CHARS, runAttempt as directAttempt, runDir, tail } from "../direct";
 import { detectLimit } from "../limits";
 import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
@@ -28,6 +31,8 @@ export interface OrcaBackendDeps {
   loadExecution: (ctx: Ctx) => ExecutionCfg;
   admission: { begin: typeof beginWorkSync; bind: typeof bindOrcaWorkSync; finishOrca: typeof finishOrcaWorkSync; finish: typeof finishWorkSync };
   direct: Backend["runAttempt"];
+  /** The user's login-shell environment, read for the default account's folder only. */
+  terminalEnv: (ctx: Ctx) => Promise<TerminalEnv>;
   sliceMs: number;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
@@ -37,6 +42,7 @@ const DEFAULTS: OrcaBackendDeps = {
   loadExecution: (ctx) => validateExecution(loadStrategy(ctx).execution),
   admission: { begin: beginWorkSync, bind: bindOrcaWorkSync, finishOrca: finishOrcaWorkSync, finish: finishWorkSync },
   direct: directAttempt,
+  terminalEnv: (ctx) => terminalEnv(ctx.env, {cwd: ctx.home}),
   sliceMs: 30_000,
   now: () => Date.now(),
   sleep: (ms) => Bun.sleep(ms),
@@ -292,12 +298,21 @@ async function runOrcaAttempt(
     }
     // CLAUDE_CODE_SANDBOXED makes Claude treat the folder as trusted without writing its configuration.
     const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
-    // Orca's shell environment is not the service's: a default account must not inherit another account's home.
-    const home = p.agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
-    const unset = home in accountEnv ? [] : ["-u", home];
-    const launch = launchArgvFor(cfg, root, tasksDir(ctx), p.top);
-    const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(accountEnv).map(([key, value]) => `${key}=${value}`), ...launch]);
-    const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(accountEnv).map(key => `${key}=<${key}>`), ...launch]);
+    // As in a direct launch, a default account uses the folder the user's login profile sets. Orca's shell environment
+    // is not the service's, so without a profile folder a default account must not inherit another account's home.
+    const agent = p.agent === "claude" ? "claude-code" : "codex", home = p.agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    const base = await deps.terminalEnv(ctx).catch((e): TerminalEnv => ({env: ctx.env, source: "service", reason: String(e)}));
+    recordDefaultFolder(ctx, agent, accountEnv, base);
+    const profileHome = !(home in accountEnv) && profileKeys(base).includes(home) ? base.env[home] : undefined;
+    const folders: Record<string, string> = {...(profileHome?.startsWith("/") ? {[home]: profileHome} : {}), ...accountEnv};
+    const unset = home in folders ? [] : ["-u", home];
+    // The direct interactive launch for this runner and worktree, with its per-run settings file (bypass-permissions
+    // acknowledgement). pacer's PTY session hooks stay out: Orca supervises this terminal. The worktree is Orca's,
+    // outside pacer's task worktrees, so project MCP answers are not read and Claude's own MCP handling applies.
+    const launch = prepareInteractive(agent, `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`,
+      {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false}).argv;
+    const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
+    const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
     if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
     terminal = made.result.terminal.handle;

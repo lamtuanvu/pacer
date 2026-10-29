@@ -22,32 +22,39 @@ export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras
   return b ? b.available(ctx, s) : false;
 }
 
-/** Connections and unsupported agent TUIs require direct execution. */
+const loggedDirect = (line: string): Backend => ({
+  ...directBackend,
+  runAttempt: async (ctx, cfg, task, onSpawn) => {
+    const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
+    appendFileSync(out.attempt.log, `direct backend: ${line}\n`);
+    return out;
+  },
+});
+
+/**
+ * Orca hosts interactive runs; headless runs, connections and unsupported agent TUIs require direct execution.
+ * Without Orca, interactive runs use the builtin PTY of the direct backend.
+ */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = defaultBackends(), runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
   // The same resolution as the attempt (runAttempt), including strict enforcement's headless rule.
-  if (runner && launchModeFor({id: runner.id, via: runner.agent === "opencode" ? "opencode" : null, session: runner.session}, validateExecution(s.execution),
-    {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"}).mode === "interactive") return directBackend;
+  const launch = runner ? launchModeFor({id: runner.id, via: runner.agent === "opencode" ? "opencode" : null, session: runner.session}, validateExecution(s.execution),
+    {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"}) : undefined;
   const account = runner ? s.accounts[runner.account] : undefined;
   const wantsOrca = ctx.env.PACER_BACKEND === "orca" || (!ctx.env.PACER_BACKEND && s.execution?.backend === "orca");
-  if (wantsOrca && (account?.connection || (runner && !["claude-code", "codex"].includes(runner.agent)))) {
-    return {
-      ...directBackend,
-      runAttempt: async (ctx, cfg, task, onSpawn) => {
-        const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
-        appendFileSync(out.attempt.log, account?.connection
-          ? "direct backend: connection endpoint (credentials stay in the OpenCode child environment)\n"
-          : `direct backend: unsupported Orca terminal agent (${runner?.agent})\n`);
-        return out;
-      },
-    };
+  if (wantsOrca && runner) {
+    if (account?.connection) return loggedDirect("connection endpoint (credentials stay in the OpenCode child environment)");
+    if (!["claude-code", "codex"].includes(runner.agent)) return loggedDirect(`unsupported Orca terminal agent (${runner.agent})`);
+    if (ctx.env.PACER_ENFORCEMENT_MODE === "strict") return loggedDirect("strict delegation enforcement (certified for direct launches only)");
+    if (launch?.mode === "headless") return loggedDirect(`headless launch mode (Orca hosts interactive runs only${launch.fallback ? `; ${launch.fallback}` : ""})`);
   }
-  const forced = ctx.env.PACER_BACKEND;
-  if (forced === "orca") {
+  if (wantsOrca) {
     const orca = extras.find(b => b.id === "orca");
     try { return orca && await orca.available(ctx, s) ? orca : directBackend; }
     catch { return directBackend; }
   }
+  if (launch?.mode === "interactive") return directBackend;
+  const forced = ctx.env.PACER_BACKEND;
   if (forced) return [...extras, directBackend].find((b) => b.id === forced) ?? directBackend;
   for (const b of extras) {
     try {

@@ -129,10 +129,51 @@ test("connection and unsupported agents remain direct", async () => {
   expect((await selectBackend(ctx, strategy, [orca], "opencode#endpoint")).id).toBe("direct");
 });
 
-test("interactive runners use direct", async () => {
-  const strategy = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
-  const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
-  expect((await selectBackend(ctx, strategy, [fake("orca", async () => true)], "codex")).id).toBe("direct");
+test("interactive runs use Orca when it is wanted and ready, and the builtin PTY otherwise", async () => {
+  const explicit = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}}), orca = fake("orca", async () => true);
+  expect((await selectBackend(ctx, explicit, [orca], "codex")).id).toBe("orca");
+  // The default launch mode is interactive.
+  const byDefault = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}, execution: {backend: "orca"}}, "/x");
+  expect((await selectBackend(withLoginIndicators(fakeCtx()), byDefault, [orca], "codex")).id).toBe("orca");
+  expect((await selectBackend(fakeCtx({env: {PACER_BACKEND: "direct"}}), byDefault, [orca], "codex")).id).toBe("direct");
+  expect((await selectBackend(ctx, explicit, [fake("orca", async () => false)], "codex")).id).toBe("direct");
+});
+
+test("headless runs stay direct when Orca is wanted: launch_mode, a runner session and strict managed work", async () => {
+  const orca = fake("orca", async () => true), ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
+  const headless = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}, execution: {backend: "orca", launch_mode: "headless"}}, "/x");
+  expect((await selectBackend(ctx, headless, [orca], "codex")).id).toBe("direct");
+  const runner = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "headless"}}}, "/x");
+  expect((await selectBackend(ctx, runner, [orca], "codex")).id).toBe("direct");
+  const byDefault = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "/x");
+  expect((await selectBackend({...ctx, env: {...ctx.env, PACER_ENFORCEMENT_MODE: "strict"}}, byDefault, [orca], "codex")).id).toBe("direct");
+  // Strict work is certified for direct launches only, even with an explicit interactive runner (the attempt refuses it).
+  const explicit = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  expect((await selectBackend({...ctx, env: {...ctx.env, PACER_ENFORCEMENT_MODE: "strict"}}, explicit, [orca], "codex")).id).toBe("direct");
+});
+
+test("a headless run that wanted Orca logs why it ran directly", async () => {
+  const bin = tmpDir();
+  writeFileSync(join(bin, "claude"), '#!/bin/sh\nprintf done\n');
+  chmodSync(join(bin, "claude"), 0o755);
+  const ctx = fakeCtx({env: {PATH: `${bin}:${process.env.PATH}`, PACER_BACKEND: "orca"}});
+  const raw = {accounts: {plan: {kind: "claude"}, team: {kind: "claude", usage: "unmetered", home: join(ctx.home, ".team")}}, planner: "claude-code", routing: [{default: ["claude-code#team"]}], execution: {backend: "orca", launch_mode: "headless"}};
+  mkdirSync(join(ctx.home, ".team"), {recursive: true});
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
+  const strategy = validateStrategy(raw, "test");
+  const task = createTask(ctx, {brief: {goal: "g", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 30});
+  let orcaRuns = 0;
+  const orca: Backend = {id: "orca", available: async () => true, runAttempt: async () => {orcaRuns++; throw Error("headless run reached Orca");}};
+  EXTRA_BACKENDS.unshift(orca);
+  try {
+    const result = await runTask(ctx, task.id, {loadStrategy: () => strategy, computeStatus: async () => ({...status(), providers: [{...status().providers[0], id: "claude-code#team"}]}), verifyRepo: async () => ({files: ""})});
+    expect(result.result).toMatchObject({status: "done", backend: "direct"});
+    expect(orcaRuns).toBe(0);
+    expect(readFileSync(result.attempts[0].log, "utf8")).toContain("direct backend: headless launch mode (Orca hosts interactive runs only)");
+  } finally {
+    EXTRA_BACKENDS.splice(EXTRA_BACKENDS.indexOf(orca), 1);
+  }
 });
 
 test("forced Orca falls back when unavailable", async () => {

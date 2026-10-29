@@ -296,10 +296,42 @@ test("Claude terminal commands set CLAUDE_CODE_SANDBOXED and write no Claude con
   }
 });
 
-test("no source path edits Claude folder trust", () => {
+test("the Orca backend never edits Claude folder trust or reads Claude's project MCP answers", () => {
+  // Folder trust in Orca terminals stays with CLAUDE_CODE_SANDBOXED; the direct launch's .claude.json grant covers pacer's own task worktrees only.
   const files = (dir: string): string[] => readdirSync(dir).flatMap(f => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
-  const offenders = files(join(import.meta.dir, "..", "src")).filter(f => /hasTrustDialogAccepted|trusted\.json|claude-trust/.test(readFileSync(f, "utf8")));
+  const offenders = files(join(import.meta.dir, "..", "src", "exec", "orca")).filter(f => /hasTrustDialogAccepted|trusted\.json|claude-trust|grantClaudeFolderTrust|projectMcpChoices/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
+});
+
+test("the Claude terminal reuses the direct interactive launch's per-run settings file without pacer's PTY hooks or MCP approval", async () => {
+  const x = setup();
+  await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  const settings = join(x.ctx.pacerHome, "runs", x.task.id, "1-orca", "claude-settings.json");
+  expect(commandOf(x.f.calls)).toContain(`CLAUDE_CODE_SANDBOXED=1 claude --settings ${settings} --dangerously-skip-permissions`);
+  expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({skipDangerousModePermissionPrompt: true});
+  expect(statSync(settings).mode & 0o777).toBe(0o600);
+});
+
+test("the Codex terminal command carries no per-run settings or hook overrides", async () => {
+  const x = setup();
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const cmd = commandOf(x.f.calls);
+  expect(cmd).not.toContain("--settings");
+  expect(cmd).not.toContain("hooks.");
+  expect(cmd).not.toContain("--dangerously-bypass-hook-trust");
+});
+
+test("a default account uses the account folder the login profile sets, as a direct launch does", async () => {
+  for (const id of ["claude-code", "codex"] as const) {
+    const key = id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", folder = `/profile/${id}`;
+    const x = setup([], {}, {terminalEnv: async ctx => ({env: {...ctx.env, [key]: folder}, source: "login-shell", shell: "/bin/zsh", umask: {mask: "022"}, profileKeys: [key], folder: []})});
+    await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
+    const cmd = commandOf(x.f.calls);
+    expect(cmd).not.toContain(`-u ${key}`);
+    expect(cmd).toContain(`${key}=${folder} `);
+    const out = await runCommand(cmd, x.ctx.home, {CLAUDE_CONFIG_DIR: "/planner/claude", CODEX_HOME: "/planner/codex"});
+    expect(out).toContain(id === "claude-code" ? `home=${folder}|/planner/codex` : `home=/planner/claude|${folder}`);
+  }
 });
 
 test("the attempt log records each Orca step", async () => {

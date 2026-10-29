@@ -107,11 +107,14 @@ const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 /**
  * Claude settings for this launch: `attended` (the user drives the session) keeps Claude's native project MCP
  * prompt; an unattended task approves project MCP servers except the ones the user rejected (`mcp`).
+ * `sessionHooks: false` leaves out pacer's PTY session hooks, for a terminal another host supervises (Orca).
  */
-export type InteractiveOptions = {attended?: boolean; mcp?: McpChoices};
+export type InteractiveOptions = {attended?: boolean; mcp?: McpChoices; sessionHooks?: boolean};
 export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
   if (!["claude-code", "codex"].includes(agent)) return launch;
+  if (options.sessionHooks === false && agent === "codex") return launch;
   mkdirSync(dir, {recursive: true, mode: 0o700});
+  if (options.sessionHooks === false) return withClaudeSettings(dir, launch, options, undefined);
   const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
   const script = join(dir, "report-hook.sh");
   writeFileSync(script, `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, {mode: 0o700});
@@ -124,6 +127,9 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch, o
   hooks.Elicitation = [{hooks: [{type: "command", command}]}];
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
+  return withClaudeSettings(dir, launch, options, hooks);
+}
+function withClaudeSettings(dir: string, launch: Launch, options: InteractiveOptions, hooks: Record<string, unknown> | undefined): Launch {
   const settings = join(dir, "claude-settings.json");
   // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and, for
   // unattended task-worktree runs given the source checkout's answers, no project MCP approval prompt. The answers
@@ -132,7 +138,7 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch, o
   const mcp = options.attended || !options.mcp ? {} : {enableAllProjectMcpServers: true,
     ...(options.mcp?.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
     ...(options.mcp?.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
-  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, hooks}), {mode: 0o600});
+  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, ...(hooks ? {hooks} : {})}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */

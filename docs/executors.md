@@ -38,7 +38,7 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 ## Execution and review
 
-`execution.backend: auto` (default) and `direct` use pacer's own supervisor through the direct backend. Set the backend in Settings › This machine, the TUI or with `pacer config set execution.backend orca|direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved choice and is shown as its source. Selecting `execution.backend: orca` runs Claude Code and Codex as supervised workers in pacer-launched Orca terminals. Interactive runners, connection accounts and unsupported agents run directly. If Orca is unavailable or an agent cannot become idle, pacer runs the attempt directly and records the fallback reason.
+`execution.backend: auto` (default) and `direct` use pacer's own supervisor through the direct backend. Set the backend in Settings › This machine, the TUI or with `pacer config set execution.backend orca|direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved choice and is shown as its source. Selecting `execution.backend: orca` runs Claude Code and Codex as supervised workers in pacer-launched Orca terminals when the task's [launch mode](#launch-mode) is interactive (the default). Headless tasks, strict managed work, connection accounts and unsupported agents run directly, and the attempt log says why. If Orca is unavailable or an agent cannot become idle, pacer runs the attempt directly and records the fallback reason.
 
 Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 
@@ -139,6 +139,20 @@ headless launches, so a runner with an explicit `session: interactive` cannot ta
 strict work. If that runner was requested, or no other runner can take the work, the
 task fails at once and names the setting to change. Pacer does not move requested
 work to a different runner because of its launch mode.
+
+The launch mode and `execution.backend` combine as follows:
+
+| Backend | Interactive | Headless |
+|---------|-------------|----------|
+| `orca`, Orca running | Orca terminal, supervised as an Orca worker | direct, headless CLI |
+| `orca`, Orca not running | direct, pacer's own terminal | direct, headless CLI |
+| `auto` or `direct` | direct, pacer's own terminal | direct, headless CLI |
+
+An interactive task in an Orca terminal uses the same agent command as a direct
+interactive launch, with pacer's per-run Claude settings file (no bypass-permissions
+acknowledgement), and finishes when the worker reports `worker_done`. You watch and
+take over the agent in Orca; pacer's own take over and `pacer report` completion do
+not apply there.
 
 ## Permission policy
 
@@ -272,8 +286,9 @@ worktree's terminals, the next `pacer clean` closes only the initial terminal
 Orca named when it created the worktree. Orca's terminal list has no creation
 time, so pacer never closes a terminal it did not record there, such as one you
 opened. For a default account, the
-terminal command unsets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` so the agent does
-not inherit another account from Orca's shell. Tasks that allow delegation run
+terminal command sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to the folder your
+login profile sets, as a direct launch does, and otherwise unsets it so the agent
+does not inherit another account from Orca's shell. Tasks that allow delegation run
 directly, because their work grant cannot be placed in a visible terminal
 command. If the agent does not start, pacer
 closes that terminal and removes the worktree it just created before running the
@@ -298,3 +313,6 @@ permission settings, runs its project hooks and starts the MCP servers in its
 already skips the trust prompt. The agent runs with
 `--dangerously-skip-permissions`, so only delegate repositories whose
 `.claude/` settings, hooks and `.mcp.json` you trust. Codex keeps its per-invocation trust argument.
+Orca worktrees are not pacer task worktrees, so pacer neither pre-approves Claude
+folder trust in `.claude.json` for them nor carries the source checkout's MCP
+answers into their per-run settings.
