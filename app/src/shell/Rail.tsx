@@ -32,7 +32,7 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
     {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
       const n = counts && !(narrow && item.name === "sessions") ? item.count(counts) : 0;
       const label = item.name === "terminal" ? "Terminal panel (Ctrl+`)" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
-      return <Tooltip key={item.name} text={label}>
+      return <Tooltip key={item.name} text={item.name === "terminal" ? "Terminal panel" : label} shortcut={item.name === "terminal" ? "Ctrl+`" : undefined}>
         <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label} onClick={item.name === "terminal" && terminal ? event => {event.preventDefault(); terminal.toggle();} : undefined} aria-expanded={item.name === "terminal" ? terminal?.open : undefined} aria-current={primaryFor(route) === item.name ? "page" : undefined}>
           <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}
         </AppLink>
