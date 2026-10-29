@@ -18,7 +18,7 @@ import { Button, TextAction } from "../../ds/Button";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import { useTaskContext } from "../task-shared";
 import { AgentsIntro } from "./Executors";
-import { Feedback, Field, ResourceState, Section, useOperation, useResource, useScoped } from "./shared";
+import { Feedback, Field, ResourceState, SettingsBoard, useOperation, useResource, useScoped } from "./shared";
 
 const agentOf = (account: Account, summary?: AccountSummary) => summary?.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind);
 
@@ -51,7 +51,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
   };
   const refreshButton = (account: string) => <Button size="sm" variant="quiet" busy={refreshing === account} disabled={!!refreshing || !state.connected} onClick={() => void refresh(account)}>Refresh usage<span className="sr-only"> for {account}</span></Button>;
   return (
-    <Section id="accounts" title="Accounts" detail="Where quota comes from. An executor uses one account."
+    <SettingsBoard id="accounts" title="Agents" caption="Who plans, who executes, and what each one is allowed to use."
       actions={<>
         <Button onClick={() => void action.run("account.signin", { interactive: "account-add-orca" })}>Link an Orca account</Button>
         <Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button>
@@ -115,7 +115,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
       )}
       <AccountPolicy initialData={initialConfig}/>
       <Feedback action={action} />
-    </Section>
+    </SettingsBoard>
   );
 }
 

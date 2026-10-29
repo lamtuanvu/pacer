@@ -16,7 +16,7 @@ import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, 
 import { useDraft, useTaskContext } from "../task-shared";
 import { OpencodeSetup } from "./OpencodeSetup";
 import { useDialogs } from "../../ds/useDialogs";
-import { Feedback, Field, latestJob, ResourceState, useOperation, useResource, useScoped, words } from "./shared";
+import { Feedback, Field, latestJob, ResourceState, SettingsBoard, useOperation, useResource, useScoped, words } from "./shared";
 export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
   `${agent}${account ? `#${account}` : ""}${host && host !== "local" ? `@${host}` : ""}`;
 export const executorReady = (job: Job | undefined, target?: string) =>
@@ -66,6 +66,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   return (
     <div className="u3-add-agent">
       <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href={scoped("#/settings/executors")}>Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
+      <SettingsBoard id="add-agent" title="Add an agent" caption="pacer finds the agent CLIs on this machine. Four short steps, and the agent is checked with a real test task before it gets work.">
       <div className="u3-wizard">
       {dialogs.dialog}
       <div className="sr-only" role="status" aria-live="polite">Step {step} of 4: {TITLES[step - 1]}</div>
@@ -86,6 +87,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
                 {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
           })}</ResourceState></div>
+          {facts.installed === false && <div className="u3-actions"><span>{problem}</span><Button busy={detected.loading} onClick={detected.reload}>Check again</Button></div>}
         </>}
         {step === 2 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading><p className="u3-muted">pacer uses the agent’s own sign-in and never copies it.</p></div>
@@ -151,6 +153,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         </div>
       </section>
       </div>
+      </SettingsBoard>
     </div>
   );
 }

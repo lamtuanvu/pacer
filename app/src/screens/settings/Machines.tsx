@@ -14,7 +14,7 @@ import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Feedback, Field, ResourceState, Section, useOperation, useResource, words, useScoped } from "./shared";
+import { Feedback, Field, ResourceState, SettingsBoard, useOperation, useResource, words, useScoped } from "./shared";
 
 /** pacer host names: lower-case letters, digits and hyphens; "local" names this machine. */
 export function hostNameProblem(name: string, taken: readonly string[] = []): string | null {
@@ -28,19 +28,19 @@ export const checkItems = (job: Job) => job.steps.map(step => ({ id: step.name, 
 export function MachineSection({ initialData }: { initialData?: ConfigData }) {
   const { state } = useTaskContext(), snapshot = state.snapshot;
   const local = snapshot?.executors?.filter(e => !e.host) ?? [];
-  return <Section id="machine" title="Machines" detail="Where tasks run. pacer drives remote hosts over your own SSH config and installs nothing on them.">
+  return <SettingsBoard id="machine" title="Machines" caption="Where tasks run. pacer drives remote hosts over your own SSH config and installs nothing on them.">
     <div className="u3-machines-grid">
       <section className="u3-machine-card" aria-labelledby="this-machine">
         <div className="u3-machine-header"><span className="u3-machine-tile"><Icon name="laptop" /></span>
         <div className="u3-machine-title"><SectionHeading variant="headline" id="this-machine">This Mac</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">pacer {snapshot.service.version}</span>}</div>
           {snapshot?.machine && <Pill tone={snapshot.machine.used ? "good" : "neutral"}>Running {snapshot.machine.used} of {snapshot.machine.max}</Pill>}</div>
         <div className="u3-machine-body"><ThisMachine initialData={initialData} />
-        {!!local.length && <SettingRow label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={e.id}><AgentMark agent={e.agent} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
+        {!!local.length && <SettingRow variant="board" label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={e.id}><AgentMark agent={e.agent} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
       </div></section>
       <AddHost />
     </div>
     <RemoteHostList />
-  </Section>;
+  </SettingsBoard>;
 }
 
 function ThisMachine({ initialData }: { initialData?: ConfigData }) {
@@ -54,14 +54,14 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const selected = terminal || (legacyPreset && choices.some(c => c.value === legacyPreset) ? legacyPreset : "auto");
   const options = choices.some(c => c.value === selected) ? choices : [...choices, { value: selected, label: "Custom terminal (CLI)", disabled: true, reason: "Configured from the CLI" }];
   return <ResourceState resource={query}>
-    <SettingRow label="Parallel tasks" description="Shared by every executor on this Mac">
+    <SettingRow variant="board" label="Parallel tasks" description="Shared by every executor on this Mac">
       <div className="u3-actions"><TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={String(value ?? 2)} disabled={action.busy}
         onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />{caps && <span className="u3-muted">{caps}</span>}</div>
     </SettingRow>
-    <SettingRow label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
+    <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
       <ChoicePicker aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
     </SettingRow>
-    <SettingRow label="Terminal for sessions" description="Where “Open elsewhere” goes">
+    <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
     </SettingRow>
     <Feedback action={action} />
@@ -100,7 +100,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
       <TextInput className="u3-host-name" value={name} required pattern="[a-z0-9][a-z0-9-]*" disabled={!!added || !ssh} aria-invalid={!!ssh && !!problem} onInput={e => setName(e.currentTarget.value)} />
       <span className="u3-muted">Lower-case letters, digits, hyphens.</span></div></Field>
     <div className="u3-heading"><strong>3 · Check it</strong>
-      {!passed && <Button size="sm" variant="primary" busy={add.busy || check.busy} disabled={!!problem || !state.connected} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}</div>
+      {!passed && <Button size="sm" variant="primary" busy={add.busy || check.busy} disabled={!!problem || !state.connected} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}{added && (check.error || job?.state === "failed") && <TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(added)}`)}>Manage {added}</TextAction>}</div>
     {!state.connected && <p className="u3-muted">Reconnecting. Connect and check will be available when the service reconnects.</p>}
     {problem && ssh && !added && <p className="u3-muted">{problem}</p>}
     {job && <CheckList label={`Checks for ${added}`} items={checkItems(job)} />}

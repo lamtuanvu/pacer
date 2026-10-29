@@ -36,6 +36,14 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
  if (step !== undefined) return <section aria-label={title} id={id} className="pc-settings-step"><span className="pc-settings-step__number" aria-hidden="true">{step}</span><div className="pc-settings-step__body"><div className="pc-settings-step__heading"><h2>{title}</h2>{detail && <p>{detail}</p>}{actions}</div>{children}</div></section>;
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
+/** Board page heading and block rhythm shared by the Slice 6b editors. */
+export function SettingsBoard({id,title,caption,actions,children}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren}) {
+ useSettingsStyles();
+ return <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
+  <header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header>
+  {children}
+ </section>;
+}
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.
  return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));

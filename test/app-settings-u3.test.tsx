@@ -186,9 +186,19 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
 });
 test('board pages render their headline and other editors retain shell titles', () => {
  expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');
- for (const child of [<AddExecutor/>, <HostDetail alias="devbox" initialData={host}/>]) {
-  expect(render(child)).not.toContain('<h1');
+ for (const [child, title, caption] of [
+  [<SettingsGeneral section="executors" initialData={settings}/>, 'Agents', 'Who plans, who executes, and what each one is allowed to use.'],
+  [<SettingsGeneral section="accounts" initialData={settings}/>, 'Agents', 'Who plans, who executes, and what each one is allowed to use.'],
+  [<SettingsGeneral section="machine" initialData={settings}/>, 'Machines', 'Where tasks run. pacer drives remote hosts over your own SSH config and installs nothing on them.'],
+  [<AddExecutor/>, 'Add an agent', 'pacer finds the agent CLIs on this machine. Four short steps, and the agent is checked with a real test task before it gets work.'],
+ ] as const) {
+  const html = render(child);
+  expect(html).toContain(`<h1>${title}</h1>`);
+  expect(html).toContain(`<p>${caption}</p>`);
+  expect(html.match(/<h1>/g)).toHaveLength(1);
+  expect(html).toContain('pc-settings-board__header');
  }
+ expect(render(<HostDetail alias="devbox" initialData={host}/>)).not.toContain('<h1');
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
  expect(render(<SettingsGeneral section="machine" initialData={settings}/>, emptyState)).not.toContain('>Remote hosts</h2>');
 });

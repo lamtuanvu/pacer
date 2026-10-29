@@ -49,6 +49,7 @@ browserTest('a failed check names the reason and checks again without adding the
     await page.getByRole('button', { name: 'Check again', exact: true }).waitFor();
     expect(await page.getByRole('list', { name: 'Checks for pi-lab' }).textContent()).toContain('Failed: Connects with your SSH key');
     expect(await page.getByRole('link', { name: 'Map repositories' }).count()).toBe(0);
+    expect(await page.getByRole('link', { name: 'Manage pi-lab', exact: true }).getAttribute('href')).toBe('#/settings/hosts/pi-lab');
     await page.getByRole('button', { name: 'Check again', exact: true }).click();
     await page.getByRole('status').filter({ hasText: 'pi-lab is connected' }).waitFor();
     expect((await calls(page)).filter(([op]) => op === 'host.add')).toHaveLength(1);
@@ -253,6 +254,15 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   const geometry=await cards.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,radius:c.borderRadius,overflow:c.overflow,border:c.borderTopWidth};}));
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
   expect(geometry[0]).toMatchObject({radius:'12px',overflow:'hidden',border:'1px'});
+  const rows=page.locator('.u3-machine-body .pc-setting-row--board');
+  expect(await rows.count()).toBe(4);
+  const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
+  for (const row of layout) {
+   expect(row.padding).toBe('14px 0px');
+   // At 1440px the two-card layout leaves each body below 700px; use stacked rows.
+   expect(row.columns.split(' ')).toHaveLength(1);
+   expect(row.gap).toBe('8px');
+  }
   expect(await page.locator('.u3-machines-grid').evaluate(el=>getComputedStyle(el).gap)).toBe('20px');
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(72);
   expect(await page.getByRole('button',{name:'Terminal for sessions',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(220);
@@ -301,5 +311,34 @@ browserTest('Add agent board geometry, install guidance, radio keyboard choices 
   await testBlock.getByRole('button',{name:'Add agent and run test task'}).click();
   await page.getByText('codex#team is ready.').waitFor();
   expect((await agentCalls(page)).find(([op])=>op==='runner.add')![1].model).toBe('fixture-model');
+ });
+},20000);
+
+browserTest('Add agent Check again reloads detection and exposes its busy state',async()=>{
+ await openAgent(async page=>{
+  await page.getByRole('button',{name:/Cursor/}).first().click();
+  const check=page.getByRole('button',{name:'Check again',exact:true});
+  await check.waitFor();
+  const before=(await agentCalls(page)).filter(([op])=>op==='agent.detect').length;
+  await page.evaluate(()=>{(window as any).agentFixture.install();(window as any).agentFixture.holdDetection();});
+  await check.click();
+  await page.waitForFunction(()=>document.querySelector('.u3-wizard-panel button[aria-busy="true"]'));
+  expect(await check.getAttribute('aria-busy')).toBe('true');expect(await check.isDisabled()).toBe(true);
+  await page.evaluate(()=>(window as any).agentFixture.releaseDetection());
+  await page.getByRole('button',{name:'Continue',exact:true}).waitFor({state:'visible'});
+  await page.waitForFunction(()=>!document.querySelector('.u3-footer button.pc-btn--primary')?.hasAttribute('disabled'));
+  expect((await agentCalls(page)).filter(([op])=>op==='agent.detect')).toHaveLength(before+1);
+  expect(await check.count()).toBe(0);
+ });
+},20000);
+
+browserTest('failed host recovery keeps the current settings scope',async()=>{
+ await open(async page=>{
+  await page.evaluate(()=>{(window as any).hostFixture.scoped();(window as any).hostFixture.failFirst(true);});
+  await page.getByRole('button',{name:'pi-lab',exact:true}).click();
+  await page.getByRole('button',{name:'Connect and check',exact:true}).click();
+  const manage=page.getByRole('link',{name:'Manage pi-lab',exact:true});await manage.waitFor();
+  const href=await manage.getAttribute('href');
+  expect(href).toContain('#/settings/hosts/pi-lab?');expect(href).toContain('repo=fixture-repo');expect(href).toContain('scope=repo');
  });
 },20000);

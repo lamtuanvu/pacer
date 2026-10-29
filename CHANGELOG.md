@@ -35,6 +35,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Complete the Agents, Accounts, Machines and Add agent board headings. Machines uses shared board rows within its cards. Takes work now saves immediately without saving other draft edits, reports failures inline, and restores its saved value on failure. Escape closes agent details and restores row focus. Missing agents can retry detection; failed host checks link to host management for recovery.
+
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
 - Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
 

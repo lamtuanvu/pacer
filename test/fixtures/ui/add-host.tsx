@@ -1,5 +1,6 @@
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
+import { SettingsQueryContext } from '../../../app/src/screens/settings/shared';
 import { MachineSection } from '../../../app/src/screens/settings/Machines';
 import { Stepper } from '../../../app/src/ds/Stepper';
 import { TaskContext } from '../../../app/src/screens/task-shared';
@@ -10,7 +11,8 @@ import { initialState } from '../../../app/src/data/store';
 
 const calls: [string, unknown][] = [];
 let checks = 0, failFirst = false;
-Object.assign(window, { hostFixture: { calls: () => calls, failFirst: (value: boolean) => { failFirst = value; } } });
+let scope = (_value:boolean) => {};
+Object.assign(window, { hostFixture: { calls: () => calls, scoped: () => scope(true), failFirst: (value: boolean) => { failFirst = value; } } });
 const step = (name: string, state: string, detail?: string) => ({ name, state, ...(detail ? { detail } : {}) });
 const api = { call: async (op: string, params: any) => {
   calls.push([op, params]);
@@ -28,9 +30,10 @@ const api = { call: async (op: string, params: any) => {
 const actions = createActionRunner({ call: api.call, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 function App() {
   const state = { ...initialState(), connected: true, snapshot: { at: 1, machine:{used:1,max:4}, service:{version:'0.11.0'}, executors:[{id:'codex#team',agent:'codex',host:null,slots:{used:1,max:3}}], hosts: [{ alias: 'taken', ssh: 'taken', state: 'ready', running: 0, maxTasks: 2, executors: [], repos: 0 }] } } as any;
-  const [step, setStep] = useState('1');
+  const [step, setStep] = useState('1'), [scoped, setScoped] = useState(false);
+  scope = setScoped;
   return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
-    <MachineSection />
+    <SettingsQueryContext.Provider value={scoped ? {repo: 'fixture-repo', scope: 'repo'} : {repo:null,scope:null}}><MachineSection /></SettingsQueryContext.Provider>
     <Stepper label="Wizard" onSelect={setStep} steps={['A', 'B', 'C', 'D'].map((title, i) => ({ id: String(i + 1), title, state: String(i + 1) === step ? 'current' : 'todo', reachable: i < 3 }))} />
     <output id="picked">{step}</output>
   </ActionContext.Provider></TaskContext.Provider>;

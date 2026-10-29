@@ -437,3 +437,19 @@ background and padding when composed inside the Add agent Test task block.
 Notes stay right aligned and wrap within the row. The `laptop` outline icon is
 available for the Machines local card. These variants are owned by DS; Machines
 and Add agent own only their specialized card, panel and grid composition.
+
+Slice 6b board consumers: Agents (Executors and Accounts), Machines and Add an
+agent compose `pc-settings-board` and `pc-settings-board__header` with one h1 and
+caption. Their settings-bundle rules own the 18px block gap and right-aligned
+header actions. Host detail retains its breadcrumb and no h1. This adds no DS
+component API or component stylesheet bytes.
+
+Machines uses `SettingRow variant="board"` for all four This Mac rows. The card
+body establishes an inline-size container; at widths up to 700px, rows use a
+single column and the shared 8px narrow gap, retaining 14px vertical padding.
+This documented card containment rule handles two cards within the bounded page.
+Agent details retain `layout="stacked"`; Takes work applies immediately with a
+disabled, aria-busy switch during saving and an inline alert on failure. Parallel
+tasks remain in the page draft. Escape and Close restore row focus; removal moves
+focus to Add agent. Detection retry and failed-host recovery use existing service
+operations and scoped host-detail navigation.
