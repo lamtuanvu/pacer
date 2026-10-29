@@ -542,3 +542,41 @@ test("Settings › This machine shows a PACER_BACKEND override and offers no tog
     expect(text).toMatchSnapshot();
   }
 });
+
+describe("Sessions keeps a conversation's list status and detail in agreement", () => {
+  const conversation = (patch: Record<string, unknown>) => {
+    const s = snapshot();
+    const t = { ...s.tasks.find(t => t.id === "t-0412")!, interactionMode: "conversation", ...patch } as ClientSnapshot["tasks"][number];
+    return { s: { ...s, tasks: [t] }, t };
+  };
+  const view = (s: ClientSnapshot, d: Partial<DashData>) => ({
+    text: renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state: { screen: "sessions" } }).replace(/\s+/g, " "),
+    item: screenItems(s, s.at, { state: { screen: "sessions" }, data: d }).find(i => i.id === "session:t-0412")!,
+  });
+
+  test("a conversation waiting for its answer shows the question and an answer action, not a result or verdicts", () => {
+    const { s, t } = conversation({ state: "needs_input", question: { text: "Keep the legacy flag?", at: 1 } });
+    const d = { ...data(), details: new Map([["t-0412", { value: { ...detail, state: "needs_input" } as TaskDetail }]]) };
+    const { text, item } = view(s, d);
+    expect(text).toContain("Needs your answer");
+    expect(text).toContain("QUESTION");
+    expect(text).toContain("Keep the legacy flag?");
+    expect(text).toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("Execution ended");
+    expect(text).not.toMatch(/finished \d/);
+    expect(item.keys.a?.label).toBe("Answer");
+    expect(item.keys.a?.effect).toMatchObject({ type: "prompt" });
+    expect(item.actions.map(a => a.label)).not.toContain("Reject");
+    expect(item.keys.r).toBeUndefined();
+    expect(item.keys.s?.label).toBe("End session");
+  });
+
+  test("a settled conversation is reviewed like a delegated task", () => {
+    const { s } = conversation({ state: "done", reviewRequest: { note: "Check", at: 1 } });
+    const { text, item } = view(s, data());
+    expect(text).toContain("RESULT");
+    expect(text).not.toContain("QUESTION");
+    expect(item.keys.r?.label).toBe("Reject");
+    expect(item.keys.a?.label).toBe("Mark accepted");
+  });
+});
