@@ -189,7 +189,7 @@ browserTest("new_task_375_sheet_rows_open_sheets", async () => {
     expect(geometry.overflow).toBe(false);
     await sheet.getByRole("button", { name: "Save draft" }).waitFor();
     await page.keyboard.type(REQUEST);
-    await sheet.getByText("Ladder step 1 · strategy no-agy").waitFor();
+    await sheet.getByText("Feature work matches ladder step 1", { exact: true }).waitFor();
     await sheet.getByText(/^Planner ≈ 60k tokens/).waitFor();
     // Each row opens its own sheet; focus returns to the row.
     const kindRow = sheet.getByRole("button", { name: /^Kind/ });
@@ -258,7 +258,7 @@ browserTest("new_task_issue_option_is_feature_gated", async () => {
   await withComposer(async page => {
     expect(await page.getByRole("button", { name: "From an issue" }).count()).toBe(0);
   });
-});
+}, 30_000);
 
 for (const width of [1440, 375]) {
   browserTest(`new_task_issue_picker_plain_text_and_provenance_${width}`, async () => {
@@ -315,7 +315,7 @@ for (const width of [1440, 768, 375]) for (const dark of [false, true]) {
   browserTest(`new_task_board_typography_and_containment_${width}_${dark ? "dark" : "light"}`, async () => {
     await withComposer(async page => {
       await page.locator("#nt-request").fill(REQUEST);
-      await page.getByText("Ladder step 1 · strategy no-agy", { exact: true }).waitFor();
+      await page.getByText(width === 375 ? "Ready" : "Ladder step 1 · strategy no-agy", { exact: true }).waitFor();
       const geometry = await page.evaluate(() => {
         const style = getComputedStyle(document.querySelector("#nt-request")!);
         const name = getComputedStyle(document.querySelector(".pc-route-card__name")!);
@@ -441,5 +441,24 @@ browserTest("new_task_375_card_has_one_summary_reason_line", async () => {
     const summary = card.locator(".pc-route-card__why > li > span:last-child");
     expect(await summary.evaluate(el => getComputedStyle(el).whiteSpace)).toBe("nowrap");
     expect(await summary.getAttribute("title")).toContain("spare capacity");
+    expect(await card.textContent()).not.toContain("strategy no-agy");
+    const lines = await card.evaluate(el => {
+      const textLines = (selector: string) => {
+        const node = el.querySelector(selector)!;
+        const style = getComputedStyle(node);
+        return node.getBoundingClientRect().height / parseFloat(style.lineHeight);
+      };
+      const planner = el.querySelector(".pc-route-card__compact-planner") as HTMLElement;
+      return {
+        label: textLines(".pc-label"), name: textLines(".pc-route-card__name"),
+        summary: textLines(".pc-route-card__why"), planner: textLines(".pc-route-card__compact-planner"),
+        plannerText: planner.textContent, plannerTitle: planner.title,
+        plannerOverflow: getComputedStyle(planner).textOverflow,
+        whoChildren: el.querySelector(".pc-route-card__who")!.children.length,
+      };
+    });
+    expect(lines).toMatchObject({ label: 1, name: 1, summary: 1, planner: 1, whoChildren: 2, plannerOverflow: "ellipsis" });
+    expect(lines.plannerTitle).toBe(lines.plannerText);
+    expect(lines.plannerTitle).toContain("median of 12 similar tasks");
   }, { width: 375, height: 812 });
 }, 30_000);

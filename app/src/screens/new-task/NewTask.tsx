@@ -267,13 +267,14 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
   if (preview.empty) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Describe the task to see where it goes</span><span className="pc-caption">pacer picks the agent from the kind, each agent's budget, and your dispatcher setup.</span></div>;
   if (preview.unavailable) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Routing preview isn't available</span><span className="pc-caption">This pacer service can't explain routes yet. pacer still picks the agent from your dispatcher setup when you delegate.</span></div>;
   if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <LoadingState label="Checking where it goes…" />;
+  const reasons = <ul className={compact ? "pc-route-card__why pc-caption" : "pc-route-card__why"}>{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}>{!compact && <span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span>}<span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>;
   return <>
     {card.lead ? <div className="pc-route-card__lead">
       <AgentMark agent={card.lead.agent} size={compact ? 32 : 36} />
-      <span className="pc-route-card__who"><span className="pc-route-card__name">{card.lead.name}</span><span className="pc-caption">{card.lead.step}</span></span>
+      <div className="pc-route-card__who"><span className="pc-route-card__name">{card.lead.name}</span>{compact ? reasons : <span className="pc-caption">{card.lead.step}</span>}</div>
       <Pill tone={card.lead.pill.tone}>{card.lead.pill.label}</Pill>
     </div> : <span className="pc-route-card__name">{card.status.label}</span>}
-    <ul className="pc-route-card__why">{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}><span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span><span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>
+    {(!compact || !card.lead) && reasons}
     {!compact && card.then.length > 0 && <div className="pc-route-card__then">
       <span className="pc-caption">If it can't:</span>
       {card.then.map(n => <span key={n.executor} className={`pc-route-card__fallback${n.excluded ? " pc-route-card__fallback--excluded" : ""}`} title={n.reason ?? undefined} tabIndex={n.excluded ? 0 : undefined}>
@@ -406,6 +407,7 @@ function NewTaskSheet(p: ViewProps) {
   const kind = effectiveKind(p.draft, p.preview.fresh);
   const agent = p.draft.executor ? agentOptions(p.routing, row => routingStatus(row as never), p.accounts).find(a => a.executor === p.draft.executor)?.name ?? p.draft.executor : "Let pacer decide";
   const titles: Record<SheetName, string> = { repo: "Repository", workspace: "Where it runs", kind: "Kind", checks: "Acceptance checks", agent: "Agent" };
+  const plannerText = p.card ? [`Planner ${p.card.planner.cost}`, p.card.planner.note].filter(Boolean).join(" · ") : `Planner: not measured yet${p.planner?.usedPct == null ? "" : ` · week ${Math.round(p.planner.usedPct)}%`}`;
   return <Sheet title="New task" close={p.onCancel} className="pc-new-task-sheet"
     action={<Button variant="ghost" size="sm" onClick={p.onSave}>Save draft</Button>}
     footer={<><Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} onClick={p.onDelegate}>{p.submit.label}</Button><span className="pc-caption pc-new-task__submit-note">{p.submit.disabled ? p.submit.note : p.failure ? p.submit.note : `Starts in ${p.draft.workspace === "current" ? "the current checkout" : "a new worktree"} on ${p.repo?.label ?? ""}`}</span></>}>
@@ -418,7 +420,7 @@ function NewTaskSheet(p: ViewProps) {
       </div>
       <section aria-label="Where this task goes" className="pc-route-card pc-route-card--compact">
         <div className="pc-route-card__body"><span className="pc-label">Will go to</span><RouteBody p={p} compact /></div>
-        {p.planner && !p.preview.empty && <span className="pc-caption pc-route-card__compact-planner">{p.card ? [`Planner ${p.card.planner.cost}`, p.card.planner.note].filter(Boolean).join(" · ") : `Planner: not measured yet${p.planner.usedPct === null ? "" : ` · week ${Math.round(p.planner.usedPct)}%`}`}</span>}
+        {p.planner && !p.preview.empty && <span className="pc-caption pc-ellipsis pc-route-card__compact-planner" title={plannerText}>{plannerText}</span>}
       </section>
       <StrictNotice p={p} />
       <div className="pc-new-task-sheet__rows">

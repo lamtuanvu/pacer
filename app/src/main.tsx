@@ -16,11 +16,10 @@ import { openNewTask } from "./screens/new-task/entry";
 import { commands, keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
-import { useNarrow, activeRepo } from "./shell/narrow";
+import { useNarrow } from "./shell/narrow";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
-import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
 import { readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
@@ -43,7 +42,6 @@ function App() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
-  const [delegate, setDelegate] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
   const lastWork = useRef("#/");
   useEffect(() => {
@@ -99,7 +97,7 @@ function App() {
       commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
       commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => openNewTask() }),
       keys.register(newTaskShortcut(() => openNewTask())),
-      // Screens with a "New task" button ask the shell to open the delegate dialog.
+      // Screens with a "New task" button ask the shell to open the New task composer.
       (() => { const open = () => openNewTask(); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
@@ -125,9 +123,8 @@ function App() {
       <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || updateNoticeHiddenOn(route)} />
+      <UpdateNotice narrow={narrow} hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
-    {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
