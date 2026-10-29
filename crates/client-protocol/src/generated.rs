@@ -11586,6 +11586,37 @@ impl<'de> ::serde::Deserialize<'de> for RunnerUnblockParamsId {
             })
     }
 }
+///`ServiceHandoverParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "wait_s": {
+///      "type": "integer",
+///      "maximum": 60.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceHandoverParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub wait_s: ::std::option::Option<i64>,
+}
+impl ::std::default::Default for ServiceHandoverParams {
+    fn default() -> Self {
+        Self {
+            wait_s: Default::default(),
+        }
+    }
+}
 ///`ServiceInstallParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11626,6 +11657,25 @@ pub struct ServiceInstallParams {
 #[serde(deny_unknown_fields)]
 pub struct ServiceStatusParams {}
 impl ::std::default::Default for ServiceStatusParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`ServiceWorkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceWorkParams {}
+impl ::std::default::Default for ServiceWorkParams {
     fn default() -> Self {
         Self {}
     }

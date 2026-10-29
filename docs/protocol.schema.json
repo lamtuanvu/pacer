@@ -4017,6 +4017,17 @@
       ],
       "additionalProperties": false
     },
+    "ServiceHandoverParams": {
+      "type": "object",
+      "properties": {
+        "wait_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      },
+      "additionalProperties": false
+    },
     "ServiceInstallParams": {
       "type": "object",
       "properties": {
@@ -4031,6 +4042,11 @@
       "additionalProperties": false
     },
     "ServiceStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ServiceWorkParams": {
       "type": "object",
       "properties": {},
       "additionalProperties": false
