@@ -114,8 +114,9 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-rail__divider{width:var(--size-24);height:var(--size-1);background:var(--line);margin:var(--size-6) 0}
 .pc-rail__item{position:relative;display:flex;align-items:center;justify-content:center;width:var(--size-40);height:var(--size-40);border-radius:var(--radius-md);color:var(--ink-secondary)}
 .pc-rail__item svg{width:var(--size-20);height:var(--size-20)}
-.pc-rail__item:hover,.pc-rail__item.on{background:var(--surface-lane);color:var(--ink)}
-.pc-rail__item.on::before{content:"";position:absolute;left:var(--size-neg-6);top:var(--size-10);width:var(--size-3);height:var(--size-20);border-radius:var(--radius-xs);background:var(--ink)}
+.pc-rail__item:hover{background:var(--surface-lane);color:var(--ink)}
+.pc-rail__item.on{background:var(--line);color:var(--ink)}
+.pc-rail__item.on::before{content:"";position:absolute;left:var(--size-neg-6);top:var(--size-10);width:var(--size-2);height:var(--size-20);border-radius:var(--radius-xs);background:var(--ink)}
 .pc-bottom-bar .pc-rail__item.on::before{content:none}
 @media(pointer:coarse){.pc-rail__item.on::before{left:calc(-1 * var(--space-1))}}
 .pc-rail__badge{display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-16);height:var(--size-16);padding:0 var(--space-1);border-radius:var(--radius-full);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight);line-height:var(--type-body-line)}
