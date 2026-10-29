@@ -1,11 +1,10 @@
 import type { Action } from "../attention/types";
-import { discoveryEnabled } from "../core/config";
 import { cachedIdentity, readMeta } from "../identity/store";
 import { pluginRegistry } from "../plugins";
 import type { Ctx } from "../types";
 import { isSilenced, SILENCE_LATER_S } from "./policy";
 import { radioNetwork, radioStatus } from "./radio";
-import { readState } from "./state";
+import { discoveryEnabled, readState } from "./state";
 
 /** What the attention rules need: machines a prompt was taken for, and the current network if its question is open. */
 export interface DiscoveryRuleInput {

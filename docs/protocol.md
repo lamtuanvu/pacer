@@ -1871,7 +1871,6 @@ Params JSON Schema:
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
-        "discovery",
         "terminal.app",
         "terminal.open"
       ]
@@ -2530,6 +2529,33 @@ Params JSON Schema:
   "required": [
     "discoveryId",
     "action"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `discovery.set`
+
+Turn LAN discovery (listening and advertising) on or off on this machine. Off closes the open prompts. It is machine-local state, not strategy, so it works before setup. expect_rev is networksRev from discovery.list or discovery.network.get.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "enabled"
   ],
   "additionalProperties": false
 }

@@ -25,7 +25,7 @@ export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it
 const pendingEdits = new Set<string>();
 const BACKEND_OVERRIDE_HINT = 'PACER_BACKEND overrides the saved task backend setting.';
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.local_memory_pressure_limit','execution.local_load_limit','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','discovery','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.local_memory_pressure_limit','execution.local_load_limit','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
@@ -33,15 +33,7 @@ function plannerId(s: Strategy): string {
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
   return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 'unlimited','execution.local_memory_pressure_limit':validateExecution(s.execution).localMemoryPressureLimit ?? 'critical','execution.local_load_limit':validateExecution(s.execution).localLoadLimit ?? 'off','execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
-    'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,discovery:discoveryValue(raw),'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
-}
-function discoveryValue(raw: StrategyDoc): 'on'|'off' {
-  const v = raw.getIn(['discovery']);
-  return v === 'off' || v === false ? 'off' : 'on';
-}
-/** LAN discovery (listening and advertising) is on unless the active strategy turns it off. */
-export function discoveryEnabled(ctx: Ctx): boolean {
-  try { return discoveryValue(new StrategyDoc(readFileSync(strategyPath(ctx), 'utf8'))) === 'on'; } catch { return true; }
+    'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
   if (key === 'task_retention_days') {
@@ -70,7 +62,6 @@ function parseValue(key:ConfigKey, value:string): unknown {
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');
     return ids;
   }
-  if(key==='discovery' && !['on','off'].includes(value)) throw new CoreError('invalid_input', 'discovery must be on or off');
   if(key==='update_check') {if(!['true','false'].includes(value)) throw Error('update_check must be true or false'); return value==='true';}
   if(key==='pacing.planner_reserve' || key==='pacing.planner_reserve_headroom' || key==='pacing.fill_threshold') {
     if(!/^\d+(?:\.\d+)?$/.test(value)) throw Error(`${key} requires a finite number`);

@@ -1,12 +1,11 @@
 import type { Ctx } from "../types";
 import { publish } from "../link/publish";
-import { discoveryEnabled } from "../core/config";
 import { ensureIdentity } from "../identity/store";
 import { currentVersion } from "../update/version";
 import { currentNetwork, type NetworkInfo } from "./network";
 import { DISCOVERY_ID, promptDue, takePrompt } from "./policy";
 import { sanitizeText } from "./sanitize";
-import { ensureNetwork, readState, updateState } from "./state";
+import { discoveryEnabled, ensureNetwork, readState, updateState } from "./state";
 
 /**
  * What the front door's radio should do. advertise is null unless the user approved the current network.

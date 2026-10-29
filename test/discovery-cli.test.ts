@@ -76,3 +76,24 @@ test("ls names the network once, whether it has an SSID or only the neutral labe
   const ssid = await discoveryCmd(["ls"], fakeCtx(), client("home-wifi"));
   expect(ssid.out.split("\n")[0]).toBe("Network home-wifi: not answered as pacer-k3x9.");
 });
+
+test("on and off call discovery.set and work with no strategy.yaml", async () => {
+  const ctx = setup();
+  const off = await discoveryCommand.run(["off"], ctx);
+  expect(off).toMatchObject({ code: 0, out: "Discovery is off." });
+  expect(readState(ctx).enabled).toBe(false);
+  expect((await discoveryCommand.run(["ls"], ctx)).out).toContain("Discovery is off.");
+  const on = await discoveryCommand.run(["on", "--json"], ctx);
+  expect(on.code).toBe(0);
+  expect(JSON.parse(on.out)).toMatchObject({ enabled: true });
+  expect(readState(ctx).enabled).toBe(true);
+  expect((await discoveryCommand.run(["on", "now"], ctx)).code).toBe(2);
+});
+
+test("on and off send only enabled", async () => {
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const calls: [string, any][] = [];
+  const client = { call: async (op: string, params: any) => { calls.push([op, params]); return { enabled: params.enabled, rev: 1, networksRev: 1 }; }, close() {} } as any;
+  expect((await discoveryCmd(["off"], setup(), async () => client)).code).toBe(0);
+  expect(calls).toEqual([["discovery.set", { enabled: false }]]);
+});

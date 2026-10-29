@@ -8,7 +8,7 @@ type Listing = { available: boolean; enabled: boolean; network: { key: string; l
 type Networks = { rev: number; networksRev: number; current: string | null; networks: { key: string; label: string; advertise: boolean | null; muted: boolean }[] };
 type Respond = { ok: true; pairing?: { handedOver: boolean; plugin?: string } };
 
-const usage = "usage: pacer discovery ls [--json] | pair|later|ignore <id-prefix> | mute-network | network [--advertise on|off] [--json]";
+const usage = "usage: pacer discovery ls [--json] | on|off [--json] | pair|later|ignore <id-prefix> | mute-network | network [--advertise on|off] [--json]";
 const fail = (message: string): Result => ({ code: 2, out: "", err: `pacer: ${message}` });
 const answer = (advertise: boolean | null) => advertise === null ? "not answered" : advertise ? "advertising" : "not advertising";
 
@@ -36,10 +36,11 @@ export async function discoveryCmd(args: string[], ctx: Ctx, connect: (ctx: Ctx)
     if (verb === "network" && more.length) {
       if (more.length !== 2 || more[0] !== "--advertise" || !["on", "off"].includes(more[1])) return fail(usage);
       advertise = more[1] === "on";
-    } else if (["pair", "later", "ignore"].includes(verb) ? more.length !== 1 : !["ls", "mute-network", "network"].includes(verb) || more.length) return fail(usage);
+    } else if (["pair", "later", "ignore"].includes(verb) ? more.length !== 1 : !["ls", "on", "off", "mute-network", "network"].includes(verb) || more.length) return fail(usage);
     client = await connect(ctx);
     const c = client;
     const print = (value: unknown, text: string): Result => ({ code: 0, out: json ? JSON.stringify(value, null, 2) : text, err: "" });
+    if (verb === "on" || verb === "off") { const r = await c.call<{ enabled: boolean }>("discovery.set", { enabled: verb === "on" }); return print(r, r.enabled ? "Discovery is on." : "Discovery is off."); }
     if (verb === "ls") { const l = await c.call<Listing>("discovery.list", {}); return print(l, formatList(l)); }
     if (verb === "network" || verb === "mute-network") {
       const n = await c.call<Networks>("discovery.network.get", {});
@@ -64,5 +65,5 @@ export async function discoveryCmd(args: string[], ctx: Ctx, connect: (ctx: Ctx)
   } finally { client?.close(); }
 }
 
-export const discoveryCommand: Command = { name: "discovery", usage: `${"discovery ls|pair|later|ignore|network".padEnd(47)}pacer machines on this LAN and whether this one is advertised`, run: discoveryCmd };
+export const discoveryCommand: Command = { name: "discovery", usage: `${"discovery ls|on|off|pair|later|ignore|network".padEnd(47)}pacer machines on this LAN and whether this one is advertised`, run: discoveryCmd };
 export const COMMANDS: Command[] = [discoveryCommand];

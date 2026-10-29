@@ -1,7 +1,4 @@
 import { beforeEach, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import * as config from "../src/core/config";
 import { deriveItems, type RuleInput } from "../src/attention/rules";
 import { toNotify } from "../src/notify/decide";
 import { fakeCtx } from "./helpers";
@@ -90,11 +87,9 @@ test("the rule input asks the plugin registry whether an enabled plugin contribu
 
 test("the rule input is undefined when discovery is off", async () => {
   const ctx = fakeCtx();
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n");
   await ensureIdentity(ctx);
   await buildRadioConfig(ctx, { network: { key: K1, label: "home-wifi", iface: "en0" } });
   expect(discoveryRuleInput(ctx, 1000)?.network).toMatchObject({ key: K1 });
-  await config.set(ctx, "discovery", "off");
+  await updateState(ctx, s => { s.enabled = false; });
   expect(discoveryRuleInput(ctx, 1000)).toBeUndefined();
 });

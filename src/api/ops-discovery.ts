@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { CoreError } from "../core/errors";
-import { discoveryEnabled } from "../core/config";
 import { publishConfigChange } from "../core/events";
 import type { Ctx } from "../types";
 import type { OpDef } from "./ops";
@@ -16,7 +15,7 @@ async function list(ctx: Ctx) {
   const { ensureIdentity } = await import("../identity/store");
   return {
     available: d.radioStatus().available,
-    enabled: discoveryEnabled(ctx),
+    enabled: s.enabled,
     network: net ? { key: net.key, label: net.label, advertise: entry?.advertise ?? null, muted: entry?.muted ?? false, name: (await ensureIdentity(ctx)).name } : null,
     found: Object.values(s.seen).sort((a, b) => b.lastSeen - a.lastSeen).map(x => ({
       discoveryId: x.discoveryId, name: x.name, version: x.version, lastSeen: x.lastSeen, silenced: d.isSilenced(s, x.discoveryId, now),
@@ -39,10 +38,16 @@ async function mutation<T>(ctx: Ctx, action: () => Promise<T>): Promise<T> {
   return result;
 }
 
-/** Client protocol v3 LAN discovery ops. Executor sessions get not_allowed for respond and network.set (caller policy). */
+/** Client protocol v3 LAN discovery ops. Executor sessions get not_allowed for set, respond and network.set (caller policy). */
 export const discoveryOps: Record<string, OpDef> = {
   "discovery.list": op({ description: "LAN discovery status on the current network and the pacer machines seen there. Names and versions are unverified. network.name is the machine name this machine advertises.",
     params: z.object({}), handler: ctx => list(ctx) }),
+  "discovery.set": op({ description: "Turn LAN discovery (listening and advertising) on or off on this machine. Off closes the open prompts. It is machine-local state, not strategy, so it works before setup. expect_rev is networksRev from discovery.list or discovery.network.get.",
+    params: z.object({ enabled: z.boolean(), expect_rev: z.number().int().nonnegative().safe().optional() }),
+    handler: (ctx, p) => mutation(ctx, async () => {
+      const s = await (await discovery()).updateState(ctx, st => { st.enabled = p.enabled; }, p.expect_rev);
+      return { enabled: s.enabled, rev: s.rev, networksRev: s.networksRev };
+    }) }),
   "discovery.respond": op({ description: "Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).",
     params: z.object({ discoveryId: z.string().regex(/^[a-z2-7]{26}$/), action: z.enum(["pair", "later", "ignore", "mute-network"]) }),
     handler: async (ctx, p) => {

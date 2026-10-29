@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { DiscoveryNoticeView, discoveryNoticeFrom } from "../app/src/shell/DiscoveryNotice";
 import { PairingView } from "../app/src/screens/settings/Pairing";
-import { DiscoveryView, networkStateLine } from "../app/src/screens/settings/Discovery";
+import { DiscoveryView, discoverySwitchCall, networkStateLine } from "../app/src/screens/settings/Discovery";
 import { resolveRoute, titleFor, type Route } from "../app/src/router";
 import { settingsNavId } from "../app/src/settings-pages";
 import { reduceStore } from "../app/src/data/store";
@@ -128,4 +128,9 @@ test("a discovery.found event refreshes discovery resources", () => {
   const state = { snapshot: { seq: 1 } as never, connected: true, sessionEnded: false, needsSnapshot: false, invalidations: {}, version: null, features: { readModel: true, ops: new Set<string>() }, jobs: {}, activity: [] };
   const next = reduceStore(state, { type: "event", event: { seq: 2, at: 0, type: "discovery.found", data: { discoveryId: id, name: "x", version: "1" } } });
   expect(next.invalidations.discovery).toBe(1);
+});
+
+test("the Discovery switch calls discovery.set, not config.set", () => {
+  expect(discoverySwitchCall(false)).toEqual(["discovery.set", { enabled: false }]);
+  expect(discoverySwitchCall(true)).toEqual(["discovery.set", { enabled: true }]);
 });

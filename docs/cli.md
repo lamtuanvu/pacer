@@ -472,11 +472,12 @@ The id changes only on rotation. The private key never appears in command output
 pacer machines on the same local network can notice each other and offer to pair. Names and versions they announce are unverified. See [LAN discovery](discovery.md) for what is advertised and how prompts are limited.
 
 - `pacer discovery ls [--json]` shows whether this machine is advertised on the current network, under which name, and the pacer machines found (`<id prefix>  <name>  <version>`, marked `silenced` when you answered Later or Ignore).
+- `pacer discovery on|off [--json]` turns listening and advertising on or off on this machine. It works before `pacer setup`, because the switch is kept in discovery's own state, not in the strategy.
 - `pacer discovery pair|later|ignore <id-prefix>` answers a found machine. The prefix must match exactly one machine; otherwise the command exits 2. `pair` hands the machine to a plugin that provides pairing, or says that none is installed. `later` silences it for 7 days and `ignore` permanently.
 - `pacer discovery mute-network` stops prompts on the current network.
 - `pacer discovery network [--advertise on|off] [--json]` lists the networks you answered for, marking the current one with `*`, or sets whether this machine is advertised on the current network. It exits 2 when the current network is unknown.
 
-`pacer config set discovery off` turns listening and advertising off. The API equivalents are `discovery.list`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`, where `expect_rev` is the `networksRev` that `discovery.list` and `discovery.network.get` return; machines seen on the LAN do not change it. Executor sessions may read but not call `discovery.respond` or `discovery.network.set`.
+The API equivalents are `discovery.list`, `discovery.set { enabled, expect_rev? }`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`, where `expect_rev` is the `networksRev` that `discovery.list` and `discovery.network.get` return; machines seen on the LAN do not change it. Executor sessions may read but not call `discovery.set`, `discovery.respond` or `discovery.network.set`.
 
 ## Pause and resume delegation
 

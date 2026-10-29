@@ -18,6 +18,9 @@ export function networkStateLine(network: DiscoveryNetwork | null): string {
 }
 const advertising = (n: KnownNetwork) => n.advertise === null ? "Not asked yet" : n.advertise ? "Advertising" : "Not advertising";
 
+/** The operation the Discovery switch runs. The switch is machine-local discovery state, so it works before setup. */
+export const discoverySwitchCall = (on: boolean): [string, { enabled: boolean }] => ["discovery.set", { enabled: on }];
+
 /** Discovery on this machine: on/off, the advertised name, the current network and the networks answered so far. */
 export function DiscoveryView({ available, enabled, name, network, networks, current, busy, onToggle, onNetwork, onRename }: {
   available: boolean; enabled: boolean; name?: string; network: DiscoveryNetwork | null; networks: KnownNetwork[]; current: string | null; busy: boolean;
@@ -62,7 +65,7 @@ export function DiscoverySection() {
   return <>
     <DiscoveryView available={list.data.available} enabled={list.data.enabled} name={machine.data?.name} network={list.data.network}
       networks={nets.data?.networks ?? []} current={nets.data?.current ?? null} busy={action.busy || !state.connected}
-      onToggle={on => run("config.set", { key: "discovery", value: on ? "on" : "off" })}
+      onToggle={on => run(...discoverySwitchCall(on))}
       onNetwork={(network, change) => run("discovery.network.set", { network, ...change, expect_rev: nets.data?.networksRev ?? list.data!.networksRev })}
       onRename={name => machine.data && run("machine.set", { name, expect_rev: machine.data.rev })} />
     <Feedback action={action} />

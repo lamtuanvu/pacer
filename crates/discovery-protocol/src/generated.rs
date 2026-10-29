@@ -334,6 +334,37 @@ impl<'de> ::serde::Deserialize<'de> for DiscoveryRespondParamsDiscoveryId {
             })
     }
 }
+///`DiscoverySetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "enabled"
+///  ],
+///  "properties": {
+///    "enabled": {
+///      "type": "boolean"
+///    },
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoverySetParams {
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub expect_rev: ::std::option::Option<i64>,
+}
 ///`PacerClientProtocol`
 ///
 /// <details><summary>JSON schema</summary>

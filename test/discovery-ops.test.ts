@@ -1,4 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { OPS } from "../src/api/ops";
 import { clearIdentityCache, setIdentityPlatformForTests } from "../src/identity/store";
@@ -94,8 +96,9 @@ test("networksRev moves only when network entries change", async () => {
   expect(readState(ctx).networksRev).toBe(start + 1);
 });
 
-test("executor sessions cannot respond or change networks", () => {
+test("executor sessions cannot respond, change networks or turn discovery on or off", () => {
   const ctx = { ...fakeCtx(), env: { PACER_ROLE: "executor" } } as any;
+  expect(() => assertCallerCanInvoke(ctx, "discovery.set", { enabled: false })).toThrow(expect.objectContaining({ code: "not_allowed" }));
   expect(() => assertCallerCanInvoke(ctx, "discovery.respond", {})).toThrow();
   expect(() => assertCallerCanInvoke(ctx, "discovery.network.set", {})).toThrow();
   expect(() => assertCallerCanInvoke(ctx, "discovery.list", {})).not.toThrow();
@@ -103,7 +106,7 @@ test("executor sessions cannot respond or change networks", () => {
 });
 
 test("discovery ops and the discovery.found event are v3-only", () => {
-  for (const op of ["discovery.list", "discovery.respond", "discovery.network.get", "discovery.network.set"]) expect(V3_ONLY_OPS.has(op)).toBe(true);
+  for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) expect(V3_ONLY_OPS.has(op)).toBe(true);
   expect(helloBody().events).toContain("discovery.found");
   expect(v2Hello().events).not.toContain("discovery.found");
 });
@@ -137,4 +140,30 @@ test("v2 clients get no discovery config changes or discovery attention", async 
   const v2 = eventsSince(ctx, 0, 2).events;
   expect(v2.some(e => e.type === "config" && (e.data as any).area === "discovery")).toBe(false);
   expect(v2.some(e => e.type === "attention")).toBe(false);
+});
+
+test("discovery.set turns discovery off and on with no strategy.yaml and publishes a discovery config change", async () => {
+  const ctx = fakeCtx();
+  expect(existsSync(join(ctx.pacerHome, "strategy.yaml"))).toBe(false);
+  const start = readState(ctx).networksRev;
+  const off = await call(ctx, "discovery.set", { enabled: false });
+  expect(off).toMatchObject({ enabled: false, networksRev: start + 1 });
+  expect(readState(ctx).enabled).toBe(false);
+  expect((await call(ctx, "discovery.list", {})).enabled).toBe(false);
+  expect(eventsSince(ctx, 0, 3).events.some(e => e.type === "config" && (e.data as any).area === "discovery")).toBe(true);
+  expect(existsSync(join(ctx.pacerHome, "strategy.yaml"))).toBe(false);
+  const on = await call(ctx, "discovery.set", { enabled: true, expect_rev: start + 1 });
+  expect(on).toMatchObject({ enabled: true, networksRev: start + 2 });
+  expect((await call(ctx, "discovery.list", {})).enabled).toBe(true);
+});
+
+test("discovery.set with a stale expect_rev is a conflict and writes nothing; setting the same value keeps networksRev", async () => {
+  const ctx = fakeCtx();
+  await call(ctx, "discovery.set", { enabled: false });
+  await expect(call(ctx, "discovery.set", { enabled: true, expect_rev: 0 })).rejects.toMatchObject({ code: "conflict" });
+  expect(readState(ctx).enabled).toBe(false);
+  const rev = readState(ctx).networksRev;
+  await call(ctx, "discovery.set", { enabled: false });
+  expect(readState(ctx).networksRev).toBe(rev);
+  expect(() => (OPS as any)["discovery.set"].params.parse({ enabled: "off" })).toThrow();
 });

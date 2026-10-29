@@ -55,7 +55,7 @@ pacer itself does not pair machines. Pair calls `pairing.start` on the first ena
 
 ## Turn discovery off
 
-`pacer config set discovery off`, or the **Find machines on this network** switch in Settings › Machines, stops both listening and advertising and closes the open prompts. `pacer config set discovery on` turns it back on; your per-network answers are kept.
+`pacer discovery off`, or the **Find machines on this network** switch in Settings › Machines, stops both listening and advertising and closes the open prompts. `pacer discovery on` turns it back on; your per-network answers are kept. The switch belongs to this machine, not to the routing strategy: it is kept in `$PACER_HOME/discovery/state.json`, so it works on a fresh install before `pacer setup`. The API operation is `discovery.set { enabled }`.
 
 ## Where discovery runs
 

@@ -5,7 +5,7 @@ import { fakeCtx } from "./helpers";
 import * as config from "../src/core/config";
 import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
 import { buildRadioConfig, recordObservations, radioStatus, resetRadioForTests } from "../src/discovery/radio";
-import { readState, updateState, ensureNetwork } from "../src/discovery/state";
+import { discoveryEnabled, readState, updateState, ensureNetwork } from "../src/discovery/state";
 import { SILENCE_LATER_S } from "../src/discovery/policy";
 import { currentVersion } from "../src/update/version";
 
@@ -50,16 +50,26 @@ test("a declined network listens without advertising", async () => {
   expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: true, listen: true, advertise: null });
 });
 
-test("discovery off disables both listening and advertising", async () => {
+test("discovery off disables both listening and advertising, with no strategy.yaml", async () => {
+  const ctx = fakeCtx();
+  expect(readState(ctx).enabled).toBe(true);
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
+  await updateState(ctx, s => { s.enabled = false; });
+  expect(discoveryEnabled(ctx)).toBe(false);
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: false, listen: false, iface: null, advertise: null });
+  await updateState(ctx, s => { s.enabled = true; });
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: true, listen: true, iface: "en0" });
+});
+
+test("discovery is no longer a strategy key; a leftover discovery: off is ignored", async () => {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n");
-  expect(config.get(ctx).keys.discovery).toMatchObject({ value: "on", source: "default" });
-  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
-  await config.set(ctx, "discovery", "off");
-  expect(config.get(ctx).keys.discovery.value).toBe("off");
-  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: false, listen: false, iface: null, advertise: null });
-  await expect(config.set(ctx, "discovery", "maybe")).rejects.toMatchObject({ code: "invalid_input" });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndiscovery: off\n");
+  expect((config.CONFIG_KEYS as readonly string[]).includes("discovery")).toBe(false);
+  expect(config.get(ctx).keys).not.toHaveProperty("discovery");
+  expect(discoveryEnabled(ctx)).toBe(true);
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: true, listen: true });
+  await expect(config.set(ctx, "discovery" as never, "off")).rejects.toThrow();
 });
 
 test("an unknown network neither listens nor advertises, and names no interface", async () => {
