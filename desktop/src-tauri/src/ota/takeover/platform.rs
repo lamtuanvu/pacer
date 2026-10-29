@@ -561,8 +561,10 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                         executable: &service.executable,
                     };
                     // The helper is the peer, so it authenticates in the helper role.
+                    let remaining = deadline.millis.saturating_sub(now.millis);
+                    let until = std::time::Instant::now() + std::time::Duration::from_millis(remaining);
                     let Some(connection) =
-                        not_ready_handshake(control::authenticate_helper(&endpoint, &self.trust))?
+                        not_ready_handshake(control::authenticate_helper_until(&endpoint, &self.trust, Some(until)))?
                     else {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         continue;

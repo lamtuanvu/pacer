@@ -378,7 +378,7 @@ mod tests {
         let mut calls = 0;
         let ok = retry_handshake(
             later,
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 if calls < 3 {
@@ -392,7 +392,7 @@ mod tests {
         calls = 0;
         let refused: Result<(), _> = retry_handshake(
             later,
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 Err(OtaError::Identity)
@@ -402,7 +402,7 @@ mod tests {
         calls = 0;
         let expired: Result<(), _> = retry_handshake(
             std::time::Instant::now(),
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 Err(if calls == 1 {
@@ -412,7 +412,13 @@ mod tests {
                 })
             },
         );
-        assert_eq!((expired, calls), (Err(OtaError::Unavailable), 1));
+        assert_eq!((expired, calls), (Err(OtaError::Timeout), 0));
+        let late: Result<(), _> = retry_handshake(
+            std::time::Instant::now() + std::time::Duration::from_millis(1),
+            |_| {},
+            || { std::thread::sleep(std::time::Duration::from_millis(2)); Ok(()) },
+        );
+        assert_eq!(late, Err(OtaError::Timeout));
     }
     #[test]
     fn adoption_context_deadline_preserves_invalid_frame_refusal() {
@@ -836,14 +842,21 @@ fn authenticate_service(
     trust: &ReleaseTrust,
     role: &str,
     ticket: Option<&LaunchTicket>,
+    until: Option<std::time::Instant>,
 ) -> Result<(UnixStream, ControlSession), OtaError> {
     if role != "helper" {
-        return authenticate_service_adoption(endpoint, trust, role, ticket, None);
+        return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
     }
+    if until.is_some() {
+        // Takeover already retries transient handshakes. Its outer loop owns the
+        // deadline, so the ordinary ten-second helper budget must not expire it.
+        return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
+    }
+    let retry_until = std::time::Instant::now() + HANDSHAKE_RETRY;
     retry_handshake(
-        std::time::Instant::now() + HANDSHAKE_RETRY,
-        || std::thread::sleep(super::OBSERVATION_INTERVAL),
-        || authenticate_service_adoption(endpoint, trust, role, ticket, None),
+        retry_until,
+        std::thread::sleep,
+        || authenticate_service_adoption_until(endpoint, trust, role, ticket, None, Some(retry_until)),
     )
 }
 const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
@@ -853,14 +866,15 @@ const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
 /// still fails once the deadline passes.
 fn retry_handshake<T>(
     deadline: std::time::Instant,
-    pause: impl Fn(),
+    pause: impl Fn(std::time::Duration),
     mut attempt: impl FnMut() -> Result<T, OtaError>,
 ) -> Result<T, OtaError> {
     loop {
-        match attempt() {
-            Err(OtaError::Io | OtaError::Unavailable) if std::time::Instant::now() < deadline => {
-                pause()
-            }
+        deadline::remaining(deadline)?;
+        let result = attempt();
+        deadline::remaining(deadline)?;
+        match result {
+            Err(OtaError::Io | OtaError::Unavailable) => pause(deadline::remaining(deadline)?.min(super::OBSERVATION_INTERVAL)),
             other => return other,
         }
     }
@@ -960,7 +974,14 @@ pub fn authenticate_helper(
     endpoint: &ServiceEndpoint<'_>,
     trust: &ReleaseTrust,
 ) -> Result<UnixStream, OtaError> {
-    authenticate_service(endpoint, trust, "helper", None).map(|(stream, _)| stream)
+    authenticate_helper_until(endpoint, trust, None)
+}
+pub fn authenticate_helper_until(
+    endpoint: &ServiceEndpoint<'_>,
+    trust: &ReleaseTrust,
+    until: Option<std::time::Instant>,
+) -> Result<UnixStream, OtaError> {
+    authenticate_service(endpoint, trust, "helper", None, until).map(|(stream, _)| stream)
 }
 /// Whether the service still holds an authenticated channel open.
 pub fn channel_open(stream: &UnixStream) -> bool {
@@ -983,7 +1004,7 @@ pub fn helper_session(
     binding: &super::wire::Binding,
     trust: &ReleaseTrust,
 ) -> Result<HelperContext, OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"helper-context","sessionId":session.session_id,"sequence":1,"binding":binding}),
@@ -1006,7 +1027,7 @@ pub fn query_readiness(
     expected: &ExpectedReadiness,
     trust: &ReleaseTrust,
 ) -> Result<ReadinessObservation, OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     if expected.service != *endpoint.process {
         return Err(OtaError::Identity);
     }
@@ -1040,7 +1061,7 @@ fn request_effect(
     kind: &str,
     expected: Option<&ProcessIdentity>,
 ) -> Result<(), OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":kind,"sessionId":session.session_id,"sequence":1,"binding":binding,"expected":expected}),
@@ -1100,7 +1121,7 @@ pub fn observe_launch(
     if !valid_nonce(launch_id) {
         return Err(OtaError::Invalid);
     }
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"observe-launch","sessionId":session.session_id,"sequence":1,"binding":binding,"launchId":launch_id}),
@@ -1954,7 +1975,7 @@ pub fn request_fixture_cleanup(
     if endpoint.home != policy.home || endpoint.port != policy.port {
         return Err(OtaError::Identity);
     }
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"fixture-cleanup","sessionId":session.session_id,"sequence":1}),
