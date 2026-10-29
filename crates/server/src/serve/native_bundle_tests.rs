@@ -4,7 +4,7 @@ use crate::serve::native_trust::ProcessIdentity;
 
 #[test]
 fn metadata_read_is_bounded_regular_owned_and_not_redirected() {
-    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::os::unix::fs::{symlink, PermissionsExt};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("metadata.json");
     std::fs::write(&path, br#"{"schema":1}"#).unwrap();
@@ -98,5 +98,13 @@ fn detached_redirected_or_translocated_front_doors_are_not_paired_apps() {
     }
     let (mut owner, metadata) = proof();
     owner.uid += 1;
+    assert!(paired_layout(&owner, "1.2.3", &metadata).is_err());
+}
+
+#[test]
+fn release_front_door_refuses_fixture_bundle_metadata() {
+    let (owner, mut metadata) = proof();
+    assert!(paired_layout(&owner, "1.2.3", &metadata).is_ok());
+    metadata["bundleId"] = serde_json::json!(crate::serve::native_trust::FIXTURE_IDENTIFIERS.app);
     assert!(paired_layout(&owner, "1.2.3", &metadata).is_err());
 }

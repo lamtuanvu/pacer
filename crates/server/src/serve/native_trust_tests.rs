@@ -8,26 +8,20 @@ async fn native_trust_is_explicit_and_unrelated_code_never_satisfies_cli_role() 
         .unwrap()
         .unwrap();
     assert!(trust.verify_current().is_err());
-    assert!(
-        trust
-            .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Cli)
-            .is_err()
-    );
-    assert!(
-        trust
-            .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Desktop)
-            .is_err()
-    );
+    assert!(trust
+        .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Cli)
+        .is_err());
+    assert!(trust
+        .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Desktop)
+        .is_err());
     let mut child = tokio::process::Command::new("/bin/sleep")
         .arg("30")
         .kill_on_drop(true)
         .spawn()
         .unwrap();
-    assert!(
-        trust
-            .verify_child(&child, std::path::Path::new("/bin/sleep"))
-            .is_err()
-    );
+    assert!(trust
+        .verify_child(&child, std::path::Path::new("/bin/sleep"))
+        .is_err());
     child.kill().await.unwrap();
     child.wait().await.unwrap();
     assert!(NativeTrust::from_pins(Some("bad"), None).is_err());
@@ -97,4 +91,51 @@ fn malformed_pins_and_role_identifiers_are_rejected() {
         assert!(signer_requirement(None, Some(&cert), "dev.pacer.cli").is_err());
     }
     assert!(signer_requirement(Some("ABCDE12345"), None, "dev.pacer.cli\" or always").is_err());
+}
+
+#[test]
+fn identifiers_follow_only_the_compiled_fixture_flag() {
+    assert!(!compiled_fixture(None));
+    assert!(!compiled_fixture(Some("")));
+    assert!(!compiled_fixture(Some("0")));
+    assert!(!compiled_fixture(Some("true")));
+    assert!(!compiled_fixture(Some("11")));
+    assert!(compiled_fixture(Some("1")));
+    assert_eq!(native_identifiers(false), RELEASE_IDENTIFIERS);
+    assert_eq!(native_identifiers(true), FIXTURE_IDENTIFIERS);
+    assert_eq!(FIXTURE_IDENTIFIERS.app, "dev.pacer.desktop.fixture");
+    assert_eq!(FIXTURE_IDENTIFIERS.cli, "dev.pacer.desktop.fixture.cli");
+    assert_eq!(
+        FIXTURE_IDENTIFIERS.helper,
+        "dev.pacer.desktop.fixture.update-helper"
+    );
+}
+#[test]
+fn release_front_door_pins_only_release_identifiers() {
+    assert_eq!(IDENTIFIERS, RELEASE_IDENTIFIERS);
+    let trust = NativeTrust::from_pins(Some("ABCDE12345"), None)
+        .unwrap()
+        .unwrap();
+    for (requirement, release, fixture) in [
+        (&trust.cli, RELEASE_IDENTIFIERS.cli, FIXTURE_IDENTIFIERS.cli),
+        (
+            &trust.desktop,
+            RELEASE_IDENTIFIERS.app,
+            FIXTURE_IDENTIFIERS.app,
+        ),
+        (
+            &trust.helper,
+            RELEASE_IDENTIFIERS.helper,
+            FIXTURE_IDENTIFIERS.helper,
+        ),
+    ] {
+        assert!(
+            requirement.contains(&format!("identifier \"{release}\"")),
+            "{requirement}"
+        );
+        assert!(
+            !requirement.contains(&format!("identifier \"{fixture}\"")),
+            "{requirement}"
+        );
+    }
 }
