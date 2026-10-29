@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Command menu</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.seg{height:30px;padding:0 10px;border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer}
+.scope{height:24px;padding:0 8px;border-radius:6px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent}
+.opt{display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 10px;border-radius:8px;cursor:pointer;color:var(--ink)}
+.gi{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--surface-lane);color:var(--ink-secondary)}
+kbd{font-family:var(--font-mono);font-size:11px;line-height:16px;min-width:18px;text-align:center;padding:0 4px;border:1px solid var(--line);border-radius:4px;color:var(--ink-muted);background:var(--surface-page);box-sizing:border-box;display:inline-block}
+mark{background:transparent;color:var(--ink);font-weight:700;text-decoration:underline;text-decoration-color:var(--warn-fg);text-underline-offset:2px}
+</style>
+</helmet>
+<div style="position: relative; width: 100%; min-height: 100vh; overflow: hidden; font-family: var(--font-sans); font-size: 13px; line-height: 19px; color: var(--ink);">
+
+<div aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none;"><dc-import name="Main" hint-size="100%,900px"></dc-import></div>
+<div aria-hidden="true" style="position: absolute; inset: 0; background: color-mix(in srgb, var(--ink) 32%, transparent);"></div>
+
+<div role="group" aria-label="Design preview state" style="position: absolute; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-card);">
+<span class="lbl">Preview state</span>
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="5"><button class="seg" type="button" onClick="{{m.go}}" aria-pressed="{{m.on}}" style="background: {{m.bg}}; color: {{m.fg}};">{{m.label}}</button></sc-for>
+</div>
+
+<div role="dialog" aria-modal="true" aria-label="Command menu" style="position: absolute; top: 72px; left: 50%; transform: translateX(-50%); width: 640px; max-width: calc(100% - 32px); border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card); box-shadow: 0 24px 64px -12px color-mix(in srgb, var(--ink) 40%, transparent), 0 2px 6px color-mix(in srgb, var(--ink) 12%, transparent); display: flex; flex-direction: column; overflow: hidden;">
+
+<div style="display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line);">
+<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px; color: var(--ink-muted);"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+<sc-if value="{{prefix}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; background: var(--ink); color: var(--ink-on-ink); font-size: 12px; font-weight: 600;">{{prefix}}</span></sc-if>
+<input role="combobox" aria-expanded="true" aria-controls="cm-list" aria-activedescendant="cm-opt-0" aria-label="Search tasks, agents, files or run a command" value="{{query}}" placeholder="Search tasks, agents, files or type > for commands" style="flex-grow: 1; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 16px; line-height: 22px;">
+<kbd>Esc</kbd>
+</div>
+
+<div role="tablist" aria-label="Search in" style="display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--surface-lane);">
+<sc-for list="{{scopes}}" as="s" hint-placeholder-count="5"><button class="scope" role="tab" type="button" aria-selected="{{s.on}}" style="background: {{s.bg}}; color: {{s.fg}}; border-color: {{s.bd}};">{{s.label}}<span style="font-weight: 400; opacity: .75;"> {{s.n}}</span></button></sc-for>
+<span style="flex-grow: 1;"></span>
+<span class="cap"><kbd>Tab</kbd> switch</span>
+</div>
+
+<div id="cm-list" role="listbox" aria-label="Results" style="max-height: 520px; overflow: auto; padding: 6px;">
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px 20px; text-align: center;">
+<span style="font-weight: 600;">Nothing matches “{{query}}”</span>
+<span class="cap">Try fewer words, another scope, or turn it into work:</span>
+</div>
+</sc-if>
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div role="group" aria-label="{{g.title}}" style="display: flex; flex-direction: column; padding-bottom: 4px;">
+<span class="lbl" style="padding: 8px 10px 4px;">{{g.title}}</span>
+<sc-for list="{{g.items}}" as="o" hint-placeholder-count="3">
+<div class="opt" role="option" id="{{o.id}}" aria-selected="{{o.selA}}" onClick="{{o.pick}}" style="background: {{o.bg}}; box-shadow: {{o.ring}};">
+<span class="gi" style="background: {{o.gbg}}; color: {{o.gfg}};">
+<sc-if value="{{o.mono}}" hint-placeholder-val="{{ false }}"><dc-import name="AgentMark" mono="{{o.mono}}" size="20" hint-size="20px,20px"></dc-import></sc-if>
+<sc-if value="{{o.glyph}}" hint-placeholder-val="{{ true }}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="{{o.glyph}}"></path></svg></sc-if>
+</span>
+<span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><span style="font-weight: 600;">{{o.pre}}</span><mark>{{o.hit}}</mark><span style="font-weight: 600;">{{o.post}}</span></span>
+<sc-if value="{{o.sub}}" hint-placeholder-val="{{ true }}"><span class="cap" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{o.sub}}</span></sc-if>
+</span>
+<sc-if value="{{o.pill}}" hint-placeholder-val="{{ false }}"><x-import component-from-global-scope="Pacer.Pill" tone="{{o.tone}}">{{o.pill}}</x-import></sc-if>
+<sc-if value="{{o.keys}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; gap: 3px;"><sc-for list="{{o.keys}}" as="k" hint-placeholder-count="1"><kbd>{{k}}</kbd></sc-for></span></sc-if>
+<sc-if value="{{o.sel}}" hint-placeholder-val="{{ false }}"><kbd aria-hidden="true">↵</kbd></sc-if>
+</div>
+</sc-for>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--surface-page);">
+<span class="cap"><kbd>↑</kbd> <kbd>↓</kbd> move</span>
+<span class="cap"><kbd>↵</kbd> {{enterHint}}</span>
+<span class="cap"><kbd>⌘</kbd><kbd>↵</kbd> {{cmdEnterHint}}</span>
+<span style="flex-grow: 1;"></span>
+<span class="cap"><kbd>&gt;</kbd> commands · <kbd>?</kbd> ask assistant</span>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900},"mode":{"editor":"enum","options":["recent","search","commands","ask","none"],"default":"search"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mode = this.state.mode ?? this.props.mode ?? 'search';
+    const sel = this.state.sel ?? 0;
+    const G = {
+      task: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5',
+      file: 'M6 3h9l3 3v15H6zM15 3v3h3',
+      host: 'M3 5h18v10H3zM8 19h8M12 15v4',
+      plus: 'M12 5v14M5 12h14',
+      gear: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+      nav: 'M5 12h14M13 6l6 6-6 6',
+      term: 'M3 4h18v16H3zM7 9l3 3-3 3M13 15h4',
+      panel: 'M3 4h18v16H3zM15 4v16',
+      spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',
+      pause: 'M8 5v14M16 5v14',
+      check: 'M4 12l5 5L20 6',
+      retry: 'M4 12a8 8 0 1 0 2.3-5.7M4 4v5h5',
+      sun: 'M12 4V2M12 22v-2M4 12H2M22 12h-2M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z'
+    };
+    const T = (label, rest) => ({ pre: label, hit: '', post: '', ...rest });
+    const H = (pre, hit, post, rest) => ({ pre, hit, post, ...rest });
+    const D = {
+      recent: { query: '', prefix: '', enter: 'open', cmdEnter: 'open beside', scopes: [['All', ''], ['Tasks', ''], ['Agents', ''], ['Files', ''], ['Commands', '']], groups: [
+        ['Recent', [
+          T('Make remote-support access mode opt-out', { glyph: G.task, sub: 'acme/web · Codex · 12 min', pill: 'Working', tone: 'info' }),
+          T('ota: stale plan shown as the current update', { glyph: G.task, sub: 'Waiting on you · 38 min', pill: 'Needs you', tone: 'warn' }),
+          T('src/session/files.ts', { glyph: G.file, sub: 'pacer · opened in the file viewer 1 h ago' })
+        ]],
+        ['Go to', [
+          T('Dispatch', { glyph: G.nav, keys: ['G', 'D'] }), T('Tasks', { glyph: G.nav, keys: ['G', 'T'] }), T('Insights', { glyph: G.nav, keys: ['G', 'I'] })
+        ]],
+        ['Suggested', [
+          T('New task', { glyph: G.plus, sub: 'Describe it and pacer routes it', keys: ['⌘', 'N'] }),
+          T('Answer Codex on “ota: stale plan…”', { mono: 'Cx', sub: 'It has been waiting 38 min' })
+        ]]
+      ] },
+      search: { query: 'remote', prefix: '', enter: 'open', cmdEnter: 'open beside', scopes: [['All', '8'], ['Tasks', '3'], ['Agents', '1'], ['Files', '2'], ['Commands', '2']], groups: [
+        ['Tasks', [
+          H('Make ', 'remote', '-support access mode opt-out', { glyph: G.task, sub: 'acme/web · Codex · started 12 min ago', pill: 'Working', tone: 'info' }),
+          H('Document that ', 'remote', ' support is now opt-out', { glyph: G.task, sub: 'acme/web · Codex · 09:30', pill: 'Accepted', tone: 'good' }),
+          H('Add ', 'remote', ' host health check', { glyph: G.task, sub: 'pacer · Antigravity · Mon', pill: 'Stopped', tone: 'neutral' })
+        ]],
+        ['Machines', [
+          H('devbox-2 · ', 'remote', ' host', { glyph: G.host, sub: 'Connected · 2 of 4 slots free', pill: 'Online', tone: 'good' })
+        ]],
+        ['Files', [
+          H('src/', 'remote', '/access.ts', { glyph: G.file, sub: 'acme/web · changed by the running task' }),
+          H('docs/', 'remote', '-support.md', { glyph: G.file, sub: 'acme/web' })
+        ]],
+        ['Do something', [
+          H('New task: “', 'remote', '…”', { glyph: G.plus, sub: 'Start a task with this text', keys: ['⌘', 'N'] }),
+          H('Settings › Machines › Add ', 'remote', ' host', { glyph: G.gear })
+        ]]
+      ] },
+      commands: { query: 'pa', prefix: 'Commands', enter: 'run', cmdEnter: 'run and keep open', scopes: [['All', ''], ['Tasks', ''], ['Agents', ''], ['Files', ''], ['Commands', '6']], groups: [
+        ['Dispatcher', [
+          H('', 'Pa', 'use dispatch', { glyph: G.pause, sub: 'Running tasks finish; nothing new starts' }),
+          H('Switch saved setup… ', '', '', { glyph: G.spark, sub: 'Active: no-agy' }),
+          H('Budget & ', 'pa', 'cing', { glyph: G.gear, sub: 'Settings · Claude is in Relaxed mode' })
+        ]],
+        ['View', [
+          H('Toggle left ', 'pa', 'nel', { glyph: G.panel, keys: ['⌘', 'B'] }),
+          H('Toggle terminal ', 'pa', 'nel', { glyph: G.term, keys: ['⌃', '`'] }),
+          H('Toggle right ', 'pa', 'nel', { glyph: G.panel, keys: ['⌥', '⌘', 'B'] })
+        ]]
+      ] },
+      ask: { query: 'why did runner-forge fail twice?', prefix: 'Ask', enter: 'ask', cmdEnter: 'ask in a new chat', scopes: [['All', ''], ['Tasks', ''], ['Agents', ''], ['Files', ''], ['Commands', '']], groups: [
+        ['Assistant', [
+          T('Ask: “why did runner-forge fail twice?”', { glyph: G.spark, sub: 'Answers in the assistant at the bottom of the screen', gbg: 'var(--info-bg)', gfg: 'var(--info-fg)' })
+        ]],
+        ['Related', [
+          T('runner-forge: GitHub App authentication', { glyph: G.task, sub: 'Checks failed on 2 attempts · yesterday', pill: 'Checks failed', tone: 'bad' }),
+          T('Retry on a different agent', { glyph: G.retry, sub: 'Antigravity is ready · step 2' })
+        ]]
+      ] },
+      none: { query: 'xyzzy plugin', prefix: '', enter: 'run', cmdEnter: 'open beside', empty: true, scopes: [['All', '0'], ['Tasks', '0'], ['Agents', '0'], ['Files', '0'], ['Commands', '0']], groups: [
+        ['Instead', [
+          T('New task: “xyzzy plugin”', { glyph: G.plus, keys: ['⌘', 'N'] }),
+          T('Ask the assistant', { glyph: G.spark, gbg: 'var(--info-bg)', gfg: 'var(--info-fg)' }),
+          T('Browse plugins', { glyph: G.gear, sub: 'Settings › Plugins' })
+        ]]
+      ] }
+    };
+    const d = D[mode];
+    let i = 0;
+    const groups = d.groups.map(([title, items]) => ({ title, items: items.map((o) => {
+      const idx = i++; const on = idx === sel;
+      return { gbg: 'var(--surface-lane)', gfg: 'var(--ink-secondary)', ...o, mono: o.mono || '', glyph: o.mono ? '' : (o.glyph || ''), sub: o.sub || '', pill: o.pill || '', keys: o.keys || null,
+        id: 'cm-opt-' + idx, sel: on, selA: String(on), bg: on ? 'var(--surface-lane)' : 'transparent', ring: on ? 'inset 2px 0 0 var(--ink)' : 'none', pick: () => this.setState({ sel: idx }) };
+    }) }));
+    const activeScope = mode === 'commands' ? 'Commands' : 'All';
+    const L = { recent: 'Just opened', search: 'Searching', commands: '> Commands', ask: '? Ask', none: 'No results' };
+    return {
+      modes: Object.keys(L).map((k) => ({ label: L[k], on: String(mode === k), bg: mode === k ? 'var(--ink)' : 'transparent', fg: mode === k ? 'var(--ink-on-ink)' : 'var(--ink-secondary)', go: () => this.setState({ mode: k, sel: 0 }) })),
+      query: d.query, prefix: d.prefix, empty: !!d.empty,
+      scopes: d.scopes.map(([label, n]) => { const on = label === activeScope; return { label, n, on: String(on), bg: on ? 'var(--surface-page)' : 'transparent', fg: on ? 'var(--ink)' : 'var(--ink-secondary)', bd: on ? 'var(--line)' : 'transparent' }; }),
+      groups, enterHint: d.enter, cmdEnterHint: d.cmdEnter
+    };
+  }
+}
+</script>
+</body>
+</html>

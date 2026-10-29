@@ -1,0 +1,514 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "ActivityBar.dc.html": {
+      "h": 900,
+      "title": "Activity bar",
+      "w": 52,
+      "x": 1520,
+      "y": 7560
+    },
+    "AgentMark.dc.html": {
+      "h": 40,
+      "title": "Agent mark",
+      "w": 40,
+      "x": 1972,
+      "y": 7560
+    },
+    "Assistant.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "6 · Always-on assistant (aurora)",
+      "w": 1440,
+      "x": 1520,
+      "y": 1600
+    },
+    "FileViewer.dc.html": {
+      "h": 760,
+      "is_interactive": true,
+      "title": "File viewer (component)",
+      "w": 560,
+      "x": 3040,
+      "y": 8400
+    },
+    "Insights.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "title": "2 · Insights (efficiency metrics)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0,
+      "is_interactive": true
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "title": "1 · Dispatch (home)",
+      "w": 1440,
+      "x": 0,
+      "y": 0,
+      "is_interactive": true
+    },
+    "Session.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "5b · Live session in the built-in terminal",
+      "w": 1440,
+      "x": 3040,
+      "y": 1600
+    },
+    "SettingsAccounts.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "11 · Settings: Agents › Accounts",
+      "w": 1440,
+      "x": 0,
+      "y": 5100,
+      "is_interactive": true
+    },
+    "SettingsAddAgent.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "12 · Settings: Add an agent",
+      "w": 1440,
+      "x": 1520,
+      "y": 5100
+    },
+    "SettingsAgents.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "8 · Settings: Agents",
+      "w": 1440,
+      "x": 1520,
+      "y": 2840,
+      "is_interactive": true
+    },
+    "SettingsApp.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "10 · Settings: App preferences",
+      "w": 1440,
+      "x": 4560,
+      "y": 2840,
+      "is_interactive": true
+    },
+    "SettingsBudget.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "13 · Settings: Budget & pacing",
+      "w": 1440,
+      "x": 3040,
+      "y": 5100,
+      "is_interactive": true
+    },
+    "SettingsDiagnostics.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "17 · Settings: Diagnostics",
+      "w": 1440,
+      "x": 3040,
+      "y": 6240,
+      "is_interactive": true
+    },
+    "SettingsMachines.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "14 · Settings: Machines",
+      "w": 1440,
+      "x": 4560,
+      "y": 5100,
+      "is_interactive": true
+    },
+    "SettingsNav.dc.html": {
+      "h": 900,
+      "title": "Settings menu (left panel)",
+      "w": 240,
+      "x": 1652,
+      "y": 7560
+    },
+    "SettingsOverview.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "7 · Settings: Overview",
+      "w": 1440,
+      "x": 0,
+      "y": 2840,
+      "is_interactive": true
+    },
+    "SettingsPluginPage.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "16 · Settings: a plugin's own page",
+      "w": 1440,
+      "x": 1520,
+      "y": 6240,
+      "is_interactive": true
+    },
+    "SettingsPlugins.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "15 · Settings: Plugins",
+      "w": 1440,
+      "x": 0,
+      "y": 6240,
+      "is_interactive": true
+    },
+    "SettingsRouting.dc.html": {
+      "expand": "fill",
+      "h": 1900,
+      "is_interactive": true,
+      "title": "9 · Settings: Dispatcher (guided setup)",
+      "w": 1440,
+      "x": 3040,
+      "y": 2840
+    },
+    "Shell.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "5 · Workspace shell: side panels + terminal",
+      "w": 1440,
+      "x": 0,
+      "y": 1600
+    },
+    "StatusBar.dc.html": {
+      "h": 40,
+      "title": "Status bar",
+      "w": 1440,
+      "x": 0,
+      "y": 7724
+    },
+    "TaskDetail.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "title": "4 · Root task: dispatch trace",
+      "w": 1440,
+      "x": 4560,
+      "y": 0,
+      "is_interactive": true
+    },
+    "Tasks.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "is_interactive": true,
+      "title": "3 · Tasks (task tree)",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "TopBar.dc.html": {
+      "h": 36,
+      "title": "Title bar",
+      "w": 1440,
+      "x": 0,
+      "y": 7560
+    },
+    "ViewerDesktop.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "18 · File viewer in the live session",
+      "w": 1440,
+      "x": 0,
+      "y": 8400
+    },
+    "ViewerMobile.dc.html": {
+      "h": 1000,
+      "title": "18d · File viewer at 375 px",
+      "w": 2120,
+      "x": 0,
+      "y": 11140
+    },
+    "ViewerNotes.dc.html": {
+      "h": 1100,
+      "title": "18a · File viewer: interaction notes",
+      "w": 1440,
+      "x": 1520,
+      "y": 8400
+    },
+    "ViewerStatesDark.dc.html": {
+      "h": 1400,
+      "title": "18c · File viewer states: dark",
+      "w": 1920,
+      "x": 2000,
+      "y": 9620
+    },
+    "ViewerStatesLight.dc.html": {
+      "h": 1400,
+      "title": "18b · File viewer states: light",
+      "w": 1920,
+      "x": 0,
+      "y": 9620
+    },
+    "NewTask.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "is_interactive": true,
+      "title": "3a · New task",
+      "w": 1440,
+      "x": 6080,
+      "y": 0
+    },
+    "NewTaskMobile.dc.html": {
+      "h": 812,
+      "title": "3b · New task at 375 px",
+      "w": 375,
+      "x": 7600,
+      "y": 0
+    },
+    "CommandMenu.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "5c · Command menu (⌘K)",
+      "w": 1440,
+      "x": 4560,
+      "y": 1600
+    },
+    "Tray.dc.html": {
+      "x": 0,
+      "y": 12700,
+      "w": 1560,
+      "h": 820,
+      "title": "19 · Menu bar tray",
+      "is_interactive": true
+    },
+    "AssistantSetup.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "6b · Assistant not set up",
+      "w": 1440,
+      "x": 6080,
+      "y": 1600,
+      "is_interactive": true
+    },
+    "NeedsYou.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "20 · Needs you",
+      "w": 1440,
+      "x": 0,
+      "y": 13840,
+      "is_interactive": true
+    },
+    "Answer.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "21 · Answer a question",
+      "w": 1440,
+      "x": 1520,
+      "y": 13840,
+      "is_interactive": true
+    },
+    "TaskFailed.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "22 · Inspect failures",
+      "w": 1440,
+      "x": 3040,
+      "y": 13840,
+      "is_interactive": true
+    },
+    "Review.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "23 · Review a result",
+      "w": 1440,
+      "x": 4560,
+      "y": 13840
+    },
+    "DispatchDark.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "title": "1d · Dispatch, dark",
+      "w": 1440,
+      "x": 0,
+      "y": 15020,
+      "is_interactive": true
+    },
+    "SessionDark.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "5d · Live session, dark",
+      "w": 1440,
+      "x": 1520,
+      "y": 15020,
+      "is_interactive": true
+    },
+    "NeedsYouDark.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "20d · Needs you, dark",
+      "w": 1440,
+      "x": 3040,
+      "y": 15020,
+      "is_interactive": true
+    },
+    "States.dc.html": {
+      "h": 1200,
+      "title": "24 · First run, empty, not measured, offline",
+      "w": 1440,
+      "x": 4560,
+      "y": 15020,
+      "is_interactive": true
+    },
+    "DispatchNarrow.dc.html": {
+      "h": 844,
+      "title": "1n · Dispatch at 390 px",
+      "w": 390,
+      "x": 6080,
+      "y": 15020,
+      "is_interactive": true
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-27T10:20:00Z",
+    "v": 1
+  },
+  "designSystems": [
+    {
+      "artifact": "https://claude.ai/code/artifact/45ead394-e081-491f-a457-a4f772b09267",
+      "copiedAt": "2026-10-27T10:20:00Z",
+      "namespace": "pacer",
+      "title": "pacer",
+      "version": "1793075169-cf63"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "row1": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "pacer redesign · dispatcher first",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "row2": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Workspace shell · panels, terminal, assistant, live session",
+      "w": 240,
+      "x": 0,
+      "y": 1300
+    },
+    "row3": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Settings · organised by job, one row grammar",
+      "w": 240,
+      "x": 0,
+      "y": 2540
+    },
+    "row3b": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Settings · every remaining page",
+      "w": 240,
+      "x": 0,
+      "y": 4820
+    },
+    "row4": {
+      "kind": "title1",
+      "maxW": 2100,
+      "text": "Shared components · the frame every screen uses",
+      "w": 240,
+      "x": 0,
+      "y": 7280
+    },
+    "row5": {
+      "kind": "title1",
+      "maxW": 3600,
+      "text": "File viewer · read a path without leaving the session",
+      "w": 240,
+      "x": 0,
+      "y": 8120
+    },
+    "row6": {
+      "kind": "title1",
+      "maxW": 1560,
+      "text": "Menu bar tray",
+      "w": 240,
+      "x": 0,
+      "y": 12440
+    },
+    "row7": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Core loop · needs you → act → outcome",
+      "w": 240,
+      "x": 0,
+      "y": 13560
+    },
+    "row8": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Dark theme and app states",
+      "w": 240,
+      "x": 0,
+      "y": 14780
+    },
+    "proto": {
+      "x": -560,
+      "y": 0,
+      "w": 460,
+      "size": "m",
+      "fill": "blue",
+      "text": "Clickable prototype: select 1 · Dispatch and press Play (or open it full window), then click through like the real app.\n\nThe core loop: Needs you (activity bar or Dispatch) → Answer · Inspect failures → Retry · Review → Accept → back to Tasks.\nAlso: New task → Delegate, ⌘K search, the planner chip → Budget, Settings from the activity bar, Terminal → the panel, Live dispatch rows → session or trace.\nThe tray (19) links into the same screens."
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Insights.dc.html",
+    "Tasks.dc.html",
+    "TaskDetail.dc.html",
+    "NewTask.dc.html",
+    "NewTaskMobile.dc.html",
+    "Shell.dc.html",
+    "Assistant.dc.html",
+    "AssistantSetup.dc.html",
+    "Session.dc.html",
+    "CommandMenu.dc.html",
+    "SettingsOverview.dc.html",
+    "SettingsAgents.dc.html",
+    "SettingsRouting.dc.html",
+    "SettingsApp.dc.html",
+    "SettingsAccounts.dc.html",
+    "SettingsAddAgent.dc.html",
+    "SettingsBudget.dc.html",
+    "SettingsMachines.dc.html",
+    "SettingsPlugins.dc.html",
+    "SettingsPluginPage.dc.html",
+    "SettingsDiagnostics.dc.html",
+    "ViewerDesktop.dc.html",
+    "ViewerNotes.dc.html",
+    "ViewerStatesLight.dc.html",
+    "ViewerStatesDark.dc.html",
+    "ViewerMobile.dc.html",
+    "FileViewer.dc.html",
+    "TopBar.dc.html",
+    "StatusBar.dc.html",
+    "ActivityBar.dc.html",
+    "SettingsNav.dc.html",
+    "AgentMark.dc.html",
+    "Tray.dc.html",
+    "NeedsYou.dc.html",
+    "Answer.dc.html",
+    "TaskFailed.dc.html",
+    "Review.dc.html",
+    "DispatchDark.dc.html",
+    "SessionDark.dc.html",
+    "NeedsYouDark.dc.html",
+    "States.dc.html",
+    "DispatchNarrow.dc.html"
+  ],
+  "pages": [],
+  "title": "Pacer App Redesign"
+}

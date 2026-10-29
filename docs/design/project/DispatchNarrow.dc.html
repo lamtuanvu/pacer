@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dispatch at 390 px</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+a{color:var(--link)}a:hover{color:var(--ink)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.tabbtn{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:56px;color:var(--ink-secondary);text-decoration:none;font-size:11px;font-weight:600;position:relative}
+.tabbtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; font-variant-numeric: tabular-nums; overflow: hidden;">
+<header style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: var(--surface-card);">
+<h1 style="margin: 0; flex-grow: 1; font-size: 22px; line-height: 28px; font-weight: 650;">Dispatch</h1>
+<a href="CommandMenu.dc.html" aria-label="Search" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-secondary);"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></a>
+<a href="NewTask.dc.html" aria-label="New task" style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink);"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></a>
+</header>
+<main style="flex-grow: 1; min-height: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+<section aria-label="Planner budget" style="display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);">
+<div style="display: flex; align-items: center; gap: 8px;"><dc-import name="AgentMark" mono="Cl" size="20" hint-size="20px,20px"></dc-import><b style="flex-grow: 1;">Claude Code</b><x-import component-from-global-scope="Pacer.Pill" tone="good">Under pace</x-import></div>
+<x-import component-from-global-scope="Pacer.UsageMeter" used="{{p.used}}" pace="{{p.pace}}" label="Claude weekly usage"></x-import>
+<span class="cap">16% of week used · pace 38% · Relaxed · resets Thu 14:00</span>
+<span class="cap" style="color: var(--ink-secondary);">Next capable task goes to <b style="color: var(--ink);">Antigravity</b> · Codex is ahead of pace</span>
+</section>
+<section aria-labelledby="nn-h" style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center; gap: 8px;"><h2 id="nn-h" style="margin: 0; flex-grow: 1; font-size: 16px; line-height: 22px; font-weight: 650;">Needs you</h2><a href="NeedsYou.dc.html" style="font-size: 12px;">All 3</a></div>
+<sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
+<a href="{{n.href}}" style="display: flex; gap: 10px; align-items: flex-start; min-height: 44px; padding: 12px; border: 1px solid {{n.bd}}; border-radius: 12px; text-decoration: none; color: var(--ink);">
+<span aria-hidden="true" style="width: 14px; font-weight: 700; color: {{n.fg}};">{{n.glyph}}</span>
+<span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{n.title}}</span><span class="cap">{{n.why}}</span></span>
+<span style="font-size: 12px; font-weight: 600; color: var(--link); white-space: nowrap;">{{n.action}}</span>
+</a>
+</sc-for>
+</section>
+<section aria-labelledby="nl-h" style="display: flex; flex-direction: column; gap: 8px;">
+<h2 id="nl-h" style="margin: 0; font-size: 16px; line-height: 22px; font-weight: 650;">Running</h2>
+<a href="Session.dc.html" style="display: flex; gap: 10px; align-items: center; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--ink);"><dc-import name="AgentMark" mono="Cx" size="20" hint-size="20px,20px"></dc-import><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Make remote-support access mode opt-out</span><span class="cap"><span style="color: var(--info-fg); font-weight: 600;">Editing</span> · 12m · acme/web</span></span></a>
+</section>
+</main>
+<nav aria-label="Primary" style="flex-shrink: 0; display: flex; border-top: 1px solid var(--line); background: var(--surface-card); padding-bottom: 20px;">
+<a class="tabbtn" href="DispatchNarrow.dc.html" aria-current="page" style="color: var(--ink);"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10"></path></svg>Dispatch</a>
+<a class="tabbtn" href="NeedsYou.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6c0 6-3 7-3 7h18s-3-1-3-7a6 6 0 0 0-6-6zM10 20a2 2 0 0 0 4 0"></path></svg>Needs you<span aria-label="3 items" style="position: absolute; top: 4px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 99px; background: var(--bad-fill); color: #fff; font-size: 11px; line-height: 16px; text-align: center;">3</span></a>
+<a class="tabbtn" href="Tasks.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"></path></svg>Tasks</a>
+<a class="tabbtn" href="Insights.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Insights</a>
+<a class="tabbtn" href="SettingsOverview.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>Settings</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      p: { used: 16, pace: 38 },
+      needs: [
+        { glyph: '◐', fg: 'var(--warn-fg)', bd: 'var(--warn-line)', title: 'ota: stale plan shown as the current update', why: 'Codex asks · 38 min', action: 'Answer', href: 'Answer.dc.html' },
+        { glyph: '✕', fg: 'var(--bad-fg)', bd: 'var(--bad-line)', title: 'runner-forge: GitHub App authentication', why: 'Checks failed twice', action: 'Inspect', href: 'TaskFailed.dc.html' },
+        { glyph: '●', fg: 'var(--info-fg)', bd: 'var(--line)', title: 'Browser-validate the web app PWA build', why: 'Ready for review', action: 'Review', href: 'Review.dc.html' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

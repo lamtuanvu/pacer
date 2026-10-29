@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File viewer 375 px</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.theme-dark{--surface-page:#09090b;--surface-card:#18181b;--surface-lane:#27272a;--line:#3f3f46;--ink:#fafafa;--ink-secondary:#a1a1aa;--ink-muted:#a1a1aa;--ink-on-ink:#18181b;--link:#93c5fd;--good-fg:#86efac;--good-bg:#14532d;--good-fill:#22c55e;--warn-fg:#fcd34d;--warn-bg:#451a03;--warn-fill:#f59e0b;--warn-line:#78350f;--warn-tint:#1c1408;--bad-fg:#fca5a5;--bad-bg:#450a0a;--bad-fill:#ef4444;--bad-line:#7f1d1d;--bad-tint:#1f0a0a;--info-fg:#93c5fd;--info-bg:#172554;--focus:#93c5fd;color-scheme:dark}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.term{font-family:ui-monospace,'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="padding: 32px 40px 40px; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 24px;">
+<header style="display: flex; flex-direction: column; gap: 4px;"><h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">File viewer · 375 px</h1><span class="cap">Below 768 px the viewer is a full-screen sheet over the terminal. The header keeps Back to Terminal, the filename and Read-only; copy path and open in editor move into the ⋯ menu.</span></header>
+<div style="display: flex; gap: 32px; align-items: flex-start;">
+<figure style="margin: 0; width: 375px; display: flex; flex-direction: column; gap: 10px;">
+<div class="phone" style="width: 375px; height: 812px; border-radius: 36px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-page); display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--surface-lane);">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-card);"><span>9:41</span><span aria-hidden="true" style="width: 110px; height: 26px; border-radius: 99px; background: #000;"></span><span>100%</span></div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; background: #09090b; color: #d4d4d8;">
+<div style="height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #27272a; background: #111113; color: #fafafa;"><b style="flex-grow: 1; font-size: 14px;">codex · demo-stages</b><span style="font-size: 12px; color: #86efac;">● running</span></div>
+<pre class="term" style="flex-grow: 1; margin: 0; padding: 12px; white-space: pre-wrap; font-size: 12px; line-height: 18px;"><span style="color: #c4b5fd;">•</span> Telemetry starts in <span style="color: #93c5fd; text-decoration: underline; background: #1e3a5f; outline: 1px solid #93c5fd; border-radius: 4px; padding: 2px 0;">src/main.ts:42</span>
+  after config loads.
+<span style="color: #c4b5fd;">•</span> Setup steps are in <span style="color: #93c5fd; text-decoration: underline;">README.md</span>.
+<span style="color: #c4b5fd;">•</span> <span style="color: #93c5fd; text-decoration: underline;">public/index.html:18</span> loads
+  analytics from a CDN.
+
+<span style="color: #86efac;">✓</span> playwright 48 passed · 2m41s
+
+<span style="color: #a1a1aa;">›</span> <span style="color: #fafafa;">only report it</span></pre>
+<div style="padding: 10px 12px; border-top: 1px solid #27272a; font-size: 12px; color: #a1a1aa;">Tap a path to read it. Touch targets grow to 44 px around each link.</div>
+</div>
+</div>
+<figcaption style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px;"><b style="font-size: 14px;">Tap a path · light</b><span class="cap">Paths the agent prints are links. A tap opens the viewer as a full-screen sheet; the session keeps running underneath.</span></figcaption>
+</figure>
+<figure style="margin: 0; width: 375px; display: flex; flex-direction: column; gap: 10px;">
+<div class="phone" style="width: 375px; height: 812px; border-radius: 36px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-page); display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--surface-lane);">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-card);"><span>9:41</span><span aria-hidden="true" style="width: 110px; height: 26px; border-radius: 99px; background: #000;"></span><span>100%</span></div>
+<div style="flex-grow: 1; min-height: 0;"><dc-import name="FileViewer" file="ts" layout="mobile" theme="light" hint-size="100%,100%"></dc-import></div>
+</div>
+<figcaption style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px;"><b style="font-size: 14px;">Code at line 42 · light</b><span class="cap">Back to Terminal is first in focus order and at the top left. Line numbers stay; long lines scroll sideways.</span></figcaption>
+</figure>
+<figure style="margin: 0; width: 375px; display: flex; flex-direction: column; gap: 10px;">
+<div class="phone theme-dark" style="width: 375px; height: 812px; border-radius: 36px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-page); display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--surface-lane);">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-card);"><span>9:41</span><span aria-hidden="true" style="width: 110px; height: 26px; border-radius: 99px; background: #000;"></span><span>100%</span></div>
+<div style="flex-grow: 1; min-height: 0;"><dc-import name="FileViewer" file="ts" search="true" focus="search" layout="mobile" theme="dark" hint-size="100%,100%"></dc-import></div>
+</div>
+<figcaption style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px;"><b style="font-size: 14px;">Search · dark</b><span class="cap">Search opens under the header; Enter and Shift+Enter step through matches.</span></figcaption>
+</figure>
+<figure style="margin: 0; width: 375px; display: flex; flex-direction: column; gap: 10px;">
+<div class="phone" style="width: 375px; height: 812px; border-radius: 36px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-page); display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--surface-lane);">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-card);"><span>9:41</span><span aria-hidden="true" style="width: 110px; height: 26px; border-radius: 99px; background: #000;"></span><span>100%</span></div>
+<div style="flex-grow: 1; min-height: 0;"><dc-import name="FileViewer" file="md" tab="preview" layout="mobile" theme="light" hint-size="100%,100%"></dc-import></div>
+</div>
+<figcaption style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px;"><b style="font-size: 14px;">Markdown Preview · light</b><span class="cap">Source and Preview tabs stretch full width for touch.</span></figcaption>
+</figure>
+<figure style="margin: 0; width: 375px; display: flex; flex-direction: column; gap: 10px;">
+<div class="phone theme-dark" style="width: 375px; height: 812px; border-radius: 36px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-page); display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--surface-lane);">
+<div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-card);"><span>9:41</span><span aria-hidden="true" style="width: 110px; height: 26px; border-radius: 99px; background: #000;"></span><span>100%</span></div>
+<div style="flex-grow: 1; min-height: 0;"><dc-import name="FileViewer" file="html" tab="preview" layout="mobile" theme="dark" hint-size="100%,100%"></dc-import></div>
+</div>
+<figcaption style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px;"><b style="font-size: 14px;">HTML isolated · dark</b><span class="cap">The blocked list is shown before the frame, so nothing is hidden behind a disclosure.</span></figcaption>
+</figure>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2120,"height":1000}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

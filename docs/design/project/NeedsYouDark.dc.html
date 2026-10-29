@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>20d · Needs you, dark</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#09090b}
+.theme-dark{--surface-page:#09090b;--surface-card:#18181b;--surface-lane:#27272a;--line:#3f3f46;--ink:#fafafa;--ink-secondary:#a1a1aa;--ink-muted:#a1a1aa;--ink-on-ink:#18181b;--link:#93c5fd;--good-fg:#86efac;--good-bg:#14532d;--good-fill:#22c55e;--warn-fg:#fcd34d;--warn-bg:#451a03;--warn-fill:#f59e0b;--warn-line:#78350f;--warn-tint:#1c1408;--bad-fg:#fca5a5;--bad-bg:#450a0a;--bad-fill:#ef4444;--bad-line:#7f1d1d;--bad-tint:#1f0a0a;--info-fg:#93c5fd;--info-bg:#172554;--focus:#93c5fd;color-scheme:dark}
+.theme-dark{color-scheme:dark}
+</style>
+</helmet>
+<div class="theme-dark" style="min-height: 900px; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans);">
+<dc-import name="NeedsYou" hint-size="100%,900px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

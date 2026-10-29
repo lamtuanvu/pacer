@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New task · 375</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.ico{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.row{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 14px;border-top:1px solid var(--surface-lane);background:transparent;border-left:0;border-right:0;border-bottom:0;color:var(--ink);font:inherit;text-align:left;width:100%;box-sizing:border-box;cursor:pointer}
+.ib{width:44px;height:44px;border:0;border-radius:8px;background:transparent;color:var(--ink-secondary);display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 375px; height: 812px; display: flex; flex-direction: column; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 20px; overflow: hidden;">
+<header style="display: flex; align-items: center; gap: 4px; height: 52px; padding: 0 4px; border-bottom: 1px solid var(--line); background: var(--surface-card);">
+<button class="ib" type="button" aria-label="Close"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+<h1 style="margin: 0; font-size: 16px; line-height: 22px; font-weight: 650; flex-grow: 1;">New task</h1>
+<x-import component-from-global-scope="Pacer.Button" variant="ghost" size="sm">Save draft</x-import>
+</header>
+
+<div style="flex-grow: 1; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 16px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="m-req" style="font-weight: 600;">What should get done?</label>
+<div style="border: 1px solid var(--ink); border-radius: 12px; background: var(--surface-card);">
+<textarea id="m-req" rows="5" style="border: 0; outline: 0; resize: none; width: 100%; box-sizing: border-box; background: transparent; color: var(--ink); font: inherit; padding: 12px;">Make remote-support access opt-out. New installs start with it off; existing nodes keep their choice. Update Settings copy and docs.</textarea>
+<div style="display: flex; align-items: center; border-top: 1px solid var(--surface-lane);">
+<button class="ib" type="button" aria-label="Attach a file"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8"></path></svg></button>
+<button class="ib" type="button" aria-label="Mention a file or folder"><span class="mono" style="font-size: 16px; font-weight: 700;">@</span></button>
+<span style="flex-grow: 1;"></span>
+<span class="cap" style="padding-right: 12px;">1 file attached</span>
+</div>
+</div>
+</div>
+
+<section aria-label="Where this task goes" style="border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card); padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+<span class="lbl">Will go to</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<dc-import name="AgentMark" mono="Cx" size="32" hint-size="32px,32px"></dc-import>
+<div style="display: flex; flex-direction: column; flex-grow: 1;"><span style="font-weight: 650;">Codex</span><span class="cap">Feature · spare capacity · step 1</span></div>
+<x-import component-from-global-scope="Pacer.Pill" tone="good">Ready</x-import>
+</div>
+<span class="cap">Planner ≈ 60k tokens · week 16% → 17%</span>
+</section>
+
+<div style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-card);">
+<button class="row" type="button" style="border-top: 0;"><span style="flex-grow: 1; display: flex; flex-direction: column;"><span class="cap">Repository</span><span style="font-weight: 600;">acme/web <span class="mono" style="color: var(--ink-muted);">main</span></span></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></button>
+<button class="row" type="button"><span style="flex-grow: 1; display: flex; flex-direction: column;"><span class="cap">Where it runs</span><span style="font-weight: 600;">New worktree</span></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></button>
+<button class="row" type="button"><span style="flex-grow: 1; display: flex; flex-direction: column;"><span class="cap">Kind</span><span style="font-weight: 600;">Feature <span class="cap">· detected</span></span></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></button>
+<button class="row" type="button"><span style="flex-grow: 1; display: flex; flex-direction: column;"><span class="cap">Acceptance checks</span><span style="font-weight: 600;">3 of 4 on</span></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></button>
+<button class="row" type="button"><span style="flex-grow: 1; display: flex; flex-direction: column;"><span class="cap">Agent</span><span style="font-weight: 600;">Let pacer decide</span></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></button>
+</div>
+<span class="cap">Each row opens its own sheet with the same choices as the desktop form.</span>
+</div>
+
+<footer style="padding: 12px 16px 28px; border-top: 1px solid var(--line); background: var(--surface-card); display: flex; flex-direction: column; gap: 6px;">
+<x-import component-from-global-scope="Pacer.Button" variant="primary" style="width: 100%;">Delegate task</x-import>
+<span class="cap" style="text-align: center;">Starts in a new worktree on acme/web</span>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":812}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
