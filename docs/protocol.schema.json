@@ -3175,6 +3175,36 @@
       ],
       "additionalProperties": false
     },
+    "MachineGetParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "MachineRotateParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "MachineSetParams": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "name",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
     "ModeHoldParams": {
       "type": "object",
       "properties": {

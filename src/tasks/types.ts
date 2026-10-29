@@ -226,6 +226,8 @@ export interface TaskRecord {
   worktree?: string;
   /** Set when pacer removed this lane's unused worktree and cleared its recorded path; an answer then starts from `baseSha`. */
   worktreeReleased?: { at: number; path: string };
+  /** The machine id of the pacer home that created the task, once it has an identity. */
+  machineId?: string;
   id: string;
   createdAt: number;
   kind: string | null;

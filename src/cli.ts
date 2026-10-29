@@ -61,6 +61,7 @@ import { runTask } from "./tasks/runner";
 import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
+import { ensureIdentity } from "./identity/store";
 
 /** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`. */
 export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
@@ -588,6 +589,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       if (internal && (!internalToken || internalToken.length < 32)) {
         return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
       }
+      // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
+      // Loads are single-flight per home, so identity operations that arrive first share this load.
+      void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
       try {
         if (internal) {
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
