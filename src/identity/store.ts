@@ -115,8 +115,10 @@ export function cachedMachineId(ctx: Ctx): string | undefined {
   try { return readMeta(ctx)?.publicId; } catch { return undefined; }
 }
 
+/** After a rotation, `rotatedFrom` and `rotationSignature` repeat the old key's signed statement (public data). */
 export function machineView(id: MachineIdentity, cloneSuspected: boolean) {
-  return { id: id.id, name: id.name, rev: id.rev, cloneSuspected };
+  const last = id.lastRotation?.newId === id.id ? id.lastRotation : undefined;
+  return { id: id.id, name: id.name, rev: id.rev, cloneSuspected, ...(last ? { rotatedFrom: last.oldId, rotationSignature: last.signature } : {}) };
 }
 
 export async function setMachineName(ctx: Ctx, name: string, expectRev: number): Promise<MachineMeta> {

@@ -59,7 +59,9 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
- if(e.type==='planner'||e.type==='assistant')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine')return null;
+ // The machine operations are v3-only, so v2 clients have no area to refetch.
+ if(e.type==='config'&&(e.data as {area?:unknown}|null)?.area==='machine')return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,

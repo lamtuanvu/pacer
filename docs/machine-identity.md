@@ -15,7 +15,21 @@ pacer machine rotate --yes    # replace the key, and with it the machine id
 
 Add `--json` for machine-readable output. The same actions are available to clients as the `machine.get`, `machine.set {name, expect_rev}` and `machine.rotate` operations ([protocol](protocol.md)). `machine.set` fails with `conflict` when `expect_rev` is stale, for example when another client renamed the machine first; read again and retry. Executor sessions can read the identity but cannot rename or rotate it.
 
-Rotation asks for `--yes` because it replaces the machine id. pacer announces the old and new ids in a `machine` entity event, signed by the old key, so plugins can tell paired machines. Paired machines that cannot be told have to pair again. Rotation also invalidates every transport key that plugins had certified.
+Rotation asks for `--yes` because it replaces the machine id. Paired machines that cannot be told have to pair again. Rotation also invalidates every transport key that plugins had certified.
+
+### The signed rotation statement
+
+Before it replaces anything, pacer signs the change with the old key, as plugin id `pacer` with purpose `rotate`:
+
+```text
+"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId
+```
+
+Both ids are the ASCII base32 machine ids. A verifier checks the signature with the public key that `oldId` encodes. pacer keeps the statement in `machine.json` and returns it from `machine.get` (and `pacer machine show --json`) as `rotatedFrom` and `rotationSignature` (base64). It also publishes it to clients once, as a `machine` entity event with the value `{ event: "rotated", oldId, newId, signature }` (v3 only; see [protocol](protocol.md#events)). The machine peers design calls this event `machine.rotated`.
+
+Plugins cannot receive the rotation yet: pacer does not forward host events to plugins. Delivering it to plugins, so they can tell paired machines, is deferred to the peer transport work. Until then a client can read the statement from `machine.get`.
+
+Rotation is crash-safe. pacer records the pending rotation in `machine.json` and stores the new key under a staging item (`machine-identity-staging/<homeTag>` in the Keychain, or `identity/machine.key.staging`) before it replaces the current key. If pacer stops part way, the next start finishes the rotation when the new key was stored, or rolls it back when it was not. A rotation that fails, for example because the Keychain refused the update, changes nothing and announces nothing.
 
 ## Where the key is stored
 

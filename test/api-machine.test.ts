@@ -3,7 +3,9 @@ import { cpSync } from "node:fs";
 import { fakeCtx } from "./helpers";
 import { fakeKeychain } from "./fake-keychain";
 import { OPS } from "../src/api/ops";
-import { V3_ONLY_OPS } from "../src/api/v2-compat";
+import { toV2Event, v2Hello, V3_ONLY_OPS } from "../src/api/v2-compat";
+import { renderProtocolDoc } from "../scripts/protocol-doc";
+import { verifyFrom } from "../src/identity/sign";
 import { clearIdentityCache, readMeta, setIdentityPlatformForTests } from "../src/identity/store";
 import { assertCallerCanInvoke } from "../src/api/caller-policy";
 
@@ -37,6 +39,31 @@ test("machine.rotate returns old and new ids only", async () => {
 
 test("machine ops are v3 only", () => {
   for (const name of ["machine.get", "machine.set", "machine.rotate"]) expect(V3_ONLY_OPS.has(name)).toBe(true);
+});
+
+test("machine events and machine config events are v3 only", () => {
+  const rotated = { seq: 5, at: 1, type: "machine" as const, data: { kind: "machine", id: "self", value: { event: "rotated", oldId: "a", newId: "b", signature: "c" } } };
+  expect(toV2Event(rotated)).toBeNull();
+  expect(toV2Event({ seq: 6, at: 1, type: "config", data: { area: "machine", at: 1 } })).toBeNull();
+  expect(toV2Event({ seq: 7, at: 1, type: "config", data: { area: "plugins", at: 1 } })).toMatchObject({ type: "config" });
+  expect(v2Hello().events).not.toContain("machine");
+  const v2 = renderProtocolDoc(2), v3 = renderProtocolDoc(3);
+  expect(v2).not.toMatch(/event types are [^.]*`machine`/);
+  expect(v2).not.toContain("`rotated`");
+  expect(v3).toMatch(/event types are [^.]*`machine`/);
+  expect(v3).toMatch(/`area` is one of [^)]*`machine`/);
+  expect(v3).toContain('"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId');
+});
+
+test("machine.get exposes the signed statement of the last rotation", async () => {
+  const ctx = fakeCtx();
+  const r = await call(ctx, "machine.rotate", {});
+  const view = await call(ctx, "machine.get", {});
+  expect(view).toMatchObject({ id: r.newId, rotatedFrom: r.oldId });
+  const payload = new TextEncoder().encode(`${r.oldId}\0${r.newId}`);
+  expect(verifyFrom(r.oldId, "pacer", "rotate", payload, Buffer.from(view.rotationSignature, "base64"))).toBe(true);
+  clearIdentityCache();
+  expect(await call(ctx, "machine.get", {})).toEqual(view);
 });
 
 test("executor sessions cannot rename or rotate", () => {
