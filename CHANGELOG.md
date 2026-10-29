@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add the Insights screen and the read operation `insights.summary`: root tasks handled, subtasks, retries, accepted first try, tokens with coverage, the spread per agent, a daily series, task kinds by agent and the dispatcher's ladder rules and skip reasons, compared with the previous period. Workload counts use distinct roots and child tasks from attempts ended in the period, matching the union of the agent rows. Acceptance and retry counts retain the first-settle cohort. Narrow chart labels no longer collide; Insights table columns, frame and period control follow the board.
+
 - Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 
@@ -53,6 +55,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Make `dispatch.explain` choose by the additive `via` entry point: `delegate` (the default) explains executor ranking, while `dispatch` explains the managed ladder even without a dispatch block. CLI route previews pass `delegate` and support `--via dispatch`; ranking reports ignored model inputs, follows conversation planner eligibility and identifies strategy/project policy sources. Both paths remain read-only.
+- The Tasks tree refreshes work rows when a task starts, settles or appears, so a running work tree's token total includes each subtask as it finishes instead of waiting for a reload. The `--seed ui` live sandbox now includes a running work tree with measured subtask tokens.
 
 - Scheduled certification follows the repository where managed work runs rather than the one most recently viewed, and the Dispatcher row names it by its repository picker label.
 - Scheduled certification retries after a pause of at least 24 hours when a probe exceeds the cost ceiling or repeated repository switching invalidates certificates, instead of stopping permanently. The daily probe ceiling still applies; Dispatcher consent and documentation now describe the pause and retry.

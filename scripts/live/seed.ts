@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { registerWork } from "../../src/dispatch/work";
+import { recordAttemptUsage } from "../../src/tokens/store";
 import { createTask, updateTask } from "../../src/tasks/store";
 import type { Ctx } from "../../src/types";
-import type { TaskRecord } from "../../src/tasks/types";
+import type { AttemptTokens, TaskRecord } from "../../src/tasks/types";
 import { atomicWrite, checkout } from "./core";
 
 export function validateSeed(seed?: string): asserts seed is "ui" | undefined {
@@ -63,9 +65,11 @@ export function seedUi(root: string): void {
   json("state/repos.json", { [repo]: { key: repoKey, path: repo, lastUsed: now } });
   const states = ["done", "failed", "partial", "running", "done"] as const;
   const attention: Record<string, { since: number }> = {};
+  const ctxAt = (at: number): Ctx => ({ home, pacerHome: home, now: at, env: {},
+    run: async () => { throw Error("seed cannot run commands"); }, which: () => null });
+  let runningId = "";
   states.forEach((state, index) => {
-    const ctx: Ctx = { home, pacerHome: home, now: now - 300 + index, env: {},
-      run: async () => { throw Error("seed cannot run commands"); }, which: () => null };
+    const ctx = ctxAt(now - 300 + index);
     const { id } = createTask(ctx, { brief: { goal: "fixture", repo: join(home, "repos/sample") },
       kind: "feature", requestedExecutor: null, timeoutS: 0 });
     const source = state === "running" ? session : snapshot.tasks.find((task: { state: string }) => task.state === state) ?? detail;
@@ -80,6 +84,7 @@ export function seedUi(root: string): void {
       attempts: [],
     };
     if (state === "running") {
+      runningId = id;
       // PID 1 is a liveness sentinel, never a child: no run/childPid means no
       // recovery spawn or stop signal. No executor exists behind this fixture.
       task.runnerPid = 1;
@@ -97,5 +102,36 @@ export function seedUi(root: string): void {
     }
     updateTask(ctx, id, record => { Object.assign(record, task); });
   });
+  seedWorkTree(ctxAt(now), runningId, repo, repoKey);
   json("state/attention.json", attention);
+}
+
+/**
+ * The running task becomes a work-tree root with one settled subtask that has measured tokens and one still
+ * running, so the tree shows a live token total without an executor. Children reuse the PID 1 sentinel.
+ */
+function seedWorkTree(ctx: Ctx, rootId: string, repo: string, repoKey: string): void {
+  const now = ctx.now;
+  registerWork(ctx, rootId, { allowDelegation: true });
+  const tokens: AttemptTokens = { coverage: "measured", input: 9_120, cacheRead: 2_048, cacheWrite: null, output: 795, reasoning: 312,
+    total: 11_963, turns: 6, source: "executor-text", selfReported: false, extractor: "codex-text@1", capturedAt: now - 90 };
+  for (const [title, state] of [["Add the usage parser", "done"], ["Wire the parser into the report", "running"]] as const) {
+    const { id } = createTask(ctx, { brief: { goal: title, repo }, kind: "feature", requestedExecutor: null, timeoutS: 0 });
+    updateTask(ctx, id, record => {
+      Object.assign(record, { title, state: "running", executor: "codex#personal", backend: "direct", repo: { key: repoKey, label: "sample", path: repo }, runnerPid: 1 });
+      record.progress = { phase: "working", lastOutputAt: now, lastChangeAt: now, host: "local", updatedAt: now, files: 1, commits: 0, logBytes: 0 };
+    });
+    registerWork(ctx, id, {}, rootId);
+    if (state === "running") continue;
+    mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true, mode: 0o700 });
+    atomicWrite(join(ctx.pacerHome, "logs", `${id}.log`), "Parser added.\n", 0o600);
+    updateTask(ctx, id, record => {
+      record.attempts = [{ executor: "codex#personal", model: null, startedAt: now - 400, endedAt: now - 90, exitCode: 0, timedOut: false, limitHit: false, log: join(ctx.pacerHome, "logs", `${id}.log`), tokens }];
+      recordAttemptUsage(ctx, record, 1, tokens, "personal");
+      delete record.runnerPid; delete record.progress;
+      record.state = "done"; record.settledAt = now - 90;
+      record.result = { status: "done", executor: "codex#personal", model: null, backend: "direct", files: "src/usage.ts | 12 ++++", report: "Parser added.", acceptance: { cmd: "bun test", passed: true, tail: "4 passed" } };
+      record.review = { accepted: true, kind: "feature", note: "Accepted by the parent task", at: now - 60 };
+    });
+  }
 }
