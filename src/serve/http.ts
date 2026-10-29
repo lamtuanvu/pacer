@@ -176,10 +176,9 @@ export function startServer(
           let body: { observations?: unknown } | null = null;
           try { body = JSON.parse(text); } catch {}
           const batch = Array.isArray(body?.observations) ? body.observations : [];
-          const { recordObservations } = await import("../discovery/radio");
-          const { currentNetwork } = await import("../discovery/network");
-          const ctx = getCtx();
-          return Response.json(await recordObservations(ctx, batch, { network: await currentNetwork(ctx) }));
+          // The network from the radio's last config pull, so each poll probes the network once (N4).
+          const { radioNetwork, recordObservations } = await import("../discovery/radio");
+          return Response.json(await recordObservations(getCtx(), batch, { network: radioNetwork() }));
         }
       } else {
         if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });

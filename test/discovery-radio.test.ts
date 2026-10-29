@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import * as config from "../src/core/config";
 import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
-import { buildRadioConfig, recordObservations, radioStatus, resetRadioForTests } from "../src/discovery/radio";
-import { discoveryEnabled, readState, updateState, ensureNetwork } from "../src/discovery/state";
+import { buildRadioConfig, recordObservations, radioNetwork, radioStatus, resetRadioForTests } from "../src/discovery/radio";
+import { discoveryEnabled, readState, updateState, ensureNetwork, SEEN_EXPIRE_S, SEEN_MAX } from "../src/discovery/state";
 import { SILENCE_LATER_S } from "../src/discovery/policy";
 import { currentVersion } from "../src/update/version";
 
@@ -183,4 +183,57 @@ test("the radio endpoints answer only on the internal channel with the internal 
     // Outside internal mode the route does not exist; unknown POSTs fall through to the generic 405.
     expect(res.status).toBe(405);
   } finally { open.stop(); }
+});
+
+const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+const idOf = (n: number) => Array.from({ length: 26 }, (_, i) => B32[Math.floor(n / 32 ** i) % 32]).join("");
+
+test("a sender rotating ids cannot grow the seen list past its bound; entries not seen for 30 days expire (B2)", async () => {
+  const ctx = fakeCtx();
+  let n = 0;
+  for (let batch = 0; batch < 6; batch++) await recordObservations(ctx, Array.from({ length: 64 }, () => ({ id: idOf(n++), name: "x", v: "1", h: "" })), { now: 1000 + batch, network: home });
+  const s = readState(ctx);
+  expect(Object.keys(s.seen).length).toBe(SEEN_MAX);
+  // The three prompted machines (the hourly cap) are kept; the newest batch is kept.
+  for (const id of [idOf(0), idOf(1), idOf(2)]) expect(s.seen[id].promptedAt).toBe(1000);
+  expect(s.seen[idOf(n - 1)]).toBeDefined();
+  expect(s.seen[idOf(3)]).toBeUndefined();
+  await recordObservations(ctx, [{ id: idOf(n), name: "late", v: "1", h: "" }], { now: 1005 + SEEN_EXPIRE_S, network: home });
+  expect(Object.keys(readState(ctx).seen)).toEqual([idOf(n)]);
+});
+
+test("a late router advertisement keeps the approved network: the entry adopts the new key as an alias (S3)", async () => {
+  const ctx = fakeCtx();
+  const byMac = { key: "a".repeat(32), label: "home-wifi", iface: "en0", group: "g".repeat(32) };
+  const byRa = { ...byMac, key: "b".repeat(32) };
+  await buildRadioConfig(ctx, { network: byMac });
+  await updateState(ctx, s => { s.networks[byMac.key].advertise = true; });
+  const rev = readState(ctx).networksRev;
+  const cfg = await buildRadioConfig(ctx, { network: byRa });
+  expect(cfg.advertise).not.toBeNull();
+  const s = readState(ctx);
+  expect(Object.keys(s.networks)).toEqual([byMac.key]);
+  expect(s.networks[byMac.key].aliases).toEqual([byRa.key]);
+  expect(radioNetwork()!.key).toBe(byMac.key);
+  // Known aliases match without another write.
+  await buildRadioConfig(ctx, { network: { ...byRa, group: undefined } });
+  expect(readState(ctx).networksRev).toBe(rev + 1);
+  expect(radioNetwork()!.key).toBe(byMac.key);
+  // A different SSID or gateway is a different network.
+  await buildRadioConfig(ctx, { network: { ...byRa, key: "c".repeat(32), group: "h".repeat(32) } });
+  expect(Object.keys(readState(ctx).networks).sort()).toEqual([byMac.key, "c".repeat(32)]);
+});
+
+test("an existing entry without a group learns it, so later identity changes can match (S3)", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, "a".repeat(32), "home-wifi").advertise = true; });
+  await buildRadioConfig(ctx, { network: { key: "a".repeat(32), label: "home-wifi", iface: "en0", group: "g".repeat(32) } });
+  expect(readState(ctx).networks["a".repeat(32)].group).toBe("g".repeat(32));
+});
+
+test("observations use the network of the radio's last config pull (N4)", async () => {
+  const ctx = fakeCtx();
+  await buildRadioConfig(ctx, { network: home });
+  await recordObservations(ctx, [{ id: "a".repeat(26), name: "x", v: "1", h: "" }], { now: 1, network: radioNetwork() });
+  expect(readState(ctx).seen["a".repeat(26)].network).toBe("k1");
 });

@@ -4,8 +4,11 @@ import { isIPv6 } from "node:net";
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 import type { Ctx } from "../types";
 
-/** The current network: a stable hashed key, a label to show the user and the default route's interface (SEC-11 scopes the radio to it). */
-export interface NetworkInfo { key: string; label: string; iface: string }
+/**
+ * The current network: a stable hashed key, a label to show the user and the default route's interface (SEC-11 scopes the radio to it).
+ * group hashes the gateway IPv4 address and the SSID; it lets a known network entry adopt a new key when the router identity changes (S3).
+ */
+export interface NetworkInfo { key: string; label: string; iface: string; group?: string }
 
 // The front door's PATH may lack sbin, so system tools are called by absolute path.
 const DARWIN = { route: "/sbin/route", arp: "/usr/sbin/arp", ipconfig: "/usr/sbin/ipconfig" };
@@ -21,10 +24,20 @@ async function out(ctx: Ctx, argv: string[]): Promise<string | null> {
   try { const r = await ctx.run(argv, 3000); return r.code === 0 ? r.stdout : null; } catch { return null; }
 }
 
+const linkLocal = (addr: string | undefined) => {
+  const a = addr?.split("%")[0]?.toLowerCase();
+  return a && isIPv6(a) && /^fe[89ab][0-9a-f]:/.test(a) ? a : undefined;
+};
+
 // The router's IPv6 link-local address from its advertisement: readable without the Local Network permission that ARP needs.
 function routerAdvertisement(summary: string | null | undefined): string | undefined {
-  const src = summary?.match(/^\s*RouterAdvertisement\s*:\s*from\s+([^\s,]+)/m)?.[1]?.split("%")[0]?.toLowerCase();
-  return src && isIPv6(src) && /^fe[89ab][0-9a-f]:/.test(src) ? src : undefined;
+  return linkLocal(summary?.match(/^\s*RouterAdvertisement\s*:\s*from\s+([^\s,]+)/m)?.[1]);
+}
+
+// The default IPv6 router on iface. Mesh nodes and Thread border routers also advertise, so this one is preferred (S3).
+function defaultRouter6(route: string | null, iface: string): string | undefined {
+  const on = route?.match(/interface:\s*(\S+)/)?.[1];
+  return on === undefined || on === iface ? linkLocal(route?.match(/gateway:\s*(\S+)/)?.[1]) : undefined;
 }
 
 async function darwin(ctx: Ctx) {
@@ -32,12 +45,13 @@ async function darwin(ctx: Ctx) {
   const gw = route?.match(/gateway:\s*([0-9.]+)/)?.[1];
   const iface = route?.match(/interface:\s*(\S+)/)?.[1];
   if (!gw || !iface || !IFACE.test(iface)) return null;
+  const route6 = await out(ctx, [DARWIN.route, "-n", "get", "-inet6", "default"]);
   const summary = await out(ctx, [DARWIN.ipconfig, "getsummary", iface]);
   const ssid = summary?.match(/^\s*SSID\s*:\s*(.+)$/m)?.[1]?.trim();
-  const ra = routerAdvertisement(summary);
+  const ra = defaultRouter6(route6, iface) ?? routerAdvertisement(summary);
   const mac = ra ? undefined : (await out(ctx, [DARWIN.arp, "-n", gw]))?.match(MAC)?.[0];
   if (!ra && !mac) return null;
-  return { identity: ra ? `ra:${ra}` : `mac:${normMac(mac!)}`, iface, ssid: ssid && ssid !== "<redacted>" ? ssid : undefined };
+  return { identity: ra ? `ra:${ra}` : `mac:${normMac(mac!)}`, iface, gw, ssid: ssid && ssid !== "<redacted>" ? ssid : undefined };
 }
 
 async function linux(ctx: Ctx, exists: (path: string) => boolean) {
@@ -48,8 +62,9 @@ async function linux(ctx: Ctx, exists: (path: string) => boolean) {
   if (!gw || !iface || !IFACE.test(iface)) return null;
   const mac = (await out(ctx, [ip, "neigh", "show", gw]))?.match(/lladdr\s+(\S+)/)?.[1];
   if (!mac || !MAC.test(mac)) return null;
-  const ssid = (await out(ctx, [NMCLI, "-t", "-f", "active,ssid", "dev", "wifi"]))?.split("\n").find(l => l.startsWith("yes:"))?.slice(4).trim();
-  return { identity: `mac:${normMac(mac)}`, iface, ssid: ssid || undefined };
+  // nmcli -t escapes ":" and "\\" in values with a backslash (N6).
+  const ssid = (await out(ctx, [NMCLI, "-t", "-f", "active,ssid", "dev", "wifi"]))?.split("\n").find(l => l.startsWith("yes:"))?.slice(4).replace(/\\(.)/g, "$1").trim();
+  return { identity: `mac:${normMac(mac)}`, iface, gw, ssid: ssid || undefined };
 }
 
 /** Null when no default route interface, router advertisement or gateway MAC is found (VPN-only, no ARP entry): the network is unknown and never advertised. */
@@ -58,7 +73,9 @@ export async function currentNetwork(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   const found = platform === "darwin" ? await darwin(ctx) : platform === "linux" ? await linux(ctx, deps.exists ?? existsSync) : null;
   if (!found) return null;
   const key = createHash("sha256").update(`pacer-network/v2\0${found.identity}\0${found.ssid ?? ""}`).digest("hex").slice(0, 32);
-  return { key, label: found.ssid ?? `Network ${key.slice(0, 6)}`, iface: found.iface };
+  // Without an SSID many unrelated networks share a gateway address, so only SSID networks get a group.
+  const group = found.ssid ? createHash("sha256").update(`pacer-network-group/v1\0${found.gw}\0${found.ssid}`).digest("hex").slice(0, 32) : undefined;
+  return { key, label: found.ssid ?? `Network ${key.slice(0, 6)}`, iface: found.iface, ...(group ? { group } : {}) };
 }
 
 /** The interface's first external IPv4 address and netmask: the radio answers and listens only on that link (SEC-11). IPv4 only. */

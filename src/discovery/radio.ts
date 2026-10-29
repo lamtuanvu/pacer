@@ -5,7 +5,7 @@ import { currentVersion } from "../update/version";
 import { currentNetwork, interfaceIPv4, type NetworkInfo } from "./network";
 import { DISCOVERY_ID, promptDue, takePrompt } from "./policy";
 import { sanitizeText } from "./sanitize";
-import { discoveryEnabled, ensureNetwork, readState, updateState } from "./state";
+import { adoptNetwork, discoveryEnabled, findNetwork, networkKey, pruneSeen, readState, updateState } from "./state";
 
 /**
  * What the front door's radio should do. advertise is null unless the user approved the current network.
@@ -35,13 +35,16 @@ const NO_IFACE = { iface: null, ifaceAddr: null, ifaceMask: null };
 export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo | null; hintsFor?: () => PairingHints | null; ipv4?: (iface: string) => { addr: string; mask: string } | null } = {}): Promise<RadioConfig> {
   lastContact = Date.now() / 1000;
   if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, ...NO_IFACE, advertise: null }; }
-  const network = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
-  lastNetwork = network;
-  if (!network) return { rev: readState(ctx).rev, enabled: true, listen: false, ...NO_IFACE, advertise: null };
-  const v4 = (deps.ipv4 ?? interfaceIPv4)(network.iface);
-  const iface = { iface: network.iface, ifaceAddr: v4?.addr ?? null, ifaceMask: v4?.mask ?? null };
+  const found = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
+  lastNetwork = found;
+  if (!found) return { rev: readState(ctx).rev, enabled: true, listen: false, ...NO_IFACE, advertise: null };
+  const v4 = (deps.ipv4 ?? interfaceIPv4)(found.iface);
+  const iface = { iface: found.iface, ifaceAddr: v4?.addr ?? null, ifaceMask: v4?.mask ?? null };
   let s = readState(ctx);
-  if (!s.networks[network.key] && !ctx.readOnly) s = await updateState(ctx, st => { ensureNetwork(st, network.key, network.label); });
+  const known = findNetwork(s, found);
+  if ((!known || known.adopt) && !ctx.readOnly) s = await updateState(ctx, st => { adoptNetwork(st, found); });
+  // Everything downstream (observations, prompts, the network question) uses the entry key.
+  const network = lastNetwork = { ...found, key: networkKey(s, found) };
   const entry = s.networks[network.key];
   if (entry?.advertise !== true) return { rev: s.rev, enabled: true, listen: true, ...iface, advertise: null };
   // SEC-11: only the per-network id, the machine name and the version; never the machine id or the OS user name.
@@ -75,6 +78,7 @@ export async function recordObservations(ctx: Ctx, batch: Observation[], deps: {
       accepted++;
       if (!muted && promptDue(s, id, prev?.promptedAt, now) && takePrompt(s, now)) { seen.promptedAt = now; prompted.push(id); }
     }
+    pruneSeen(s, now);
   });
   if (prompted.length) await publish(ctx, prompted.map(id => ({ type: "discovery.found" as const, data: { discoveryId: id, name: s.seen[id].name, version: s.seen[id].version } })));
   return { accepted, prompted };

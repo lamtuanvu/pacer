@@ -37,6 +37,7 @@ test("macOS: every tool is called by absolute path with argv only, never through
   expect((await currentNetwork(ctx, { platform: "darwin" }))!.label).toBe("home-wifi");
   expect(calls).toEqual([
     ["/sbin/route", "-n", "get", "default"],
+    ["/sbin/route", "-n", "get", "-inet6", "default"],
     ["/usr/sbin/ipconfig", "getsummary", "en0"],
     ["/usr/sbin/arp", "-n", "192.168.1.1"],
   ]);
@@ -54,6 +55,7 @@ test("macOS: a redacted SSID falls back to a neutral label with the same key rul
 
 const ROUTE = { "/sbin/route -n get default": "   route to: default\n    gateway: 192.168.100.1\n  interface: en0\n" };
 const summary = (ra: string, ssid = "home-wifi") => `<dictionary> {\n  Router : 192.168.100.1\n  RouterAdvertisement : ${ra}\n  SSID : ${ssid}\n}\n`;
+const group = (gw: string, ssid: string) => createHash("sha256").update(`pacer-network-group/v1\0${gw}\0${ssid}`).digest("hex").slice(0, 32);
 const v2 = (identity: string, ssid = "") => createHash("sha256").update(`pacer-network/v2\0${identity}\0${ssid}`).digest("hex").slice(0, 32);
 
 test("macOS: the router advertisement identifies the network without ARP", async () => {
@@ -61,7 +63,7 @@ test("macOS: the router advertisement identifies the network without ARP", async
   const map: Record<string, string> = { ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::FEB2:D6FF:FEF4:17C7, length 176, hop limit 64, lifetime 1800s") };
   const ctx = fakeCtx({ run: async (argv: string[]) => { calls.push(argv); return runner(map)(argv, 0); } });
   const n = await currentNetwork(ctx, { platform: "darwin" });
-  expect(n).toEqual({ key: v2("ra:fe80::feb2:d6ff:fef4:17c7", "home-wifi"), label: "home-wifi", iface: "en0" });
+  expect(n).toEqual({ key: v2("ra:fe80::feb2:d6ff:fef4:17c7", "home-wifi"), label: "home-wifi", iface: "en0", group: group("192.168.100.1", "home-wifi") });
   expect(calls.some(c => c[0] === "/usr/sbin/arp")).toBe(false);
 });
 
@@ -169,4 +171,42 @@ test("the interface's first external IPv4 address and netmask feed the radio's o
   expect(interfaceIPv4("lo0", interfaces)).toBeNull();
   expect(interfaceIPv4("en5", interfaces)).toBeNull();
   expect(interfaceIPv4("utun3", interfaces)).toBeNull();
+});
+
+const V6ROUTE = (gw: string) => ({ "/sbin/route -n get -inet6 default": `   route to: default\ndestination: default\n    gateway: ${gw}\n  interface: en0\n` });
+const twoRAs = "<dictionary> {\n  Router : 192.168.100.1\n  RouterAdvertisement : from fe80::aaaa:bbbb, length 96\n  RouterAdvertisement : from fe80::1, length 176\n  SSID : home-wifi\n}\n";
+
+test("macOS: with two router advertisement sources the default IPv6 router's identifies the network (S3)", async () => {
+  const ctx = fakeCtx({ run: runner({ ...ROUTE, ...V6ROUTE("fe80::1%en0"), "/usr/sbin/ipconfig getsummary en0": twoRAs }) });
+  expect((await currentNetwork(ctx, { platform: "darwin" }))!.key).toBe(v2("ra:fe80::1", "home-wifi"));
+  // A Thread border router's advertisement shown alone still yields the default router.
+  const only = fakeCtx({ run: runner({ ...ROUTE, ...V6ROUTE("fe80::1%en0"), "/usr/sbin/ipconfig getsummary en0": summary("from fe80::aaaa:bbbb, length 96") }) });
+  expect((await currentNetwork(only, { platform: "darwin" }))!.key).toBe(v2("ra:fe80::1", "home-wifi"));
+});
+
+test("macOS: a default IPv6 route on another interface or through a global address is not used (S3)", async () => {
+  for (const route of [{ "/sbin/route -n get -inet6 default": "    gateway: fe80::1%utun3\n  interface: utun3\n" }, V6ROUTE("2001:db8::1")]) {
+    const ctx = fakeCtx({ run: runner({ ...ROUTE, ...route, "/usr/sbin/ipconfig getsummary en0": twoRAs }) });
+    expect((await currentNetwork(ctx, { platform: "darwin" }))!.key).toBe(v2("ra:fe80::aaaa:bbbb", "home-wifi"));
+  }
+});
+
+test("the network group is the gateway IPv4 and SSID, and only exists with an SSID (S3)", async () => {
+  const late = fakeCtx({ run: runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": "  SSID : home-wifi\n", "/usr/sbin/arp -n 192.168.100.1": "? (192.168.100.1) at fc:b2:d6:f4:17:c7 on en0\n" }) });
+  const early = fakeCtx({ run: runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": summary("from fe80::1, length 176") }) });
+  const a = (await currentNetwork(late, { platform: "darwin" }))!, b = (await currentNetwork(early, { platform: "darwin" }))!;
+  expect(a.key).not.toBe(b.key);
+  expect(a.group).toBe(b.group!);
+  expect(a.group).toBe(group("192.168.100.1", "home-wifi"));
+  const wired = fakeCtx({ run: runner({ ...ROUTE, "/usr/sbin/ipconfig getsummary en0": "<dictionary> {\n  RouterAdvertisement : from fe80::1\n}\n" }) });
+  expect((await currentNetwork(wired, { platform: "darwin" }))!.group).toBeUndefined();
+});
+
+test("Linux: nmcli's escaped colons in the SSID are unescaped (N6)", async () => {
+  const ctx = fakeCtx({ run: runner({
+    "/usr/sbin/ip route show default": "default via 192.168.0.1 dev wlp2s0\n",
+    "/usr/sbin/ip neigh show 192.168.0.1": "192.168.0.1 dev wlp2s0 lladdr 11:22:33:44:55:66 REACHABLE\n",
+    "/usr/bin/nmcli -t -f active,ssid dev wifi": "yes:cafe\\:guest\\\\x\n",
+  }) });
+  expect((await currentNetwork(ctx, { platform: "linux", exists: p => p === "/usr/sbin/ip" }))!.label).toBe("cafe:guest\\x");
 });

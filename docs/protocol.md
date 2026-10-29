@@ -2435,7 +2435,7 @@ Params JSON Schema:
 
 ### `discovery.list`
 
-LAN discovery status on the current network and the pacer machines seen there. Names and versions are unverified. network.name is the machine name this machine advertises.
+LAN discovery status on the current network and up to 100 pacer machines seen there, most recent first. Names and versions are unverified. warning is set when the state file could not be read and discovery failed closed. network.name is the machine name this machine advertises.
 
 Params JSON Schema:
 
@@ -2503,7 +2503,7 @@ Params JSON Schema:
 
 ### `discovery.respond`
 
-Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).
+Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed; a hand-over closes the prompt), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).
 
 Params JSON Schema:
 

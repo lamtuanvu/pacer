@@ -7,17 +7,21 @@ import type { OpDef } from "./ops";
 const op = <P extends z.ZodTypeAny>(definition: OpDef<P>) => definition as unknown as OpDef;
 const discovery = () => import("../discovery");
 const nowS = () => Math.floor(Date.now() / 1000);
+/** discovery.list returns at most this many found machines, most recently seen first. */
+export const FOUND_MAX = 100;
 
 async function list(ctx: Ctx) {
   const d = await discovery();
-  const s = d.readState(ctx), net = await d.currentNetwork(ctx), now = nowS();
+  const s = d.readState(ctx), now = nowS();
+  const found = await d.currentNetwork(ctx), net = found ? { ...found, key: d.networkKey(s, found) } : null;
   const entry = net ? s.networks[net.key] : undefined;
   const { ensureIdentity } = await import("../identity/store");
   return {
     available: d.radioStatus().available,
     enabled: s.enabled,
     network: net ? { key: net.key, label: net.label, advertise: entry?.advertise ?? null, muted: entry?.muted ?? false, name: (await ensureIdentity(ctx)).name } : null,
-    found: Object.values(s.seen).sort((a, b) => b.lastSeen - a.lastSeen).map(x => ({
+    ...(s.corrupt ? { warning: "The discovery state file could not be read, so discovery is off. Turn it on again to start over." } : {}),
+    found: Object.values(s.seen).sort((a, b) => b.lastSeen - a.lastSeen).slice(0, FOUND_MAX).map(x => ({
       discoveryId: x.discoveryId, name: x.name, version: x.version, lastSeen: x.lastSeen, silenced: d.isSilenced(s, x.discoveryId, now),
     })),
     rev: s.rev,
@@ -28,7 +32,7 @@ async function list(ctx: Ctx) {
 async function networks(ctx: Ctx) {
   const d = await discovery();
   const s = d.readState(ctx), net = await d.currentNetwork(ctx);
-  return { rev: s.rev, networksRev: s.networksRev, current: net?.key ?? null, networks: Object.entries(s.networks).map(([key, n]) => ({ key, label: n.label, advertise: n.advertise, muted: n.muted })) };
+  return { rev: s.rev, networksRev: s.networksRev, current: net ? d.networkKey(s, net) : null, networks: Object.entries(s.networks).map(([key, n]) => ({ key, label: n.label, advertise: n.advertise, muted: n.muted })) };
 }
 
 /** Writes publish a `discovery` config change, so clients refetch and attention is re-derived. */
@@ -40,7 +44,7 @@ async function mutation<T>(ctx: Ctx, action: () => Promise<T>): Promise<T> {
 
 /** Client protocol v3 LAN discovery ops. Executor sessions get not_allowed for set, respond and network.set (caller policy). */
 export const discoveryOps: Record<string, OpDef> = {
-  "discovery.list": op({ description: "LAN discovery status on the current network and the pacer machines seen there. Names and versions are unverified. network.name is the machine name this machine advertises.",
+  "discovery.list": op({ description: "LAN discovery status on the current network and up to 100 pacer machines seen there, most recent first. Names and versions are unverified. warning is set when the state file could not be read and discovery failed closed. network.name is the machine name this machine advertises.",
     params: z.object({}), handler: ctx => list(ctx) }),
   "discovery.set": op({ description: "Turn LAN discovery (listening and advertising) on or off on this machine. Off closes the open prompts. It is machine-local state, not strategy, so it works before setup. expect_rev is networksRev from discovery.list or discovery.network.get.",
     params: z.object({ enabled: z.boolean(), expect_rev: z.number().int().nonnegative().safe().optional() }),
@@ -48,13 +52,18 @@ export const discoveryOps: Record<string, OpDef> = {
       const s = await (await discovery()).updateState(ctx, st => { st.enabled = p.enabled; }, p.expect_rev);
       return { enabled: s.enabled, rev: s.rev, networksRev: s.networksRev };
     }) }),
-  "discovery.respond": op({ description: "Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).",
+  "discovery.respond": op({ description: "Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed; a hand-over closes the prompt), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).",
     params: z.object({ discoveryId: z.string().regex(/^[a-z2-7]{26}$/), action: z.enum(["pair", "later", "ignore", "mute-network"]) }),
     handler: async (ctx, p) => {
       const d = await discovery();
       const seen = d.readState(ctx).seen[p.discoveryId];
       if (!seen) throw new CoreError("not_found", "That machine is no longer in the list.");
-      if (p.action === "pair") return { ok: true as const, pairing: await (await import("../discovery/handover")).handOver(ctx, seen) };
+      if (p.action === "pair") {
+        const pairing = await (await import("../discovery/handover")).pair(ctx, seen);
+        // A hand-over closes the prompt, so clients refetch and attention is re-derived.
+        if (pairing.handedOver) await publishConfigChange(ctx, "discovery");
+        return { ok: true as const, pairing };
+      }
       return mutation(ctx, async () => {
         const now = nowS();
         await d.updateState(ctx, s => {

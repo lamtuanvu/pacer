@@ -27,12 +27,12 @@ function canPair(ctx: Ctx, registry?: Plugins): boolean {
   try { return (registry ?? pluginRegistry(ctx)).list(ctx).some(p => p.enabled && p.contributes.includes("pairing")); } catch { return false; }
 }
 
-/** Undefined when discovery is off. Prompts last as long as a Later would (7 days) and end when silenced or muted. */
+/** Undefined when discovery is off. Prompts last as long as a Later would (7 days) and end when silenced, muted or handed over to a pairing plugin. */
 export function discoveryRuleInput(ctx: Ctx, now: number, deps: { registry?: Plugins } = {}): DiscoveryRuleInput | undefined {
   if (!discoveryEnabled(ctx)) return undefined;
   const s = readState(ctx);
   const prompted = Object.values(s.seen)
-    .filter(x => x.promptedAt !== undefined && x.promptedAt > now - SILENCE_LATER_S && !isSilenced(s, x.discoveryId, now) && s.networks[x.network]?.muted !== true)
+    .filter(x => x.promptedAt !== undefined && x.promptedAt > now - SILENCE_LATER_S && !(x.handedOverAt !== undefined && x.handedOverAt >= x.promptedAt) && !isSilenced(s, x.discoveryId, now) && s.networks[x.network]?.muted !== true)
     .sort((a, b) => a.promptedAt! - b.promptedAt!)
     .map(x => ({ discoveryId: x.discoveryId, name: x.name, at: x.promptedAt! }));
   const net = radioStatus().available ? radioNetwork() : null;

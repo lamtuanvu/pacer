@@ -1,5 +1,6 @@
-// C0/C1 controls, zero-width and bidi controls, line/paragraph separators and the BOM.
-const STRIP = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g;
+// Controls, format characters (zero-width, bidi, soft hyphen, invisible operators, the BOM), line/paragraph separators
+// and the whole tag block. The zero-width joiner stays so joined emoji keep their meaning (N1).
+const STRIP = /(?!\u200d)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u{E0000}-\u{E007F}]/gu;
 
 /** SEC-16: discovered (and advertised) text is cleaned and bounded by UTF-8 bytes; null if nothing is left. */
 export function sanitizeText(raw: unknown, max: number): string | null {

@@ -69,3 +69,44 @@ test("an invalid pairing.start result is logged to the plugin's log", async () =
   await handOver(ctx, seen, { registry: registry([plugin("demo")], () => ({ bogus: 1 })) });
   expect(readFileSync(pluginLogPath(ctx, "demo"), "utf8")).toContain("invalid pairing.start result: accepted");
 });
+
+test("handOver stops at its overall time budget, so slow plugins cannot outlast the client (N2)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { pluginLogPath } = await import("../src/plugins/host");
+  const ctx = fakeCtx();
+  const options: any[] = [];
+  const reg = { calls: [] as string[], list: () => [plugin("slow"), plugin("never")], call: (_c: unknown, id: string, _m: string, _p: unknown, o: unknown) => { reg.calls.push(id); options.push(o); return new Promise(() => {}); } } as any;
+  const started = Date.now();
+  expect(await handOver(ctx, seen, { registry: reg, budgetMs: 60 })).toEqual({ handedOver: false });
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(reg.calls).toEqual(["slow"]);
+  expect(options[0].deadlineMs).toBeLessThanOrEqual(60);
+  expect(options[0].signal).toBeInstanceOf(AbortSignal);
+  expect(readFileSync(pluginLogPath(ctx, "slow"), "utf8")).toContain("pairing.start failed: hand-over time budget");
+});
+
+test("a thrown plugin error is logged to the plugin's log (N2)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { pluginLogPath } = await import("../src/plugins/host");
+  const ctx = fakeCtx();
+  await handOver(ctx, seen, { registry: registry([plugin("broken")], () => { throw new Error("boom"); }) });
+  expect(readFileSync(pluginLogPath(ctx, "broken"), "utf8")).toContain("pairing.start failed: boom");
+});
+
+test("a successful hand-over is recorded and closes the found-machine prompt; a refused one keeps it (N3)", async () => {
+  const { pair } = await import("../src/discovery/handover");
+  const { recordObservations } = await import("../src/discovery/radio");
+  const { readState } = await import("../src/discovery/state");
+  const { discoveryRuleInput } = await import("../src/discovery/prompts");
+  const ctx = fakeCtx();
+  const now = Math.floor(Date.now() / 1000);
+  await recordObservations(ctx, [{ id: seen.discoveryId, name: "studio", v: "1", h: "" }], { now, network: null });
+  const open = () => discoveryRuleInput(ctx, now, { registry: { list: () => [] } })!.prompted.map(p => p.discoveryId);
+  expect(open()).toEqual([seen.discoveryId]);
+  expect(await pair(ctx, readState(ctx).seen[seen.discoveryId], { registry: registry([plugin("demo")], () => ({ accepted: false })), now })).toEqual({ handedOver: false });
+  expect(readState(ctx).seen[seen.discoveryId].handedOverAt).toBeUndefined();
+  expect(open()).toEqual([seen.discoveryId]);
+  expect(await pair(ctx, readState(ctx).seen[seen.discoveryId], { registry: registry([plugin("demo")], () => ({ accepted: true })), now: now + 5 })).toEqual({ handedOver: true, plugin: "demo" });
+  expect(readState(ctx).seen[seen.discoveryId].handedOverAt).toBe(now + 5);
+  expect(open()).toEqual([]);
+});
