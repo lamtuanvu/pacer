@@ -96,7 +96,7 @@ export function withQuery(href: string, query: RouteQuery): string {
   if (query.repo !== null) params.set("repo", query.repo);
   if (query.scope) params.set("scope", query.scope);
   const search = params.toString();
-  return search ? `${href}?${search}` : href;
+  return search ? `${href}${href.includes("?") ? "&" : "?"}${search}` : href;
 }
 /** A setup check that has not answered, or failed, leaves setup unknown: screens wait rather than flash Setup. */
 export const setupCompleteFrom = (check: { complete: boolean } | "error" | undefined): boolean | null => check === undefined || check === "error" ? null : check.complete;

@@ -118,6 +118,7 @@
 .u3-agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
 .u3-chips{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-chip{display:inline-flex;align-items:center;gap:var(--space-1);padding:0 var(--space-2) 0 var(--space-half);border:1px solid var(--line);border-radius:var(--radius-full);font-size:var(--type-caption-size);white-space:nowrap}
 .u3-settings tr.u3-row--selected td{background:var(--surface-lane)}
+.u3-settings tr.u3-row--selected .u3-muted,.u3-settings tr.u3-row--selected .u3-executor-model,.u3-settings tr.u3-row--selected .pc-usage__text{color:var(--ink-secondary)}
 .u3-fieldset{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:var(--space-2)}.u3-fieldset legend{padding:0;font-weight:var(--type-body-strong-weight)}
 .u3-choices--compact{grid-template-columns:repeat(auto-fill,minmax(var(--size-120),1fr));margin:0}
 

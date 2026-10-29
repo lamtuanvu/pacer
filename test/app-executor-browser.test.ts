@@ -28,6 +28,20 @@ browserTest('executor draft survives refresh, validates, saves once and preserve
  }finally{await browser.close();}
 },20000);
 
+browserTest('the Takes work switch joins the page draft and saves enabled:false',async()=>{
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  const toggle=page.getByRole('switch',{name:'Enable codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
+  expect(await toggle.isChecked()).toBe(true);
+  await toggle.click();expect(await save.isDisabled()).toBe(false);
+  await save.click();await page.getByRole('status').filter({hasText:'Executor settings saved'}).waitFor();
+  expect(JSON.stringify(await page.evaluate(()=>(window as any).executorFixture.settings()))).toContain('"enabled":false');
+ }finally{await browser.close();}
+},20000);
+
 browserTest('a delayed save acknowledgement cannot hide a newer client change',async()=>{
  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});

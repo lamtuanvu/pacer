@@ -74,7 +74,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         state: i === 3 && ready ? "done" : i + 1 === step ? "current" : i + 1 < furthest ? "done" : "todo",
         detail: i + 1 <= furthest ? values[i] || "Not set" : "Not set",
       }))} />
-      <section className="u3-wizard-panel" aria-live="polite" aria-labelledby="agent-step-heading">
+      <section className="u3-wizard-panel" aria-labelledby="agent-step-heading">
         {step === 1 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading><p className="u3-muted">{installGuidance ? "Found on this Mac. Agents that aren’t installed show how to get them." : "pacer looks for each agent’s CLI on this Mac."}</p></div>
           <div className="u3-agent-choices"><ResourceState resource={detected}>{agents.map(agent => {

@@ -70,7 +70,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                 return (
                   <tr key={account.name}>
                     <td data-label="Account">
-                      <div className="u3-agent"><AgentMark agent={agentOf(account, summary)} size={24} />
+                      <div className="u3-agent"><AgentMark agent={agentOf(account, summary)} size={24} labelled={false} />
                         <div><strong>{account.name}</strong>
                           <div className="u3-muted">{account.kind === "endpoint" ? "Model endpoint" : executorLabel(agentOf(account))}</div></div></div>
                     </td>

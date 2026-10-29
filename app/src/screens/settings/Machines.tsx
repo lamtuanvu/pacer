@@ -119,7 +119,7 @@ function RemoteHostList() {
   if (!hosts?.length) return null;
   return <section aria-labelledby="remote-hosts" className="u3-section">
     <SectionHeading id="remote-hosts">Remote hosts</SectionHeading>
-    <div className="u3-table-wrap"><table><thead><tr>{["Host", "Checks", "Parallel tasks", "Executors", ""].map(v => <th key={v}>{v}</th>)}</tr></thead>
+    <div className="u3-table-wrap"><table><thead><tr>{["Host", "Checks", "Parallel tasks", "Executors", "Actions"].map(v => <th key={v} scope="col" className={v === "Actions" ? "sr-only" : undefined}>{v}</th>)}</tr></thead>
       <tbody>{hosts.map(host => <tr key={host.alias}>
         <td data-label="Host"><strong>{host.alias}</strong><div><code>ssh {host.ssh}</code></div></td>
         <td data-label="Checks">{words(host.state)}</td>

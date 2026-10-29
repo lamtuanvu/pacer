@@ -131,3 +131,8 @@ test("#/overview redirects to the Dispatch home and keeps its repo and scope", (
  expect(resolveRoute("#/overview", false, true)).toEqual({redirect:"#/"});
  expect(resolveRoute("#/", false, true)).toEqual({name:"dispatch",query:q});
 });
+
+test("withQuery joins with & when the link already has a query string", () => {
+  expect(withQuery("#/settings/add-executor?host=gpu-1", { repo: "acme", scope: "mine" })).toBe("#/settings/add-executor?host=gpu-1&repo=acme&scope=mine");
+  expect(withQuery("#/settings/accounts", { repo: "acme", scope: null })).toBe("#/settings/accounts?repo=acme");
+});

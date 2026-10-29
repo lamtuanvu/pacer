@@ -313,7 +313,7 @@ test('secondary settings routes select their parent category and retain page tit
     ['#/settings/hosts', 'machine', 'Machines'],
     ['#/settings/hosts/devbox', 'machine', 'Host'],
     ['#/settings/executors', 'executors', 'Agents'],
-    ['#/settings/machine', 'machine', 'This machine'],
+    ['#/settings/machine', 'machine', 'Machines'],
   ]) {
     const route = resolveRoute(hash!) as Route;
     const html = renderToString(<SettingsPanel route={route} counts={null} />);
