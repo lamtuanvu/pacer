@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Match Dispatch to its design board: sentence-case section headings, four KPI tiles with explicit unmeasured states, planner advice and a single usage caption, Ready routing preview, three attention cards, and a recent dispatch ledger with one row per root, subtask token totals, and compact unknown-token states. Remove the redundant Start work composer and link cards to their task actions.
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.
