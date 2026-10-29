@@ -273,6 +273,12 @@ export interface TaskRecord {
    * when the turn started; `replay` launches fresh with the brief and the thread after a failed resume.
    */
   pendingTurn?: { id: string; executor: string; at: number; session?: { id: string; source: "header" | "assigned" | "lookup" }; replay?: boolean };
+  /** A message turn typed into the live session; `statusAt` is the session status mtime at delivery. */
+  liveTurn?: { id: string; at: number; statusAt: number };
+  /** Why pending messages are not typed into the live session yet. */
+  liveBlocked?: "viewer";
+  /** The last live delivery that failed; its messages went back to pending. */
+  liveError?: { at: number; message: string };
   /** Closed for messaging by its parent; no more turns. */
   msgClosed?: boolean;
   /** Per-tree guardrail override given at delegate time; read from the tree's root task. */

@@ -31,6 +31,7 @@ import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { headlessTurnPath, launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
 import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../messaging/turns";
+import { liveTick } from "../messaging/live";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
@@ -192,6 +193,10 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       } catch { /* alerts are best effort */ }
     }
     prev = p;
+    // Messages for a live session are typed in between turns; delivery is best effort and never breaks supervision.
+    if (s.interactive && !run.takeover && !run.host) {
+      try { await liveTick(ctx, task, run, s); } catch { /* messages stay pending for the next poll */ }
+    }
     // A delegated executor that ran pacer ask and then ended its turn waits for its parent, not for someone to attach:
     // end the run so the task settles needs_input, and the answer resumes the session as a headless turn.
     if (!conversation && !run.takeover && !controlled && s.interactive && (turnEnded || s.report?.status === "needs-input")) {
