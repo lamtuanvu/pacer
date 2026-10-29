@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import {join} from "node:path";
-import {chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {DEFAULT_EXECUTION, type ExecutionCfg} from "../src/config/execution";
 import {validateStrategy} from "../src/config/strategy";
@@ -331,18 +331,17 @@ test("a new-child Orca run carries the source checkout's MCP answers, so a rejec
   expect(attemptLog(out)).not.toContain("claude project MCP servers");
 });
 
-test("a new-child Orca run approves nothing when the account's Claude config is unreadable, and the attempt log says so", async () => {
+test("a new-child Orca run approves nothing when the account's Claude config is unusable, and the attempt log says so", async () => {
   const folder = mkdtempSync(join(tmpdir(), "pacer-orca-claude-"));
-  const config = join(folder, ".claude.json");
-  writeFileSync(config, "{}", {mode: 0o600});
-  chmodSync(config, 0o000);
+  // A directory is unusable as the config for every user; file modes do not stop root on CI runners.
+  mkdirSync(join(folder, ".claude.json"));
   try {
     const x = setup([], {}, {terminalEnv: async ctx => ({env: {...ctx.env, CLAUDE_CONFIG_DIR: folder}, source: "login-shell", shell: "/bin/zsh", umask: {mask: "022"}, profileKeys: ["CLAUDE_CONFIG_DIR"], folder: []})});
     const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
     expect(out.backend).toBe("orca");
     for (const key of MCP_KEYS) expect(claudeSettings(x)).not.toHaveProperty(key);
-    expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (the Claude config file is unreadable); Claude may ask whether to use this project's MCP servers");
-  } finally { chmodSync(config, 0o600); rmSync(folder, {recursive: true, force: true}); }
+    expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (the Claude config path is not a file); Claude may ask whether to use this project's MCP servers");
+  } finally { rmSync(folder, {recursive: true, force: true}); }
 });
 
 test("an in-place Orca run reads no MCP answers and keeps Claude's MCP prompt", async () => {
