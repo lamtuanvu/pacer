@@ -1,3 +1,4 @@
+import { executorReadiness } from "../../../../src/view-model/capacity";
 import { executorLabel } from "../../../../src/view-model/words";
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
@@ -9,19 +10,20 @@ import { Icon } from "../../ds/icons";
 import { SegmentedControl, tabStep } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
+import { Tooltip } from "../../ds/Tooltip";
 import { Pill } from "../../ds/Pill";
 import { SettingRow } from "../../ds/SettingRow";
 import { SaveBar } from "../../ds/SaveBar";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SortableList, useFocusAfterRender, useStableKeys } from "../../ds/SortableList";
-import { executorStatus, type Rule } from "../../model/executors";
+import type { Rule } from "../../model/executors";
 import type { SortableItem } from "../../ds/SortableList";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import type { StrategyRow } from "../../model/strategy";
 import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, PartialSaveError, reconcileSetup, saveSetup, strategyDraft, type EligibilityDraft, type SetupDraft, type StrategyDraft } from "../../model/dispatcher-setup";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
-import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
+import { Feedback, ResourceState, Section, useOperation, useResource, containTooltipEscape } from "./shared";
 
 export type EligibilitySource =
   | { kind: "global"; rules: Rule[]; available: string[] }
@@ -39,10 +41,8 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
   const keys = items.map(item => item.key), group = useRef<HTMLDivElement>(null), focusAfter = useFocusAfterRender();
   const metadata = (id: string) => {
     const runner = state.snapshot?.executors?.find(row => row.id === id);
-    const account = state.snapshot?.accounts?.find(row => row.name === runner?.account && row.agent === runner?.agent);
-    // Legacy free-form reasons may be internal codes; structured eligibility supplies safe detail.
-    const status = runner ? executorStatus({ id, state: runner.state === "blocked" || runner.state === "exhausted" ? runner.state : runner.state === "failing" || runner.state === "down" ? "broken" : "ok", until: null, reason: null, eligibility: runner.eligibility }, undefined, undefined, account ? { verdict: account.verdict } : undefined) : undefined;
-    return { runner, status, account: runner?.account ?? id.split("#")[1]?.split("@")[0] ?? "default account" };
+    const status = runner && state.snapshot ? executorReadiness(runner, state.snapshot) : undefined;
+    return { runner, status };
   };
   const add = (key: string, index: number) => { focusAfter(() => { const left = buttons(group.current, "button"); return left[Math.min(index, left.length - 1)] ?? group.current; }); onChange([...keys, key]); };
   return <div className="dispatcher-order-container">
@@ -50,11 +50,11 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
       <div className="pc-stack pc-stack--compact">
         {title && <SectionHeading as="h3">{title}</SectionHeading>}
         <SortableList iconControls label={`${label}, in priority order`} disabled={disabled} items={items.map((item, index) => {
-          const { runner, status, account } = metadata(item.id ?? item.key);
-          const [name, ...caption] = item.label.split(" · ");
-          return { ...item, displayLabel: <>{name}<span className="sr-only"> · </span><span className="pc-executor-caption">{caption.join(" · ") || account}</span></>,
+          const { runner, status } = metadata(item.id ?? item.key);
+          const name = executorLabel(item.id ?? item.key);
+          return { ...item, displayLabel: name,
             leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
-            detail: <><span className="pc-executor-id" title={item.id ?? item.key}>{item.id ?? item.key}</span>{item.detail}</>,
+            detail: <>{name.toLowerCase() !== (item.id ?? item.key).toLowerCase() && <span className="pc-executor-id" title={item.id ?? item.key}>{item.id ?? item.key}</span>}{item.detail}{status && <span onKeyDown={containTooltipEscape}><Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip></span>}</>,
             trailing: status && <Pill tone={status.tone}>{status.label}</Pill> };
         })} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
         {!items.length && <p>{empty}</p>}
@@ -63,11 +63,11 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
         <SectionHeading as="h3">Available executors</SectionHeading>
         <div ref={group} className="pc-executor-pool" role="group" aria-label={`Add to ${label}`} tabIndex={-1} data-executor-pool="">
           {pool.length ? pool.map((item, index) => {
-            const { runner, status, account } = metadata(item.id ?? item.key);
+            const { runner, status } = metadata(item.id ?? item.key);
             const unavailable = runner && (runner.eligibility?.state === "ineligible" || ["disabled", "blocked", "down", "failing", "exhausted"].includes(runner.state));
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
               <AgentMark agent={runner?.agent ?? item.key} size={20} labelled={false} />
-              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span className="pc-executor-caption">{unavailable ? status?.detail || status?.label || "Disabled" : [status?.label, account].filter(Boolean).join(" · ")}</span></span>
+              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span onKeyDown={containTooltipEscape}>{status ? <Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip> : <span className="pc-executor-caption">Refresh to confirm availability</span>}</span></span>
               {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
           }) : <p className="pc-executor-caption pc-executor-pool__empty">Every executor is in the list.</p>}
@@ -129,7 +129,7 @@ function ProjectOrder({ source, executors, disabled, onChange }: { source: Extra
   const runner = (reference: string) => source.view.available.find(item => item.reference === reference);
   const useGlobal = () => { focusAfter(() => buttons(root.current, "[data-executor-pool] button")[0] ?? root.current?.querySelector<HTMLElement>("[data-executor-pool]")); onChange([]); };
   return <div ref={root} className="pc-stack pc-stack--normal">
-    <p>{source.view.executors ? "Unavailable executors are skipped." : "Add executors to give this repository its own order."}</p>
+    <p>{source.view.executors ? "Agents marked Skipped, Cannot take work or Off receive no new work." : "Add executors to give this repository its own order."}</p>
     <OrderWithPool label={`Allowed executors for ${source.repoLabel}`} disabled={disabled} onChange={onChange}
       empty={source.view.executors ? "Saving restores the global rules." : "No project order yet."}
       items={executors.map(reference => ({ key: reference, id: runner(reference)?.id, label: runner(reference)?.label ?? executorLabel(reference),

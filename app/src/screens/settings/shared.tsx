@@ -114,3 +114,8 @@ export function JobList({target,onComplete}:{target:string;onComplete:()=>void})
  useEffect(()=>{if(!running)return;const timer=setInterval(query.reload,1500);return()=>clearInterval(timer);},[running]);
  return <><ErrorMessage error={query.error}/>{[...jobs.values()].sort((a,b)=>b.startedAt-a.startedAt).slice(0,3).map(job=><JobProgress key={job.id} job={job}/>)}</>;
 }
+
+/** Let the tooltip dismiss first, then keep Escape from leaving Settings. */
+export function containTooltipEscape(event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">) {
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); }
+}

@@ -493,7 +493,7 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
       await page.addScriptTag({ content: await built.outputs[0]!.text() });
       await page.locator('#accounts tbody tr').first().waitFor();
       expect(await page.locator('thead th').allTextContents()).toEqual(['Account', 'Sign-in', 'Quota', 'Status', 'Used by', 'Actions']);
-      expect(await page.getByRole('button', { name: 'More actions for team', exact: true }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'More actions for Codex · team', exact: true }).count()).toBe(0);
       expect(await page.locator('tbody tr').first().locator('td').count()).toBe(6);
       if (viewport === 1440) {
         const tracks = await page.locator('thead tr').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').map(parseFloat));
@@ -527,10 +527,10 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
         }
       };
       await checkCells();
-      const action = page.getByRole('button', { name: 'More actions for out', exact: true });
+      const action = page.getByRole('button', { name: 'More actions for Codex · out', exact: true });
       await action.focus(); await page.keyboard.press('Enter');
       expect(await action.getAttribute('aria-expanded')).toBe('true');
-      await page.getByText('Fix sign-in for out', { exact: true }).click();
+      await page.getByText('Fix sign-in for Codex · out', { exact: true }).click();
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.signin' && p.name === 'out'));
       await checkCells();

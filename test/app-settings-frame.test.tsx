@@ -1,3 +1,4 @@
+import { executorLabel } from "../src/view-model/words";
 import { expect, test } from 'bun:test';
 import { chromium } from 'playwright-core';
 import { renderToString } from 'preact-render-to-string';
@@ -135,21 +136,23 @@ test('App preferences holds updates, notifications and appearance as headed sect
 });
 
 test('Overview treats a busy executor as able to take work', () => {
-  const busy = { ...executor, id: 'busy', state: 'busy' };
-  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [executor, busy], machine: { used: 0, max: 4 } } });
+  const eligible = {state:'eligible',reasons:[],evaluatedAt:1000,evidenceAgeS:0,budget:'permitted'};
+  const busy = { ...executor, id: 'busy', state: 'busy', eligibility:eligible };
+  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, busy], machine: { used: 0, max: 4 } } });
   expect(html).toContain('2 of 2 agents can take work. 0 need you.');
   expect(html).not.toContain('busy cannot take work');
 });
 
 test('Overview shows only real readiness and setup facts', () => {
-  const down = { ...executor, state: 'down', reason: 'No subscription' };
+  const eligible = {state:'eligible',reasons:[],evaluatedAt:1000,evidenceAgeS:0,budget:'permitted'};
+  const down = { ...executor, state: 'down', eligibility:{...eligible,state:'ineligible',reasons:[{code:'subscription_missing'}]} };
   const stale = { ...executor, id: 'stale', stale: true };
-  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [executor, down, stale], machine: { used: 0, max: 4 } } });
+  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, down, stale], machine: { used: 0, max: 4 } } });
   expect(html).toContain('1 of 3 agents can take work. 2 need you.');
   for (const title of ['Readiness', 'Current setup']) expect(html).toMatch(new RegExp(`<h2[^>]*>${title}</h2>`));
   for (const href of ['executors', 'dispatcher', 'planner', 'machine']) expect(html).toContain(`href="#/settings/${href}"`);
-  expect(html).toContain('No subscription');
-  expect(html).toContain('usage reading is stale');
+  expect(html).toContain('No active subscription');
+  expect(html).toContain('Usage reading needs refreshing');
   expect(html).toContain('Saved setup default');
   expect(html).not.toContain('Diagnostics not run');
   expect(html).not.toContain('Planner connected');
@@ -235,7 +238,7 @@ test('menu shows Agents attention and Overview shows executor facts', () => {
   const overview = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot });
   expect(menu).toContain('1 blocked');
   expect(menu).not.toContain('1 needs setup');
-  expect(overview).toContain('cannot take work');
+  expect(overview).toContain('Cannot take work');
   expect(overview).not.toContain('Diagnostics not run');
   expect(menu).not.toContain('2 accounts');
   // Removed account counts do not appear in either destination catalog.
@@ -535,7 +538,7 @@ test('Budget planner selection retains the configured choices and consent review
   try {
     const html = render(<SettingsGeneral section="planner" initialData={settings} />);
     expect(choice.value).toBe('codex#team');
-    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, label: value })));
+    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, label: executorLabel(value) })));
     expect(html).toContain('Review integration changes');
     expect(html).not.toContain('Planner integration changes');
   } finally { options.vnode = old; }

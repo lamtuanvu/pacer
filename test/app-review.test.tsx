@@ -88,7 +88,7 @@ test("review heading uses the service title and shared task state while Brief ke
 test("review keeps all three cards, the compact queue status and verdict learning note", () => {
   const html = view({ ...task, cost: { executor: { account: "team", deltaPct: 1.2, window: "week" }, planner: null } });
   expect(html).toMatch(/pc-review-cards[\s\S]*Done when[\s\S]*Why Codex[\s\S]*Cost/);
-  expect(html).toContain('used 1.2% of weekly quota');
+  expect(html).toContain('used 1% of weekly quota');
   expect(html).toContain('Your verdicts teach routing which executor suits which kind.');
   expect(html).toMatch(/pc-pill--warn[^>]*>[\s\S]*?Review requested<\/span> · /);
   expect(html).toContain('j k next · a accept · r reject · t retry elsewhere');

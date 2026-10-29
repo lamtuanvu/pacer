@@ -180,8 +180,6 @@ export interface MenuResult {
   /** The ⌘↵ action is announced but not built yet. */
   modEnterSoon?: boolean;
 }
-/** ⌘↵ will open a task beside the current one once a right panel exists; until then it is announced and inert. */
-const OPEN_BESIDE = { modEnterHint: "open beside", modEnterSoon: true } as const;
 export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState }
 
 export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" } }: MenuInput): MenuResult {
@@ -204,7 +202,7 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
     const offered = [...commandItems(commands).filter(item => !listed.has(item.id)), ...(suggestion && !listed.has(suggestion.id) ? [suggestion] : [])]
       .filter(item => RECENT_COMMAND_GROUPS.includes(item.group ?? item.command!.group));
     const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(offered, item => item.group ?? item.command!.group).sort(orderOf(RECENT_COMMAND_GROUPS))];
-    return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open", ...OPEN_BESIDE };
+    return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open" };
   }
   const matched = [...rankAndMark(everything, text), ...(files.status === "ready" ? fileItems(files.result) : [])];
   const counts = { ...zero, all: matched.length };
@@ -218,13 +216,13 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
   // Each group is capped while browsing All; a single scope lists everything it matched.
   const groups = groupBy(shown, item => item.group ?? GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length).sort(orderOf(SEARCH_GROUP_ORDER));
-  if (shown.length) return { mode, groups, counts, empty: false, scope: only, notice, enterHint: "open", ...OPEN_BESIDE };
+  if (shown.length) return { mode, groups, counts, empty: false, scope: only, notice, enterHint: "open" };
   // Nothing yet but files are still being searched: not "no results" until they answer.
-  if (filesLoading) return { mode, groups: [], counts, empty: false, scope: only, notice, enterHint: "open", ...OPEN_BESIDE };
+  if (filesLoading) return { mode, groups: [], counts, empty: false, scope: only, notice, enterHint: "open" };
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
     { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "tasks" as const, target: routes.tasks() },
   ];
-  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", notice, enterHint: "open", ...OPEN_BESIDE };
+  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", notice, enterHint: "open" };
 }

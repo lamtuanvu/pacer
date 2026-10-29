@@ -78,7 +78,7 @@ test('Accounts: status pill with a fix link only where the fix can work', () => 
     summary({ name: 'team', executors: [executor.id] }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
   for (const label of ['Signed in', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   // Sign-in help for the signed-out native account; Ark CLI help (with refresh) for its endpoint only: no other account has a refresh that can succeed.
-  expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for out<\/span><\/summary>/g)).toHaveLength(1);
+  expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary>/g)).toHaveLength(1);
   expect(html).toContain('<code>codex login</code>');
   expect(html).toContain('Fix Ark CLI sign-in');
   expect(html.match(/Refresh usage<span class="sr-only"> for ([a-z]+)/g)).toEqual(['Refresh usage<span class="sr-only"> for ark']);
@@ -104,7 +104,7 @@ test('unknown data is omitted, never shown as zero or a measured value', () => {
 test('Agents: Add agent is the one primary action; the planner card and tabs come from the snapshot only', () => {
   const html = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ executors: [executor], accounts: [summary({ name: 'team' })], planner: { agent: 'claude-code', runner: 'claude-code', advice: 'Keep planning' } }));
   expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1); // The idle save bar is absent.
-  expect(html).toContain('Keep planning');
+  expect(html).toContain('Plans and reviews');
   expect(html).toContain('Executors · 1');
   expect(html).toContain('Accounts · 1');
   expect(html).toContain('href="#/settings/add-executor"');

@@ -9,6 +9,7 @@ import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
 
+import { pluginPresentation } from "./plugin-presentation";
 import { usePluginSettingsStyles } from "./plugin-styles";
 
 type EnableResult = { state: string; needs?: string[]; surfaces?: SurfaceKind[] };
@@ -37,16 +38,17 @@ export function PluginsSection() {
   return <section className="pc-settings-plugins" aria-labelledby="plugins-h">
     <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><AppLink to={routes.settings("plugins")} className="pc-plugin-manage">Manage in Plugins</AppLink></div>
     {resource.data.plugins.length ? <ul className="pc-settings-plugins__list" aria-label="Plugins" role="list">{resource.data.plugins.map(plugin => {
-      const adds = additions(plugin);
+      const adds = additions(plugin), presentation = pluginPresentation(plugin);
       const errorId = `plugin-${plugin.id}-error`;
       return <li className="pc-settings-plugin" key={plugin.id}>
         <span className="pc-settings-plugin__icon" aria-hidden="true"><Icon name="plugin" /></span>
-        <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{plugin.id}</b><span className="pc-settings-board__caption">{plugin.version}</span></div>
+        <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{presentation.name}</b><span className="pc-settings-board__caption">{plugin.version} · by {plugin.publisher}</span></div>
+          {presentation.description && <span className="pc-settings-board__caption">{presentation.description}</span>}
           {adds && <span className="pc-settings-board__caption">{adds}</span>}
           {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}
         </div>
         <span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}</span>
-        <Switch size="sm" aria-label={`Enable ${plugin.id}`} aria-describedby={plugin.error ? errorId : undefined} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin, event.currentTarget)} />
+        <Switch size="sm" aria-label={`Enable ${presentation.name}`} aria-describedby={plugin.error ? errorId : undefined} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin, event.currentTarget)} />
       </li>;
     })}</ul> : <p className="pc-settings-board__caption">No plugins installed.</p>}
     <span className="pc-settings-board__caption">A plugin can add a settings page, an activity-bar view, a side-panel tab, routing engines or usage readers. Each one is listed here with what it adds.</span>
@@ -73,7 +75,7 @@ export function usePluginToggle(reload: () => void, loading = false) {
       if (enabled?.state === "needs_grant") {
         action.clear();
         const surfaces = (enabled.surfaces ?? []).map(kind => surfaceNames[kind][1]);
-        if (await dialogs.confirm(`${plugin.id} asks for:\n${(enabled.needs ?? []).map(name => `• ${name}`).join("\n") || "No capabilities"}${surfaces.length ? `\nAdds: ${surfaces.join(", ")}.` : ""}\nIt runs as you, with your access, until plugin sandboxing lands. Grant and enable?`, "Enable plugin", "Grant and enable")) {
+        if (await dialogs.confirm(`${pluginPresentation(plugin).name} asks for:\n${(enabled.needs ?? []).map(name => `• ${name}`).join("\n") || "No capabilities"}${surfaces.length ? `\nAdds: ${surfaces.join(", ")}.` : ""}\nIt runs as you, with your access, until plugin sandboxing lands. Grant and enable?`, "Enable plugin", "Grant and enable")) {
           await action.run("plugin.enable", { id: plugin.id, grant: true });
         }
       }

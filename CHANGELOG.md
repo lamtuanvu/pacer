@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Show rounded percentages, friendly agent and account names, clear readiness reasons and weekly usage in Settings and Work. Show bundled plugin names, versions and descriptions. Keep technical eligibility details in tooltips and hide the unimplemented command-menu open-beside shortcut.
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.

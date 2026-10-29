@@ -233,10 +233,10 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await open(page, built, "#/");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
-  // Outside commands mode ⌘↵ "open beside" is announced as coming soon and does nothing.
+  // Outside commands mode the unimplemented shortcut is hidden and inert.
   const footer = await page.locator(".pc-command__footer").textContent();
-  expect(footer).toContain("open beside");
-  expect(footer).toContain("Coming soon");
+  expect(footer).not.toContain("open beside");
+  expect(footer).not.toContain("Coming soon");
   expect(footer).not.toContain("keep open");
   await input.fill("fix");
   await page.keyboard.press("Control+Enter");

@@ -1,7 +1,8 @@
+import { markAgent } from "../../../../src/view-model/agents";
 import { useState } from "preact/hooks";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
-import { accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { accountLabel, accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
 import { accountUsageFreshness } from "../../../../src/view-model/capacity";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import { Disclosure, TextInput } from "../../ds/Controls";
@@ -73,13 +74,13 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                 return (
                   <tr key={account.name}>
                     <td data-label="Account">
-                      <div className="u3-agent"><AgentMark agent={agentOf(account, summary)} size={24} labelled={false} />
-                        <div><strong>{account.name}</strong>
+                      <div className="u3-agent"><AgentMark agent={markAgent(account.runners?.[0] ?? agentOf(account, summary),account.name)} size={24} labelled={false} />
+                        <div><strong>{accountLabel({...account,agent:agentOf(account,summary)})}</strong>
                           <div className="u3-muted">{account.kind === "endpoint" ? "Model endpoint" : executorLabel(agentOf(account))}</div></div></div>
                     </td>
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{summary?.source??account.source??(account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))} own sign-in`)}</div></td>
                     <td data-label="Quota">
-                      {summary?.usedPct != null && <UsageMeter used={summary.usedPct} pace={summary.pacePct??null} tone={paceStatus(summary.verdict).tone} size="slim" text="none" label={`${account.name} usage`} stale={!!freshness} />}
+                      {summary?.usedPct != null && <UsageMeter used={summary.usedPct} pace={summary.pacePct??null} tone={paceStatus(summary.verdict).tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
                       <div className="u3-muted">{accountUsageWords(summary)}{freshness && ` · ${freshness}`}</div>
                     </td>
                     <td data-label="Status">
@@ -91,14 +92,14 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     </td>
                     <td data-label="Actions" className={expanded ? "u3-account-actions--open" : undefined}>
                       {hasAction && <>
-                        <IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${account.name}`} aria-expanded={expanded} aria-controls={actionsId} onClick={() => setOpenActions(expanded ? null : account.name)} />
+                        <IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${accountLabel(account)}`} aria-expanded={expanded} aria-controls={actionsId} onClick={() => setOpenActions(expanded ? null : account.name)} />
                         <div id={actionsId} hidden={!expanded}>
                           {arkcliSignInRequired(account) ? (
-                            <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
+                            <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>
                               <Stack space="compact"><p>Sign in to BytePlus in a terminal, then refresh usage here.</p><div><code>arkcli auth login</code></div><div>{refreshButton(account.name)}</div></Stack>
                             </Disclosure>
                           ) : accountNeedsSignIn(readiness) ? (
-                            <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {account.name}</span></>}>
+                            <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>
                               {account.signin_command && <code>{account.signin_command}</code>}
                               <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
                             </Disclosure>

@@ -69,8 +69,8 @@ test("> lists only commands, grouped, and ignores tasks", () => {
   expect(titles(everything)).not.toContain("New task");
   expect(everything.enterHint).toBe("run");
   expect(everything.modEnterHint).toBe("run and keep open");
-  // ⌘↵ "open beside" is announced as coming soon in search and recent modes (no right panel yet); it is not a live action.
-  for (const result of [menu("fix"), menu(""), menu("xyzzy plugin")]) expect(result).toMatchObject({ modEnterHint: "open beside", modEnterSoon: true });
+  // Only implemented actions advertise shortcuts.
+  for (const result of [menu("fix"), menu(""), menu("xyzzy plugin")]) expect(result.modEnterHint).toBeUndefined();
   expect(everything.modEnterSoon).toBeUndefined();
 });
 

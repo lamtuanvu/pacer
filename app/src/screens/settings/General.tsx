@@ -1,3 +1,7 @@
+import { containTooltipEscape } from "./shared";
+import { Tooltip } from "../../ds/Tooltip";
+import { markAgent } from "../../../../src/view-model/agents";
+import { percentage, accountLabel } from "../../../../src/view-model/words";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { PluginsSection } from "./Plugins";
@@ -41,7 +45,7 @@ import { StatusPill } from "../../ds/StatusPill";
 import {
   accountUsageFreshness,
   capacityNote,
-  executorEligibility,
+  executorReadiness,
 } from "../../../../src/view-model/capacity";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
@@ -169,41 +173,41 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const snapshot = state.snapshot;
   const executors = snapshot?.executors;
   const stale = (e: ExecutorRow) => e.stale || snapshot?.accounts?.some(a => a.name === e.account && a.stale);
-  // Busy executors can still take work: only down, failing, blocked or unknown states are unable.
-  const available = ["ready", "busy", "full", "checking"];
-  const ready = executors?.filter(e => ["ready", "busy"].includes(e.state) && !stale(e)) ?? [];
-  const needs = executors?.filter(e => stale(e) || ["down", "failing", "blocked"].includes(e.state)) ?? [];
+  const readiness = (e: ExecutorRow) => executorReadiness(e, snapshot!);
+  // Readiness follows execution evidence, independently of whether a task is running.
+  const ready = executors?.filter(e => ["Ready", "Ahead of pace"].includes(readiness(e).label)) ?? [];
+  const needs = executors?.filter(e => ["Skipped", "Cannot take work"].includes(readiness(e).label) && readiness(e).tone !== "neutral") ?? [];
   const active = snapshot?.strategies?.find(s => typeof s !== "string" && s.active);
   const setup = typeof active === "object" ? active : initialData.strategies?.find(s => s.active);
   const value = (key: string) => config.data?.keys[key]?.value;
   const href = (page: string) => withQuery(`#/settings/${page}`, query);
   const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
-  const checks: { title: string; detail?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
+  const checks: { title: string; detail?: string; tooltip?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
   for (const e of executors ?? []) {
-    if (stale(e)) checks.push({ title: `${e.id} usage reading is stale`, detail: e.reason || e.sub, tone: "warn", page: "executors", link: "Open agent" });
-    else if (!available.includes(e.state)) checks.push({ title: `${e.id} cannot take work`, detail: e.reason || e.sub || words(e.state), tone: ["down", "failing", "blocked"].includes(e.state) ? "bad" : "warn", page: "executors", link: "Open agent" });
+    const status = readiness(e);
+    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "executors", link: "Open agent" });
   }
   for (const account of snapshot?.accounts ?? []) {
-    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${account.name} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Agents" });
+    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Agents" });
   }
   if (snapshot?.console) checks.push({ title: "Planner connection observed", detail: `Last seen ${time(snapshot.console.heartbeatAt)}`, tone: "neutral", page: "executors", link: "Agents" });
-  if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => e.id).join(", "), tone: ready.length ? "good" : "warn", page: "executors", link: "Agents" });
+  if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => executorLabel(e.id)).join(", "), tone: ready.length ? "good" : "warn", page: "executors", link: "Agents" });
   if (setup) checks.push({ title: `Saved setup ${setup.name} is active`, detail: setup.summary, tone: "good", page: "dispatcher", link: "Dispatcher" });
   if (update) checks.push({ title: update.label, tone: update.tone === "bad" ? "bad" : "warn", page: "app", link: "App" });
   else if (initialData.updates?.available && initialData.updates.latest) checks.push({ title: `pacer ${initialData.updates.latest} is available`, detail: `You have ${initialData.updates.current}`, tone: "warn", page: "app", link: "App" });
   const tiles: { label: string; value: string; note?: string; page: string }[] = [];
   if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
-  if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${value("pacing.planner_reserve")}% planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${value("pacing.fill_threshold")}%` : ""].filter(Boolean).join(" · "), page: "planner" });
+  if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
   if (snapshot?.machine) tiles.push({ label: "Machines", value: `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
   return <div className="pc-settings-board pc-settings-board--overview">
     <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
       <div className="pc-readiness-summary__copy"><strong>{ready.length} of {executors.length} agents can take work. {needs.length} {needs.length === 1 ? "needs" : "need"} you.</strong>
-        {needs.some(e => e.reason) && <p>{needs.filter(e => e.reason).map(e => `${e.id}: ${e.reason}`).join(" · ")}</p>}
-      </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${e.id} · ${stale(e) ? "Stale reading" : words(e.state)}`}><AgentMark agent={e.agent} size={28}/><StatusDot tone={stale(e) ? "warn" : e.tone === "muted" ? "neutral" : e.tone} label={`${e.id}: ${stale(e) ? "Stale reading" : words(e.state)}`} paired="glyph"/></span>)}</div>
+        {needs.length > 0 && <p>{needs.map(e => `${executorLabel(e.id)}: ${readiness(e).reason}`).join(" · ")}</p>}
+      </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${executorLabel(e.id)} · ${readiness(e).label} · ${readiness(e).tooltip}`}><AgentMark agent={markAgent(e.id,e.account)} size={28}/><StatusDot tone={readiness(e).tone} label={`${executorLabel(e.id)}: ${readiness(e).label}`} paired="glyph"/></span>)}</div>
     </div></Card>}
-    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy"><strong>{c.title}</strong>{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span><a className="pc-inline-link" href={href(c.page)}>{c.link}</a></div>)}</div></section>}
+    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span><a className="pc-inline-link" href={href(c.page)}>{c.link}</a></div>)}</div></section>}
     {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
   </div>;
 }
@@ -277,7 +281,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
         <div className="pc-budget-identity"><AgentMark agent={agent} size={20}/><b>{name}</b><Pill tone="info">Planner</Pill>{mode && <Pill tone={mode === "relaxed" ? "good" : mode === "strict" ? "warn" : mode === "emergency" ? "bad" : "neutral"}>{modeWords(mode)} mode</Pill>}</div>
         {sentence && <strong className="pc-budget-sentence">{sentence}</strong>}
         <UsageMeter used={planner.usedPct ?? null} pace={planner.pacePct ?? null} tone={toneFor(planner.verdict)} size="bar" label={`${name} ${planner.window ?? "budget"} usage`} stale={planner.stale} text="none"/>
-        <span className="pc-settings-board__caption">{[planner.usedPct != null ? `${planner.usedPct}%${planner.window ? ` of ${planner.window}` : ""} used` : null, planner.pacePct != null ? `pace ${planner.pacePct}%` : null, value("pacing.planner_reserve") ? `${value("pacing.planner_reserve")}% kept for planning and review` : null, planner.resetsAt != null ? `resets ${time(planner.resetsAt)}` : null].filter(Boolean).join(" · ")}</span>
+        <span className="pc-settings-board__caption">{[planner.usedPct != null ? `${percentage(planner.usedPct)}${planner.window ? ` of ${planner.window}` : ""} used` : null, planner.pacePct != null ? `pace ${percentage(planner.pacePct)}` : null, value("pacing.planner_reserve") ? `${percentage(Number(value("pacing.planner_reserve")))} kept for planning and review` : null, planner.resetsAt != null ? `resets ${time(planner.resetsAt)}` : null].filter(Boolean).join(" · ")}</span>
       </div>
       <div className="pc-budget-modes" role="img" aria-label={`Pace modes: Emergency, Strict, Normal, Relaxed; ${mode && modes.includes(mode) ? `${modeWords(mode)} is active` : "active mode unavailable"}`}>
         <span className="pc-settings-board__label">Mode is set by pace</span>
@@ -288,14 +292,14 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     <ResourceState resource={query}>{config && <>
       <section className="pc-preferences-section" aria-labelledby="budget-planner-h"><h2 id="budget-planner-h" className="pc-settings-board__label">Planner</h2>
         <SettingRow headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
-          <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{value("pacing.planner_reserve")}%</output><span className="pc-settings-board__caption">0–50%</span></div>
+          <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{percentage(Number(value("pacing.planner_reserve")))}</output><span className="pc-settings-board__caption">0–50%</span></div>
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
           <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Planner" description="Plans and reviews; paced weekly">
-          <div className="u3-agent"><AgentMark agent={agent}/><ChoicePicker aria-label="Planner" value={value("planner")} placeholder="Choose a planner" options={config.planners.map(planner => ({ value: planner, label: planner }))} onValueChange={setChosen}/></div>
+          <div className="u3-agent"><AgentMark agent={agent}/><ChoicePicker aria-label="Planner" value={value("planner")} placeholder="Choose a planner" options={config.planners.map(planner => ({ value: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/></div>
           <Button disabled={!value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
         </SettingRow>
       </section>
@@ -314,9 +318,9 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     </>}</ResourceState>
     <section className="pc-settings-board__section" aria-labelledby="budget-windows-h"><h2 id="budget-windows-h" className="pc-settings-board__label">Budget windows</h2>
       <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, binding, stale, capturedAt, note }) => <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
-        <span className="pc-budget-identity"><AgentMark agent={binding?.agent ?? account.kind} size={20}/><b>{account.name}</b></span>
+        <span className="pc-budget-identity"><AgentMark agent={markAgent(account.runners?.[0] ?? binding?.agent ?? account.kind,account.name)} size={20}/><b>{accountLabel(account)}</b></span>
         <span className="pc-settings-board__caption">{words(window.name)}</span>
-        <span className="pc-budget-window__usage"><UsageMeter used={window.usedPct} pace={binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${account.name} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
+        <span className="pc-budget-window__usage"><UsageMeter used={window.usedPct} pace={binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${accountLabel(account)} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
         <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
       </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
     </section>
