@@ -451,6 +451,44 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_millis(500));
     }
     #[test]
+    fn helper_handshake_retries_attempt_timeout_between_reads() {
+        let mut calls = 0;
+        let result = retry_helper_handshake(std::time::Instant::now() + std::time::Duration::from_secs(2), std::time::Duration::from_millis(50), |_| {
+            calls += 1;
+            if calls == 1 { Err(OtaError::Timeout) } else { Ok(()) }
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 2);
+    }
+    #[test]
+    fn helper_handshake_retries_slow_peer_verification() {
+        let mut calls = 0;
+        let result = retry_helper_handshake(std::time::Instant::now() + std::time::Duration::from_secs(2), std::time::Duration::from_millis(40), |until| {
+            calls += 1;
+            if calls == 1 {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                deadline::remaining(until)?;
+            }
+            Ok(())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 2);
+    }
+    #[test]
+    fn helper_request_keeps_ten_second_timeout_after_handshake() {
+        let (mut client, mut peer) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
+        client.set_write_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
+        restore_helper_request_timeout(&client, None).unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            peer.write_all(b"ok").unwrap();
+        });
+        let mut reply = [0; 2];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(&reply, b"ok");
+    }
+    #[test]
     fn adoption_context_deadline_preserves_invalid_frame_refusal() {
         for payload in [b"{".as_slice(), b"null".as_slice()] {
             let (mut client, mut server) = UnixStream::pair().unwrap();
@@ -878,9 +916,16 @@ fn authenticate_service(
         return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
     }
     let retry_until = until.unwrap_or_else(|| std::time::Instant::now() + HANDSHAKE_RETRY);
-    retry_helper_handshake(retry_until, HANDSHAKE_ATTEMPT, |attempt_until| {
+    let (stream, session) = retry_helper_handshake(retry_until, HANDSHAKE_ATTEMPT, |attempt_until| {
         authenticate_service_adoption_until(endpoint, trust, role, ticket, None, Some(attempt_until))
-    })
+    })?;
+    restore_helper_request_timeout(&stream, until)?;
+    Ok((stream, session))
+}
+fn restore_helper_request_timeout(stream: &UnixStream, until: Option<std::time::Instant>) -> Result<(), OtaError> {
+    let budget = match until { Some(until) => deadline::remaining(until)?, None => HANDSHAKE_RETRY };
+    stream.set_read_timeout(Some(budget)).map_err(|_| OtaError::Io)?;
+    stream.set_write_timeout(Some(budget)).map_err(|_| OtaError::Io)
 }
 const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
 const HANDSHAKE_ATTEMPT: std::time::Duration = std::time::Duration::from_secs(1);
@@ -891,7 +936,9 @@ fn retry_helper_handshake<T>(
 ) -> Result<T, OtaError> {
     retry_handshake(deadline, |pause| std::thread::sleep(pause.min(std::time::Duration::from_millis(50))), || {
         let remaining = deadline::remaining(deadline)?;
-        attempt(std::time::Instant::now() + remaining.min(attempt_budget))
+        attempt(std::time::Instant::now() + remaining.min(attempt_budget)).map_err(|error| {
+            if error == OtaError::Timeout { OtaError::Io } else { error }
+        })
     })
 }
 /// The service refuses a hello while it cannot account for every pacer process,
