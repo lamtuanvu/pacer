@@ -1,10 +1,15 @@
-import { HostsSection } from "./HostsSection";
-export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { PluginsSection } from "./Plugins";
+import { AccountsSection } from "./Accounts";
+export { AccountsSection } from "./Accounts";
+import { MachineSection } from "./Machines";
+export { TaskBackendField } from "./Machines";
+import { AddExecutor } from "./AddExecutor";
+import { HostDetail } from "./Hosts";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
+import { LazyAssistantSettings } from "./LazyAssistantSettings";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -27,7 +32,6 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
-import { Alert } from "../../ds/Alert";
 import {
   accountNeedsSignIn,
   accountStatus,
@@ -44,7 +48,6 @@ import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import type { ExecutorRow } from "../../../../src/api/read-model/types";
-import type { ClientMachine } from "../../../../src/view-model/snapshot";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
@@ -65,9 +68,13 @@ import {
   useResource,
   words,
   SettingsPageContext,
+  SettingsQueryContext,
   useSettingsStyles,
 } from "./shared";
+interface AssistantStatus { available: boolean; configured: boolean; account?: string; reason?: string }
+
 export interface SettingsData {
+  assistant?: AssistantStatus;
   config?: ConfigData;
   accounts?: Account[];
   routing?: RoutingRules;
@@ -82,16 +89,21 @@ export interface SettingsData {
   };
 }
 /** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
-const DISPATCH_NOTE = new Set([ "accounts", "machine", "dispatcher"]);
+const DISPATCH_NOTE = new Set(["accounts", "machine", "hosts", "dispatcher"]);
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
   section,
   initialData = {},
   query = { repo: null, scope: null },
+  host,
+  alias,
 }: {
   section?: string;
   initialData?: SettingsData;
   query?: RouteQuery;
+  /** Add agent prefills this host; host detail shows this alias. */
+  host?: string;
+  alias?: string;
 }) {
   let content: ComponentChildren;
   switch (section) {
@@ -99,13 +111,18 @@ export function SettingsGeneral({
       content = <PlannerPacing initialData={initialData.config} initialAccounts={initialData.accounts} />;
       break;
     case "accounts":
-      content = <AccountsSection initialData={initialData.accounts} />;
+      content = <AccountsSection initialData={initialData.accounts} initialConfig={initialData.config} />;
       break;
     case "executors":
-      content = <ExecutorsSection query={query} />;
+      content = <ExecutorsSection />;
       break;
     case "machine":
-      content = <MachineSection initialData={initialData.config} query={query} />;
+    case "hosts":
+      if (alias) return <DensityContext.Provider value="settings"><HostDetail key={alias} alias={alias} /></DensityContext.Provider>;
+      content = <MachineSection initialData={initialData.config} />;
+      break;
+    case "add-executor":
+      content = <AddExecutor host={host} />;
       break;
     case "dispatcher":
       content = <LazyDispatcher query={query} />;
@@ -115,6 +132,9 @@ export function SettingsGeneral({
     case "notifications":
     case "appearance":
       content = <AppPreferences section={section} initialData={initialData} />;
+      break;
+    case "assistant":
+      content = <LazyAssistantSettings />;
       break;
     case "diagnostics":
       content = <DiagnosticsSection />;
@@ -127,6 +147,7 @@ export function SettingsGeneral({
       <SettingsPageContext.Provider
         value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
+        <SettingsQueryContext.Provider value={query}>
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {DISPATCH_NOTE.has(section ?? "") && (
@@ -135,6 +156,7 @@ export function SettingsGeneral({
             </p>
           )}
         </Page>
+        </SettingsQueryContext.Provider>
       </SettingsPageContext.Provider>
     </DensityContext.Provider>
   );
@@ -210,7 +232,7 @@ function AppPreferences({ section, initialData }: { section: string; initialData
       <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you.</p></header>
       <AppearanceSection />
       <NotificationsSection initialData={initialData.notifications} />
-      <WorkspacePreferences initialData={initialData.config} />
+      <WorkspacePreferences initialData={initialData.config} initialAssistant={initialData.assistant} />
       <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
       <PluginsSection />
     </div>
@@ -371,427 +393,6 @@ function PlannerConsent({
     </Dialog>
   );
 }
-export function AccountsSection({ initialData }: { initialData?: Account[] }) {
-  const query = useResource<Account[]>("account.list", {}, initialData),
-    action = useOperation(query.reload),
-    { state, api } = useTaskContext();
-  const [adding, setAdding] = useState(false),
-    [name, setName] = useState(""),
-    [kind, setKind] = useState("codex"),
-    [refreshing, setRefreshing] = useState(false),
-    [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
-  const refreshArkcli = async (account: string) => {
-    setRefreshing(true); setRefreshStatus(undefined);
-    try {
-      const result = await api.call<{ accounts: { account: string; outcome: string; error?: string | null }[] }>("limits.refresh", { account });
-      setRefreshStatus({ account, message: arkcliRefreshMessage(result, account) });
-      query.reload();
-    } catch (error) {
-      setRefreshStatus({ account, message: error instanceof Error ? error.message : "Usage could not be refreshed." });
-    } finally { setRefreshing(false); }
-  };
-  return (
-    <Section
-      id="accounts"
-      title="Accounts"
-      detail="Where quota comes from. An executor uses one account."
-      actions={
-        <>
-          <Button
-            onClick={() =>
-              void action.run("account.signin", {
-                interactive: "account-add-orca",
-              })
-            }
-          >
-            Link Orca account
-          </Button>
-          <Button onClick={() => setAdding((v) => !v)}>Add account</Button>
-        </>
-      }
-    >
-      <ResourceState
-        resource={query}
-        empty="No accounts yet. Add an account to get started."
-      >
-        <div className="u3-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {[
-                  "Account",
-                  "Kind",
-                  "Source",
-                  "Usage",
-                  "Status",
-                  "Used by",
-                  "",
-                ].map((v) => (
-                  <th key={v}>{v}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {query.data?.map((account) => {
-                const summary = state.snapshot?.accounts?.find(
-                    (a) => a.name === account.name,
-                  ),
-                  readiness = {
-                    ...account,
-                    signedIn: summary?.signedIn ?? account.signedIn,
-                  };
-                return (
-                  <tr key={account.name}>
-                    <td data-label="Account">
-                      <div className="u3-agent">
-                        <AgentMark
-                          agent={
-                            summary?.agent ??
-                            (account.kind === "claude"
-                              ? "claude-code"
-                              : account.kind === "endpoint"
-                                ? "opencode"
-                                : account.kind)
-                          }
-                        />
-                        <strong>{account.name}</strong>
-                      </div>
-                    </td>
-                    <td data-label="Kind">
-                      {account.kind === "endpoint"
-                        ? "Model endpoint"
-                        : executorLabel(
-                            account.kind === "claude"
-                              ? "claude-code"
-                              : account.kind,
-                          )}
-                    </td>
-                    <td data-label="Source">
-                      {summary?.source ?? account.source ?? "Unknown source"}
-                    </td>
-                    <td data-label="Usage">
-                      {spendCopy(summary?.spendUsdWeek, summary?.capUsdWeek) ??
-                        (summary?.usedPct != null
-                          ? `${Math.round(summary.usedPct)}% of ${summary.window === "weekly" || summary.window === "week" ? "week" : (summary.window ?? "window")}${summary.resetsAt ? ` · resets ${clock(summary.resetsAt, Date.now() / 1000)}` : ""}`
-                          : "Usage unknown")}
-                      {summary && accountUsageFreshness(summary) && (
-                        <small className="u3-muted">
-                          {" "}
-                          · {accountUsageFreshness(summary)}
-                        </small>
-                      )}
-                    </td>
-                    <td data-label="Status">
-                      <StatusPill status={accountStatus(readiness)} />
-                    </td>
-                    <td data-label="Used by">
-                      <code>
-                        {(summary?.executors ?? account.runners ?? []).join(
-                          ", ",
-                        ) || "Not used"}
-                      </code>
-                    </td>
-                    <td data-label="Actions">
-                      {arkcliSignInRequired(account) && (
-                        <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
-                          <Stack space="compact">
-                            <p>Sign in to BytePlus in a terminal, then refresh usage here.</p>
-                            <div><code>arkcli auth login</code></div>
-                            <div><Button size="sm" busy={refreshing} disabled={refreshing || !state.connected} onClick={() => void refreshArkcli(account.name)}>Refresh usage</Button></div>
-                            {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
-                          </Stack>
-                        </Disclosure>
-                      )}
-                      {accountNeedsSignIn(readiness) && (
-                        <Disclosure
-                          className="pc-disclosure"
-                          summary={
-                            <>
-                              Fix sign-in
-                              <span className="sr-only">
-                                {" "}
-                                for {account.name}
-                              </span>
-                            </>
-                          }
-                        >
-                          {account.signin_command && (
-                            <code>{account.signin_command}</code>
-                          )}
-                          <Button
-                            size="sm"
-                            disabled={action.busy}
-                            onClick={() =>
-                              void action.run("account.signin", {
-                                name: account.name,
-                              })
-                            }
-                          >
-                            Sign in
-                          </Button>
-                        </Disclosure>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </ResourceState>
-      {adding && (
-        <form
-          className="pc-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void action.run("account.add", { name, kind }, () => {
-              setAdding(false);
-              setName("");
-            });
-          }}
-        >
-          <div className="u3-settings-grid">
-            <Field label="Account name">
-              <TextInput
-                value={name}
-                required
-                pattern="[a-z0-9][a-z0-9-]*"
-                onInput={(e) => setName(e.currentTarget.value)}
-              />
-            </Field>
-            <Field label="Agent">
-              <ChoicePicker
-                value={kind}
-                options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]}
-                onValueChange={setKind}
-              />
-            </Field>
-          </div>
-          <Button type="submit" disabled={action.busy}>
-            Create account
-          </Button>
-          <p>
-            <TextAction
-              className="pc-text-action"
-              href="#/settings/add-executor"
-            >
-              Connect an API endpoint through Add executor
-            </TextAction>
-          </p>
-        </form>
-      )}
-      <Feedback action={action} />
-    </Section>
-  );
-}
-type MachineDraft = { cap: "unlimited" | "limit"; max: string; pressure: string; load: "off" | "limit"; loadLimit: string; launch: string; terminal: string };
-const MACHINE_KEYS = { max: "execution.local_max_tasks", pressure: "execution.local_memory_pressure_limit", load: "execution.local_load_limit", launch: "execution.launch_mode", terminal: "terminal.open" } as const;
-function machineDraft(config: ConfigData | undefined): MachineDraft {
-  const max = config?.keys[MACHINE_KEYS.max]?.value, load = config?.keys[MACHINE_KEYS.load]?.value;
-  return {
-    cap: typeof max === "number" ? "limit" : "unlimited", max: typeof max === "number" ? String(max) : "",
-    pressure: String(config?.keys[MACHINE_KEYS.pressure]?.value ?? "critical"),
-    load: typeof load === "number" ? "limit" : "off", loadLimit: typeof load === "number" ? String(load) : "",
-    launch: String(config?.keys[MACHINE_KEYS.launch]?.value ?? "interactive"), terminal: terminalPreference(config).selectedTerminal,
-  };
-}
-/** Each saved setting, how a draft spells it, and the draft fields it covers. */
-const MACHINE_FIELDS = [
-  { key: MACHINE_KEYS.max, value: (d: MachineDraft) => d.cap === "unlimited" ? "unlimited" : Number(d.max), pick: (d: MachineDraft) => ({ cap: d.cap, max: d.max }) },
-  { key: MACHINE_KEYS.pressure, value: (d: MachineDraft) => d.pressure, pick: (d: MachineDraft) => ({ pressure: d.pressure }) },
-  { key: MACHINE_KEYS.load, value: (d: MachineDraft) => d.load === "off" ? "off" : Number(d.loadLimit), pick: (d: MachineDraft) => ({ load: d.load, loadLimit: d.loadLimit }) },
-  { key: MACHINE_KEYS.launch, value: (d: MachineDraft) => d.launch, pick: (d: MachineDraft) => ({ launch: d.launch }) },
-  { key: MACHINE_KEYS.terminal, value: (d: MachineDraft) => d.terminal, pick: (d: MachineDraft) => ({ terminal: d.terminal }) },
-] as const;
-/** The config.set values a draft stands for; only keys that differ from the draft's base are written. */
-function machineChanges(base: MachineDraft, draft: MachineDraft): { key: string; value: string | number }[] {
-  return MACHINE_FIELDS.filter(f => f.value(draft) !== f.value(base)).map(f => ({ key: f.key, value: f.value(draft) }));
-}
-/** Keys the draft would write whose saved value changed since the draft's base. */
-function machineConflicts(base: MachineDraft, draft: MachineDraft, saved: MachineDraft): string[] {
-  return MACHINE_FIELDS.filter(f => f.value(draft) !== f.value(base) && f.value(saved) !== f.value(base)).map(f => f.key);
-}
-/**
- * Follow new saved values without losing edits: a field the user has not edited, or whose
- * edit now matches the saved value, takes the saved value. Edited fields keep their base,
- * so a later save can see that the saved value moved underneath them.
- */
-function rebaseMachine(form: { base: MachineDraft; draft: MachineDraft }, saved: MachineDraft) {
-  let { base, draft } = form;
-  for (const f of MACHINE_FIELDS) {
-    if (f.value(draft) === f.value(base)) { base = { ...base, ...f.pick(saved) }; draft = { ...draft, ...f.pick(saved) }; }
-    else if (f.value(draft) === f.value(saved)) base = { ...base, ...f.pick(saved) };
-  }
-  return { base, draft };
-}
-const PRESSURE_WORDS: Record<string, string> = { normal: "normal", warning: "warning", critical: "critical" };
-/** What the machine guard sees now, in plain words. */
-export function machineNow(machine: ClientMachine | undefined): string | null {
-  if (!machine) return null;
-  const pressure = machine.memoryPressure === undefined ? null : machine.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${PRESSURE_WORDS[machine.memoryPressure]}`;
-  const load = machine.loadPerCore == null ? null : `load ${Math.round(machine.loadPerCore * 10) / 10} per core`;
-  const cap = machineHardCap(machine), running = `${machine.used} running${cap !== null ? ` of ${cap}` : ""}`;
-  const waits = machine.open === false && machine.detail ? `new tasks wait: ${machine.detail}` : null;
-  return [pressure, load, running, waits].filter(Boolean).join(" · ");
-}
-export function MachineSection({ initialData, query: routeQuery = { repo: null, scope: null } }: { initialData?: ConfigData; query?: RouteQuery }) {
-  const query = useResource("config.get", {}, initialData),
-    action = useOperation(query.reload),
-    { state, api } = useTaskContext();
-  const dialogs = useDialogs();
-  const saved = machineDraft(query.data), savedKey = JSON.stringify(saved);
-  // Rebased in render too, so a new saved value never shows stale for a frame before the effect stores it.
-  const [form, setForm] = useState({ base: saved, draft: saved }), { base, draft } = rebaseMachine(form, saved);
-  const changes = machineChanges(base, draft), dirty = changes.length > 0;
-  // A conflict also covers an edit reverted after the saved value moved: the base is stale.
-  const conflict = machineConflicts(base, draft, saved).length > 0 || MACHINE_FIELDS.some(f => f.value(base) !== f.value(saved));
-  // The same predicate as config.set, so Save is never offered for a value the service refuses.
-  const capError = draft.cap === "limit" && !(/^\d+$/.test(draft.max) && Number.isSafeInteger(Number(draft.max)) && Number(draft.max) >= 1) ? "Enter a whole number of at least 1." : undefined;
-  const loadError = draft.load === "limit" && !(/^\d+(\.\d+)?$/.test(draft.loadLimit) && Number(draft.loadLimit) > 0) ? "Enter a load per core greater than 0, such as 3." : undefined;
-  useEffect(() => { setForm(f => rebaseMachine(f, saved)); }, [savedKey]);
-  const edit = (patch: Partial<MachineDraft>) => setForm(f => ({ ...f, draft: { ...f.draft, ...patch } }));
-  const reset = () => setForm({ base: saved, draft: saved });
-  const save = async () => {
-    // Re-read before writing: a key changed elsewhere since this draft began is not overwritten.
-    let latest: ConfigData;
-    try { latest = await api.call<ConfigData>("config.get", {}); } catch { latest = query.data!; }
-    query.setData(latest);
-    if (machineConflicts(base, draft, machineDraft(latest)).length) return;
-    for (const change of changes) {
-      if (!(await action.run("config.set", change))) break;
-      // Record the written value as saved now so the form does not flash the old one.
-      latest = { ...latest, keys: { ...latest.keys, [change.key]: { ...latest.keys[change.key], value: change.value } } };
-      query.setData(latest);
-    }
-  };
-  // Pressure and load change without any setting changing: re-read the guard state while open.
-  // A failed poll keeps the last reading rather than replacing the form with an error.
-  const [live, setLive] = useState<ConfigData["machine"]>();
-  useEffect(() => {
-    let active = true;
-    const poll = () => void api.call<ConfigData>("config.get", {}).then(r => { if (active) setLive(r.machine); }, () => {});
-    const timer = setInterval(poll, 5000);
-    return () => { active = false; clearInterval(timer); };
-  }, [api]);
-  const now = machineNow(state.snapshot?.machine && { ...state.snapshot.machine, ...query.data?.machine, ...live });
-  const { terminalChoices } = terminalPreference(query.data);
-  return (
-    <Section id="machine" title="This machine" actions={<TextAction href={withQuery("#/settings/hosts", routeQuery)}>Remote hosts</TextAction>}>
-      <ResourceState resource={query}>
-        {now && <p className="u3-muted" role="status">Now: {now}</p>}
-        <Field
-          label="Parallel tasks on this machine"
-          help="Shared by all executors that run on this machine. Without a limit, new tasks start until the machine is under memory pressure or over the load limit. Running tasks are never stopped."
-          error={capError}
-        >
-          <div className="u3-actions">
-            <Segment
-              label="Parallel task limit"
-              value={draft.cap}
-              options={[{ value: "unlimited", label: "No limit" }, { value: "limit", label: "Limit to N" }]}
-              disabled={action.busy}
-              onChange={(cap) => edit({ cap: cap as MachineDraft["cap"], max: cap === "limit" && !draft.max ? "4" : draft.max })}
-            />
-            {draft.cap === "limit" && (
-              <TextInput
-                type="number"
-                min="1"
-                step="1"
-                required
-                value={draft.max}
-                onInput={(e) => edit({ max: e.currentTarget.value })}
-              />
-            )}
-          </div>
-        </Field>
-        <Field
-          label="Hold new tasks at memory pressure"
-          help="macOS memory pressure. New local tasks wait while pressure is at or above this level. Off ignores memory pressure."
-        >
-          <ChoicePicker
-            aria-label="Hold new tasks at memory pressure"
-            value={draft.pressure}
-            options={[{ value: "critical", label: "Critical" }, { value: "warning", label: "Warning" }, { value: "off", label: "Off" }]}
-            disabled={action.busy}
-            onValueChange={(pressure) => edit({ pressure })}
-          />
-        </Field>
-        <Field
-          label="Load limit per CPU core"
-          help="1-minute load average divided by CPU cores. New local tasks wait while load is over the limit."
-          error={loadError}
-        >
-          <div className="u3-actions">
-            <Segment
-              label="Load limit"
-              value={draft.load}
-              options={[{ value: "off", label: "Off" }, { value: "limit", label: "Limit" }]}
-              disabled={action.busy}
-              onChange={(load) => edit({ load: load as MachineDraft["load"], loadLimit: load === "limit" && !draft.loadLimit ? "3" : draft.loadLimit })}
-            />
-            {draft.load === "limit" && (
-              <TextInput
-                type="number"
-                min="0.1"
-                step="0.1"
-                required
-                value={draft.loadLimit}
-                onInput={(e) => edit({ loadLimit: e.currentTarget.value })}
-              />
-            )}
-          </div>
-        </Field>
-        <Field
-          label="Delegated task launch"
-          help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
-        >
-          <ChoicePicker
-            aria-label="Delegated task launch"
-            value={draft.launch}
-            options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
-            disabled={action.busy}
-            onValueChange={(launch) => edit({ launch })}
-          />
-        </Field>
-        <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
-          <ChoicePicker
-            aria-label="Preferred terminal"
-            value={draft.terminal}
-            options={terminalChoices}
-            disabled={action.busy}
-            onValueChange={(terminal) => edit({ terminal })}
-          />
-        </Field>
-        {conflict && (
-          <Alert tone="warning" title="Settings changed elsewhere">
-            Your draft is preserved. Reload the saved settings before making further changes.{" "}
-            <Button size="sm" onClick={async () => { if (await dialogs.confirm("Discard this draft and load the latest saved settings?", "Reload saved settings", "Reload")) reset(); }}>
-              Reload saved settings
-            </Button>
-          </Alert>
-        )}
-        <div className="u3-save-bar">
-          <span>{dirty ? "Unsaved changes" : conflict ? "Settings changed elsewhere" : "All changes saved"}</span>
-          <div className="u3-actions">
-            <Button disabled={!(dirty || conflict) || action.busy} onClick={reset}>
-              Discard
-            </Button>
-            <Button
-              variant="primary"
-              busy={action.busy}
-              disabled={!dirty || conflict || action.busy || !!capError || !!loadError}
-              onClick={() => void save()}
-            >
-              Save changes
-            </Button>
-          </div>
-        </div>
-      </ResourceState>
-      <Feedback action={action} />
-      {dialogs.dialog}
-    </Section>
-  );
-}
 function NotificationsSection({
   initialData,
 }: {
@@ -873,12 +474,22 @@ function AppearanceSection() {
 }
 
 /** Shares the machine editor's terminal choices and exact config operation. */
-function WorkspacePreferences({ initialData }: { initialData?: ConfigData }) {
+function WorkspacePreferences({ initialData, initialAssistant }: { initialData?: ConfigData; initialAssistant?: AssistantStatus }) {
   const query = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(query.reload);
+  const assistant = useResource<AssistantStatus>("assistant.status", {}, initialAssistant);
   const config = query.data;
-  if (!config?.keys["terminal.open"] && !config?.terminalChoices) return null;
+  const hasTerminal = config?.keys["terminal.open"] || config?.terminalChoices;
   const { selectedTerminal, terminalChoices } = terminalPreference(config);
-  return <section className="pc-preferences-section" aria-labelledby="workspace-h"><h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2><SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow><Feedback action={action}/></section>;
+  const status = assistant.data;
+  return <section className="pc-preferences-section" aria-labelledby="workspace-h">
+    <h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2>
+    {hasTerminal && <SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow>}
+    <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Uses the account chosen in assistant settings.">
+      <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
+      <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
+    </SettingRow>
+    <Feedback action={action}/>
+  </section>;
 }
 
 function terminalPreference(config?: ConfigData) {

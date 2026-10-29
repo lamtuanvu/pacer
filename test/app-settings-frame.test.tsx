@@ -309,11 +309,11 @@ test.skipIf(!browserPath)('setting_row_toggle_hit_area_meets_density', async () 
 test('secondary settings routes select their parent category and retain page titles', () => {
   for (const [hash, current, title] of [
     ['#/settings/accounts', 'executors', 'Accounts'],
-    ['#/settings/add-executor', 'executors', 'Add executor'],
-    ['#/settings/hosts', 'machine', 'Remote hosts'],
+    ['#/settings/add-executor', 'executors', 'Add an agent'],
+    ['#/settings/hosts', 'machine', 'Machines'],
     ['#/settings/hosts/devbox', 'machine', 'Host'],
     ['#/settings/executors', 'executors', 'Agents'],
-    ['#/settings/machine', 'machine', 'This machine'],
+    ['#/settings/machine', 'machine', 'Machines'],
   ]) {
     const route = resolveRoute(hash!) as Route;
     const html = renderToString(<SettingsPanel route={route} counts={null} />);
@@ -332,11 +332,10 @@ test('board navigation includes its back link and save guidance without unsuppor
   for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<', 'Checks not run']) expect(html).not.toContain(text);
 });
 
-test('Agents and This machine retain links to secondary pages with the current scope', () => {
+test('Agents retain links to secondary pages with the current scope', () => {
   const scoped = { repo: '', scope: 'repo:example' };
   const agents = render(<SettingsGeneral section="executors" query={scoped} />);
   for (const page of ['accounts', 'add-executor']) expect(agents).toContain(`href="#/settings/${page}?repo=&amp;scope=repo%3Aexample"`);
-  expect(render(<SettingsGeneral section="machine" query={scoped} initialData={settings} />)).toContain('href="#/settings/hosts?repo=&amp;scope=repo%3Aexample"');
 });
 
 test.skipIf(!browserPath)('settings navigation matches board geometry in its panel and remains a narrow strip', async () => {
@@ -373,7 +372,7 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
 
 test('App board omits unsupported controls and only offers backed terminal choices', async () => {
   const html = render(<SettingsGeneral section="app" initialData={settings}/>);
-  for (const absent of ['Density', 'Desktop banners', '>Assistant<', '>Plugins<', 'Release notes', 'Last checked', '>Workspace<']) expect(html).not.toContain(absent);
+  for (const absent of ['Density', 'Desktop banners', '>Plugins<', 'Release notes', 'Last checked']) expect(html).not.toContain(absent);
   for (const label of ['Nothing', 'Important', 'Everything', 'Check automatically']) expect(html).toContain(label);
   expect(html).toMatch(/<input(?=[^>]*role="switch")(?=[^>]*aria-checked="true")/);
   const configured = { ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'terminal.open': {value:'ghostty'} }, terminalChoices: [{value:'ghostty',label:'Ghostty'},{value:'auto',label:'Automatic'}] } };

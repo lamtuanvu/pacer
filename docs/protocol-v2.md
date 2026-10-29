@@ -1024,6 +1024,7 @@ Params JSON Schema:
         "execution.local_memory_pressure_limit",
         "execution.local_load_limit",
         "execution.launch_mode",
+        "execution.backend",
         "planner",
         "pacing.order",
         "pacing.policy",
@@ -2730,6 +2731,9 @@ Params JSON Schema:
     },
     "acceptance": {
       "type": "string"
+    },
+    "acceptance_pipefail": {
+      "type": "boolean"
     },
     "constraints": {
       "type": "string"

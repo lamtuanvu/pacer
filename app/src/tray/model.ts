@@ -30,11 +30,15 @@ export function executorValue(executor: ExecutorRow): string {
 }
 export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = []) {
   const attention = needsYou(snapshot, { repo: null });
+  const recommendedId = attention.slice(0, 3).find(item => {
+    const action = primaryAction(item.actions);
+    return (item.kind === "failed" || item.kind === "limit") && action?.op === "task.retry" && typeof action.params.executor === "string" && action.params.executor.trim().length > 0;
+  })?.id;
   const tasks = running(snapshot, { repo: null });
   const active = tasks.filter(t => t.state === "running");
   const queued = tasks.filter(t => t.state === "queued").sort((a, b) => (a.queue?.position ?? Infinity) - (b.queue?.position ?? Infinity) || (a.queue?.since ?? a.updatedAt) - (b.queue?.since ?? b.updatedAt));
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
-  return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
+  return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot) };
 }

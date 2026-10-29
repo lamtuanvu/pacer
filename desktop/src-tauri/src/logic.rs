@@ -70,6 +70,19 @@ pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str
     }
 }
 
+/** The signed disposable fixture can queue the existing choice for one fixed release pair. */
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn fixture_continue_old_service(gate: ServiceGate, app: &str, live_service: Option<&str>, permitted: bool) -> bool {
+    permitted && gate == ServiceGate::ExplainOlder && app == "0.2.4" && live_service == Some("0.2.3")
+}
+
+#[cfg(any(test, feature = "ota-fixture"))]
+pub fn queue_fixture_old_service_choice(slot: &mut Option<ShellAction>) -> bool {
+    if slot.is_some() { return false; }
+    *slot = Some(ShellAction::ContinueOldService);
+    true
+}
+
 pub fn connection_retry_delay(
     normal: std::time::Duration,
     waiting_for_service_choice: bool,
@@ -705,7 +718,7 @@ pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option
 }
 
 pub fn tray_height(height: f64) -> Option<f64> {
-    height.is_finite().then(|| height.clamp(120., 520.))
+    height.is_finite().then(|| height.clamp(120., 560.))
 }
 
 pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
@@ -828,8 +841,16 @@ pub fn local_origin(url: &Url) -> Option<String> {
     .then(|| url.origin().ascii_serialization())
 }
 
+pub fn remembered_route(route: &str) -> String {
+    let path = route.split('?').next().unwrap_or("").trim_start_matches('#');
+    format!("#{}", if path.is_empty() { "/" } else { path })
+}
+
 pub fn route(raw: &str) -> Option<String> {
     let value = raw.strip_prefix('#').unwrap_or(raw);
+    if value.contains(['%', '\\', '#', '?']) || value.contains("..") {
+        return None;
+    }
     let value = if value.starts_with("pacer://") {
         let url = Url::parse(value).ok()?;
         if !url.username().is_empty()
@@ -844,14 +865,18 @@ pub fn route(raw: &str) -> Option<String> {
     } else {
         value.to_owned()
     };
-    if !value.starts_with('/') || value.starts_with("//") || value.contains(['?', '#', '\\']) {
+    if !value.starts_with('/') || value.starts_with("//") || value.contains(['#', '\\']) {
         return None;
     }
     if value == "/" || value == "/overview" {
         return Some("#/".into());
     }
+    if value == "/needs-you" {
+        return Some("#/needs-you".into());
+    }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
-    if !matches!(parts[0], "review" | "sessions" | "settings")
+    if !matches!(parts[0], "review" | "sessions" | "settings" | "needs-you" | "tasks")
+        || (parts[0] == "needs-you" && parts.len() != 1)
         || parts.len() > 3
         || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
         || parts.iter().any(|p| {
@@ -947,6 +972,19 @@ impl Sse {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn tray_route_contract() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../../../test/fixtures/tray-routes.json")).unwrap();
+        for raw in cases["allowed"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), Some(format!("#{raw}")), "{raw}");
+        }
+        for raw in cases["rejected"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
     fn recovery_truth_table() {
         for app in [false, true] {
             for bundled in [false, true] {
@@ -1011,6 +1049,27 @@ mod tests {
         assert_eq!(service_gate("0.10.0", Some("bad"), Some("bad")), Open);
         assert_eq!(service_gate("0.10.0", None, None), ExplainUnknown);
         assert_eq!(service_gate("0.10.0", None, Some("")), Open);
+    }
+
+    #[test]
+    fn disposable_old_service_choice_is_one_exact_gate_and_release_pair() {
+        use ServiceGate::*;
+        assert!(fixture_continue_old_service(ExplainOlder, "0.2.4", Some("0.2.3"), true));
+        for (gate, app, service, permitted) in [
+            (ExplainOlder, "0.2.4", Some("0.2.3"), false),
+            (ExplainOlder, "0.2.4", Some("0.2.2"), true),
+            (ExplainOlder, "0.2.5", Some("0.2.3"), true),
+            (ExplainUnknown, "0.2.4", Some("0.2.3"), true),
+            (Open, "0.2.4", Some("0.2.3"), true),
+        ] {
+            assert!(!fixture_continue_old_service(gate, app, service, permitted));
+        }
+        let mut pending = Some(ShellAction::Download);
+        assert!(!queue_fixture_old_service_choice(&mut pending));
+        assert_eq!(pending, Some(ShellAction::Download));
+        pending = None;
+        assert!(queue_fixture_old_service_choice(&mut pending));
+        assert_eq!(pending, Some(ShellAction::ContinueOldService));
     }
 
     #[test]
@@ -1442,8 +1501,8 @@ mod tests {
             (0., 120.),
             (120., 120.),
             (271.5, 271.5),
-            (520., 520.),
-            (9999., 520.),
+            (560., 560.),
+            (9999., 560.),
         ] {
             assert_eq!(tray_height(height), Some(expected));
         }
@@ -1475,10 +1534,22 @@ mod tests {
         }
     }
     #[test]
+    fn remembered_routes_drop_one_shot_queries() {
+        assert_eq!(remembered_route("#/?new=task"), "#/");
+        assert_eq!(remembered_route("#/tasks?filter=done"), "#/tasks");
+        assert_eq!(remembered_route("#/tasks/t-1"), "#/tasks/t-1");
+        assert_eq!(remembered_route("#?new=task"), "#/");
+        assert_eq!(remembered_route(""), "#/");
+    }
+
+    #[test]
     fn tray_routes_use_the_shared_route_validator() {
         for raw in [
             "/",
             "/overview",
+            "/needs-you",
+            "/tasks",
+            "/tasks/t-20261026-143834-b2c1",
             "#/review/t-123",
             "/sessions/t-123",
             "/settings/hosts/workstation",
@@ -1487,7 +1558,6 @@ mod tests {
             assert_eq!(route(&normalized), Some(normalized));
         }
         for retired in [
-            "tasks",
             "executors",
             "accounts",
             "strategy",
@@ -1498,6 +1568,7 @@ mod tests {
             assert!(route(&format!("pacer://{retired}/id")).is_none());
         }
         assert_eq!(route("pacer://overview"), Some("#/".into()));
+        assert_eq!(route("pacer://tasks/t-0412"), Some("#/tasks/t-0412".into()));
         for raw in [
             "javascript:alert(1)",
             "//evil.test",
@@ -1505,6 +1576,8 @@ mod tests {
             "/review/../settings",
             "/app/tray.html",
             "/review/a?x=1",
+            "/tasks/a/b",
+            "/tasks/%2e%2e",
         ] {
             assert!(route(raw).is_none(), "{raw}");
         }

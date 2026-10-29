@@ -35,7 +35,7 @@ async function open():Promise<Page>{
  return page;
 }
 const launch=(page:Page)=>page.getByRole('button',{name:/Delegated task launch/});
-const terminal=(page:Page)=>page.getByRole('button',{name:/Preferred terminal/});
+const terminal=(page:Page)=>page.getByRole('button',{name:/Terminal for sessions/});
 const save=(page:Page)=>page.getByRole('button',{name:'Save changes'});
 async function pick(page:Page,picker:ReturnType<typeof launch>,option:string){
  await picker.focus();
@@ -49,11 +49,11 @@ browserTest('delegated task launch and the preferred terminal are drafted and sa
   expect(await launch(page).textContent()).toContain('Interactive');
   expect(await page.getByText(/finish when the agent reports its result/).count()).toBe(1);
   expect(await terminal(page).textContent()).toContain('Automatic');
-  // The save bar follows the last field.
-  expect(await page.evaluate(()=>{const bar=document.querySelector('.u3-save-bar')!,fields=[...document.querySelectorAll('.pc-field')];return fields.length===5&&fields.every(f=>!!(f.compareDocumentPosition(bar)&Node.DOCUMENT_POSITION_FOLLOWING));})).toBe(true);
+  // The save bar follows the last row.
+  expect(await page.evaluate(()=>{const bar=document.querySelector('.u3-save-bar')!,fields=[...document.querySelectorAll('.pc-setting-row')];return fields.length===6&&fields.every(f=>!!(f.compareDocumentPosition(bar)&Node.DOCUMENT_POSITION_FOLLOWING));})).toBe(true);
   await pick(page,launch(page),'Headless');
   await pick(page,terminal(page),'Ghostty');
-  await page.getByLabel('Parallel tasks on this machine').fill('3');
+  await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).fill('3');
   expect(await page.getByText('Unsaved changes').count()).toBe(1);
   // Nothing saves silently: choosing writes nothing until Save.
   expect(sets).toEqual([]);
@@ -87,5 +87,20 @@ browserTest('a launch mode changed elsewhere is not overwritten by Save',async()
   await page.getByText('Your draft is preserved.',{exact:false}).waitFor({timeout:5000});
   expect(sets).toEqual([]);
   expect(values['execution.launch_mode']).toBe('headless-elsewhere');
+ }finally{await page.close();}
+});
+
+browserTest('the task backend is drafted and saved through the save bar',async()=>{
+ const page=await open();
+ try{
+  const backend=page.getByRole('button',{name:/Task backend/});
+  expect(await backend.textContent()).toContain('Direct');
+  await pick(page,backend,'Orca');
+  expect(await page.getByText('Unsaved changes').count()).toBe(1);
+  expect(sets).toEqual([]);
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(sets).toEqual([{key:'execution.backend',value:'orca'}]);
+  expect(await backend.textContent()).toContain('Orca');
  }finally{await page.close();}
 });

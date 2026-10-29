@@ -29,3 +29,31 @@ export function endpointResult(added: {state: string | {state: string; detail?: 
   return typeof added.state === "string" ? {state:added.state,...(added.detail ? {detail:added.detail} : {})} : added.state;
 }
 export const modelsFound = (count: number) => `${count} ${count === 1 ? "model" : "models"} found. Choose models below.`;
+
+/** The Add agent wizard's draft. Every value is a string so the draft survives a reload. */
+export const blankAgentDraft = { step: "1", agent: "codex", account: "", host: "", maxTasks: "1", model: "", kinds: "", createdId: "", jobId: "" };
+export type AgentDraft = typeof blankAgentDraft;
+export const REMOTE_AGENTS = ["codex", "claude-code"];
+/** Agents that bill to a pacer account; the others use their own sign-in. */
+export const accountRequired = (agent: string) => ["codex", "claude-code", "opencode"].includes(agent);
+/** Task kinds offered as "Good at", in the dispatcher's words. */
+export const AGENT_KINDS = [["feature", "Features"], ["tests", "Tests"], ["debug", "Debugging"], ["docs", "Docs"], ["refactor", "Refactors"], ["boilerplate", "Boilerplate"]] as const;
+
+/** What stops a step from being complete, in words the step shows; null when it can move on. */
+export function agentStepProblem(step: number, draft: AgentDraft, facts: { installed?: boolean | null; hosts: readonly string[] }): string | null {
+  if (step === 1) return facts.installed === false ? "This agent isn’t installed on this machine. Install it, then check again." : null;
+  if (step === 2) return accountRequired(draft.agent) && !draft.account ? "Choose or create an account." : null;
+  if (step === 3) {
+    if (draft.host && !REMOTE_AGENTS.includes(draft.agent)) return "Only Codex and Claude Code can run on a remote host.";
+    if (draft.host && !facts.hosts.includes(draft.host)) return "Choose a remote host.";
+    const tasks = Number(draft.maxTasks);
+    return Number.isInteger(tasks) && tasks >= 1 && tasks <= 16 ? null : "Enter a whole number from 1 to 16.";
+  }
+  return null;
+}
+/** The furthest step the user can open: every earlier step must be complete. Once added, only the test step remains. */
+export function furthestAgentStep(draft: AgentDraft, facts: Parameters<typeof agentStepProblem>[2]): number {
+  if (draft.createdId) return 4;
+  for (let step = 1; step < 4; step++) if (agentStepProblem(step, draft, facts)) return step;
+  return 4;
+}

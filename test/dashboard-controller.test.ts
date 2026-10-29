@@ -480,3 +480,13 @@ test("with update checks off, Settings › Updates offers no check and a check r
   expect(t.last()).toContain("Update checks are off");
   expect(t.last()).not.toContain("Up to date");
 });
+
+test("settings show config.set warnings in warn tone", async () => {
+  const warning = "Orca isn't running; tasks run directly until it is.";
+  const t = setup({respond: op => op === "config.get" ? {keys: {"execution.local_max_tasks": {value: 2}, "execution.backend": {value: "direct"}}, planners: []} : op === "config.set" ? {warning, undo: "pacer config set execution.backend direct"} : undefined});
+  await t.dash.refresh();
+  await t.keys("4", "enter", "j", "right");
+  expect(t.last()).toContain(warning);
+  expect((t.dash as any).message).toMatchObject({text: warning, tone: "warn"});
+  expect(t.last()).not.toContain("Saved. Undo:");
+});

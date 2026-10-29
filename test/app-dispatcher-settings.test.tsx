@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../src/view-model/certification-schedule";
@@ -330,6 +331,16 @@ test("consent details follow the board row outside its control column",()=>{
   expect(html).toMatch(/<div class="pc-setting-row__control"><button[^>]*>Verify control<\/button><\/div><\/div>/);
   expect(html).toContain('<div class="u3-setting-consent pc-stack pc-stack--compact">');
   expect(html).not.toMatch(/pc-setting-row__control(?:(?!<\/div>).)*u3-setting-consent/s);
+});
+// Moving the row off the settings grid dropped the cap that bounded this paragraph,
+// leaving the quota-spend disclosure to run the full width of the card. The class is the
+// only hook the component hands CSS, so the rule that caps it is pinned here.
+test("the cost disclosure keeps a readable measure",async()=>{
+  const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("unasked")} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("spend <strong>claude1</strong>'s quota");
+  expect(html).toContain('class="u3-setting-consent');
+  const css=await Bun.file(new URL("../app/src/screens/settings/settings.css",import.meta.url)).text();
+  expect(css).toMatch(/\.u3-settings \.u3-setting-consent\{[^}]*max-width:var\(--size-680\)/);
 });
 test("renders consent controls only when the consent operation is available",()=>{
   const props={reading:consentRunner("unasked"),canProbe:false,probing:null,onProbe:()=>{},onConsent:()=>{}};

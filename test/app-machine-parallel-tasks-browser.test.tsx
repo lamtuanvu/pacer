@@ -36,7 +36,7 @@ async function open(initial:Partial<Values>={}):Promise<Page>{
  return page;
 }
 const choice=(page:Page,group:string,name:string)=>page.getByRole('group',{name:group}).getByRole('button',{name});
-const field=(page:Page)=>page.getByLabel('Parallel tasks on this machine');
+const field=(page:Page)=>page.getByRole('spinbutton',{name:'Parallel tasks',exact:true});
 const save=(page:Page)=>page.getByRole('button',{name:'Save changes'});
 const error=(page:Page)=>page.getByText('Enter a whole number of at least 1.');
 const conflict=(page:Page)=>page.getByText('Your draft is preserved.',{exact:false});

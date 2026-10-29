@@ -70,7 +70,7 @@ export interface RunnerDeps {
   loadStrategy: (ctx: Ctx) => Strategy;
   computeStatus: (ctx: Ctx, s: Strategy, opts?: Parameters<typeof computeStatus>[2]) => Promise<Status>;
   runAttempt?: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
-  verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
+  verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"], timeoutMs?: number, pipefail?: boolean) => Promise<Verification>;
   hooks?: DecisionHooks;
   spawnRunner?: SpawnRunner;
 }
@@ -78,7 +78,7 @@ export interface RunnerDeps {
 const DEFAULTS: RunnerDeps = {
   loadStrategy,
   computeStatus,
-  verifyRepo: (repo, acceptance, env) => verifyRepo(repo, acceptance, env),
+  verifyRepo,
 };
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
@@ -623,7 +623,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
-      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, undefined, task.brief.pipefail);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;

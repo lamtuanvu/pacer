@@ -1,6 +1,10 @@
-export type IconName = "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info";
+export type IconName = "pause" | "play" | "close" | "lock" | "laptop" | "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "send" | "spark" | "attach" | "image" | "issue" | "repo" | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    pause: "M9 6v12 M15 6v12",
+    play: "M8 5l11 7-11 7z",
+    "send": "M12 19V5m-7 7 7-7 7 7",
+    "spark": "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
     "chevron-left": "M15 6l-6 6 6 6",
     "settings-plugins": "M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4",
     "settings-home": "M3 12l9-8 9 8M5 10v10h14V10",
@@ -28,11 +32,19 @@ export function Icon({ name }: { name: IconName }) {
     "end-session": "M9 4H3v16h6m6-13 5 5-5 5M8 12h12",
     "insights": "M4 3v18h17M8 16v-5m5 5V6m5 10V9",
     "dispatch": "m3 3 18 9-18 9 4-9zM7 12h14",
+    "attach": "M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8",
+    "image": "M3 4h18v16H3zM21 16l-5-5-9 9M9 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4",
+    "issue": "M6 3h9l3 3v15H6zM9 12h6M9 16h4",
+    "repo": "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
+    "close": "M6 6l12 12M18 6L6 18",
+    "chevron-down": "M6 9l6 6 6-6",
     "stack": "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5",
     "bolt": "M13 2 4 14h7l-1 8 9-12h-7l1-8z",
     "fork": "M4 12h6m0 0 6-6h4m-10 6 6 6h4m-10-6h10",
     "check-circle": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M8 12l3 3 5-6",
     "chevron-right": "m9 6 6 6-6 6",
+    "laptop": "M3 4h18v12H3zM2 20h20",
+    "lock": "M6 10h12v11H6zM8 10V6a4 4 0 0 1 8 0v4",
     "search": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14m9 16-4.5-4.5",
     "plugin": "M9 4H4v5a3 3 0 1 1 0 6v5h5a3 3 0 1 0 6 0h5v-5a3 3 0 1 0 0-6V4h-5a3 3 0 1 0-6 0z",
     sliders: "M4 6h6m4 0h6M4 12h10m4 0h2M4 18h2m4 0h10M10 3v6m4 0v6M6 15v6",

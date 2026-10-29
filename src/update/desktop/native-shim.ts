@@ -9,11 +9,16 @@ export const NATIVE_SHIM_ABI = 1;
 export const NATIVE_SHIM_SYMBOLS = {
   pacer_descriptor_flags:{args:[FFIType.i32],returns:FFIType.i32},
   pacer_native_transport_abi:{args:[],returns:FFIType.i32},
+  pacer_receive_listener:{args:[FFIType.i32],returns:FFIType.i32},
+  pacer_receive_helper_channel:{args:[FFIType.i32],returns:FFIType.i32},
+  pacer_receive_parent_channels:{args:[FFIType.i32,FFIType.ptr],returns:FFIType.i32},
+  pacer_acknowledge_parent:{args:[FFIType.i32],returns:FFIType.i32},
+  pacer_request_helper:{args:[FFIType.i32,FFIType.ptr,FFIType.u32,FFIType.ptr],returns:FFIType.i32},
 } as const;
 export function nativeShimLocation(executable:string):{path:string;app:string|null} {
   if(realpathSync(executable)!==executable)throw denied();
   const resources=dirname(executable),contents=dirname(resources),app=dirname(contents);
-  if(basename(executable)==="pacer"&&basename(resources)==="Resources"&&basename(contents)==="Contents"&&app.endsWith(".app"))return{path:join(contents,"Frameworks/libpacer-native.dylib"),app};
+  if(["pacer","pacer-core"].includes(basename(executable))&&basename(resources)==="Resources"&&basename(contents)==="Contents"&&app.endsWith(".app"))return{path:join(contents,"Frameworks/libpacer-native.dylib"),app};
   return{path:join(resources,"libpacer-native.dylib"),app:null};
 }
 export function loadNativeShim() {

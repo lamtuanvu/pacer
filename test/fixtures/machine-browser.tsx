@@ -1,7 +1,7 @@
 import { NotificationProvider } from '../../app/src/data/notification-context';
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
-import { MachineSection } from '../../app/src/screens/settings/General';
+import { MachineSection } from '../../app/src/screens/settings/Machines';
 import { TaskContext } from '../../app/src/screens/task-shared';
 import { ActionContext } from '../../app/src/data/action-context';
 import { createActionRunner } from '../../app/src/data/actions';

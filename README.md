@@ -32,8 +32,9 @@ A planner can spend its subscription too quickly while other coding agents have 
 ## Install
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag pacer
-into Applications. On first launch, approve it once as described in
+Choose the matching `desktop-pacer-<version>-darwin-<arch>.dmg`: `aarch64` for
+Apple silicon or `x86_64` for Intel. Open it and drag pacer into Applications.
+On first launch, approve it once as described in
 [macOS desktop app](#macos-desktop-app).
 
 Welcome leads to one consent screen for the background service and the terminal
@@ -41,6 +42,11 @@ link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
 `export PATH="$HOME/.local/bin:$PATH"` to your `~/.zshrc` or `~/.bashrc`; it is
 off by default. Continue to the step-by-step **Setup** to choose your planner,
 connect agents, choose an executor and try a task. The app includes its CLI.
+
+The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
+`pacer-core` (the bundled TypeScript runtime). Keep them together. The standalone
+CLI can repair a missing or mismatched companion from its verified own-version
+release; an incomplete desktop app must be replaced as a complete app.
 
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See
@@ -178,6 +184,8 @@ The app is served locally by the daemon and signs you in through a one-time link
 Use `pacer open sessions` to open a screen, `pacer open --print` to print the sign-in
 link, or `pacer open --logout` to sign out all browser sessions. See the
 [app guide](docs/app.md) for screens, security and troubleshooting.
+
+Agents settings lists executors in priority order. Use an executor's More actions button to edit Priority and Parallel tasks, then save the page draft; Takes work saves immediately. Narrow settings containers show labelled cards with all actions visible. The Add agent wizard wraps its steps above the form when space is limited and keeps your draft if you leave. Machines cards and rows adapt to their available width.
 
 ## Uninstall
 

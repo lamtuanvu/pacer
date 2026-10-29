@@ -8,7 +8,7 @@ import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
 import { AppLink } from "../navigation";
-import { routes } from "../router";
+import { pageOwnsTitle, routes } from "../router";
 import { Rail, settingsAttention } from "./Rail";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
@@ -27,6 +27,14 @@ import { AppFrame } from "./AppFrame";
 import { panelCommands, usePanelState } from "./panels";
 import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
+import { activeRepo } from "./narrow";
+
+/** The sheet loads after first paint so it stays out of the main bundle. Older services never load it. */
+function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | null; repoLabel: string | null; onNewTask: () => void }) {
+  const [View, setView] = useState<typeof import("./assistant/AssistantHost").default>();
+  useEffect(() => { void import("./assistant/AssistantHost").then(m => setView(() => m.default), () => undefined); }, []);
+  return View ? <View {...props} /> : null;
+}
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
@@ -127,11 +135,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     if (dockOpen) document.getElementById(DOCK_ID)?.focus();
     else { (opener.current?.isConnected ? opener.current : document.getElementById("main-content"))?.focus(); opener.current = null; }
   }, [dockOpen]);
+  const repo = activeRepo(route.query), repoLabel = state.snapshot?.repos?.find(r => r.key === repo)?.label ?? null;
+  const assistantAvailable = !!context && route.name !== "setup" && route.name !== "loading" && !state.sessionEnded && state.features.ops.has("assistant.status");
   if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && !(route.name === "settings" && (route.section === "plugins" || !!route.section?.startsWith("plugins/")))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+  // Dispatcher and the legacy Assistant screen still rely on the shell for their h1.
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={!pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "dispatcher" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
       ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
@@ -145,8 +156,9 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     left={settings || tasks}
     right={details}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
-    mainClass={`pc-main${!loading && !outdated && ["dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
+    mainClass={`pc-main${!loading && !outdated && ["new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
+    overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
   />{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;

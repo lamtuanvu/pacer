@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
 import { loadStrategy } from "../src/config/strategy";
 import { listTasks } from "../src/tasks/store";
+import { listWork, workTree } from "../src/dispatch/work";
 import { taskStatus, taskStop } from "../src/tasks/api";
 import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
@@ -64,6 +65,16 @@ test("the rust front door runs the Rust binary and points it at the checkout cor
   expect(pacerArgv({})).toEqual(core);
   expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
   expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("native OTA source ownership follows the selected service executable", () => {
+  const rust = join(import.meta.dir, "..", "target", "debug", "pacer");
+  const canonicalize = (path: string) => path;
+  expect(sourceServiceMatchesExecutable(rust, { frontDoor: "rust" }, canonicalize)).toBe(true);
+  expect(sourceServiceMatchesExecutable(process.execPath, { frontDoor: "rust" }, canonicalize)).toBe(false);
+  expect(sourceServiceMatchesExecutable(process.execPath, {}, canonicalize)).toBe(true);
+  expect(sourceServiceMatchesExecutable(rust, {}, canonicalize)).toBe(false);
+  expect(sourceServiceMatchesExecutable(null, { frontDoor: "rust" }, canonicalize)).toBe(false);
 });
 
 test("up refuses an unknown front door before creating a sandbox", async () => {
@@ -325,17 +336,30 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
     return { code: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
   } });
   const tasks = listTasks(ctx, Infinity);
-  expect(tasks).toHaveLength(5);
+  expect(tasks).toHaveLength(7);
   for (const task of tasks) expect((await resolveRepoInput(ctx, task.repo!.key)).path).toBe(task.repo!.path);
   expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
   expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);
-  expect(tasks.filter(task => task.review?.accepted)).toHaveLength(1);
+  expect(tasks.filter(task => task.review?.accepted)).toHaveLength(2); // the sample accepted task and the accepted subtask
   const failed = tasks.find(task => task.state === "failed")!;
   expect(existsSync(failed.worktree!)).toBe(false);
-  const running = tasks.find(task => task.state === "running")!;
-  expect(running.childPid).toBeUndefined();
-  expect(running.run).toBeUndefined();
-  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id)?.state).toBe("running");
+  const runningTasks = tasks.filter(task => task.state === "running");
+  expect(runningTasks).toHaveLength(2);
+  for (const task of runningTasks) {
+    expect(task.childPid).toBeUndefined();
+    expect(task.run).toBeUndefined();
+    expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, task.id)?.state).toBe("running");
+  }
+  // The running sample is a work-tree root: one settled subtask with measured tokens, one still running.
+  const roots = listWork(ctx, { relation: "roots" }).tasks;
+  expect(roots).toHaveLength(1);
+  const running = tasks.find(task => task.id === roots[0]!.id)!;
+  expect(running.state).toBe("running");
+  const tree = workTree(ctx, running.id);
+  expect(tree.nodes.map(node => node.state).sort()).toEqual(["done", "running", "running"]);
+  expect(tree.totals.running).toBe(2);
+  expect(tree.totals.tokens.total).toBe(11_963);
+  expect(tree.totals.tokens.measuredAttempts).toBe(1);
 
   const status = await computeStatus(ctx, loadStrategy(ctx));
   expect(status.accounts).toHaveLength(2);
@@ -348,7 +372,7 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   const { snapshot } = await response.json();
   expect(snapshot.setup.complete).toBe(true);
   expect(snapshot.setup.ready).toBe(true);
-  expect(snapshot.tasks).toHaveLength(5);
+  expect(snapshot.tasks).toHaveLength(7);
   expect(snapshot.attention.some((item: {kind: string}) => item.kind === "review")).toBe(true);
   for (const task of tasks) {
     const detail = await handleV2(new Request("http://127.0.0.1/v3/ops/task.get", { method: "POST", body: JSON.stringify({ id: task.id }) }), { getCtx: () => ctx });
@@ -385,7 +409,7 @@ test.skipIf(!canBind)("seeded service exposes setup-complete snapshots and task 
     const { snapshot } = await response.json();
     expect(snapshot.setup.complete).toBe(true);
     expect(snapshot.setup.ready).toBe(true);
-    expect(snapshot.tasks).toHaveLength(5);
+    expect(snapshot.tasks).toHaveLength(7);
     expect(snapshot.tasks.some((task: {state: string}) => task.state === "running")).toBe(true);
     expect(snapshot.accounts).toHaveLength(2);
     expect(snapshot.attention.length).toBeGreaterThan(0);

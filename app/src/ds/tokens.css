@@ -48,6 +48,7 @@
   --aurora-2: #f0abfc;
   --aurora-3: #99f6e4;
   --ink-on-fill: #ffffff;
+  --shadow-tray-menu-tint: rgb(9 9 11 / .16);
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -98,6 +99,21 @@
   --type-plugin-section-line: 12px;
   --type-plugin-section-weight: 600;
   --type-plugin-section-tracking: 0.04em;
+  --type-tray-count-size: 20px;
+  --type-tray-count-line: 26px;
+  --type-tray-count-weight: 650;
+  --type-composer-agent-size: 18px;
+  --type-composer-agent-line: 24px;
+  --type-composer-agent-weight: 650;
+  --type-composer-request-size: 14px;
+  --type-composer-request-line: 21px;
+  --type-composer-request-weight: 400;
+  --type-sheet-title-size: 17px;
+  --type-sheet-title-line: 22px;
+  --type-sheet-title-weight: 650;
+  --type-sheet-body-size: 14px;
+  --type-sheet-body-line: 20px;
+  --type-sheet-body-weight: 400;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;
@@ -123,6 +139,10 @@
   --radius-5: 5px;
   --radius-2: 2px;
   --radius-7: 7px;
+  --radius-key: 4px;
+  --radius-tile: 7px;
+  --radius-agents: 10px;
+  --radius-machine-tile: 9px;
   --control-compact: 28px;
   --control-settings: 32px;
   --control-normal: 44px;
@@ -210,8 +230,19 @@
   --size-140: 140px;
   --size-110: 110px;
   --size-9: 9px;
+  --size-236: 236px;
+  --size-76: 76px;
+  --size-90: 90px;
+  --size-860: 860px;
+  --size-400: 400px;
+  --size-150: 150px;
+  --size-130: 130px;
+  --size-160: 160px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
+  --shadow-tray-menu: 0 8px 24px var(--shadow-tray-menu-tint);
+  --shadow-agent-failure: inset 0 0 0 1px var(--bad-line);
+  --shadow-choice-selected: 0 0 0 1px var(--ink);
   --layer-base: 1;
   --layer-sticky: 5;
   --layer-overlay: 10;
@@ -271,6 +302,7 @@
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
   --ink-on-fill: #18181b;
+  --shadow-tray-menu-tint: rgb(0 0 0 / .55);
 }
 }
 :root[data-theme="dark"] {
@@ -321,4 +353,5 @@
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
   --ink-on-fill: #18181b;
+  --shadow-tray-menu-tint: rgb(0 0 0 / .55);
 }

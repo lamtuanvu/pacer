@@ -243,7 +243,7 @@ export class Dashboard {
         params = { ...params, expect_rev: current.rev };
       }
       const result = await this.deps.client.call<Record<string, unknown> | null>(action.op, params);
-      this.report(successCopy(action, result), "good");
+      this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
       if (action.op === "task.review") this.afterReview(String(action.params.id));
     } catch (error) {
       if (error instanceof ApiError && error.code === "conflict" && action.op === "task.review") this.report("Another client already reviewed this task.", "warn");

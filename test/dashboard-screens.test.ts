@@ -557,3 +557,28 @@ describe("Settings › This machine in the TUI", () => {
     expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state })).toContain("memory pressure unavailable");
   });
 });
+
+test("Settings › This machine toggles the task backend with ← →", () => {
+  const s = snapshot(), state = { screen: "settings" as const, section: "machine", focus: "detail" as const };
+  expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state })).toMatch(/Task backend\s+‹ Direct ›/);
+  const item = screenItems(s, s.at, { data: data(), state }).find(i => i.id === "setting:backend")!;
+  for (const key of ["left", "right"]) expect(item.keys[key]?.effect).toMatchObject({ type: "action", action: { op: "config.set", params: { key: "execution.backend", value: "orca" } } });
+  const d = data();
+  (d.settings!.config!.value!.keys as Record<string, unknown>)["execution.backend"] = { value: "orca", source: "strategy.yaml" };
+  expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state })).toMatch(/Task backend\s+‹ Orca ›/);
+  expect(screenItems(s, s.at, { data: d, state }).find(i => i.id === "setting:backend")!.keys.right?.effect).toMatchObject({ action: { params: { value: "direct" } } });
+});
+
+test("Settings › This machine shows a PACER_BACKEND override and offers no toggle", () => {
+  const s = snapshot(), state = { screen: "settings" as const, section: "machine", focus: "detail" as const }, d = data();
+  (d.settings!.config!.value!.keys as Record<string, unknown>)["execution.backend"] = { value: "direct", source: "env PACER_BACKEND" };
+  expect(screenItems(s, s.at, { data: d, state }).find(i => i.id === "setting:backend")!.keys).toEqual({});
+  for (const [width, height] of [[120, 40], [80, 24]] as const) {
+    const text = renderDashboard(s, width, height, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state });
+    bounded(text, width, height);
+    expect(text.replace(/\s+/g, " ")).toContain("Task backend ‹ Direct › Set by PACER_BACKEND");
+    // The wrapped help may share a line with a section name in the left column.
+    expect(text.replace(/[\s│]+/g, " ")).toMatch(/Unset (?:\w+ )?PACER_BACKEND to change it here\./);
+    expect(text).toMatchSnapshot();
+  }
+});

@@ -1,4 +1,4 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -84,6 +84,9 @@ export function loadSession(id?: string, base = liveRoot): Session {
 /** The checkout CLI the sandbox runs: the TypeScript core, or the Rust front door in front of it. */
 export function pacerArgv(session: Pick<Session, "frontDoor">): string[] {
   return session.frontDoor === "rust" ? [join(checkout, "target/debug/pacer")] : [process.execPath, join(checkout, "src/cli.ts")];
+}
+export function sourceServiceMatchesExecutable(observed: string | null, session: Pick<Session, "frontDoor">, canonicalize: (path: string) => string = realpathSync): boolean {
+  return observed !== null && observed === canonicalize(pacerArgv(session)[0]);
 }
 export function validateFrontDoor(frontDoor: string | undefined): void {
   if (frontDoor !== undefined && frontDoor !== "rust") throw Error(`Unknown front door: ${frontDoor} (expected rust)`);
