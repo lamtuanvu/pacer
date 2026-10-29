@@ -467,6 +467,17 @@ Every pacer home has a machine identity: a long-lived key, an id derived from it
 
 The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Through the API, executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
 
+## Discovery
+
+pacer machines on the same local network can notice each other and offer to pair. Names and versions they announce are unverified.
+
+- `pacer discovery ls [--json]` shows whether this machine is advertised on the current network, under which name, and the pacer machines found (`<id prefix>  <name>  <version>`, marked `silenced` when you answered Later or Ignore).
+- `pacer discovery pair|later|ignore <id-prefix>` answers a found machine. The prefix must match exactly one machine; otherwise the command exits 2. `pair` hands the machine to a plugin that provides pairing, or says that none is installed. `later` silences it for 7 days and `ignore` permanently.
+- `pacer discovery mute-network` stops prompts on the current network.
+- `pacer discovery network [--advertise on|off] [--json]` lists the networks you answered for, marking the current one with `*`, or sets whether this machine is advertised on the current network. It exits 2 when the current network is unknown.
+
+`pacer config set discovery off` turns listening and advertising off. The API equivalents are `discovery.list`, `discovery.respond { discoveryId, action }`, `discovery.network.get` and `discovery.network.set { network, advertise?, muted?, resetId?, expect_rev }`. Executor sessions may read but not call `discovery.respond` or `discovery.network.set`.
+
 ## Pause and resume delegation
 
 Set `PACER=off` for a session (for example, `PACER=off claude`) to disable

@@ -152,7 +152,9 @@ Executor questions settle tasks as `needs_input` (label: Needs your answer). `ta
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify` and `machine`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify`, `machine` and `discovery.found`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`, `discovery`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+
+The `discovery.found` event carries `{ discoveryId, name, version }` once for each machine on the LAN that a prompt was taken for (at most three an hour). `name` and `version` are sanitized but unverified; show them as such and never build URLs or commands from them. A `discovery` attention item (Pair, Later) and, while the current network is unanswered, a `discovery-network` item (Allow, Not on this network) accompany it in the snapshot. `discovery.*` operations, this event, the `discovery` config area and these attention items are not sent to v2 clients.
 
 The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
@@ -1869,6 +1871,7 @@ Params JSON Schema:
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
+        "discovery",
         "terminal.app",
         "terminal.open"
       ]
@@ -2426,6 +2429,107 @@ Params JSON Schema:
   },
   "required": [
     "installationId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `discovery.list`
+
+LAN discovery status on the current network and the pacer machines seen there. Names and versions are unverified. network.name is the machine name this machine advertises.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `discovery.network.get`
+
+Per-network advertising answers, with a revision for discovery.network.set and the current network's key.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `discovery.network.set`
+
+Allow or stop advertising this machine on a network, mute its prompts, or reset its discovery id. Needs the current revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "network": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "advertise": {
+      "type": "boolean"
+    },
+    "muted": {
+      "type": "boolean"
+    },
+    "resetId": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "network",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `discovery.respond`
+
+Answer a found-machine prompt: pair (hands over to a pairing plugin if one is installed), later (silence for 7 days), ignore (permanently) or mute-network (no more prompts on that machine's network).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "discoveryId": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "pair",
+        "later",
+        "ignore",
+        "mute-network"
+      ]
+    }
+  },
+  "required": [
+    "discoveryId",
+    "action"
   ],
   "additionalProperties": false
 }

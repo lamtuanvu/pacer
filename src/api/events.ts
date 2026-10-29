@@ -1,4 +1,4 @@
-import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, type CompatEvent } from "./v2-compat";
+import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, v3OnlyEvent, type CompatEvent } from "./v2-compat";
 import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
@@ -111,7 +111,7 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
    const a=e.data as import('../link/envelope').AlertData;
    event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#/'}};
   } else event={...e,seq,type:e.type};
-  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"?null:e});
+  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"||v3OnlyEvent(e)?null:e});
   return event;
  });
  if(protocol===2)return {...batch,events:converted.map(toV2Event).filter(e=>e!==null)};

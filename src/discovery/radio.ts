@@ -1,4 +1,5 @@
 import type { Ctx } from "../types";
+import { publish } from "../link/publish";
 import { discoveryEnabled } from "../core/config";
 import { ensureIdentity } from "../identity/store";
 import { currentVersion } from "../update/version";
@@ -17,7 +18,10 @@ const MAX_BATCH = 64;
 const DISCARD_PORT = 9;
 
 let lastContact: number | null = null;
-export function resetRadioForTests(): void { lastContact = null; }
+let lastNetwork: NetworkInfo | null = null;
+export function resetRadioForTests(): void { lastContact = null; lastNetwork = null; }
+/** The network the radio last pulled its config on. */
+export function radioNetwork(): NetworkInfo | null { return lastNetwork; }
 /** The radio counts as available when it pulled its config within the last 30 s. */
 export function radioStatus(): { available: boolean; lastContact: number | null } {
   return { available: lastContact !== null && Date.now() / 1000 - lastContact < 30, lastContact };
@@ -25,8 +29,9 @@ export function radioStatus(): { available: boolean; lastContact: number | null 
 
 export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo | null; hintsFor?: () => PairingHints | null } = {}): Promise<RadioConfig> {
   lastContact = Date.now() / 1000;
-  if (!discoveryEnabled(ctx)) return { rev: readState(ctx).rev, enabled: false, listen: false, advertise: null };
+  if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, advertise: null }; }
   const network = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
+  lastNetwork = network;
   if (!network) return { rev: readState(ctx).rev, enabled: true, listen: true, advertise: null };
   let s = readState(ctx);
   if (!s.networks[network.key] && !ctx.readOnly) s = await updateState(ctx, st => { ensureNetwork(st, network.key, network.label); });
@@ -48,7 +53,7 @@ export async function recordObservations(ctx: Ctx, batch: Observation[], deps: {
   const network = deps.network ?? null;
   const prompted: string[] = [];
   let accepted = 0;
-  await updateState(ctx, s => {
+  const s = await updateState(ctx, s => {
     const own = new Set(Object.values(s.networks).map(n => n.discoveryId));
     const muted = network ? s.networks[network.key]?.muted === true : false;
     for (const o of batch.slice(0, MAX_BATCH)) {
@@ -64,5 +69,6 @@ export async function recordObservations(ctx: Ctx, batch: Observation[], deps: {
       if (!prev && !muted && !isSilenced(s, id, now) && takePrompt(s, now)) { seen.promptedAt = now; prompted.push(id); }
     }
   });
+  if (prompted.length) await publish(ctx, prompted.map(id => ({ type: "discovery.found" as const, data: { discoveryId: id, name: s.seen[id].name, version: s.seen[id].version } })));
   return { accepted, prompted };
 }

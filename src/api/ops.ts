@@ -44,6 +44,7 @@ import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
+import { discoveryOps } from "./ops-discovery";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -219,7 +220,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps,
+ ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),

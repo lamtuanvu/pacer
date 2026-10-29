@@ -29,6 +29,7 @@ export function v2Hello() {
 for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
+for (const op of ["discovery.list", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
 
@@ -42,7 +43,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const attention=sortItems(s.attention.flatMap(a=>{
-  if(a.id==="setup:connect")return [];
+  if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
   if(!item)return [a]; // Plugin reload notices are independent of the checklist.
@@ -56,12 +57,18 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
+/** LAN discovery is v3-only: its event, its config area and its attention items never reach v2 clients. */
+export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
+ const d=e.data as {area?:unknown;id?:unknown}|null;
+ return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id);
+}
+const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine')return null;
- // The machine operations are v3-only, so v2 clients have no area to refetch.
- if(e.type==='config'&&(e.data as {area?:unknown}|null)?.area==='machine')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='discovery.found')return null;
+ // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
+ if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,
