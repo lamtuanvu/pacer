@@ -522,7 +522,7 @@ fn same_inode(a: &File, b: &File) -> Result<(), OtaError> {
     let b = b.metadata().map_err(|_| OtaError::Io)?;
     invalid(a.dev() == b.dev() && a.ino() == b.ino())
 }
-pub(crate) fn random_id() -> Result<String, OtaError> {
+pub fn random_id() -> Result<String, OtaError> {
     let mut bytes = [0_u8; 32];
     File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut bytes))

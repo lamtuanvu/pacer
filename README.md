@@ -48,6 +48,10 @@ The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
 CLI can repair a missing or mismatched companion from its verified own-version
 release; an incomplete desktop app must be replaced as a complete app.
 
+Copying a source build into `~/.local/bin/pacer` replaces the desktop app's
+terminal command. Use a sandboxed `PACER_HOME` and a separate `PACER_PORT` for
+development builds.
+
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See
 [installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates

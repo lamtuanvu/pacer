@@ -1,7 +1,7 @@
 import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
-import { readFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { DarwinAuthority, type NativeProcess } from "../../src/update/desktop/native-os";
@@ -24,11 +24,12 @@ export function validateFixtureIdentity(state: OtaRecord, value: unknown, role: 
 }
 /** The lease's only external service program; Desktop sees it as attached. */
 export const fixtureExternalCli = (state: Pick<OtaRecord, "root">) => join(state.root, "external/pacer");
+export const fixtureTakeoverCli = (state: Pick<OtaRecord, "pacerHome">) => join(state.pacerHome, ".local/bin/pacer");
 /** Ownership follows the exact registered program: the bundled CLI is managed, the lease's external CLI is attached. */
 export function fixtureInstallation(state: OtaRecord, observed: unknown, version: string, ownership?: Installation["ownership"]): Installation {
   const report = jobsSchema.parse(observed), service = report.jobs.find(job => job.label === state.serviceLabel);
   const bundled = join(state.currentApp, "Contents/Resources/pacer"), external = fixtureExternalCli(state);
-  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
+  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external && service.executable !== fixtureTakeoverCli(state)) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
   const actual = service.executable === bundled ? "managed" as const : "attached" as const;
   if (ownership && ownership !== actual) throw Error(`Fixture service is ${actual}, not ${ownership}`);
   const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
@@ -111,6 +112,25 @@ export async function attachFixtureService(state: OtaRecord): Promise<FixtureJob
   validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", initialFixtureVersion(state));
   const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach"])));
   if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel || report.jobs[1].label !== state.recoveryLabel) throw Error("Fixture attach returned foreign jobs");
+  return report;
+}
+
+export async function attachFixtureTakeover(state: OtaRecord): Promise<FixtureJobs> {
+  if (!state.nativeFixture?.signingCertSha1) throw Error("Takeover requires a certificate-pinned fixture lease");
+  knownFixtureBytes(state);
+  const link = fixtureTakeoverCli(state), bin = join(state.pacerHome, ".local/bin");
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  if (lstatExists(link)) throw Error("Takeover command path already exists");
+  // The candidate reports a different version than the baseline desktop. The
+  // takeover page must therefore win over the ordinary version gate.
+  const staged = join(state.root, "external/takeover-pacer");
+  const entry = state.external.find(file => file.path === staged);
+  if (!entry || createHash("sha256").update(readFileSync(staged)).digest("hex") !== entry.sha256) throw Error("Takeover CLI differs from immutable lease");
+  copyFileSync(staged, link, constants.COPYFILE_EXCL);
+  await run(state, ["/usr/bin/codesign", "--verify", "--strict", link]);
+  const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
+  const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach-takeover"])));
+  if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel) throw Error("Takeover attach returned foreign jobs");
   return report;
 }
 

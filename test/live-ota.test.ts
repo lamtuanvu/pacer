@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as childProcess from "node:child_process";
 import { tmpDir } from "./helpers";
 import { atomicWrite, readEvidence, saveSession, type Session } from "../scripts/live/core";
@@ -233,11 +233,12 @@ test("native build reserves exact immutable intent before compilation and finali
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
     writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
     writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
+    writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
   }
   const archive = Buffer.from("fixture archive"), feed = Buffer.from("fixture feed");
   finishOtaBuild(f.session.id, { archive, feed }, f.options);
   const staged = readOtaRecord(f.session.id, f.options);
-  expect(staged.external.map(file => file.path)).toEqual([join(staged.root, "external/pacer"), join(staged.root, "external/libpacer-native.dylib")]);
+  expect(staged.external.map(file => file.path)).toEqual([join(staged.root, "external/pacer"), join(staged.root, "external/libpacer-native.dylib"), join(staged.root, "external/takeover-pacer-alt"), join(staged.root, "external/takeover-pacer")]);
   writeFileSync(join(staged.root, "external/extra"), "unrecorded");
   expect(() => readOtaRecord(f.session.id, f.options)).toThrow();
   rmSync(join(staged.root, "external/extra"));
@@ -328,6 +329,7 @@ test("driver ledger CAS preserves native transaction consumption and rejects ano
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
     writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
     writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
+    writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
   }
   finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
   const initial = readOtaRecord(f.session.id, f.options), driver = ownProcessIdentity()!;
@@ -351,6 +353,7 @@ test("fixed cleanup diagnostic ledger binds files once without launching process
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
     writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
     writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
+    writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
   }
   finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
   const initial = readOtaRecord(f.session.id, f.options), path = join(initial.root, "record.json");
@@ -398,6 +401,7 @@ test("paired initial layout fixes current to candidate and external to immutable
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture " + index);
     writeFileSync(join(source.path, "Contents/Resources/pacer"), "cli " + index);
     writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "shim " + index);
+    writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
   }
   finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
   const ready = readOtaRecord(f.session.id, f.options);

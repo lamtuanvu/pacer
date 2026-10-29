@@ -657,6 +657,14 @@ impl AdoptionStore {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[test]
+    fn takeover_manifest_is_not_adoption() {
+        let bytes = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/desktop-update/takeover-manifest.json"));
+        assert!(serde_json::from_slice::<AdoptionManifest>(bytes).is_err());
+        let mut adoption = manifest();
+        adoption.transaction_kind = "takeover".into();
+        assert_eq!(validate_manifest(&adoption), Err(OtaError::Invalid));
+    }
     pub fn manifest() -> AdoptionManifest {
         let mut old = crate::ota::journal::tests::manifest();
         old.recovery_job.helper.relative_path = "pacer-update-helper".into();

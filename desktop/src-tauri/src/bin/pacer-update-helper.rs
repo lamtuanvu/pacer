@@ -17,7 +17,9 @@ fn main() {
         #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
         Some("--ota-fixture-inspect")
         | Some("--ota-fixture-retire")
-        | Some("--ota-fixture-attach") => {
+        | Some("--ota-fixture-attach")
+        | Some("--ota-fixture-attach-takeover")
+        | Some("--ota-fixture-refresh-takeover") => {
             let result = (|| {
                 if std::env::args().len() != 2 {
                     return Err(pacer_desktop::ota::OtaError::Invalid);
@@ -27,9 +29,14 @@ fn main() {
                     .build()
                     .map_err(|_| pacer_desktop::ota::OtaError::Unavailable)?;
                 match std::env::args().nth(1).as_deref() {
-                    Some("--ota-fixture-attach") => {
-                        runtime.block_on(pacer_desktop::ota::helper::fixture_attach())
+                    Some("--ota-fixture-attach") | Some("--ota-fixture-attach-takeover") => {
+                        runtime.block_on(pacer_desktop::ota::helper::fixture_attach(
+                            std::env::args().nth(1).as_deref() == Some("--ota-fixture-attach-takeover"),
+                        ))
                     }
+                    Some("--ota-fixture-refresh-takeover") => runtime.block_on(
+                        pacer_desktop::ota::helper::fixture_refresh_takeover(),
+                    ),
                     mode => runtime.block_on(pacer_desktop::ota::helper::fixture_jobs(
                         mode == Some("--ota-fixture-retire"),
                     )),
@@ -44,6 +51,8 @@ fn main() {
             }
         }
         Some("--ota-pipe")
+        | Some("--ota-takeover")
+        | Some("--ota-recover-takeover")
         | Some("--ota-recover")
         | Some("--ota-recover-adoption")
         | Some("--pacer-helper-runtime-test") => {
@@ -60,18 +69,38 @@ fn main() {
 }
 
 #[cfg(any(target_os = "macos", test))]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum NativeMode {
     Pipe,
     RuntimeTest,
     UpdateRecovery(String, String),
     AdoptionRecovery(String, String),
+    Takeover,
+    TakeoverRecovery(String),
+}
+
+/// A takeover recovery that found its transaction locked by a running helper
+/// or recovery job changed nothing; the desktop waits and may run it again.
+#[cfg(any(target_os = "macos", test))]
+const BUSY_EXIT: i32 = 75;
+
+#[cfg(any(target_os = "macos", test))]
+fn native_exit_code(mode: &NativeMode, result: &Result<(), pacer_desktop::ota::OtaError>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(pacer_desktop::ota::OtaError::Busy) if matches!(mode, NativeMode::TakeoverRecovery(_)) => BUSY_EXIT,
+        Err(_) => 1,
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn native_mode(arguments: &[String]) -> Result<NativeMode, pacer_desktop::ota::OtaError> {
     match arguments {
         [mode] if mode == "--ota-pipe" => Ok(NativeMode::Pipe),
+        [mode] if mode == "--ota-takeover" => Ok(NativeMode::Takeover),
+        [mode, tx] if mode == "--ota-recover-takeover" => {
+            Ok(NativeMode::TakeoverRecovery(tx.clone()))
+        }
         [mode] if mode == "--pacer-helper-runtime-test" => Ok(NativeMode::RuntimeTest),
         [mode, id, tx] if mode == "--ota-recover" => {
             Ok(NativeMode::UpdateRecovery(id.clone(), tx.clone()))
@@ -86,6 +115,15 @@ fn native_mode(arguments: &[String]) -> Result<NativeMode, pacer_desktop::ota::O
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn busy_takeover_recovery_exits_with_a_temporary_failure() {
+        use pacer_desktop::ota::OtaError;
+        let recovery = NativeMode::TakeoverRecovery("tx".into());
+        assert_eq!(native_exit_code(&recovery, &Ok(())), 0);
+        assert_eq!(native_exit_code(&recovery, &Err(OtaError::Busy)), BUSY_EXIT);
+        assert_eq!(native_exit_code(&recovery, &Err(OtaError::Identity)), 1);
+        assert_eq!(native_exit_code(&NativeMode::Takeover, &Err(OtaError::Busy)), 1);
+    }
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| (*v).into()).collect()
     }
@@ -131,6 +169,14 @@ mod tests {
     fn native_mode_keeps_service_recovery_separate_and_rejects_extra_arguments() {
         assert_eq!(native_mode(&args(&["--ota-pipe"])), Ok(NativeMode::Pipe));
         assert_eq!(
+            native_mode(&args(&["--ota-takeover"])),
+            Ok(NativeMode::Takeover)
+        );
+        assert_eq!(
+            native_mode(&args(&["--ota-recover-takeover", "transaction"])),
+            Ok(NativeMode::TakeoverRecovery("transaction".into()))
+        );
+        assert_eq!(
             native_mode(&args(&["--pacer-helper-runtime-test"])),
             Ok(NativeMode::RuntimeTest)
         );
@@ -158,6 +204,9 @@ mod tests {
             vec!["--ota-recover"],
             vec!["--ota-recover-adoption", "id"],
             vec!["--ota-recover-adoption", "id", "tx", "extra"],
+            vec!["--ota-takeover", "extra"],
+            vec!["--ota-recover-takeover"],
+            vec!["--ota-recover-takeover", "tx", "extra"],
             vec!["--other"],
         ] {
             assert!(native_mode(&args(&values)).is_err());
@@ -226,6 +275,7 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                 }
                 let handle = handle.clone();
                 std::thread::spawn(move || {
+                    let exit_mode = mode.clone();
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let runtime = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -240,6 +290,8 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                                 NativeMode::AdoptionRecovery(id, tx) => {
                                     helper::run_adoption_recovery(trust, &id, &tx).await
                                 }
+                                NativeMode::Takeover => pacer_desktop::ota::helper_takeover::run_takeover(trust),
+                                NativeMode::TakeoverRecovery(tx) => pacer_desktop::ota::helper_takeover::run_recovery(trust, &tx),
                                 NativeMode::Pipe => {
                                     helper::run_pipe(
                                         &handle,
@@ -256,7 +308,7 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                     if let Err(error) = &result {
                         eprintln!("{error}");
                     }
-                    handle.exit(if result.is_ok() { 0 } else { 1 });
+                    handle.exit(native_exit_code(&exit_mode, &result));
                 });
             }
         }

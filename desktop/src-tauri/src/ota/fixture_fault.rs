@@ -17,6 +17,8 @@ pub enum Point {
     Restore,
     CandidateStartup,
     AdoptionStartup,
+    TakeoverStartup,
+    TakeoverSwitch,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -29,6 +31,11 @@ enum Scenario {
     Adopt,
     AdoptFailure,
     Attached,
+    Takeover,
+    TakeoverRelink,
+    TakeoverDismiss,
+    TakeoverFailure,
+    TakeoverCrash,
 }
 impl Scenario {
     fn points(self) -> &'static [Point] {
@@ -40,6 +47,9 @@ impl Scenario {
             Self::RestoreFailure => &[Point::CandidateStartup, Point::Restore],
             Self::Adopt | Self::Attached => &[],
             Self::AdoptFailure => &[Point::AdoptionStartup],
+            Self::Takeover | Self::TakeoverRelink | Self::TakeoverDismiss => &[],
+            Self::TakeoverFailure => &[Point::TakeoverStartup],
+            Self::TakeoverCrash => &[Point::TakeoverSwitch],
         }
     }
 }
@@ -124,6 +134,18 @@ pub fn consume(
                 .is_some_and(|details| details.uid == policy.uid && details.identity == *driver))
         },
     )
+}
+
+#[cfg(feature = "ota-fixture")]
+pub fn consume_takeover(point: Point, transaction_id: &str) -> Result<bool, OtaError> {
+    let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
+    let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    let record: serde_json::Value = serde_json::from_slice(
+        &PrivateDir::open(&policy.root)?.read("record.json", 65_536)?,
+    ).map_err(|_| OtaError::Invalid)?;
+    let installation = record["exercise"]["installationId"].as_str().ok_or(OtaError::Identity)?;
+    consume(point, installation, transaction_id)
 }
 fn consume_bound(
     policy: &FixturePolicy,

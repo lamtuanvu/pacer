@@ -350,6 +350,28 @@ pub fn match_readiness(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_open_reports_a_closed_peer_without_consuming_data() {
+        use std::io::{Read, Write};
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        assert!(channel_open(&ours));
+        theirs.write_all(b"x").unwrap();
+        assert!(channel_open(&ours));
+        let mut byte = [0u8; 1];
+        (&ours).read_exact(&mut byte).unwrap();
+        assert_eq!(&byte, b"x");
+        drop(theirs);
+        assert!(!channel_open(&ours));
+    }
+
+    #[test]
+    fn takeover_registration_uses_the_inspection_registration_directory() {
+        let home = Path::new("/fixture/home");
+        let fixture = Path::new("/fixture/ota/registrations");
+        assert_eq!(service_registration_path(home, "com.pacer.live.test.service", Some(fixture)), fixture.join("com.pacer.live.test.service.plist"));
+        assert_eq!(service_registration_path(home, "com.pacer.serve", None), home.join("Library/LaunchAgents/com.pacer.serve.plist"));
+    }
     #[test]
     fn handshake_retries_only_transient_refusals_within_its_deadline() {
         let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -932,6 +954,28 @@ fn authenticate_service_adoption_until(
     }
     Ok((stream, session))
 }
+/// An authenticated helper channel to a service, with no request sent. The
+/// takeover helper holds it as proof of the bundled service's native endpoint.
+pub fn authenticate_helper(
+    endpoint: &ServiceEndpoint<'_>,
+    trust: &ReleaseTrust,
+) -> Result<UnixStream, OtaError> {
+    authenticate_service(endpoint, trust, "helper", None).map(|(stream, _)| stream)
+}
+/// Whether the service still holds an authenticated channel open.
+pub fn channel_open(stream: &UnixStream) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut byte = 0u8;
+    let read = unsafe {
+        libc::recv(
+            stream.as_raw_fd(),
+            (&mut byte as *mut u8).cast(),
+            1,
+            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+        )
+    };
+    read > 0 || read < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock
+}
 /// A helper's stdin target is descriptive only; this authenticated context is the
 /// service's independently observed authority. Recovery returns recorded context.
 pub fn helper_session(
@@ -1071,7 +1115,7 @@ pub fn observe_launch(
     Ok(observed)
 }
 
-fn parse_registration(
+pub(crate) fn parse_registration(
     bytes: &[u8],
     user_home: &Path,
     home: &Path,
@@ -1165,7 +1209,7 @@ pub fn inspect_registered_service(
 
 /// Read-only native ownership observations. These are not a verified endpoint or OTA authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ObservedServiceRegistration {
+pub struct ObservedServiceRegistration {
     pub home: std::path::PathBuf,
     pub port: u16,
     pub process: ProcessIdentity,
@@ -1174,7 +1218,13 @@ pub(crate) struct ObservedServiceRegistration {
     pub label: String,
 }
 
-pub(crate) fn observe_service_registration(
+fn service_registration_path(user_home: &Path, label: &str, fixture_root: Option<&Path>) -> PathBuf {
+    let directory = fixture_root.map(Path::to_path_buf)
+        .unwrap_or_else(|| user_home.join("Library/LaunchAgents"));
+    directory.join(format!("{label}.plist"))
+}
+
+pub fn observe_service_registration(
     user_home: &Path,
     home: &Path,
     port: u16,
@@ -1192,16 +1242,8 @@ pub(crate) fn observe_service_registration(
     } else {
         "com.pacer.serve"
     };
-    let path = if let Some(policy) = trust.fixture_policy() {
-        policy
-            .root
-            .join("registrations")
-            .join(format!("{label}.plist"))
-    } else {
-        user_home
-            .join("Library/LaunchAgents")
-            .join(format!("{label}.plist"))
-    };
+    let fixture_registration_dir = trust.fixture_policy().map(|policy| policy.root.join("registrations"));
+    let path = service_registration_path(&user_home, label, fixture_registration_dir.as_deref());
     if path.canonicalize().map_err(|_| OtaError::Identity)? != path {
         return Err(OtaError::Identity);
     }

@@ -70,6 +70,38 @@ export PATH="$HOME/.local/bin:$PATH"
       <pre><code>pacer service uninstall</code></pre>
       <p class="note">To keep the other service instead, quit this app and use pacer from a terminal.</p>
     </section>
+    <!-- Explicit tabindex: WebKit skips buttons and checkboxes on Tab unless Full Keyboard Access is on. -->
+    <section id="takeover" hidden aria-label="Service replacement">
+      <p>Another build replaced the app's pacer service. pacer can't verify that build, so automatic updates are paused. You can switch the service back to the app's own copy.</p>
+      <p class="callout-warn"><strong>Warning:</strong> pacer cannot confirm this build is idle. Running work may be interrupted.</p>
+      <dl class="install-details install-details--grid">
+        <dt>Running and queued tasks (best effort)</dt><dd id="takeover-tasks">Unknown</dd>
+        <dt>Live terminal sessions (best effort)</dt><dd id="takeover-terminals">Unknown</dd>
+        <dt>Current executable (unverified)</dt><dd><code id="takeover-current" class="path path--wrap">Unknown</code></dd>
+        <dt>Current version (unverified)</dt><dd id="takeover-version">Unknown</dd>
+        <dt>App executable</dt><dd><code id="takeover-replacement" class="path path--wrap">Unknown</code></dd>
+        <dt>Service label</dt><dd><code id="takeover-label" class="path path--wrap">Unknown</code></dd>
+        <dt>Port</dt><dd id="takeover-port">Unknown</dd>
+        <dt>Data home</dt><dd><code id="takeover-home" class="path path--wrap">Unknown</code></dd>
+      </dl>
+      <div class="takeover-choice">
+        <div class="consent-row">
+          <input id="takeover-relink" type="checkbox" tabindex="0">
+          <label for="takeover-relink">Also point the terminal command at the app</label>
+        </div>
+        <p id="takeover-progress" role="status" aria-live="polite" tabindex="-1"></p>
+        <div id="takeover-actions" class="actions" hidden>
+          <button type="button" id="takeover-confirm" class="button primary" tabindex="0">Use the app's service</button>
+          <button type="button" id="takeover-dismiss" class="button" tabindex="0">Not now</button>
+        </div>
+      </div>
+    </section>
+    <section id="takeover-restored" hidden aria-label="Service replacement result">
+      <p id="takeover-continue-note" class="note" hidden>Continuing hides this offer for this build of the current service.</p>
+      <div id="takeover-restored-actions" class="actions" hidden>
+        <button type="button" id="takeover-continue" class="button primary" tabindex="0" aria-describedby="takeover-continue-note">Continue current service</button>
+      </div>
+    </section>
     <section id="outdated-service" hidden>
       <dl class="install-details">
         <dt>Desktop app</dt><dd id="desktop-release-version"></dd>

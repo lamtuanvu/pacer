@@ -9,6 +9,16 @@ import {
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
 import type { Installation } from "../src/update/desktop/types";
 
+test("native adoption rejects a takeover manifest", async () => {
+  const { readNativeAdoption } = await import("../src/update/desktop/native-adoption");
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const f = await nativeFixture();
+  const bytes = readFileSync(join(import.meta.dir, "fixtures/desktop-update/takeover-manifest.json"));
+  f.fs.writeFileSync(f.join(f.dir, "adoption-prepared.json"), bytes);
+  expect(() => readNativeAdoption(f.ctx, "attached", f.record.transactionId)).toThrow();
+});
+
 function fixture() {
   const ctx = fakeCtx(),
     target: Installation = {
