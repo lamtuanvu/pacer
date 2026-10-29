@@ -18,7 +18,7 @@ export function NavigationProvider({route,children,pluginTitle,location=globalTh
   // Opening or closing the Answer panel preserves its invoker; page navigation focuses the landmark.
   const focusLocation = `${path}?${pageQuery}`;
   useEffect(()=>{
-    document.getElementById("main-content")?.focus();
+    (route.name === "new-task" ? document.getElementById("nt-request") ?? document.getElementById("main-content") : document.getElementById("main-content"))?.focus();
   },[focusLocation]);
   return <NavigationContext.Provider value={{current:route,navigate(target,options){const href=hrefFor(target,route.query);options?.replace?location.replace(href):location.hash=href;}}}>{children}</NavigationContext.Provider>;
 }

@@ -304,13 +304,13 @@ browserTest("settings_panel_collapse_keeps_main_usable", async () => {
       const panel = page.getByRole("complementary", { name: "Settings" });
       await panel.waitFor();
       expect(await noHorizontalOverflow(page)).toBe(true);
-      const hide = page.getByRole("button", { name: "Hide Settings" });
-      await expect(hide.getAttribute("aria-expanded")).resolves.toBe("true");
+      const hide = page.getByRole("button", { name: "Toggle left panel" });
+      await expect(hide.getAttribute("aria-pressed")).resolves.toBe("true");
       await hide.click();
       await expect(panel.count()).resolves.toBe(0);
       expect(await noHorizontalOverflow(page)).toBe(true);
-      const show = page.getByRole("button", { name: "Show Settings" });
-      await expect(show.getAttribute("aria-expanded")).resolves.toBe("false");
+      const show = page.getByRole("button", { name: "Toggle left panel" });
+      await expect(show.getAttribute("aria-pressed")).resolves.toBe("false");
       // Main content stays reachable and operable with the panel closed.
       await page.getByRole("textbox", { name: "Planner" }).fill("codex");
       await expect(page.getByRole("button", { name: "Save settings" }).isVisible()).resolves.toBe(true);
@@ -335,14 +335,14 @@ browserTest("panel_toggle_keeps_focus_on_its_control", async () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 800 } });
     await open(page, built, "#/settings");
     // Pointer and keyboard toggles swap the control; focus follows it instead of falling to the body.
-    await page.getByRole("button", { name: "Hide Settings" }).click();
-    await focused(page, '[aria-label="Show Settings"]');
+    await page.getByRole("button", { name: "Toggle left panel" }).click();
+    await focused(page, '[aria-label="Toggle left panel"]');
     await page.keyboard.press("Enter");
-    await focused(page, '[aria-label="Hide Settings"]');
+    await focused(page, '[aria-label="Toggle left panel"]');
     // Mod-b from a link inside the panel removes that link; focus moves to the reopen control.
     await page.getByRole("complementary", { name: "Settings" }).getByRole("link").first().focus();
     await page.keyboard.press("ControlOrMeta+b");
-    await focused(page, '[aria-label="Show Settings"]');
+    await focused(page, '[aria-label="Toggle left panel"]');
     // Mod-b from the work area leaves focus where it was.
     await page.locator("#main-content").focus();
     await page.keyboard.press("ControlOrMeta+b");
@@ -411,7 +411,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     expect(m.rail.item).toEqual([40, 40]);
     expect(m.rail.bar.slice(0, 3)).toEqual(["3px", "20px", "-6px"]);
     expect(m.badge.size[1]).toBe(16);
-    expect(m.badgeType.slice(0, 3)).toEqual(["10px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
+    expect(m.badgeType.slice(0, 3)).toEqual(["11px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
     expect(m.delegate[0]).toContain("pc-btn--secondary");
     expect(m.delegate[1]).not.toBe("rgb(24, 24, 27)"); // not the filled primary
     expect(m.delegate[1]).not.toBe("rgb(9, 9, 11)");
@@ -538,3 +538,32 @@ for (const setupOpen of [0, 1]) {
     }
   } finally { await browser.close(); }
 }, 30_000);
+
+browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls', async () => {
+  const built = await frame();
+  const browser = await chromium.launch({executablePath:browserPath!,headless:true});
+  try {
+    for (const width of [1440,1920]) {
+      const page=await browser.newPage({viewport:{width,height:900}});
+      await open(page,built,'#/');
+      expect(await page.locator('.pc-planner').getAttribute('href')).toBe('#/settings/planner');
+      expect(await page.locator('.pc-statusbar__work').getAttribute('href')).toBe('#/tasks');
+      await page.getByRole('link',{name:'Terminal panel (Ctrl+`)'}).click();
+      await page.locator('#pc-terminal-dock').waitFor();
+      const geometry=await page.evaluate(()=>{
+        const rect=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
+        const dock=rect('#pc-terminal-dock'),centre=rect('.pc-work-wrap'),rail=rect('.pc-rail');
+        const search=document.querySelector('.pc-topbar__new')!;
+        return {dock:{left:dock.left,right:dock.right,height:dock.height},centre:{left:centre.left,right:centre.right},railBottom:rail.bottom,centreBottom:centre.bottom,newHeight:search.getBoundingClientRect().height,plugins:getComputedStyle(document.querySelector('.pc-rail__plugins-label')!).fontSize,statusButtons:[...document.querySelectorAll('.pc-statusbar .pc-btn')].map(e=>e.getBoundingClientRect().height)};
+      });
+      expect(geometry.dock.left).toBe(geometry.centre.left);
+      expect(geometry.dock.right).toBe(geometry.centre.right);
+      expect(Math.abs(geometry.dock.height-260)).toBeLessThan(2);
+      expect(geometry.railBottom).toBe(geometry.centreBottom);
+      expect(geometry.newHeight).toBe(26);
+      expect(geometry.plugins).toBe('11px');
+      expect(geometry.statusButtons.every(h=>h<=28)).toBe(true);
+      await page.close();
+    }
+  } finally {await browser.close();}
+},30000);

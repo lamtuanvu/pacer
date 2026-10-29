@@ -114,8 +114,8 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) for (const s
       expect(await tile.locator("strong").textContent()).toBe("—");
       expect(await tile.textContent()).toContain("not measured yet");
       const perRoot = page.locator(".pc-insights__kpi").filter({ hasText: /^Per root task/ });
-      expect(await perRoot.textContent()).toContain("not measured yet");
-      expect(await perRoot.textContent()).not.toContain("100%");
+      expect(await perRoot.count()).toBe(0);
+      expect(await page.locator(".pc-insights__kpi").count()).toBe(3);
       expect(await page.locator(".pc-insights__unmeasured").evaluate(n => getComputedStyle(n).backgroundColor)).toBe(scheme === "dark" ? "rgb(24, 24, 27)" : "rgb(250, 250, 250)");
       if (process.env.PACER_DESIGN_EVIDENCE) await page.screenshot({ path: `.work/fixtures/states/insights-${width}-${scheme}.png`, fullPage: true });
     } finally { await page.close(); }

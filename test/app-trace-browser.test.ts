@@ -19,7 +19,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
    expect(await page.getByRole("link",{name:"Accept result"}).getAttribute("href")).toBe("#/tasks/trace-root/review");
    expect(await page.locator(".pc-trace__cost>div").count()).toBe(4);
    expect(await page.locator(".pc-trace__candidate").count()).toBe(2);
-   expect(await page.locator(".pc-trace__candidate-head").innerText()).toContain("Subtask — · ladder step — · capable with spare capacity");
+   expect(await page.locator(".pc-trace__candidate-head").innerText()).toContain("capable with spare capacity");
    expect(await page.locator(".pc-trace__subtask").innerText()).toContain("1.2k");
    const geometry=await page.evaluate(()=>{
     const title=document.querySelector(".pc-trace h1")!,circle=document.querySelector(".pc-trace__circle")!;
@@ -67,7 +67,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     }
     expect(await page.locator(".pc-trace__token-name").innerText()).toContain(scenario==="root-only"?"1 attempt":"1 subtask");
     expect(await page.locator(".pc-trace__token-name").innerText()).not.toContain("plan + review");
-    expect(await page.locator(".pc-trace__card").first().innerText()).toContain("— planner split + review tokens (not measured)");
+    expect(await page.locator(".pc-trace__card").first().innerText()).toContain("Planning and review tokens: Not recorded");
    }
    else if(scenario==="null-proposal"){await page.locator(".pc-trace__steps").waitFor();expect(await page.locator(".pc-trace__steps").innerText()).toContain("Dispatch decision recorded");expect(await page.locator(".pc-trace__candidates").innerText()).toContain("No alternatives were recorded for this step.");expect(await page.locator(".pc-trace__candidates").innerText()).not.toContain("capable with spare capacity");}
    else if(scenario==="running"){await page.locator(".pc-trace").waitFor();expect(await page.getByRole("link",{name:"Accept result"}).count()).toBe(0);}

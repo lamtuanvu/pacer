@@ -83,7 +83,7 @@ test('fractional usage and task-cost captions use whole percentages', () => {
   expect(reasonCopy('ahead, used 81.75% / pace 70.577%')).not.toMatch(/\d+\.\d+%/);
 });
 
-test('Dispatcher shows a friendly executor name and at most one differing id', () => {
+test('Dispatcher shows one friendly executor identity without raw ids', () => {
   const view = {strategy:'default',planner:'codex',plannerAccount:'codex',source:'built-in' as const,config:dispatchConfigSchema.parse({})};
   const render = (id: string) => draw(<SetupEditor view={view} eligibility={{kind:'global',rules:[{executors:[id]}],available:[id]}} onSaved={()=>{}} onDirtyChange={()=>{}}/>);
   const plain = render('codex');
@@ -91,7 +91,9 @@ test('Dispatcher shows a friendly executor name and at most one differing id', (
   expect(plain).not.toContain('class="pc-executor-id"');
   const named = render('claude-code#claude1');
   expect(named).toContain('Claude Code · claude1');
-  expect(named.match(/class="pc-executor-id"/g)).toHaveLength(1);
+  expect(named).not.toContain('class="pc-executor-id"');
+  expect(named).not.toMatch(/(?:title|aria-label)="[^"]*claude-code#claude1/);
+  expect(visible(named)).not.toContain('claude-code#claude1');
 });
 
  test('stale account copy gives one readable age or a refresh instruction', () => {
@@ -104,7 +106,7 @@ test('Dispatcher shows a friendly executor name and at most one differing id', (
   const view = {strategy:'default',planner:'codex',plannerAccount:'codex',source:'built-in' as const,config:dispatchConfigSchema.parse({})};
   const html = visible(draw(<SetupEditor view={view} eligibility={{kind:'global',rules:[{executors:[row.id]}],available:[row.id]}} onSaved={()=>{}} onDirtyChange={()=>{}}/>,{...snap,executors:[{...row,eligibility:{...eligible,state:'uncertain',reasons:[]}}]}));
   expect(html).toContain('Skipped');
-  expect(html).toContain('Refresh to confirm availability');
+  expect(draw(<SetupEditor view={view} eligibility={{kind:'global',rules:[{executors:[row.id]}],available:[row.id]}} onSaved={()=>{}} onDirtyChange={()=>{}}/>,{...snap,executors:[{...row,eligibility:{...eligible,state:'uncertain',reasons:[]}}]})).toContain('Refresh to confirm availability');
   expect(html).not.toMatch(/Uncertain fallback|Unavailable|Verification is not available/);
  });
 

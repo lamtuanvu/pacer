@@ -90,7 +90,7 @@ const wrap = (node: preact.ComponentChildren) => renderToString(<TaskContext.Pro
 
 test("guided setup shows who may work as sortable lists beside the executor pool", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: routing.rules, available: routing.available }} onSaved={() => {}} onDirtyChange={() => {}} />);
-  for (const copy of ["Who may do the work", "How should Pacer choose?", "Task kinds: tests", "Everything else", "Only one executor: if Codex cannot take work", "There is no fallback.", "From saved setup default.", "Add OpenCode", "Capable model with spare capacity", "Move down: Capable model with spare capacity"]) expect(html).toContain(copy);
+  for (const copy of ["Who may do the work", "How should Pacer choose?", "Task kinds: tests", "Everything else", "Only one executor: if Codex cannot take work", "There is no fallback.", "From saved setup default.", "Add OpenCode", "Capable model with spare capacity", "Edit choice method"]) expect(html).toContain(copy);
   expect(html).toContain('role="tablist"');
   expect(html).toContain('role="tabpanel"');
   expect(html).toContain('aria-selected="true"');
@@ -99,8 +99,9 @@ test("guided setup shows who may work as sortable lists beside the executor pool
   expect(html).not.toContain("pc-executor-id"); // Plain agent names need no repeated id.
   expect(html).toContain("pc-sortable--icons");
   expect(html).toContain("+ Set up a new executor");
-  expect(html).not.toContain("unsaved change");
-  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(0);
+  expect(html).toContain("No unsaved changes");
+  expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(1);
+  expect(html).toContain("Save choices");
 });
 
 test("saved setups are marked with an identicon and switch only through an explicit button", () => {

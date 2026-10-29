@@ -1,3 +1,4 @@
+import {executorLabel} from "../src/view-model/words";
 import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { StrategyQuickAccessPopup } from '../app/src/shell/StrategyQuickAccess';
@@ -108,12 +109,13 @@ test('restored executor draft resumes checks and Ready follows a passed job only
  const draw=(stateValue:'running'|'failed'|'passed')=>render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:stateValue}}});
  expect(draw('running')).toContain('Running test task');expect(draw('running')).not.toContain('is ready');
  expect(draw('failed')).toContain('Run test task again');expect(draw('failed')).not.toContain('is ready');
- expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('>Open agents</a>');
+ expect(draw('passed')).toContain(`${executorLabel(executor.id)} is ready`);expect(draw('passed')).toContain('>Open agents</a>');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
  // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
  const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}} initialUrlForm/>);
- for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Unmetered — free or local','aria-haspopup="listbox"'])expect(html).toContain(text);
+ expect(html).toContain('Sign in to another account');
+ expect(html).not.toContain('Base URL');
 });
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');
@@ -131,13 +133,15 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
- for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ for(const label of ['On pace','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
- expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executor.id);
+ expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
+ expect(html).not.toContain(executor.id);
  // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
  expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [^<]+<\/span><\/summary>/g)).toHaveLength(2);
  expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
- expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+ expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
+ expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
@@ -191,8 +195,8 @@ test('This machine shows the guard state now and no limit by default',()=>{
  expect(html).toContain('Running 3');
  expect(html).not.toContain('3 running');
  expect(html).toContain('No limit');
- expect(html).toContain('Hold new tasks at memory pressure');
- expect(html).toContain('Load limit per CPU core');
+ expect(html).not.toContain('Hold new tasks at memory pressure');
+ expect(html).not.toContain('Load limit per CPU core');
  const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,hardCap:4,unlimited:false,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
  expect(unavailable).toContain('Now: memory pressure unavailable<');
  expect(unavailable).not.toContain('0 running');

@@ -27,8 +27,8 @@ describe("dispatch trace", () => {
     expect(html).toContain('href="#/tasks/root/trace?repo=team%2Frepo"');
   });
   test("unmeasured tokens stay unknown and partial totals retain coverage", () => {
-    expect(tokenValue(undefined)).toBe("—");
-    expect(tokenValue({total:0,measuredAttempts:0,partialAttempts:0})).toBe("—");
+    expect(tokenValue(undefined)).toBe("Not recorded");
+    expect(tokenValue({total:0,measuredAttempts:0,partialAttempts:0})).toBe("Not recorded");
     expect(tokenValue({total:0,measuredAttempts:1,partialAttempts:0})).toBe("0");
     expect(tokenValue({total:1200,measuredAttempts:0,partialAttempts:1,lowerBound:true})).toBe("≥ 1.2k");
   });
@@ -39,13 +39,13 @@ describe("dispatch trace", () => {
   });
   test("nullable engine proposals and missing selection remain displayable", () => {
     expect(traceCandidates({attempt:1,proposal:null})).toEqual([]);
-    expect(decisionCaption({attempt:1,proposal:null})).toBe("Subtask — · ladder step — · — selection step");
+    expect(decisionCaption({attempt:1,proposal:null})).toBe("Not recorded");
     expect(decisionCaption({attempt:2,proposal:{state:"ranked",step:"capable-with-headroom"}})).toContain("capable with spare capacity");
   });
   test("candidate captions identify the subtask and keep absent decisions unknown", () => {
     expect(decisionCaption()).toBe("No alternatives were recorded for this step.");
     expect(decisionCaption(undefined,undefined,true)).toBe("From the routing record; no dispatch decision was stored.");
-    expect(decisionCaption({attempt:3,proposal:null},2)).toBe("Subtask 2 · ladder step — · — selection step");
+    expect(decisionCaption({attempt:3,proposal:null},2)).toBe("Subtask 2 · Not recorded");
   });
   test("executor token roles count subtasks once across retries and accounts", () => {
     const children=[{attempts:[{executor:"codex#team"},{executor:"codex#personal"}]},{attempts:[{executor:"codex"},{executor:"agy"}]}] as unknown as Parameters<typeof executorTokenRole>[2];
@@ -85,6 +85,6 @@ describe("dispatch trace", () => {
     const steps = traceSteps(task, undefined);
     expect(steps.map(s=>s.at)).toEqual([10,20]);
     expect(steps.map(s=>s.title)).toEqual(["Run queued","Run completed"]);
-    expect(steps.every(s=>s.tokens==="—")).toBe(true);
+    expect(steps.every(s=>s.tokens==="Not recorded")).toBe(true);
   });
 });

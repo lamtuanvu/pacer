@@ -68,7 +68,7 @@ function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean,
 /** A compact Needs you card: glyph, title, one caption line and one action. Status words stay readable beside the glyph. */
 function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = false }: { narrow?: boolean; card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
   const item = card.kind === "task" ? card.items[0]! : card.item, bad = (card.kind === "task" ? card.node.attention : card.level) === "bad";
-  const status = attentionStatus(item, snapshot.tasks), title = card.kind === "task" ? card.node.title : item.title;
+  const rawStatus = attentionStatus(item, snapshot.tasks), status = item.kind === "question" ? {...rawStatus,glyph:"◐"} : rawStatus, title = card.kind === "task" ? card.node.title : item.title;
   // The board's caption: the service's detail, then when it was raised.
   const caption = [item.detail, clock(item.raisedAt, now)].filter(Boolean).join(" · ");
   const more = card.kind === "task" && card.items.length > 1 ? ` · ${card.items.length - 1} more` : "";
@@ -94,7 +94,7 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
   const cards = needsYouCards(snapshot, scope, { now }), waiting = needsYou(snapshot, scope).length, others = otherReposNeedingYou(snapshot, scope);
   const page = useOverviewPage(cards, "Needs you", standalone ? Math.max(1, cards.length) : 3, scope.repo ?? "");
   const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery(standalone ? "#/needs-you" : "#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
-  const all = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>{standalone ? "All open items" : "All in Needs you"}</TextAction>;
+  const all = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>{standalone ? "All open items" : narrow ? `All ${waiting}` : "All in Needs you"}</TextAction>;
   return <section className={standalone ? "pc-section" : "pc-section pc-dispatch-attention"} aria-labelledby="needs-you">
     <div className="pc-section__head">
       <SectionHeading variant={standalone ? undefined : "headline"} id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>
@@ -128,7 +128,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
       const task = snapshot.tasks.find(t => t.id === node.id);
       const running = task?.state === "running";
       // Preserve attention and conversational states; only ordinary active phases use the board's Working label.
-      const status = task?.acceptanceState === "failed" ? { label: "Checks failed", tone: "bad" as const }
+      const status = task?.state === "needs_input" ? {label:"Needs your answer",tone:"warn" as const} : task?.acceptanceState === "failed" ? { label: "Checks failed", tone: "bad" as const }
         : task?.review?.accepted ? { label: "Accepted", tone: "good" as const }
         : running && node.state.tone === "info" ? { ...node.state, label: "Working" } : node.state;
       const why = task?.queue?.detail ?? task?.brokenReason ?? (task?.retryOf ? "Retried on executor" : null);
@@ -201,7 +201,7 @@ function NextHalf({ routing, query, strategy, now }: { routing: RoutingPreview; 
           {more > 0 && <li><span className="muted">+{more} more</span>{chevron}</li>}
           <li><span className="pc-dispatch-chip pc-dispatch-chip--queue"><span className="pc-dispatch-chip__tile" aria-hidden="true">Q</span>Queue</span></li>
         </ol></div>}
-      </> : <span className="muted">{routing.explain?.outcome === "fail" ? "No agent can take new work now, and new tasks are refused rather than queued." : "No agent can take new work now. It waits in the queue."}{waits ? ` ${waits}` : ""}{routing.explain?.outcome === "fail" ? " Change the strategy or make an agent available to accept new tasks." : ""}</span>}
+      </> : <span className="muted">{routing.explain?.outcome === "fail" ? "No agent can take new work now, and new tasks are refused rather than queued." : "No agent can take new work now. It waits in the queue."}{waits ? ` ${waits.replace(/\s*\(\d+ of \d+ running\)/g, "")}` : ""}{routing.explain?.outcome === "fail" ? " Change the strategy or make an agent available to accept new tasks." : ""}</span>}
     <TextAction className="pc-text-action" href={withQuery("#/settings/dispatcher", query)}>{shown ? `Strategy: ${shown} · change` : "Change strategy"}</TextAction>
   </div>;
 }
@@ -286,7 +286,7 @@ function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, 
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl variant="board" label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
     {!narrow && <RepoFilter snapshot={snapshot} query={query} menu />}
-    {!hideNewTask && <Button variant="primary" size="sm" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>}
+    {!hideNewTask && <Button variant="primary" size="sm" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="Meta+N">New task{!narrow && <> <Kbd>⌘N</Kbd></>}</Button>}
   </div>;
   const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span></div>;
   return narrow ? null
@@ -308,7 +308,7 @@ export function FirstRun({ detections, planner, query, error, retry }: { detecti
   </section>;
 }
 export function EmptyDispatch({ query, sampleTask }: { query: RouteQuery; sampleTask?: ComponentChildren }) {
-  return <section className="pc-empty-dispatch" aria-label="No work delegated yet"><strong>No work delegated yet</strong><span>Ask your planner to delegate, or start a task here.</span><div className="pc-first-run__actions"><ButtonLink size="sm" variant="primary" href={withQuery("#/tasks/new", query)}>New task</ButtonLink>{sampleTask}</div></section>;
+  return <section className="pc-empty-dispatch" aria-label="No work delegated yet"><strong>No work delegated yet</strong><span>Ask your planner to delegate, or start a task here. Pacer chooses an eligible executor and model for each task.</span><div className="pc-first-run__actions"><ButtonLink size="sm" variant="primary" href={withQuery("#/tasks/new", query)}>New task</ButtonLink>{sampleTask}</div></section>;
 }
 export function SampleTask({ query }: { query: RouteQuery }) {
   const action = useAction();
@@ -361,7 +361,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const liveWork = <LiveDispatch narrow={narrow} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    <DispatchHeader hideNewTask={!!firstRun || empty} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
+    {!firstRun && <DispatchHeader hideNewTask={empty} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />}
     {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
       {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}
     </> : <>

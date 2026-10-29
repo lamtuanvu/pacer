@@ -180,10 +180,10 @@ export interface MenuResult {
   /** The ⌘↵ action is announced but not built yet. */
   modEnterSoon?: boolean;
 }
-export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState }
+export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState; askEnabled?: boolean }
 
-export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" } }: MenuInput): MenuResult {
-  const { mode, text } = parseQuery(query);
+export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" }, askEnabled = ASK_ENABLED }: MenuInput): MenuResult {
+  const { mode, text } = parseQuery(query, askEnabled);
   const everything = [...snapshotItems(snapshot, now), ...commandItems(commands)];
   const zero = { all: 0, tasks: 0, agents: 0, files: 0, commands: 0 };
   if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, scope: "all", enterHint: "ask" };

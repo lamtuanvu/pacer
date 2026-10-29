@@ -14,7 +14,7 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-line strong{flex:0 0 auto;min-width:var(--size-28);max-width:calc(100% - var(--size-18) - var(--space-2) * 5 - var(--size-40) - var(--size-64) - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis}
 /* Preserve the full name at 340px; reserve the caption, mode and pill glyph
    before constraining longer names or narrower windows. */
-.tray-line .pc-pill{flex:0 1000 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
+.tray-line .pc-pill{flex:0 0 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
 .tray-line .pc-glyph{flex:none}
 .tray-pace-label,.tray-mode-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tray-mode{flex:none;min-width:0;max-width:calc(100% - var(--size-64) - var(--size-18) - var(--space-2) * 5 - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

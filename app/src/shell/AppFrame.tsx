@@ -28,7 +28,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     };
     const observer = new ResizeObserver(measureDock);
     const observeDock = () => {
-      const next = root.querySelector<HTMLElement>(":scope > .pc-dock > .pc-offline-controls > .pc-dock__panel");
+      const next = root.querySelector<HTMLElement>(".pc-work-wrap > .pc-dock > .pc-offline-controls > .pc-dock__panel");
       if (next !== dock) {
         if (dock) observer.unobserve(dock);
         dock = next;
@@ -60,10 +60,9 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     <div className="pc-body">
       {!narrow && activity}
       {left}
-      {overlay ? <div className="pc-work-wrap">{work}<fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{overlay}</fieldset></div> : work}
+      {<div className="pc-work-wrap">{work}{docked && <div className="pc-dock"><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{dock}</fieldset></div>}{overlay && <fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{overlay}</fieldset>}</div>}
       {!narrow && right}
     </div>
-    {docked && <div className="pc-dock"><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{dock}</fieldset></div>}
     {status}
   </div>;
 }

@@ -24,7 +24,7 @@
   font-weight: var(--type-label-weight);
   letter-spacing: var(--type-label-tracking);
   text-transform: uppercase;
-  color: var(--ink-secondary);
+  color: var(--ink-muted);
 }
 .pc-scope-heading {
   padding: var(--space-1) var(--space-3\.5) var(--space-1\.5);
@@ -42,7 +42,7 @@
   height: var(--size-30);
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  color: var(--ink-secondary);
+  color: var(--ink-muted);
   text-decoration: none;
   font-size: var(--type-caption-size);
 }
@@ -61,7 +61,7 @@
 .pc-work-panel-caption {
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
-  color: var(--ink-secondary);
+  color: var(--ink-muted);
 }
 .pc-scope-plugins {
   margin: var(--space-1) var(--space-2\.5) var(--space-3);

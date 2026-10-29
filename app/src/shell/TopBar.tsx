@@ -58,24 +58,24 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
   return <header className="pc-topbar" aria-label={showActions ? heading?.title ?? title : undefined} data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
-    {showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
-    {showActions && pageTitle && <h1 data-tauri-drag-region className={heading ? "pc-topbar__heading" : undefined} title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
+    {narrow && showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
+    {showActions && pageTitle && !heading && <h1 data-tauri-drag-region title={title}>{title}</h1>}
     {showActions && context && <fieldset ref={context} className="pc-topbar__context" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
     {narrow && showActions && narrowSearch}
     {showActions && <>
-    {planner && !(narrow && title === "Dispatch") && <span className="pc-planner">
+    {planner && !(narrow && title === "Dispatch") && <a href="#/settings/planner" className="pc-planner pc-inline-link">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
       {mode && <Pill tone={modeTone(mode)}>{modeWords(mode)}{planner.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
       {narrowMeter && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
-    </span>}
+    </a>}
     {(!narrow || heading) && <div role="group" aria-label="Layout" className="pc-layout-toggles">
       {!narrow && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
       {!narrow && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
-      {!narrow && <LayoutToggle icon="panel-right" label={`Toggle ${panels.right?.label ?? "right panel"}`} keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
+      {!narrow && <LayoutToggle icon="panel-right" label="Toggle right panel" keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
       {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}

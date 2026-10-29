@@ -10,7 +10,7 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { StatusPill } from "../../ds/StatusPill";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { AgentMark } from "../../ds/AgentMark";
-import { RadioChoices } from "../../ds/Patterns";
+import { SegmentedControl } from "../../ds/Patterns";
 import { Icon } from "../../ds/icons";
 import type { ConfigData } from "../../model/strategy";
 import { SectionHeading } from "../../ds/SectionHeading";
@@ -78,17 +78,17 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                         <div><strong>{accountLabel({...account,agent:agentOf(account,summary)})}</strong>
                           <div className="u3-muted">{account.kind === "endpoint" ? "Model endpoint" : executorLabel(agentOf(account))}</div></div></div>
                     </td>
-                    <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{summary?.source??account.source??(account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))} own sign-in`)}</div></td>
+                    <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
                       {summary?.usedPct != null && <UsageMeter used={summary.usedPct} pace={summary.pacePct??null} tone={paceStatus(summary.verdict).tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
                       <div className="u3-muted">{accountUsageWords(summary)}{freshness && ` · ${freshness}`}</div>
                     </td>
                     <td data-label="Status">
-                      <StatusPill status={accountStatus(readiness)} />
+                      <StatusPill status={readiness.signedIn === true && summary ? paceStatus(summary.verdict) : accountStatus(readiness)} />
                       {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
                     </td>
                     <td data-label="Used by">
-                      {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={id}><AgentMark agent={id.split(/[#@]/)[0]!} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
+                      {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={executorLabel(id)}><AgentMark agent={id.split(/[#@]/)[0]!} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
                     </td>
                     <td data-label="Actions" className={expanded ? "u3-account-actions--open" : undefined}>
                       {hasAction && <>
@@ -100,7 +100,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                             </Disclosure>
                           ) : accountNeedsSignIn(readiness) ? (
                             <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>
-                              {account.signin_command && <code>{account.signin_command}</code>}
+                              <p>Use the agent’s own sign-in to reconnect this account.</p>
                               <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
                             </Disclosure>
                           ) : null}
@@ -135,5 +135,5 @@ export function AccountPolicy({initialData}:{initialData?:ConfigData}) {
   const query=useResource<ConfigData>('config.get',{},initialData), action=useOperation(query.reload), {state}=useTaskContext();
   const mode=query.data?.keys?.['pacing.accounts']?.value, threshold=query.data?.keys?.['pacing.fill_threshold']?.value;
   if(mode!=='spread'&&mode!=='fill')return null;
-  return <section className="u3-account-policy" aria-label="When an agent has several accounts"><div><SectionHeading>When an agent has several accounts</SectionHeading><p className="u3-muted">Choose how work uses an agent's accounts.</p></div><div className="u3-account-policy-controls"><RadioChoices label="Multiple accounts" name="account-policy" value={mode} disabled={action.busy||!state.connected} options={[{value:'spread',label:'Spread evenly'},{value:'fill',label:'Fill one, then the next'}]} onChange={value=>void action.run('config.set',{key:'pacing.accounts',value})}/>{mode==='fill'&&threshold!==undefined&&<label className="u3-fill">Move to the next account at <TextInput aria-label="Account fill threshold" type="number" min="50" max="100" step="1" required value={String(threshold)} disabled={action.busy||!state.connected} onChange={e=>{if(e.currentTarget.validity.valid)void action.run('config.set',{key:'pacing.fill_threshold',value:Number(e.currentTarget.value)});}}/>% used</label>}{!state.connected&&<p className="u3-muted">Reconnecting. Account policy changes will be available when the service reconnects.</p>}<Feedback action={action}/></div></section>;
+  return <section className="u3-account-policy" aria-label="When an agent has several accounts"><div><SectionHeading>When an agent has several accounts</SectionHeading><p className="u3-muted">Choose how work uses an agent's accounts.</p></div><div className="u3-account-policy-controls"><SegmentedControl variant="board" label="Multiple accounts" value={mode} disabled={action.busy||!state.connected} options={[{value:'spread',label:'Spread evenly'},{value:'fill',label:'Fill one, then the next'}]} onChange={value=>void action.run('config.set',{key:'pacing.accounts',value})}/>{mode==='fill'&&threshold!==undefined&&<label className="u3-fill">Move to the next account at <TextInput aria-label="Account fill threshold" type="number" min="50" max="100" step="1" required value={String(threshold)} disabled={action.busy||!state.connected} onChange={e=>{if(e.currentTarget.validity.valid)void action.run('config.set',{key:'pacing.fill_threshold',value:Number(e.currentTarget.value)});}}/>% used</label>}{!state.connected&&<p className="u3-muted">Reconnecting. Account policy changes will be available when the service reconnects.</p>}<Feedback action={action}/></div></section>;
 }

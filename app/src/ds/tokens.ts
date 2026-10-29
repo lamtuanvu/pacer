@@ -56,7 +56,7 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "line": { light: "#e4e4e7", dark: "#3f3f46" },
   "ink": { light: "#18181b", dark: "#fafafa" },
   "ink-secondary": { light: "#52525b", dark: "#a1a1aa" },
-  "ink-muted": { light: "#71717a", dark: "#a1a1aa" },
+  "ink-muted": { light: "#6b6b74", dark: "#a1a1aa" },
   "ink-on-ink": { light: "#ffffff", dark: "#18181b" },
   "track": { light: "#65a30d", dark: "#a3e635" },
   "link": { light: "#1d4ed8", dark: "#93c5fd" },

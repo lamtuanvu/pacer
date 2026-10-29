@@ -26,7 +26,7 @@ test("layout_renders_same_landmarks", () => {
   // Dispatch mounts its Scope and Inspector around the work area; the dock stays closed.
   expect(outline(html).filter(item => !item.startsWith("section") && !item.startsWith("nav.pc-") || item.startsWith("nav.pc-rail"))).toEqual([
     "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-live-region", "div.pc-body", "nav.pc-rail",
-    "aside.pc-side-panel pc-side-panel--left pc-scope-panel", "div.pc-work", "main.pc-main pc-main--canvas#main-content", "aside.pc-side-panel pc-side-panel--right", "footer.pc-statusbar",
+    "aside.pc-side-panel pc-side-panel--left pc-scope-panel", "div.pc-work-wrap", "div.pc-work", "main.pc-main pc-main--canvas#main-content", "aside.pc-side-panel pc-side-panel--right", "footer.pc-statusbar",
   ]);
   expect(html).toContain('<header');
   expect(html.indexOf('class="pc-live-region"')).toBeLessThan(html.indexOf('class="pc-body"'));

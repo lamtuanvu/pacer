@@ -283,7 +283,7 @@ function RepositoryChoices() {
   </>;
 }
 export function DispatcherOverview({view,repositoryChoices=false}:{view:DispatcherConfigView;repositoryChoices?:boolean}) {
-  return <Section id="dispatcher" title="Dispatcher" detail="See who plans work and how Pacer chooses an executor and model.">
+  return <Section id="dispatcher" title="Dispatcher" detail="Pacer asks a planner to organize work, then chooses an eligible executor and model for each delegated task.">
     <section aria-label="Current setup" className="pc-current-setup">
       <div className="pc-current-setup__cell"><AgentMark agent={view.planner} size={28} labelled={false}/><div><span className="pc-current-setup__label">Planner</span><strong>{executorLabel(view.planner)}</strong></div><TextAction href="#/settings/planner">Planner &amp; pacing</TextAction></div>
       <div className="pc-current-setup__cell"><span className="pc-setup-icon"><Identicon seed={view.strategy}/></span><div><span className="pc-current-setup__label">Active saved setup</span><strong>{view.strategy}</strong></div><TextAction href="#saved-profiles" onClick={event=>{
@@ -299,8 +299,8 @@ export function DispatcherOverview({view,repositoryChoices=false}:{view:Dispatch
 export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;initialData?:StrategyRow[]}) {
   const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
   const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
-  return <Section id="saved-profiles" title="Saved setups" detail="Each setup saves global planner, pacing, eligibility and dispatcher settings. Repository choices are kept when you switch."
-    actions={<Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>New from a brief</Button>}>
+  return <Section id="saved-profiles" title="Saved setups" detail="Describe the outcome in a planning session. Each saved setup keeps your planner, pacing and executor choices; repository choices stay when you switch."
+    actions={<Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>Create setup from a brief</Button>}>
     <ResourceState resource={query} empty="No saved setups yet.">
       <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
         <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
@@ -334,12 +334,6 @@ function DispatcherContent({query}:{query:RouteQuery}){
   return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
     <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
     {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
-    {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
-    <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
-      <DispatcherReadError error={models.error&&models.data?models.error:undefined} reload={models.reload} subject="model choices"/>
-      {models.data?<DispatcherModelInventory inventory={models.data}/>:<p role={models.error?"alert":undefined}>{models.error?"Model choices could not be loaded.":"Loading model choices…"}</p>}
-      <ErrorMessage error={refreshError}/>
-    </Section>
     <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
   </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section><SavedSetups/></>;
 }
@@ -431,17 +425,12 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     <span className="sr-only" role="status">{announcement}</span>
     <form className="dispatcher-preview-form pc-dispatcher-preview" onSubmit={event=>void submit(event)}>
       <div className="dispatcher-preview-row">
-        {repos.length?<Field label="Repository"><ChoicePicker className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
-        <Field label="Task kind"><TextInput value={kind} maxLength={256} placeholder="Any kind" onInput={event=>setKind(event.currentTarget.value)}/></Field>
-        <Field label="Task" error={goalError}><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/></Field>
-        <div className="dispatcher-preview-submit"><Button type="submit" variant="primary" busy={busy}>Preview selection</Button></div>
+        {repos.length?<Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
+        <Field label={<span className="sr-only">Task kind</span>}><TextInput value={kind} maxLength={256} placeholder="Any kind" onInput={event=>setKind(event.currentTarget.value)}/></Field>
+        <Field label={<span className="sr-only">Task</span>} error={goalError}><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/></Field>
+        <div className="dispatcher-preview-submit"><Button type="submit" variant="primary" busy={busy}>Preview</Button></div>
       </div>
-      <div className="dispatcher-preview-options">
-        <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
-        <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
-        {explain&&draft?.from&&<div className="pc-stack pc-stack--compact"><Checkbox label="Use my unsaved choice ladder" aria-describedby={draftHelpId} checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/><small id={draftHelpId} className="u3-muted">Changes to Who may do the work count only after you save them.</small></div>}
-        {explain&&draft&&!draft.from&&<p className="u3-muted">Save the choice ladder once to try unsaved changes here.</p>}
-      </div>
+
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}

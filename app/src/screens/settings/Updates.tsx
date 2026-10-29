@@ -151,7 +151,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Update checks are turned off here, by this setting or the environment" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
+    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Automatic checks are unavailable in this session" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
       <div className="u3-actions">
         {service.canUpdate && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {

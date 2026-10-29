@@ -183,3 +183,7 @@ test("without the operation there are no files, in any mode, and the Files tab i
   // Commands mode never lists files.
   expect(buildMenu({ query: ">a", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "ready", result: answer({ results: [file("a.ts")] }) } }).groups.map(group => group.title)).not.toContain("Files");
 });
+
+test('services with the assistant expose question mode without interpreting it as a search',()=>{
+ expect(buildMenu({query:'? explain routing',scope:'all',snapshot:null,commands:[],recent:[],now:1,askEnabled:true}).mode).toBe('ask');
+});
