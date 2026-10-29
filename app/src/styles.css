@@ -125,7 +125,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-rail__dot{position:absolute;top:var(--size-6);right:var(--size-6);width:var(--size-8);height:var(--size-8);box-sizing:content-box;border:var(--size-2) solid var(--surface-card);border-radius:var(--radius-full);background:var(--bad-fill)}
 .pc-panel{flex:0 0 var(--size-240);display:flex;flex-direction:column;padding:0;background:var(--surface-card)}
-.pc-work{flex:1;min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column}
+.pc-work{position:relative;flex:1;min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column}
 .pc-topbar{display:flex;align-items:center;gap:var(--space-2);min-height:var(--frame-top);height:var(--frame-top);box-sizing:border-box;padding:0 var(--size-10) 0 var(--space-2);flex-shrink:0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface-card);z-index:var(--layer-sticky)}
 html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-topbar__brand{display:inline-flex;align-items:center;flex:none;border-radius:var(--radius-sm)}
@@ -431,8 +431,6 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 @media(pointer:coarse){.pc-app:not(.pc-app--narrow) .pc-panel{min-height:calc(100vh - var(--control-touch))}.pc-app:not(.pc-app--narrow).pc-app--with-status .pc-panel{min-height:calc(100vh - var(--control-touch) - var(--frame-status))}}
 .pc-app--narrow .pc-panel{position:sticky;top:0;z-index:var(--layer-sticky);max-height:none;background:var(--surface-card)}
 .pc-app--narrow .pc-settings-nav__item{min-height:var(--control-touch)}
-.pc-app--narrow:has(.pc-panel) .pc-topbar{top:calc(var(--control-touch) + var(--space-4) + var(--size-1))}
-html:has(.pc-app--narrow .pc-panel){scroll-padding-top:calc(var(--control-touch) + var(--space-4) + var(--size-1) + var(--size-60) + var(--space-4))}
 .pc-start{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
 .pc-start-composer{display:flex;flex-direction:column;gap:var(--space-4);padding:var(--space-6);border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface-card)}
 .pc-start-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:var(--space-4)}

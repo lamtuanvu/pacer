@@ -108,6 +108,93 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
   } finally { await browser.close(); }
 }, 20_000);
 
+browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    for (const viewport of [{ width: 375, height: 812 }, { width: 1440, height: 900 }]) {
+      const page = await browser.newPage({ viewport });
+      await open(page, built, "#/tasks");
+      // Reproduce the Tasks list's unpositioned flex rows and absolute accessible labels.
+      await page.locator("#main-content").evaluate(main => {
+        const list = document.createElement("section");
+        list.setAttribute("aria-label", "Tasks");
+        for (let i = 0; i < 50; i++) {
+          const card = document.createElement("article");
+          card.className = "pc-task-card";
+          const row = document.createElement("div");
+          row.className = "pc-task-card__row pc-task-card__row--head";
+          const label = document.createElement("span");
+          label.className = "sr-only";
+          label.textContent = "Running: ";
+          const title = document.createElement("span");
+          title.className = "pc-task-card__title";
+          title.textContent = `Task ${i + 1}`;
+          row.append(label, title);
+          card.append(row);
+          list.append(card);
+        }
+        main.replaceChildren(list);
+      });
+      const geometry = () => page.evaluate(() => {
+        const root = document.scrollingElement!, work = document.querySelector(".pc-work")!;
+        return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, workTop: work.scrollTop,
+          workHeight: work.clientHeight, workScrollHeight: work.scrollHeight };
+      });
+      const before = await geometry();
+      expect(before.documentHeight).toBe(viewport.height);
+      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
+      await page.locator(".pc-work").hover();
+      await page.mouse.wheel(0, 500);
+      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      expect((await geometry()).documentTop).toBe(0);
+      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      await page.mouse.wheel(0, 500);
+      // Allow scroll chaining to reach the document if any absolute descendant escaped.
+      await page.waitForTimeout(150);
+      await page.evaluate(() => window.scrollTo(0, 400));
+      const after = await geometry();
+      expect(after.documentHeight).toBe(viewport.height);
+      expect(after.documentTop).toBe(0);
+      expect(after.workTop).toBeGreaterThan(0);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    for (const hash of ["#/settings", "#/settings/app", "#/settings/dispatcher", "#/settings/executors"]) {
+      const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
+      await open(page, built, hash);
+      const geometry = () => page.evaluate(() => ({
+        tabsBottom: document.querySelector(".pc-panel")!.getBoundingClientRect().bottom,
+        topbarTop: document.querySelector(".pc-topbar")!.getBoundingClientRect().top,
+        documentHeight: document.scrollingElement!.scrollHeight,
+        documentTop: document.scrollingElement!.scrollTop,
+      }));
+      const before = await geometry();
+      expect(before.topbarTop).toBe(before.tabsBottom);
+      expect(before.documentHeight).toBe(812);
+      await page.locator("#main-content").evaluate(main => {
+        for (let i = 0; i < 100; i++) {
+          const row = document.createElement("p");
+          row.textContent = `Setting ${i + 1}`;
+          main.append(row);
+        }
+      });
+      await page.locator(".pc-work").evaluate(work => { work.scrollTop = 400; });
+      const after = await geometry();
+      expect(after.topbarTop).toBe(after.tabsBottom);
+      expect(after.documentHeight).toBe(812);
+      expect(after.documentTop).toBe(0);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);
+
 browserTest("dock_focus_moves_in_and_returns", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
