@@ -8,7 +8,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { processIdentitySync } from "./control/lease";
 import { nativeCommand } from "./control/desktop";
 import { healthy, loadSession, record } from "./core";
-import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { exactFixtureExternal, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { captureProblem } from "./capture-content";
@@ -121,7 +121,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   if (!(TAKEOVER_SCENARIOS as readonly string[]).includes(scenario)) throw Error("Unknown fixed takeover scenario");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
-  if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || state.external.length !== 4 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
+  if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || !exactFixtureExternal(state) || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
   if (enumerateNativeProcesses().some(item => item.executable === "/Applications/pacer.app/Contents/MacOS/pacer")) throw Error("UNVERIFIED: real desktop is running; fixture launch refused");
   const baseline = state.nativeFixture!.baselineVersion;
   await verifyFixtureBundle(state, baseline);
