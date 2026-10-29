@@ -372,7 +372,7 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
 
 test('App board omits unsupported controls and only offers backed terminal choices', async () => {
   const html = render(<SettingsGeneral section="app" initialData={settings}/>);
-  for (const absent of ['Density', 'Desktop banners', '>Assistant<', '>Plugins<', 'Release notes', 'Last checked', '>Workspace<']) expect(html).not.toContain(absent);
+  for (const absent of ['Density', 'Desktop banners', '>Plugins<', 'Release notes', 'Last checked']) expect(html).not.toContain(absent);
   for (const label of ['Nothing', 'Important', 'Everything', 'Check automatically']) expect(html).toContain(label);
   expect(html).toMatch(/<input(?=[^>]*role="switch")(?=[^>]*aria-checked="true")/);
   const configured = { ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'terminal.open': {value:'ghostty'} }, terminalChoices: [{value:'ghostty',label:'Ghostty'},{value:'auto',label:'Automatic'}] } };

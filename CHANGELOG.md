@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 - Align Machines and Add agent with the settings boards: machine header cards, guided SSH aliases, native account/location options, reported model choices and a contained live Test task block.
 
@@ -57,6 +58,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Scheduled certification follows the repository where managed work runs rather than the one most recently viewed, and the Dispatcher row names it by its repository picker label.
 - Scheduled certification retries after a pause of at least 24 hours when a probe exceeds the cost ceiling or repeated repository switching invalidates certificates, instead of stopping permanently. The daily probe ceiling still applies; Dispatcher consent and documentation now describe the pause and retry.
 - Executor sessions now match a terminal more closely: the login shell's `umask` applies to the agent, direnv and mise apply for the task folder as their own trust allows (pacer never allows or trusts a folder), interactive sessions keep `NO_COLOR`/`FORCE_COLOR` from your profile, and the default account honours `CLAUDE_CONFIG_DIR`/`CODEX_HOME` from your profile (not from direnv or mise) for the run, its folder trust and usage readers. Managed work under strict native control runs with the service environment it was certified with. Backend selection now uses the same launch mode as the attempt under strict enforcement. See [Session environment](docs/executors.md#session-environment).
 - The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
