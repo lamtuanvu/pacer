@@ -491,14 +491,16 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
       if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);
-      if (agent === "claude-code" && !conversation) note += await preapproveClaudeTrust(ctx, env, mode, launch.cwd, "error" in git ? undefined : git.main);
+      // A chat's user answers Claude's trust and MCP prompts; a delegated interactive lane runs unattended, as a task does.
+      const attended = conversation && !task.interactive;
+      if (agent === "claude-code" && !attended) note += await preapproveClaudeTrust(ctx, env, mode, launch.cwd, "error" in git ? undefined : git.main);
       let mcp: McpChoices | undefined;
-      if (agent === "claude-code" && !conversation) {
+      if (agent === "claude-code" && !attended) {
         const answers = projectMcpAnswers(ctx, env, mode, launch.cwd, [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])]);
         if ("reason" in answers) note += `${mcpNotApproved(answers.reason)}\n\n`;
         else mcp = answers;
       }
-      launch = prepareInteractive(agent, rdir, launch, {attended: conversation, ...(mcp ? {mcp} : {})});
+      launch = prepareInteractive(agent, rdir, launch, {attended, ...(mcp ? {mcp} : {})});
       env.PACER_HOME = ctx.pacerHome;
       env.PACER_RUN_DIR = rdir;
       env.PACER_TRANSCRIPT_REPORT = join(rdir, "transcript-report.md");

@@ -3,7 +3,8 @@ import { supervise } from "../src/supervisor/supervise";
 import type { RunState } from "../src/supervisor/run";
 import { tmpDir } from "./helpers";
 import { agentHook, readReport, writeReport } from "../src/session/reports";
-import { writeFileSync, chmodSync } from "node:fs";
+import { writeFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { folderKeys } from "../src/exec/claude-trust";
 import { join } from "node:path";
 import { localRunIO, startRun, stopRun } from "../src/supervisor/run";
 import { fakeCtx } from "./helpers";
@@ -156,4 +157,38 @@ printf '%s\\n' "$@"
       expect(result.exec.stdout).not.toContain("--auto");
     });
   }
+}
+
+// A delegated interactive lane runs unattended, like a task: Claude's folder-trust prompt would hold it before it
+// reads its request. A chat (session.create) is attended, so the user answers the prompt there.
+for (const interactive of [true, false]) {
+  test(`a Claude ${interactive ? "interactive lane" : "chat"} in a new worktree on an account with its own home is ${interactive ? "" : "not "}pre-trusted and pre-approved for MCP`, async () => {
+    const repo = gitRepo(), bin = tmpDir();
+    const executable = join(bin, "claude");
+    writeFileSync(executable, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "2.1.281"; exit; fi
+if [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo "--session-id --resume --add-dir --model --settings"; exit; fi
+printf '%s\\n' "$@"
+`);
+    chmodSync(executable, 0o700);
+    const ctx = fakeCtx({run: realRun, env: {PATH: `${bin}:${process.env.PATH}`}});
+    const home = join(ctx.home, ".claude-team");
+    mkdirSync(home, {recursive: true});
+    writeFileSync(join(home, ".claude.json"), JSON.stringify({oauthAccount: {}}), {mode: 0o600});
+    mkdirSync(ctx.pacerHome, {recursive: true});
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({planner: "claude-code",
+      accounts: {main: {kind: "claude"}, team: {kind: "claude", home}}, routing: [{default: ["claude-code#team"]}]}));
+    const task = createTask(ctx, {brief: {goal: "Explain this code", repo, worktreeBase: "head"}, kind: null, requestedExecutor: "claude-code#team", timeoutS: 1, interactionMode: "conversation"});
+    updateTask(ctx, task.id, t => {t.state = "running"; t.placement = {requested: "new"}; if (interactive) t.interactive = true;});
+    const strategy = validateStrategy({planner: "claude-code", accounts: {main: {kind: "claude"}, team: {kind: "claude", home}}, routing: [{default: ["claude-code#team"]}]}, ctx.home);
+    const result = await runAttempt(ctx, strategy.providers["claude-code#team"], readTask(ctx, task.id)!);
+    expect(result.exec.code).toBe(0);
+    const workdir = readTask(ctx, task.id)!.run!.workdir;
+    const projects = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).projects ?? {};
+    for (const key of folderKeys(workdir)) expect(projects[key]?.hasTrustDialogAccepted).toBe(interactive ? true : undefined);
+    expect(existsSync(join(ctx.home, ".claude.json"))).toBe(false);
+    // Likewise Claude's project MCP prompt: a lane carries the source checkout's answers, a chat keeps the prompt.
+    const settings = JSON.parse(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "claude-settings.json"), "utf8"));
+    expect(settings.enableAllProjectMcpServers).toBe(interactive ? true : undefined);
+  });
 }
