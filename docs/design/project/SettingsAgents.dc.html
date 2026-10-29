@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents settings</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+a{color:var(--link)}a:hover{color:var(--ink)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.tab{height:32px;padding:0 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--ink-secondary);font:inherit;font-weight:600;cursor:pointer}
+.ib{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--ink-secondary);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ib:hover{background:var(--surface-lane)}
+.ex{cursor:pointer}
+.ex:hover{background:var(--surface-card)}
+</style>
+</helmet>
+<div style="display: flex; flex-direction: column; min-height: 100vh; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; font-variant-numeric: tabular-nums;">
+<dc-import name="TopBar" hint-size="100%,44px"></dc-import>
+<div style="flex-grow: 1; display: flex; min-height: 0;">
+<dc-import name="ActivityBar" active="settings" hint-size="52px,100%"></dc-import>
+<dc-import name="SettingsNav" active="agents" hint-size="240px,900px"></dc-import>
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-start;">
+<main style="flex: 999 1 520px; min-width: 0; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box;">
+<header style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+<div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1;"><h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Agents</h1><span class="cap">Who plans, who executes, and what each one is allowed to use.</span></div>
+<a href="SettingsAddAgent.dc.html" style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 8px; background: var(--ink); color: var(--ink-on-ink); font-weight: 600; text-decoration: none;">Add agent</a>
+</header>
+
+<section aria-label="Planner" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);">
+<dc-import name="AgentMark" mono="Cl" size="{{n32}}" hint-size="32px,32px"></dc-import>
+<div style="display: flex; flex-direction: column; flex-grow: 1; min-width: 0;"><span style="display: flex; align-items: center; gap: 8px;"><b>Claude Code</b><x-import component-from-global-scope="Pacer.Pill" tone="info">Planner</x-import><x-import component-from-global-scope="Pacer.Pill" tone="good">Connected</x-import></span><span class="cap">Plans and reviews · hooks and status line seen 10 min ago · keeps 10% of its week for review</span></div>
+<x-import component-from-global-scope="Pacer.Button" size="sm">Change planner</x-import>
+</section>
+
+<div role="tablist" aria-label="Agent view" style="display: flex; gap: 4px; border-bottom: 1px solid var(--line);">
+<button class="tab" role="tab" aria-selected="true" type="button" style="color: var(--ink); border-bottom-color: var(--ink);">Executors · 5</button>
+<a class="tab" role="tab" aria-selected="false" href="SettingsAccounts.dc.html" style="text-decoration: none; display: inline-flex; align-items: center;">Accounts · 6</a>
+</div>
+
+<section aria-label="Executors" style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">
+<div class="lbl" style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(150px, 1fr) 130px 90px 32px; gap: 12px; padding: 9px 16px; background: var(--surface-card); border-bottom: 1px solid var(--line);">
+<span>Executor</span><span>Status</span><span>This week</span><span style="text-align: right;">Parallel</span><span></span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+<div class="ex" style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(150px, 1fr) 130px 90px 32px; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--surface-lane); background: {{r.bg}}; box-shadow: {{r.sel}};">
+<span style="display: flex; align-items: center; gap: 10px; min-width: 0;"><dc-import name="AgentMark" mono="{{r.mono}}" size="{{n24}}" hint-size="24px,24px"></dc-import><span style="display: flex; flex-direction: column; min-width: 0;"><span style="font-weight: 600;">{{r.name}}</span><span class="cap" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.model}}</span></span></span>
+<span style="display: flex; flex-direction: column; gap: 2px; align-items: flex-start;"><x-import component-from-global-scope="Pacer.Pill" tone="{{r.tone}}">{{r.status}}</x-import><span class="cap">{{r.why}}</span></span>
+<span style="display: flex; flex-direction: column; gap: 4px;"><x-import component-from-global-scope="Pacer.UsageMeter" used="{{r.used}}" pace="{{r.pace}}" tone="{{r.mtone}}" size="slim" label="{{r.label}}"></x-import><span class="cap">{{r.usage}}</span></span>
+<span style="text-align: right;"><b>{{r.par}}</b><span class="cap"> of 16</span></span>
+<button class="ib" type="button" aria-label="More actions for {{r.name}}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: currentColor;"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button>
+</div>
+</sc-for>
+</section>
+<span class="cap">Who may take each kind of task is set in <a href="SettingsRouting.dc.html">Dispatcher</a>. Parallel limits never exceed this machine's 16.</span>
+</main>
+
+<aside aria-labelledby="detail-h" style="flex: 1 1 340px; max-width: 400px; min-width: 0; box-sizing: border-box; align-self: stretch; padding: 28px 24px; border-left: 1px solid var(--line); background: var(--surface-card); display: flex; flex-direction: column; gap: 18px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<dc-import name="AgentMark" mono="BP" size="{{n32}}" hint-size="32px,32px"></dc-import>
+<div style="display: flex; flex-direction: column; flex-grow: 1;"><h2 id="detail-h" style="margin: 0; font-size: 16px; line-height: 22px; font-weight: 650;">BytePlus</h2><span class="cap mono">opencode#byteplus</span></div>
+<button class="ib" type="button" aria-label="Close details"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+</div>
+
+<x-import component-from-global-scope="Pacer.Card" tone="bad">
+<div style="display: flex; gap: 10px; align-items: flex-start;">
+<span aria-hidden="true" style="color: var(--bad-fg); font-weight: 700;">✕</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-weight: 600;">Cannot take work: no active subscription</span>
+<span class="cap">The coding-plan endpoint answered 402 at Wed 11:41. pacer skipped it in 6 decisions since.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;"><x-import component-from-global-scope="Pacer.Button" variant="primary" size="sm">Add subscription</x-import><x-import component-from-global-scope="Pacer.Button" size="sm">Pause this agent</x-import></div>
+</div>
+</div>
+</x-import>
+
+<dl style="margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); row-gap: 12px; column-gap: 12px;">
+<dt class="cap" style="padding-top: 1px;">Account</dt><dd style="margin: 0;">BytePlus endpoint<br><span class="cap">Key kept in your keychain, by reference</span></dd>
+<dt class="cap">Model</dt><dd style="margin: 0;">coding-plan/do</dd>
+<dt class="cap">Runs on</dt><dd style="margin: 0;">This Mac</dd>
+<dt class="cap">Good at</dt><dd style="margin: 0; display: flex; gap: 4px; flex-wrap: wrap;"><x-import component-from-global-scope="Pacer.Pill" tone="neutral">feature</x-import><x-import component-from-global-scope="Pacer.Pill" tone="neutral">tests</x-import></dd>
+</dl>
+
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line);">
+<label for="par" style="font-weight: 600;">Parallel tasks</label>
+<div style="display: flex; align-items: center; gap: 8px;"><input id="par" type="number" value="1" min="1" max="16" style="width: 72px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-page); color: var(--ink); font: inherit;"><span class="cap">Up to 16, this machine's limit</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line);">
+<span style="font-weight: 600;">Test task</span>
+<span class="cap" style="display: flex; align-items: center; gap: 6px;"><span style="color: var(--good-fg); font-weight: 700;" aria-hidden="true">✓</span>Passed Wed 11:41 before the subscription lapsed</span>
+<div><x-import component-from-global-scope="Pacer.Button" size="sm">Run test task</x-import></div>
+</div>
+
+<span style="flex-grow: 1;"></span>
+<div style="padding-top: 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px;">
+<span class="cap" style="flex-grow: 1;">Removing keeps its task history.</span>
+<x-import component-from-global-scope="Pacer.Button" size="sm">Remove agent</x-import>
+</div>
+</aside>
+</div>
+</div>
+<dc-import name="StatusBar" hint-size="100%,28px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = (o) => ({ bg: 'transparent', sel: 'none', mtone: o.tone === 'bad' ? 'bad' : o.tone, ...o });
+    return {
+      n24: 24, n32: 32,
+      rows: [
+        r({ mono: 'Cx', name: 'Codex', model: 'Agent default · GPT', status: 'Ahead of pace', tone: 'warn', why: 'Used before others only for capable work', used: 81, pace: 16, usage: '81% of week · resets Sun', par: '16', label: 'Codex weekly usage' }),
+        r({ mono: 'Ag', name: 'Antigravity', model: 'Agent default · Gemini', status: 'Ready', tone: 'good', why: 'Test task passed today 08:10', used: 22, pace: 38, usage: '22% of week', par: '1', label: 'Antigravity usage' }),
+        r({ mono: 'Lo', name: 'Local model', model: 'lmstudio/qwen3', status: 'Ready', tone: 'good', why: 'Unmetered · on this Mac', used: 0, usage: 'Unmetered', par: '2', label: 'Local model usage' }),
+        r({ mono: 'Cu', name: 'Cursor', model: 'auto', status: 'Skipped', tone: 'warn', why: 'Usage reading is 113h old', used: 100, usage: 'Stale · refresh to use', par: '1', label: 'Cursor usage, stale', mtone: 'warn' }),
+        r({ mono: 'BP', name: 'BytePlus', model: 'coding-plan/do · OpenCode', status: 'Cannot take work', tone: 'bad', why: 'No active subscription', used: 45, usage: 'Last seen 113h ago', par: '1', label: 'BytePlus usage', bg: 'var(--bad-tint)', sel: 'inset 0 0 0 1px var(--bad-line)' })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
