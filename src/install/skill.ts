@@ -53,8 +53,8 @@ Command-line flags override file fields. Give a kind tag and a concrete acceptan
 \`acceptance\` runs exactly as written (\`bash -c\`/\`sh -c\`); pipeline idioms like
 \`grep -v ... | (! grep .)\` or \`cmd | grep -q ...\` behave normally. Set
 \`acceptance_pipefail: true\`, or write \`set -o pipefail;\` yourself, to also fail on a
-non-final pipeline stage. The reported result always includes the exit code and shell
-used, plus a hint for a 141 (SIGPIPE) or an instant empty-output failure.
+non-final pipeline stage (\`cmd | tail\` and \`cmd | tee\` need it). The reported result
+includes the exit code and shell used, plus a hint for a 141 or an instant empty-output failure.
 
 Choose current for uncommitted work, read-only research/review, installed dependencies/build
 output, or a small follow-up there. Choose new when another task or the user is editing there,
