@@ -64,18 +64,33 @@ async function linux(ctx: Ctx, exists: (path: string) => boolean) {
   if (!mac || !MAC.test(mac)) return null;
   // nmcli -t escapes ":" and "\\" in values with a backslash (N6).
   const ssid = (await out(ctx, [NMCLI, "-t", "-f", "active,ssid", "dev", "wifi"]))?.split("\n").find(l => l.startsWith("yes:"))?.slice(4).replace(/\\(.)/g, "$1").trim();
-  return { identity: `mac:${normMac(mac)}`, iface, gw, ssid: ssid || undefined };
+  // A wireless default route always has an SSID, so nmcli failing or listing none is an incomplete probe, not an SSID-less network.
+  const incomplete = !ssid && exists(NMCLI) && exists(`/sys/class/net/${iface}/wireless`);
+  return { identity: `mac:${normMac(mac)}`, iface, gw, ssid: ssid || undefined, incomplete };
 }
 
-/** Null when no default route interface, router advertisement or gateway MAC is found (VPN-only, no ARP entry): the network is unknown and never advertised. */
+type Found = { identity: string; iface: string; gw: string; ssid?: string; incomplete?: boolean };
+let last: { found: Found; info: NetworkInfo } | null = null;
+export function resetNetworkForTests(): void { last = null; }
+
+/**
+ * Null when no default route interface, router advertisement or gateway MAC is found (VPN-only, no ARP entry): the network is unknown and never advertised.
+ * An incomplete probe (the SSID lookup failed on a wireless interface) returns the last network seen with the same router, interface and gateway, otherwise null.
+ */
 export async function currentNetwork(ctx: Ctx, deps: { platform?: NodeJS.Platform; exists?: (path: string) => boolean } = {}): Promise<NetworkInfo | null> {
   const platform = deps.platform ?? process.platform;
-  const found = platform === "darwin" ? await darwin(ctx) : platform === "linux" ? await linux(ctx, deps.exists ?? existsSync) : null;
+  const found: Found | null = platform === "darwin" ? await darwin(ctx) : platform === "linux" ? await linux(ctx, deps.exists ?? existsSync) : null;
   if (!found) return null;
+  if (found.incomplete) {
+    const prev = last?.found;
+    return prev && prev.identity === found.identity && prev.iface === found.iface && prev.gw === found.gw ? last!.info : null;
+  }
   const key = createHash("sha256").update(`pacer-network/v2\0${found.identity}\0${found.ssid ?? ""}`).digest("hex").slice(0, 32);
   // Without an SSID many unrelated networks share a gateway address, so only SSID networks get a group.
   const group = found.ssid ? createHash("sha256").update(`pacer-network-group/v1\0${found.gw}\0${found.ssid}`).digest("hex").slice(0, 32) : undefined;
-  return { key, label: found.ssid ?? `Network ${key.slice(0, 6)}`, iface: found.iface, ...(group ? { group } : {}) };
+  const info = { key, label: found.ssid ?? `Network ${key.slice(0, 6)}`, iface: found.iface, ...(group ? { group } : {}) };
+  last = { found, info };
+  return info;
 }
 
 /** The interface's first external IPv4 address and netmask: the radio answers and listens only on that link (SEC-11). IPv4 only. */

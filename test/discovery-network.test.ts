@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { RunFn } from "../src/types";
 import { fakeCtx } from "./helpers";
-import { currentNetwork, interfaceIPv4 } from "../src/discovery/network";
+import { currentNetwork, interfaceIPv4, resetNetworkForTests } from "../src/discovery/network";
 
 function runner(map: Record<string, string>): RunFn {
   return async (argv: string[]) => {
@@ -209,4 +209,40 @@ test("Linux: nmcli's escaped colons in the SSID are unescaped (N6)", async () =>
     "/usr/bin/nmcli -t -f active,ssid dev wifi": "yes:cafe\\:guest\\\\x\n",
   }) });
   expect((await currentNetwork(ctx, { platform: "linux", exists: p => p === "/usr/sbin/ip" }))!.label).toBe("cafe:guest\\x");
+});
+
+const WLAN = {
+  "/usr/sbin/ip route show default": "default via 192.168.0.1 dev wlp2s0 proto dhcp\n",
+  "/usr/sbin/ip neigh show 192.168.0.1": "192.168.0.1 dev wlp2s0 lladdr 11:22:33:44:55:66 REACHABLE\n",
+};
+const has = (...paths: string[]) => (p: string) => p === "/usr/sbin/ip" || paths.includes(p);
+
+test("Linux: a failed SSID probe on a wireless interface keeps the last network instead of a new key", async () => {
+  resetNetworkForTests();
+  const exists = has("/usr/bin/nmcli", "/sys/class/net/wlp2s0/wireless");
+  const ok = await currentNetwork(fakeCtx({ run: runner({ ...WLAN, "/usr/bin/nmcli -t -f active,ssid dev wifi": "yes:office\n" }) }), { platform: "linux", exists });
+  expect(ok!.key).toBe(v2("mac:11:22:33:44:55:66", "office"));
+  // nmcli fails, then succeeds without an active line: both are "unknown this poll", not a network without an SSID.
+  for (const nm of [{}, { "/usr/bin/nmcli -t -f active,ssid dev wifi": "no:other\n" }] as Record<string, string>[]) {
+    expect(await currentNetwork(fakeCtx({ run: runner({ ...WLAN, ...nm }) }), { platform: "linux", exists })).toEqual(ok);
+  }
+  // The last network is reused only for the same router on the same interface.
+  const other = { ...WLAN, "/usr/sbin/ip neigh show 192.168.0.1": "192.168.0.1 dev wlp2s0 lladdr 99:22:33:44:55:66 REACHABLE\n" };
+  expect(await currentNetwork(fakeCtx({ run: runner(other) }), { platform: "linux", exists })).toBeNull();
+});
+
+test("Linux: a failed SSID probe with no last network is an unknown network", async () => {
+  resetNetworkForTests();
+  const exists = has("/usr/bin/nmcli", "/sys/class/net/wlp2s0/wireless");
+  expect(await currentNetwork(fakeCtx({ run: runner(WLAN) }), { platform: "linux", exists })).toBeNull();
+});
+
+test("Linux: a wired interface needs no SSID, and without nmcli the key is consistently SSID-less", async () => {
+  resetNetworkForTests();
+  const wired = await currentNetwork(fakeCtx({ run: runner(WLAN) }), { platform: "linux", exists: has("/usr/bin/nmcli") });
+  expect(wired!.key).toBe(v2("mac:11:22:33:44:55:66"));
+  resetNetworkForTests();
+  const noNm = await currentNetwork(fakeCtx({ run: runner(WLAN) }), { platform: "linux", exists: has("/sys/class/net/wlp2s0/wireless") });
+  expect(noNm!.key).toBe(v2("mac:11:22:33:44:55:66"));
+  expect(noNm!.group).toBeUndefined();
 });

@@ -8,6 +8,7 @@ import { buildRadioConfig, recordObservations, radioNetwork, radioStatus, resetR
 import { discoveryEnabled, readState, updateState, ensureNetwork, SEEN_EXPIRE_S, SEEN_MAX } from "../src/discovery/state";
 import { SILENCE_LATER_S } from "../src/discovery/policy";
 import { currentVersion } from "../src/update/version";
+import { currentNetwork, resetNetworkForTests } from "../src/discovery/network";
 
 beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
 const home = { key: "k1", label: "home-wifi", iface: "en0" };
@@ -236,4 +237,28 @@ test("observations use the network of the radio's last config pull (N4)", async 
   await buildRadioConfig(ctx, { network: home });
   await recordObservations(ctx, [{ id: "a".repeat(26), name: "x", v: "1", h: "" }], { now: 1, network: radioNetwork() });
   expect(readState(ctx).seen["a".repeat(26)].network).toBe("k1");
+});
+
+test("a failed SSID probe keeps the approved network's config and adds no entry", async () => {
+  resetNetworkForTests();
+  const ctx = fakeCtx();
+  const route = {
+    "/usr/sbin/ip route show default": "default via 192.168.0.1 dev wlp2s0\n",
+    "/usr/sbin/ip neigh show 192.168.0.1": "192.168.0.1 dev wlp2s0 lladdr 11:22:33:44:55:66 REACHABLE\n",
+  };
+  const probe = (map: Record<string, string>) => currentNetwork(fakeCtx({ run: async (argv: string[]) => {
+    const k = argv.join(" ");
+    return k in map ? { code: 0, stdout: map[k], stderr: "" } : { code: 1, stdout: "", stderr: "" };
+  } }), { platform: "linux", exists: p => ["/usr/sbin/ip", "/usr/bin/nmcli", "/sys/class/net/wlp2s0/wireless"].includes(p) });
+  const ipv4 = () => ({ addr: "192.168.0.10", mask: "255.255.255.0" });
+  await buildRadioConfig(ctx, { network: await probe({ ...route, "/usr/bin/nmcli -t -f active,ssid dev wifi": "yes:LamTuanVu\n" }), ipv4 });
+  const key = radioNetwork()!.key;
+  await updateState(ctx, s => { s.networks[key].advertise = true; });
+  const approved = await buildRadioConfig(ctx, { network: await probe({ ...route, "/usr/bin/nmcli -t -f active,ssid dev wifi": "yes:LamTuanVu\n" }), ipv4 });
+  const rev = readState(ctx).networksRev;
+  const cfg = await buildRadioConfig(ctx, { network: await probe(route), ipv4 });
+  expect(cfg).toEqual(approved);
+  expect(Object.keys(readState(ctx).networks)).toEqual([key]);
+  expect(readState(ctx).networksRev).toBe(rev);
+  expect(radioNetwork()!.key).toBe(key);
 });
