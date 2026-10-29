@@ -10,10 +10,10 @@ const entry = (subject: string): InboxEntry => ({ outcome: "succeeded", subject,
 
 test("a missing or corrupt orca.json loads as empty state", () => {
   const ctx = fakeCtx();
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, groups: {} });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), "not json");
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, groups: {} });
 });
 
 test("updateOrcaState persists coordinator, run and workers", () => {
@@ -26,6 +26,7 @@ test("updateOrcaState persists coordinator, run and workers", () => {
   expect(loadOrcaState(ctx)).toEqual({
     coordinator: "term_1", run: "run_1",
     workers: { ctx_1: { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 } },
+    groups: {},
   });
   updateOrcaState(ctx, (s) => { delete s.workers.ctx_1; });
   expect(loadOrcaState(ctx).workers).toEqual({});

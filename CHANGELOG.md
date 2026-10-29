@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add interactive long-lived delegated lanes: `pacer delegate --interactive` runs a routed, budgeted, reviewable task with a live terminal (an Orca worktree and terminal on the Orca backend), `--group NAME` nests every lane sharing that name under one Orca parent worktree, and `pacer send TASK_ID "<message>"` delivers a message into a running lane's live terminal without starting a new attempt (refused when another `pacer send` call drove it in the last 60 seconds, unless `--force`). A conversation task (interactive or a plain `pacer session start`) now runs through the same choice ladder, worktree placement and needs_input/review/retry eligibility as a delegated task, and an executor's `pacer ask` on an interactive lane leaves its worker running so an answer delivers live instead of always respawning. See [Interactive lanes](docs/dispatch.md#interactive-lanes).
+
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 
 - Restyle the app frame chrome to the design canvas: a 44px title bar with the pacer mark, planner chip and panel-toggle buttons, a 52px activity bar with an active indicator and count badges, and a 28px status bar with per-vendor budget meters, running and queued counts and the terminal shortcut. The Setup and Settings attention dots are now red.

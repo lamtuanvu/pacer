@@ -738,6 +738,7 @@ Params JSON Schema:
           "task_settled",
           "verdict",
           "retry",
+          "message",
           "mode",
           "budget_refreshed",
           "executor_state",
@@ -6029,6 +6030,13 @@ Params JSON Schema:
       "type": "number",
       "minimum": 1,
       "maximum": 240
+    },
+    "interactive": {
+      "type": "boolean"
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
     }
   },
   "required": [
@@ -6450,6 +6458,39 @@ Params JSON Schema:
   "required": [
     "id",
     "verdict"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.send`
+
+Deliver one message into a running interactive lane's live Orca terminal. Does not create a new attempt.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "force": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "text"
   ],
   "additionalProperties": false
 }

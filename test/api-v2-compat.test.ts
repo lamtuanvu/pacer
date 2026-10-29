@@ -19,8 +19,9 @@ test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',
    expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
   } else if (name === 'hello') {
    const live=value as any;
-   expect(live.ops).toContain('task.request_review');
-   expect({...live,pacer:golden.pacer,ops:live.ops.filter((op:string)=>op!=='task.request_review')}).toEqual(golden);
+   const additive=['task.request_review','task.send'];
+   for(const op of additive)expect(live.ops).toContain(op);
+   expect({...live,pacer:golden.pacer,ops:live.ops.filter((op:string)=>!additive.includes(op))}).toEqual(golden);
   } else {
    // The live pacer version changes every release; the golden records pre-upgrade output.
    const live=value as Record<string,unknown>;

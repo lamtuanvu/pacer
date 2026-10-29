@@ -156,6 +156,10 @@ export interface TaskRecord {
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;
+  /** Lanes sharing a named Orca parent worktree (`pacer delegate --group`); cosmetic grouping when the backend isn't Orca. */
+  group?: string;
+  /** Who most recently delivered live input into this task's running terminal (`pacer send`); a short lease, not a process lock. */
+  driving?: { by: string; at: number };
   reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;

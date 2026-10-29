@@ -34,7 +34,7 @@ import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 
-function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
+export function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
   const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
   appendActivity(ctx, { kind, level: "info", text, repo: (task.repo ?? repoFor(ctx, task.brief.repo)).key, taskId: task.id,
     ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
@@ -309,6 +309,8 @@ async function retryTask(
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),
       ...(executor ? { executor } : {}),
+      ...(task.interactionMode === "conversation" ? { interactive: true } : {}),
+      ...(task.group ? { group: task.group } : {}),
     };
     let next: TaskRecord;
     try {

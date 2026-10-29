@@ -10,6 +10,8 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
+export interface WorktreeRow { id?: string; path?: string }
+export interface WorktreeCreateOpts { repoId: string; name: string; baseBranch: string; parentWorktree?: string; noParent?: boolean }
 export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreePath?: string }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
@@ -135,6 +137,13 @@ export class OrcaClient {
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }
+  /** Orca's own visual nesting primitive, used to group lanes under a named parent (worker-start's `new-child` has no `--parent-worktree` passthrough). */
+  worktreeCreate(o: WorktreeCreateOpts) {
+    return this.call<{ worktree?: WorktreeRow }>([
+      "worktree", "create", "--repo", `id:${o.repoId}`, "--name", o.name, "--base-branch", o.baseBranch,
+      ...(o.parentWorktree ? ["--parent-worktree", o.parentWorktree] : o.noParent ? ["--no-parent"] : []),
+    ]);
+  }
   runCreate(objective: string, from: string) {
     return this.call<{ run: RunRow }>(["orchestration", "run-create", "--objective", objective, "--from", from]);
   }

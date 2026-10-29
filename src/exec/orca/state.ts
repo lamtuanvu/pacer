@@ -12,7 +12,8 @@ export interface OrcaWorkerEntry {
   terminal: string | null;
   startedAt: number;
 }
-export interface OrcaState { coordinator: string | null; run: string | null; workers: Record<string, OrcaWorkerEntry> }
+export interface OrcaGroupEntry { selector: string }
+export interface OrcaState { coordinator: string | null; run: string | null; workers: Record<string, OrcaWorkerEntry>; groups: Record<string, OrcaGroupEntry> }
 export interface InboxEntry { outcome: string; subject: string; body: string; filesModified: string[]; messageId: string }
 
 export const orcaStatePath = (ctx: Ctx) => join(ctx.pacerHome, "orca.json");
@@ -28,6 +29,7 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     coordinator: typeof o.coordinator === "string" ? o.coordinator : null,
     run: typeof o.run === "string" ? o.run : null,
     workers: isObj(o.workers) ? (o.workers as Record<string, OrcaWorkerEntry>) : {},
+    groups: isObj(o.groups) ? (o.groups as Record<string, OrcaGroupEntry>) : {},
   };
 }
 

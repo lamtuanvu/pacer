@@ -161,3 +161,24 @@ test("delegate stores trimmed titles and derives absent ones, including activity
   const r=await tasks.retry(ctx,t.id,{}, {delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
   expect(r.retry.title).toBe("Queue fix");
 });
+test("--interactive and --group are parsed and set on the delegated task", () => {
+  const ctx=fakeCtx(), brief={goal:"Interactive lane",repo:tmpDir()};
+  const parsed=parseDelegateBrief({...brief,interactive:true,group:"feature-x"},brief.repo);
+  expect(parsed).toMatchObject({interactive:true,group:"feature-x"});
+  const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
+  expect(t.interactionMode).toBe("conversation");
+  expect(t.conversation).toEqual({activity:"starting"});
+  expect(t.group).toBe("feature-x");
+});
+test("retrying an interactive, grouped task keeps it interactive and in its group", async () => {
+  const ctx=fakeCtx(), brief={goal:"Interactive lane",repo:tmpDir()};
+  const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
+  const retried=await tasks.retry(ctx,t.id,{},{delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  expect(readTask(ctx,retried.retry.id)?.interactionMode).toBe("conversation");
+  expect(readTask(ctx,retried.retry.id)?.group).toBe("feature-x");
+});
+test("group rejects invalid names", () => {
+  const ctx=fakeCtx(), brief={goal:"g",repo:tmpDir()};
+  expect(()=>tasks.delegate(ctx,{brief,group:"-bad"},()=>1,s)).toThrow(/group must be/);
+  expect(()=>tasks.delegate(ctx,{brief,group:"x".repeat(41)},()=>1,s)).toThrow(/group must be/);
+});

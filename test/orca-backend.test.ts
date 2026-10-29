@@ -9,9 +9,9 @@ import { selectBackend } from "../src/exec/backend";
 import { EXTRA_BACKENDS } from "../src/exec/backends-extra";
 import type { AttemptOutcome } from "../src/exec/direct";
 import { type OrcaBackendDeps, makeOrcaBackend, orcaBackend } from "../src/exec/orca/backend";
-import { loadOrcaState, withLock } from "../src/exec/orca/state";
+import { loadOrcaState, updateOrcaState, withLock } from "../src/exec/orca/state";
 import { runTask } from "../src/tasks/runner";
-import { createTask, updateTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
@@ -68,12 +68,12 @@ interface Holder { ctx: Ctx; taskId: string }
 
 function setup(
   over: (h: Holder) => Route[] = () => [],
-  opts: { provider?: string; exec?: Partial<ExecutionCfg>; timeoutS?: number; deps?: Partial<OrcaBackendDeps> } = {},
+  opts: { provider?: string; exec?: Partial<ExecutionCfg>; timeoutS?: number; deps?: Partial<OrcaBackendDeps>; group?: string } = {},
 ) {
   const h = {} as Holder;
   const f = fakeRun([[["git", "-C", REPO, "rev-parse", "--verify"], raw("a".repeat(40))], ...over(h), ...baseRoutes()]);
   const ctx = fakeCtx({ run: f.run });
-  const task = createTask(ctx, { brief: { goal: "Fix the bug", repo: REPO, acceptance: "bun test" }, kind: null, requestedExecutor: null, timeoutS: opts.timeoutS ?? 600 });
+  const task = createTask(ctx, { brief: { goal: "Fix the bug", repo: REPO, acceptance: "bun test" }, kind: null, requestedExecutor: null, timeoutS: opts.timeoutS ?? 600, ...(opts.group ? { group: opts.group } : {}) });
   h.ctx = ctx;
   h.taskId = task.id;
   const direct: string[] = [];
@@ -116,8 +116,102 @@ test("happy path: new-child worker, worker_done, release, orphan terminal closed
   expect(f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_802297d1724f", "--json"]);
   expect(f.calls).toContainEqual(["orca", "terminal", "close", "--terminal", AGENT_TERM, "--json"]);
   expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: COORD, run: RUN, workers: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: COORD, run: RUN, workers: {}, groups: {} });
   expect(readFileSync(out.attempt.log, "utf8")).toContain("worker-start ctx_802297d1724f: ready");
+});
+
+const worktreeCreate: Route = [O("worktree", "create"), (argv: string[]) => {
+  const name = argv[argv.indexOf("--name") + 1];
+  return raw(JSON.stringify({ ok: true, result: { worktree: { id: `40c98aad-c083-4ec9-b82e-a51798a20270::~/worktrees/${name}`, path: `~/worktrees/${name}` } } }));
+}];
+
+test("group: creates one parent worktree per group, nests each lane's own worktree under it", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [worktreeCreate], { group: "feature-x" });
+  const out = await backend.runAttempt(ctx, cfg, task);
+  expect(out.backend).toBe("orca");
+  expect(out.worktree).toBe(`~/worktrees/pacer-${task.id}-cursor`);
+  const creates = f.calls.filter((a) => a[1] === "worktree" && a[2] === "create");
+  expect(creates).toHaveLength(2);
+  expect(arg(creates[0], "--name")).toBe("pacer-group-feature-x");
+  expect(creates[0]).toContain("--no-parent");
+  expect(arg(creates[1], "--name")).toBe(`pacer-${task.id}-cursor`);
+  expect(arg(creates[1], "--parent-worktree")).toBe("path:~/worktrees/pacer-group-feature-x");
+  const start = startArgs(f);
+  expect(arg(start, "--worktree")).toBe(`path:~/worktrees/pacer-${task.id}-cursor`);
+  expect(loadOrcaState(ctx).groups).toEqual({ "40c98aad-c083-4ec9-b82e-a51798a20270:feature-x": { selector: "path:~/worktrees/pacer-group-feature-x" } });
+});
+
+test("group: a second lane in the same group reuses the cached parent worktree", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [worktreeCreate], { group: "feature-x" });
+  await backend.runAttempt(ctx, cfg, task);
+  const second = createTask(ctx, { brief: { goal: "Second lane", repo: REPO, acceptance: "bun test" }, kind: null, requestedExecutor: null, timeoutS: 600, group: "feature-x" });
+  await backend.runAttempt(ctx, cfg, second);
+  const creates = f.calls.filter((a) => a[1] === "worktree" && a[2] === "create");
+  expect(creates).toHaveLength(3); // group parent once, plus one lane worktree per task
+  expect(creates.filter((a) => arg(a, "--name") === "pacer-group-feature-x")).toHaveLength(1);
+});
+
+test("an interactive lane's escalation keeps its worker and terminal alive instead of stopping them", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [
+    [O("orchestration", "check"), [ok("check-question.ndjson"), ok("ack-1.json")]],
+  ]);
+  const out = await backend.runAttempt(ctx, cfg, updateTask(ctx, task.id, t => { t.interactionMode = "conversation"; t.state = "running"; }));
+  expect(out.exec.code).toBe(1);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
+  expect(f.count(O("orchestration", "worker-release"))).toBe(0);
+  expect(f.count(O("terminal", "close"))).toBe(0);
+  expect(loadOrcaState(ctx).workers.ctx_802297d1724f).toMatchObject({ taskId: task.id, terminal: AGENT_TERM });
+  expect(readTask(ctx, task.id)?.question?.text).toBe("Should I also update the README?");
+});
+
+test("a delegated (non-interactive) lane's escalation still stops its worker, unlike an interactive lane", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [
+    [O("orchestration", "check"), [ok("check-question.ndjson"), ok("ack-1.json")]],
+  ]);
+  const out = await backend.runAttempt(ctx, cfg, updateTask(ctx, task.id, t => { t.state = "running"; }));
+  expect(out.exec.code).toBe(1);
+  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(loadOrcaState(ctx).workers).toEqual({});
+});
+
+test("answering an interactive lane with a live worker delivers the answer live instead of respawning it", async () => {
+  const { f, ctx, task: original, backend, cfg } = setup(() => [
+    [O("orchestration", "worker-show"), [ok("worker-show-ready.json"), ok("worker-show-succeeded.json")]],
+  ], { group: "feature-x" });
+  updateTask(ctx, original.id, t => { t.interactionMode = "conversation"; t.state = "needs_input"; t.question = { text: "which approach?", at: 1 }; });
+  updateOrcaState(ctx, s => {
+    s.coordinator = COORD; s.run = RUN;
+    s.workers.ctx_live = { dispatchId: "ctx_live", taskId: original.id, executor: "cursor", worktree: WT1, terminal: AGENT_TERM, startedAt: 1 };
+  });
+  const retry = createTask(ctx, {
+    brief: { ...original.brief, qa: [{ q: "which approach?", a: "go with B" }] },
+    kind: null, requestedExecutor: "cursor", timeoutS: 600, group: "feature-x",
+  });
+  updateTask(ctx, retry.id, t => { t.retryOf = original.id; });
+  const out = await backend.runAttempt(ctx, cfg, readTask(ctx, retry.id)!);
+  expect(f.count(O("orchestration", "worker-start"))).toBe(0);
+  expect(f.calls.filter((a) => a[1] === "worktree" && a[2] === "create")).toHaveLength(0);
+  expect(f.calls).toContainEqual(["orca", "terminal", "send", "--terminal", AGENT_TERM, "--text", "go with B", "--enter", "--json"]);
+  expect(out.backend).toBe("orca");
+  expect(out.worktree).toBe(WT1);
+  expect(out.exec.code).toBe(0);
+  expect(loadOrcaState(ctx).workers).toEqual({});
+});
+
+test("a managed work answer (same task id, no retryOf) also reattaches to its live worker", async () => {
+  const { f, ctx, task, backend, cfg } = setup(() => [
+    [O("orchestration", "worker-show"), [ok("worker-show-ready.json"), ok("worker-show-succeeded.json")]],
+  ]);
+  updateTask(ctx, task.id, t => { t.interactionMode = "conversation"; t.state = "queued"; t.worktree = WT1; t.brief.qa = [{ q: "which approach?", a: "go with B" }]; });
+  updateOrcaState(ctx, s => {
+    s.coordinator = COORD; s.run = RUN;
+    s.workers.ctx_live = { dispatchId: "ctx_live", taskId: task.id, executor: "cursor", worktree: WT1, terminal: AGENT_TERM, startedAt: 1 };
+  });
+  const out = await backend.runAttempt(ctx, cfg, updateTask(ctx, task.id, t => { t.state = "running"; }));
+  expect(f.count(O("orchestration", "worker-start"))).toBe(0);
+  expect(f.calls).toContainEqual(["orca", "terminal", "send", "--terminal", AGENT_TERM, "--text", "go with B", "--enter", "--json"]);
+  expect(out.worktree).toBe(WT1);
+  expect(out.exec.code).toBe(0);
 });
 
 test("a start receipt with failedStage/lastError is a failed attempt; the worker is released", async () => {

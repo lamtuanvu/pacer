@@ -3,6 +3,32 @@ import type { Ctx } from "../../types";
 import { type OrcaClient, isLiveTerminal } from "./client";
 import { loadOrcaState, updateOrcaState, withLock } from "./state";
 
+const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
+
+/**
+ * A worktree shared by every lane in a named `--group`, so Orca nests each lane's own worktree
+ * under one visible parent (worker-start's `new-child` convenience creator has no `--parent-worktree`
+ * passthrough; only `worktree create` does). Cached per repo+group in `~/.pacer/orca.json`;
+ * recreated if the cached selector turns out to be stale when a lane's own `worktree create` fails.
+ */
+export async function ensureGroupWorktree(
+  ctx: Ctx, c: OrcaClient, repoId: string, group: string, baseBranch: string,
+): Promise<{ selector: string } | { error: string }> {
+  if (!GROUP_NAME.test(group)) return { error: "group must be 1–40 characters, starting alphanumeric, of letters, digits, - and _" };
+  const key = `${repoId}:${group}`;
+  return withLock(ctx, "orca-group", async () => {
+    const cached = loadOrcaState(ctx).groups[key];
+    if (cached) return cached;
+    const r = await c.worktreeCreate({ repoId, name: `pacer-group-${group}`, baseBranch, noParent: true });
+    if (!r.ok) return { error: `orca worktree create failed for group "${group}": ${r.error.code} ${r.error.message}` };
+    const path = r.result.worktree?.path;
+    if (!path) return { error: `orca worktree create for group "${group}" returned no path` };
+    const entry = { selector: `path:${path}` };
+    updateOrcaState(ctx, s => { s.groups[key] = entry; });
+    return entry;
+  });
+}
+
 export { gitInfo, realpathSafe, type RepoInfo } from "../../core/git";
 
 export const COORDINATOR_TITLE = "pacer coordinator";

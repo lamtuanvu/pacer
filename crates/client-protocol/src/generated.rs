@@ -2558,6 +2558,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountTestParamsName {
 ///          "task_settled",
 ///          "verdict",
 ///          "retry",
+///          "message",
 ///          "mode",
 ///          "budget_refreshed",
 ///          "executor_state",
@@ -2681,6 +2682,7 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsBefore {
 ///    "task_settled",
 ///    "verdict",
 ///    "retry",
+///    "message",
 ///    "mode",
 ///    "budget_refreshed",
 ///    "executor_state",
@@ -2715,6 +2717,8 @@ pub enum ActivityListParamsKindsItem {
     Verdict,
     #[serde(rename = "retry")]
     Retry,
+    #[serde(rename = "message")]
+    Message,
     #[serde(rename = "mode")]
     Mode,
     #[serde(rename = "budget_refreshed")]
@@ -2743,6 +2747,7 @@ impl ::std::fmt::Display for ActivityListParamsKindsItem {
             Self::TaskSettled => f.write_str("task_settled"),
             Self::Verdict => f.write_str("verdict"),
             Self::Retry => f.write_str("retry"),
+            Self::Message => f.write_str("message"),
             Self::Mode => f.write_str("mode"),
             Self::BudgetRefreshed => f.write_str("budget_refreshed"),
             Self::ExecutorState => f.write_str("executor_state"),
@@ -2762,6 +2767,7 @@ impl ::std::str::FromStr for ActivityListParamsKindsItem {
             "task_settled" => Ok(Self::TaskSettled),
             "verdict" => Ok(Self::Verdict),
             "retry" => Ok(Self::Retry),
+            "message" => Ok(Self::Message),
             "mode" => Ok(Self::Mode),
             "budget_refreshed" => Ok(Self::BudgetRefreshed),
             "executor_state" => Ok(Self::ExecutorState),
@@ -13230,6 +13236,13 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///      "type": "string",
 ///      "minLength": 1
 ///    },
+///    "group": {
+///      "type": "string",
+///      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+///    },
+///    "interactive": {
+///      "type": "boolean"
+///    },
 ///    "kind": {
 ///      "type": "string",
 ///      "enum": [
@@ -13317,6 +13330,10 @@ pub struct TaskDelegateParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<::std::string::String>,
     pub goal: TaskDelegateParamsGoal,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub group: ::std::option::Option<TaskDelegateParamsGroup>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub interactive: ::std::option::Option<bool>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<TaskDelegateParamsKind>,
     pub repo: TaskDelegateParamsRepo,
@@ -13435,6 +13452,62 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsGoal {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsGoal {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskDelegateParamsGroup`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskDelegateParamsGroup(::std::string::String);
+impl ::std::ops::Deref for TaskDelegateParamsGroup {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskDelegateParamsGroup> for ::std::string::String {
+    fn from(value: TaskDelegateParamsGroup) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsGroup {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsGroup {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsGroup {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -15714,6 +15787,156 @@ impl ::std::convert::TryFrom<&str> for TaskReviewParamsVerdict {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`TaskSendParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "text"
+///  ],
+///  "properties": {
+///    "force": {
+///      "type": "boolean"
+///    },
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "text": {
+///      "type": "string",
+///      "maxLength": 4000,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskSendParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub force: ::std::option::Option<bool>,
+    pub id: TaskSendParamsId,
+    pub text: TaskSendParamsText,
+}
+///`TaskSendParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskSendParamsId(::std::string::String);
+impl ::std::ops::Deref for TaskSendParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskSendParamsId> for ::std::string::String {
+    fn from(value: TaskSendParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskSendParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskSendParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskSendParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskSendParamsText`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskSendParamsText(::std::string::String);
+impl ::std::ops::Deref for TaskSendParamsText {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskSendParamsText> for ::std::string::String {
+    fn from(value: TaskSendParamsText) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskSendParamsText {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskSendParamsText {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskSendParamsText {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`TaskSessionParams`

@@ -52,27 +52,32 @@ function deps(plan: Record<string, AttemptOutcome>, st: Status = status(), accep
 const newTask = (ctx: ReturnType<typeof fakeCtx>, extra: { requestedExecutor?: string | null; acceptance?: string } = {}) =>
   createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: extra.acceptance }, kind: null, requestedExecutor: extra.requestedExecutor ?? null, timeoutS: 60 });
 
-test("conversation exit skips delegated acceptance and result review", async () => {
-  const ctx = fakeCtx(), task = newTask(ctx, {acceptance: "must-not-run"});
+// A conversation now takes the same path as a delegated task once it settles: a real diff, an
+// optional acceptance check, and needs_input/review/retry eligibility (interactive lanes design,
+// decision 4), instead of a bare done/failed verdict with no verification.
+test("conversation exit now runs delegated acceptance and becomes eligible for review", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx, {acceptance: "echo ok"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
   const d = deps({codex: outcomeFor("codex", 0)});
-  d.verifyRepo = async () => {throw Error("conversation must not run delegated verification");};
   const result = await runTask(ctx, task.id, d);
   expect(result.state).toBe("done");
   expect(result.conversation).toMatchObject({activity: "ended", endReason: "agent_exit"});
-  expect(result.result?.acceptance).toBeUndefined();
+  expect(result.result?.acceptance).toMatchObject({cmd: "echo ok", passed: true});
   expect(result.review).toBeUndefined();
   expect(result.reviewRequest).toBeUndefined();
 });
 
-test("conversation limit preserves agent identity without fallback", async () => {
+// A conversation's requested executor is tried first, same as a delegated task's requestedExecutor,
+// but on a limit it now falls back to the next ranked candidate instead of being stuck exclusively
+// on the one requested (decision 4: selected or rejected by the same decision engine as any task).
+test("conversation limit falls back to the next ranked executor, preferring the requested one first", async () => {
   const ctx = fakeCtx(), task = newTask(ctx, {requestedExecutor: "codex"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
   const d = deps({codex: outcomeFor("codex", 1, true), cursor: outcomeFor("cursor", 0)});
   const result = await runTask(ctx, task.id, d);
-  expect(d.calls).toEqual(["codex"]);
-  expect(result.state).toBe("limit");
-  expect(result.result?.executor).toBe("codex");
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(result.state).toBe("done");
+  expect(result.result?.executor).toBe("cursor");
 });
 
 test("conversation integration failure includes the repair hint in its task report", async () => {

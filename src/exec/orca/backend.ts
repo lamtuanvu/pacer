@@ -17,9 +17,9 @@ import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
 import { OrcaClient, type Placement, agentTerminalOf, isReady, worktreePathOf } from "./client";
-import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
-import { updateOrcaState, withLock } from "./state";
-import { type WaitResult, waitForWorker } from "./wait";
+import { ensureCoordinator, ensureGroupWorktree, ensureRepo, gitInfo, realpathSafe } from "./setup";
+import { loadOrcaState, updateOrcaState, withLock } from "./state";
+import { SETTLED_STATES, type WaitResult, waitForWorker } from "./wait";
 
 export interface OrcaBackendDeps {
   loadExecution: (ctx: Ctx) => ExecutionCfg;
@@ -49,6 +49,8 @@ interface Ready {
   sub: string;
   notes: string[];
   resolved: ResolvedPlacement;
+  /** Set when `prepare()` itself created the worktree (a `--group` lane's own `worktree create` call), so the caller doesn't have to infer a fresh path from `placement.kind === "existing"`, which also covers plain current-worktree and retry-reuse placements. */
+  newWorktree?: string;
 }
 type Prepared = { ok: false; reason: string; refuse?:boolean } | Ready;
 interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string }
@@ -85,19 +87,34 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
   // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
-  const placement: Placement = task.retryOf && task.worktree
-    ? { kind: "existing", selector: `path:${task.worktree}` }
-    : resolved.mode !== "current"
-    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: `pacer-${task.id}-${cfg.id}` }
-    : { kind: "existing", selector: `path:${git.top}` };
+  let placement: Placement;
+  let newWorktree: string | undefined;
+  if (task.retryOf && task.worktree) {
+    placement = { kind: "existing", selector: `path:${task.worktree}` };
+  } else if (resolved.mode !== "current" && task.group) {
+    const group = await ensureGroupWorktree(ctx, c, repoId, task.group, resolvedBase.sha ?? base);
+    if ("error" in group) return { ok: false, reason: group.error };
+    const lane = await c.worktreeCreate({ repoId, name: `pacer-${task.id}-${cfg.id}`, baseBranch: resolvedBase.sha ?? base, parentWorktree: group.selector });
+    if (!lane.ok) return { ok: false, reason: `orca worktree create failed: ${lane.error.code} ${lane.error.message}` };
+    const path = lane.result.worktree?.path;
+    if (!path) return { ok: false, reason: "orca worktree create returned no path" };
+    placement = { kind: "existing", selector: `path:${path}` };
+    newWorktree = path;
+  } else if (resolved.mode !== "current") {
+    placement = { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: `pacer-${task.id}-${cfg.id}` };
+  } else {
+    placement = { kind: "existing", selector: `path:${git.top}` };
+  }
   return {
     ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,
-    placement, top: git.top, base, sub: git.sub, notes, resolved,
+    placement, top: git.top, base, sub: git.sub, notes, resolved, ...(newWorktree ? { newWorktree } : {}),
   };
 }
 
 function workerSpec(task: TaskRecord, p: Ready): string {
-  const where = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
+  const where = p.newWorktree
+    ? `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}, grouped under ${task.group}. Do not edit ${p.top} itself.`
+    : p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
     : `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}` +
       `${p.sub ? `. Work in its ${p.sub}/ subdirectory` : ""}. Do not edit ${p.top} itself.`;
   const prompt = buildPrompt({ ...task.brief, repo: where }, task.id);
@@ -165,6 +182,98 @@ async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | nul
   }
 }
 
+export interface LiveAnswerWorker { dispatchId: string; terminal: string | null; worktree: string | null }
+
+/**
+ * An interactive lane's escalation (`pacer ask`) leaves its worker and terminal alive instead of
+ * stopping them (see `keepAlive` in `runOrcaAttempt`). Answering that question reattaches to the
+ * same process — delivering the answer live — instead of spawning a fresh worker, as long as the
+ * worker is still running and the retry is for the same executor it was asked on.
+ */
+export async function findLiveAnswerWorker(ctx: Ctx, c: OrcaClient, task: TaskRecord, executor: string): Promise<LiveAnswerWorker | null> {
+  // A plain `pacer delegate --interactive` answer creates a new, retryOf-linked task; a managed
+  // (dispatch.child) answer restarts the same task id in place (src/core/work.ts `restartWork`).
+  // Either way, the live worker to reattach to is registered under the id that actually asked.
+  const askedId = task.retryOf ? (readTask(ctx, task.retryOf)?.interactionMode === "conversation" ? task.retryOf : null)
+    : task.interactionMode === "conversation" ? task.id : null;
+  if (!askedId) return null;
+  const worker = Object.values(loadOrcaState(ctx).workers).find(w => w.taskId === askedId);
+  if (!worker || worker.executor !== executor) return null;
+  const show = await c.workerShow(worker.dispatchId);
+  if (!show.ok || !show.result.worker?.state || SETTLED_STATES.includes(show.result.worker.state)) return null;
+  return { dispatchId: worker.dispatchId, terminal: worker.terminal, worktree: worker.worktree };
+}
+
+async function reattachOrcaAttempt(
+  deps: OrcaBackendDeps, ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, reattach: LiveAnswerWorker,
+): Promise<AttemptOutcome> {
+  const { dispatchId, terminal, worktree } = reattach;
+  const git = await gitInfo(ctx.run, task.brief.repo);
+  if ("error" in git) return fallback(deps, ctx, cfg, task, undefined, git.error);
+  const coord = await ensureCoordinator(ctx, c, git.top);
+  if ("error" in coord) return fallback(deps, ctx, cfg, task, undefined, coord.error);
+  const startedAt = deps.now() / 1000;
+  const lines: string[] = [];
+  const log = (line: string) => { lines.push(line); };
+  const admission = beginWorkSync(ctx, { kind: "session", id: task.id, label: `Orca session ${task.id}` });
+  bindOrcaWorkSync(ctx, admission, { dispatchId, terminal });
+  const answerText = task.brief.qa?.at(-1)?.a;
+  if (worktree) updateTask(ctx, task.id, t => { t.worktree = worktree; });
+  if (answerText && terminal) {
+    const sent = await c.terminalSend(terminal, answerText);
+    log(`delivered the answer live to ${terminal}: ${sent.ok ? "ok" : sent.error.code}`);
+  } else {
+    log(`reattached to ${dispatchId} with no live answer to deliver`);
+  }
+  const prompt = buildPrompt({ ...task.brief, repo: worktree ? `the existing Orca worktree at ${worktree}` : task.brief.repo }, task.id);
+  const before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  try {
+    const waited = await waitForWorker(ctx, c, {
+      taskId: task.id, providerId: cfg.id, prompt, coordinator: coord.coordinator, run: coord.run, dispatchId, terminal,
+      deadlineMs: deps.now() + task.timeoutS * 1000,
+      isStopped: () => readTask(ctx, task.id)?.state === "stopped",
+      sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
+    });
+    const m = mapWait(waited);
+    const endedAt = deps.now() / 1000;
+    let tailText = m.tail ?? "";
+    if (m.code !== 0 && m.tail === undefined) {
+      const rd = await c.workerRead(dispatchId, 60);
+      tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
+    }
+    const keepAlive = task.interactionMode === "conversation" && waited.kind === "settled" && waited.state === "needs_input";
+    if (keepAlive) {
+      log(`keeping orca worker ${dispatchId} alive for another live answer; task is needs_input`);
+      finishWorkSync(ctx, admission);
+    } else {
+      await cleanup(c, dispatchId, terminal, m.settled, log, receipt => { finishOrcaWorkSync(ctx, admission, receipt); });
+      await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[dispatchId]; }); });
+    }
+    const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
+    const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+    const reason = brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
+    const dir = tasksDir(ctx);
+    mkdirSync(dir, { recursive: true });
+    const logFile = join(dir, `${task.id}.${cfg.id}.log`);
+    await Bun.write(logFile, `${lines.join("\n")}\n--- summary\n${m.summary}\n--- worker output (tail)\n${tailText}\n`);
+    return {
+      exec, report: tail(m.summary, REPORT_CHARS), backend: "orca", ...(worktree ? { worktree } : {}),
+      attempt: {
+        executor: cfg.id, model: cfg.model, startedAt, endedAt, ...(reason ? { brokenReason: reason } : {}),
+        exitCode: m.code, timedOut: m.timedOut, limitHit: !reason && detectLimit(cfg.id, exec), log: logFile,
+      },
+    };
+  } catch (e) {
+    try {
+      const receipt = await c.workerStop(dispatchId);
+      finishOrcaWorkSync(ctx, admission, receipt);
+    } catch (stopError) {
+      log(`worker-stop failed: ${String(stopError)}`);
+    }
+    throw e;
+  }
+}
+
 async function runOrcaAttempt(
   deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void,
 ): Promise<AttemptOutcome> {
@@ -175,6 +284,8 @@ async function runOrcaAttempt(
     return fallback(deps, ctx, cfg, task, onSpawn, (e as Error).message);
   }
   const c = new OrcaClient(ctx.run, ctx.env);
+  const reattach = await findLiveAnswerWorker(ctx, c, task, cfg.id);
+  if (reattach) return reattachOrcaAttempt(deps, ctx, c, cfg, task, reattach);
   let p: Prepared;
   try {
     p = await prepare(ctx, c, cfg, task, ex);
@@ -225,7 +336,7 @@ async function runOrcaAttempt(
   if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
   const dispatchId = r.dispatchId;
   const root = worktreePathOf(r.effects);
-  const worktree = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo) : root ? (p.sub ? join(root, p.sub) : root) : null;
+  const worktree = p.newWorktree ?? (p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo) : root ? (p.sub ? join(root, p.sub) : root) : null);
   const terminal = agentTerminalOf(r.effects);
   bindOrcaWorkSync(ctx, admission, { dispatchId, terminal });
   if (terminal) {
@@ -251,6 +362,7 @@ async function runOrcaAttempt(
   let launchBroken: string | undefined;
   let endedAt: number;
   let tailText = "";
+  let waited: WaitResult | undefined;
   try {
     try {
       // Once started, even a task/worker registration failure must keep supervision active.
@@ -276,12 +388,13 @@ async function runOrcaAttempt(
       };
     } else {
       before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
-      m = mapWait(await waitForWorker(ctx, c, {
+      waited = await waitForWorker(ctx, c, {
         taskId: task.id, providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
         isStopped: () => readTask(ctx, task.id)?.state === "stopped",
         sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
-      }));
+      });
+      m = mapWait(waited);
     }
 
     endedAt = deps.now() / 1000;
@@ -290,8 +403,16 @@ async function runOrcaAttempt(
       const rd = await c.workerRead(dispatchId, 60);
       tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
     }
-    await cleanup(c, dispatchId, terminal, m.settled, log, receipt => { finishOrcaWorkSync(ctx, admission, receipt); });
-    await forget();
+    const keepAlive = task.interactionMode === "conversation" && waited?.kind === "settled" && waited.state === "needs_input";
+    if (keepAlive) {
+      // An interactive lane's escalation leaves its worker and terminal running, so a live
+      // `pacer send`/`pacer answer` can deliver into the same process instead of respawning it.
+      log(`keeping orca worker ${dispatchId} alive for a live answer; task is needs_input`);
+      finishWorkSync(ctx, admission);
+    } else {
+      await cleanup(c, dispatchId, terminal, m.settled, log, receipt => { finishOrcaWorkSync(ctx, admission, receipt); });
+      await forget();
+    }
   } catch (e) {
     try {
       const receipt = await c.workerStop(dispatchId);

@@ -26,6 +26,23 @@ An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` o
 
 `dispatch.retry` and `dispatch.answer` requeue the same managed task and keep its root, parent, policy, worktree, dependencies and prior attempts. Use one stable `request-id` for each intended retry; replaying it does not launch a second attempt. An answer adds the question and answer to the brief and normally keeps the asking executor. Earlier independent reviews remain in attempt history. Managed work defaults to at most three cumulative attempts per task (`maxAttempts` is configurable); accepted, archived, expired or active work cannot be retried. A child may retry its own child through a valid grant, but cannot retry itself.
 
+## Interactive lanes
+
+```sh
+pacer delegate --interactive --goal 'Build the feature end to end' --repo . --group feature-x --json
+pacer delegate --interactive --goal 'Second lane, same feature' --repo . --group feature-x --json
+pacer send TASK_ID "use approach B"
+pacer send TASK_ID "use approach B" --force
+```
+
+`--interactive` runs a `pacer delegate` task with a live terminal instead of a one-shot run: it is routed and budgeted through the same choice ladder as any delegated task (`pacer dispatch preview`), and becomes eligible for `needs_input`, review and retry once it settles, same as a non-interactive task. It needs an Orca-backed execution strategy (`execution.backend: orca`); on the direct backend it still runs, with the same terminal access ordinary interactive launches already have.
+
+`--group NAME` nests every lane sharing that name under one Orca worktree, so they stay visible together in Orca's own UI. The group's parent worktree is created once per repository and group name and reused by later lanes; it is otherwise inert (no agent runs there).
+
+`pacer send TASK_ID "<message>"` delivers one line of text into a running interactive lane's live Orca terminal, without starting a new attempt. It is recorded on the task's activity timeline. If another `pacer send` call delivered a message in the last 60 seconds, a second call from a different caller is refused with that caller's name; `--force` sends anyway and the takeover is recorded. This is a cooperative lease between pacer's own callers, not a lock on Orca's own terminal UI: pacer cannot see a person who is typing directly in Orca's app.
+
+An executor that calls `pacer ask` on an interactive lane leaves its worker and terminal running (an ordinary delegated task's worker stops there instead), so `pacer answer`/`dispatch.answer` can deliver the answer live into the same process and resume watching it, instead of starting a fresh attempt. If the worker has since exited, answering falls back to a normal respawn, exactly like any other task.
+
 ## Native subagent control
 
 New managed work uses strict delegation enforcement. Pacer admits a local executor only after a canary has observed a native subagent call and its matching denied tool result for the selected account, CLI version, launch mode and repository. A missing or stale certificate queues the work with an exclusion reason. Conversation and interactive launches, remote hosts and Orca remain ineligible until their exact launch paths can be verified. Existing managed tasks saved before strict enforcement retain their cooperative policy.

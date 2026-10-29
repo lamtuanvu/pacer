@@ -46,6 +46,7 @@ import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
+import { send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
@@ -370,6 +371,11 @@ export const OPS: Record<string, OpDef> = {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
     },
+  }),
+  "task.send": op({
+    description: "Deliver one message into a running interactive lane's live Orca terminal. Does not create a new attempt.",
+    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional() }),
+    handler: (ctx, p) => sendMessage(ctx, p.id, p.text, { force: p.force }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",

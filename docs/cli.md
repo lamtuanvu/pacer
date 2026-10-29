@@ -105,6 +105,12 @@ API clients use `task.answer { id, text, expect_rev? }`; MCP planners use
 `task_answer { task_id, text, expect_rev? }`. Both return `{ task, retry }`. Task summaries (including MCP `task_status`)
 include the question, its timestamp and any recorded answer.
 
+`pacer delegate --interactive [--group <name>]` starts a routed, budgeted, reviewable
+delegated task with a live terminal, instead of a one-shot run; see
+[Interactive lanes](dispatch.md#interactive-lanes). `pacer send <task-id> "<message>" [--force]`
+delivers one message into a running interactive lane's live Orca terminal without starting a new
+attempt; API clients use `task.send { id, text, force? }`.
+
 Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.
