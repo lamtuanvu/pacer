@@ -88,8 +88,8 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <div style="display: flex; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line);">
 <span class="cap" style="flex-grow: 1;">Step {{step}} of 4 · your draft is kept if you leave</span>
 <a href="SettingsAgents.dc.html" style="font-size: 13px; margin-right: 8px;">Cancel</a>
-<sc-if value="{{canBack}}" hint-placeholder-val="{{ false }}"><x-import component-from-global-scope="Pacer.Button" on-click="{{back}}">Back</x-import></sc-if>
-<x-import component-from-global-scope="Pacer.Button" variant="primary" on-click="{{next}}">{{nextLabel}}</x-import>
+<sc-if value="{{canBack}}" hint-placeholder-val="{{ false }}"><x-import component-from-global-scope="Pacer.Button" size="sm" on-click="{{back}}">Back</x-import></sc-if>
+<x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary" on-click="{{next}}">{{nextLabel}}</x-import>
 </div>
 </section>
 </div>

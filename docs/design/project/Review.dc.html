@@ -42,9 +42,9 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 </div>
 <sc-if value="{{reviewing}}" hint-placeholder-val="{{ true }}">
 <div style="display: flex; gap: 8px;">
-<x-import component-from-global-scope="Pacer.Button" on-click="{{reject}}">Reject</x-import>
-<x-import component-from-global-scope="Pacer.Button" on-click="{{changes}}">Request changes</x-import>
-<x-import component-from-global-scope="Pacer.Button" variant="primary" on-click="{{accept}}">Accept result</x-import>
+<x-import component-from-global-scope="Pacer.Button" size="sm" on-click="{{reject}}">Reject</x-import>
+<x-import component-from-global-scope="Pacer.Button" size="sm" on-click="{{changes}}">Request changes</x-import>
+<x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary" on-click="{{accept}}">Accept result</x-import>
 </div>
 </sc-if>
 </header>
@@ -60,7 +60,7 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <section aria-labelledby="rq-h" style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--warn-line); border-radius: 12px; background: var(--warn-tint);">
 <h2 id="rq-h" style="margin: 0; font-size: 16px; line-height: 22px; font-weight: 650;">What should change?</h2>
 <textarea rows="3" style="resize: vertical; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-page); color: var(--ink); font: inherit;">Also report the stage-2 first-frame time per browser, not just Chromium.</textarea>
-<div style="display: flex; gap: 8px; justify-content: flex-end;"><x-import component-from-global-scope="Pacer.Button" on-click="{{undo}}">Cancel</x-import><x-import component-from-global-scope="Pacer.Button" variant="primary" on-click="{{undo}}">Send back to Codex</x-import></div>
+<div style="display: flex; gap: 8px; justify-content: flex-end;"><x-import component-from-global-scope="Pacer.Button" size="sm" on-click="{{undo}}">Cancel</x-import><x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary" on-click="{{undo}}">Send back to Codex</x-import></div>
 </section>
 </sc-if>
 <section aria-labelledby="sum-h" style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);">
