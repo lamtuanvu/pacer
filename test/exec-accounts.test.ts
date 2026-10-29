@@ -108,7 +108,7 @@ test.each([
   }
   expect(text.includes("CLAUDE_CODE_SANDBOXED=1")).toBe(agent === "claude");
   // A default account unsets the home variable Orca's shell may carry; a selected account sets it.
-  expect(text.startsWith(`env -u ${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} `)).toBe(!id.includes("#"));
+  expect(text.startsWith(`exec env -u ${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} `)).toBe(!id.includes("#"));
   const start = f.calls.find(a => a[2] === "worker-start")!;
   expect(start[start.indexOf("--terminal") + 1]).toBe("term_agent");
   expect(start).not.toContain("--agent");

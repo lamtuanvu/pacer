@@ -35,7 +35,7 @@ import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 
-function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
+export function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
   const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
   appendActivity(ctx, { kind, level: "info", text, repo: (task.repo ?? repoFor(ctx, task.brief.repo)).key, taskId: task.id,
     ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
@@ -277,13 +277,17 @@ async function retryTask(
   const before = readTask(ctx, id);
   const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
-  let answerBase: string | undefined;
+  let answerBase: string | undefined, answerFromBase = false;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
     const worktree = [before.result?.worktree, before.worktree, !before.run?.host ? before.run?.workdir : undefined].find(p => p && p.startsWith("/"));
     if (worktree) {
       const head = await boundedGitRead(ctx.run, ["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
-      if (head.code !== 0 || !/^[0-9a-f]{40}$/.test(head.stdout.trim())) throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
-      answerBase = head.stdout.trim();
+      if (head.code === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim())) answerBase = head.stdout.trim();
+      else if (!before.run?.host && !existsSync(worktree)) throw new CoreError("conflict", "the asking executor's worktree is unavailable; restore it before answering");
+      else throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
+    } else if (before.baseSha && before.worktreeReleased) {
+      // Pacer removed the lane's unused worktree and forgot its path: start from the commit it was created from.
+      answerBase = before.baseSha; answerFromBase = true;
     }
   }
   const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
@@ -301,7 +305,9 @@ async function retryTask(
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
+    // Pacer forgets a lane worktree it removes; a recorded path that is missing was removed out of band.
     const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
+    if (reuseWorktree && !task.run?.host && !existsSync(reuseWorktree)) throw new CoreError("conflict", "Task worktree is unavailable; restore it before retrying");
     const input: DelegateInput = {
       ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
       admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
@@ -310,6 +316,8 @@ async function retryTask(
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),
       ...(executor ? { executor } : {}),
+      ...(task.interactive ? { interactive: true } : {}),
+      ...(task.group ? { group: task.group } : {}),
     };
     let next: TaskRecord;
     try {
@@ -321,6 +329,7 @@ async function retryTask(
     const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
+    if (answerFromBase) taskActivity(ctx, retried, "message", `The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0, 12)}`);
     return { retry: retried, of };
   })); } finally { finishUnlaunchedWorkSync(ctx, lease); }
 }

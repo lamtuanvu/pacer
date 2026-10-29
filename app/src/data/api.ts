@@ -13,10 +13,12 @@ const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.se
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());
+  // This window's client instance: two windows contend for an interactive lane's driving lease (task.send).
+  const instance = crypto.randomUUID();
   let version: 2 | 3 | undefined;
   let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
-    const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "content-type": "application/json" }, body: JSON.stringify(params) }) });
+    const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "X-Pacer-Client-Instance": instance, "content-type": "application/json" }, body: JSON.stringify(params) }) });
     if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
     if (!response.ok) {
       const text = await response.text();

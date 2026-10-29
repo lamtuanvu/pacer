@@ -50,3 +50,13 @@ test("a cwd inside a pacer task worktree is an executor session", () => {
   expect(isExecutorSession(ctx, { cwd })).toBe(true);
   expect(isExecutorSession(ctx, { cwd: join(ctx.pacerHome, "worktrees", "repo-1a2b3c4d", "not-a-task") })).toBe(false);
 });
+
+test("an Orca lane worktree for a runner with an account (codex#work, stored as codex-work) is an executor session", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ planner: "claude-code",
+    accounts: { main: { kind: "claude" }, codex: { kind: "codex" }, work: { kind: "codex", home: join(ctx.home, ".codex-work") } }, routing: [{ default: ["codex#work"] }] }));
+  mkdirSync(join(ctx.home, ".codex-work"), { recursive: true });
+  expect(isExecutorSession(ctx, { cwd: join(ctx.home, "orca/workspaces/repo/pacer-t-20261011-140500-abcd-codex-work/src") })).toBe(true);
+  expect(isExecutorSession(ctx, { cwd: join(ctx.home, "orca/workspaces/repo/pacer-t-20261011-140500-abcd-codex-other/src") })).toBe(false);
+});

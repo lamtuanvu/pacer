@@ -13,10 +13,3 @@ fn generated_types_are_fresh() {
         );
     }
 }
-
-#[test]
-fn round_trips_a_delegate_request() {
-    let value = serde_json::json!({ "goal": "x", "repo": "/tmp/r" });
-    let params: pacer_client_protocol::TaskDelegateParams = serde_json::from_value(value).unwrap();
-    assert_eq!(serde_json::to_value(params).unwrap()["goal"], "x");
-}

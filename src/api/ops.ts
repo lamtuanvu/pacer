@@ -48,6 +48,7 @@ import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
+import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
@@ -84,6 +85,8 @@ export interface OpDeps {
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
   client?: string;
+  /** The calling client instance, which identifies a `task.send` driving-lease holder. */
+  clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
   terminal?: Partial<TerminalDeps>;
@@ -378,6 +381,11 @@ export const OPS: Record<string, OpDef> = {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
     },
+  }),
+  "task.send": op({
+    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
+    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
+    handler: (ctx, p, deps) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev, by: callerIdentity(ctx, deps.client, deps.clientInstance) }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
