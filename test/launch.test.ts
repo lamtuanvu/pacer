@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { tmpDir } from "./helpers";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
-import { launchFor, remoteLaunch, resumeLaunchFor } from "../src/exec/launch";
+import { launchArgvFor, launchFor, remoteLaunch, resumeLaunchFor } from "../src/exec/launch";
 
 const s = validateStrategy({
   planner: "opencode",
@@ -12,6 +12,16 @@ const s = validateStrategy({
   },
 }, "/x");
 const ID = "t-20261011-140500-abcd";
+
+test("Orca launch argv has the interactive permission flags and no prompt", () => {
+  expect(launchArgvFor(s.providers["claude-code"], "/work", "/runs"))
+    .toEqual(["claude", "--dangerously-skip-permissions", "--model", "claude-sonnet-5"]);
+  const codex = launchArgvFor({...s.providers.codex, model: "gpt-6-luna"}, "/work tree", "/runs", "/repo");
+  expect(codex).toContain("--dangerously-bypass-approvals-and-sandbox");
+  expect(codex.slice(-2)).toEqual(["-m", "gpt-6-luna"]);
+  expect(codex).not.toContain("--");
+  expect(() => launchArgvFor(s.providers.cursor, "/work", "/runs")).toThrow();
+});
 
 test("codex: prompt on stdin, last message to a file, optional model", () => {
   const l = launchFor(s.providers.codex, "PROMPT", "/repo", "/tasks", ID);

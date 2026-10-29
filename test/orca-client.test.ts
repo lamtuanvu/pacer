@@ -90,27 +90,19 @@ test("every verb builds the verified argv and ends with --json", async () => {
   expect(f.timeouts[15]).toBe(30_000);
 });
 
-test("workerStartArgs: new-child and existing placements", () => {
+test("workerStartArgs: attaches a terminal to a resolved worktree", () => {
   expect(workerStartArgs({
-    spec: "S", agent: "cursor", model: "auto", run: "run_1", from: "term_c",
-    placement: { kind: "new-child", repoId: "repo-1", baseBranch: "main", name: "pacer-t-1-cursor" },
+    spec: "S", terminal: "term_a", worktree: "id:repo-1::/work/task", run: "run_1", from: "term_c",
   })).toEqual([
-    "orchestration", "worker-start", "--spec", "S", "--agent", "cursor", "--model", "auto",
-    "--worktree", "new-child", "--repo", "id:repo-1", "--base-branch", "main", "--name", "pacer-t-1-cursor", "--setup", "skip",
+    "orchestration", "worker-start", "--spec", "S", "--terminal", "term_a", "--worktree", "id:repo-1::/work/task",
     "--run", "run_1", "--from", "term_c",
-  ]);
-  expect(workerStartArgs({
-    spec: "S", agent: "codex", model: null, run: "run_1", from: "term_c",
-    placement: { kind: "existing", selector: "path:/work/app" },
-  })).toEqual([
-    "orchestration", "worker-start", "--spec", "S", "--agent", "codex", "--worktree", "path:/work/app", "--run", "run_1", "--from", "term_c",
   ]);
 });
 
 test("worker-start receipts: a failed start is ok:true with failedStage/lastError; effects give worktree and terminal", async () => {
   const f = fakeRun([[O("orchestration", "worker-start"), [fail("worker-start-t1.json"), ok("worker-start-t2.json")]]]);
   const c = new OrcaClient(f.run);
-  const opts = { spec: "S", agent: "cursor", model: null, run: "run_1", from: "term_c", placement: { kind: "existing" as const, selector: "path:/r" } };
+  const opts = { spec: "S", terminal: "term_a", worktree: "id:repo::/r", run: "run_1", from: "term_c" };
   const failed = await c.workerStart(opts);
   expect(failed.ok).toBe(true);
   if (failed.ok) {

@@ -310,6 +310,9 @@ function projectMcpAnswers(ctx: Ctx, env: Record<string, string | undefined>, mo
   return projectMcpChoices(claudeConfigFile(env, ctx.home), roots);
 }
 
+/** The attempt note when the source checkout's MCP answers are not carried into the run's settings. */
+export const mcpNotApproved = (reason: string) => `claude project MCP servers: not pre-approved (${reason}); Claude may ask whether to use this project's MCP servers`;
+
 /** The second run belongs to the original attempt and always uses its worktree. */
 async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, previous: RunRef, note: string): Promise<AttemptOutcome> {
   const dir = runDir(ctx, task.id, previous.attempt) + "-takeover";
@@ -492,7 +495,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       let mcp: McpChoices | undefined;
       if (agent === "claude-code" && !conversation) {
         const answers = projectMcpAnswers(ctx, env, mode, launch.cwd, [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])]);
-        if ("reason" in answers) note += `claude project MCP servers: not pre-approved (${answers.reason}); Claude may ask whether to use this project's MCP servers\n\n`;
+        if ("reason" in answers) note += `${mcpNotApproved(answers.reason)}\n\n`;
         else mcp = answers;
       }
       launch = prepareInteractive(agent, rdir, launch, {attended: conversation, ...(mcp ? {mcp} : {})});
