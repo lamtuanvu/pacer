@@ -1,5 +1,5 @@
 import { counts as snapshotCounts } from "../../../src/view-model/selectors";
-import { DensityContext } from '../ds/Density';
+import { DensityContext, DensityProvider } from '../ds/Density';
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
@@ -47,6 +47,21 @@ function Skeleton() {
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
+  const [density, setDensity] = useState<"normal" | "compact">(() => {
+    try { return localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"; }
+    catch { return "compact"; }
+  });
+  useEffect(() => {
+    const sync = (event: Event) => {
+      let value: unknown;
+      try { value = event instanceof CustomEvent ? event.detail : localStorage.getItem("pacer.density"); }
+      catch { return; }
+      setDensity(value === "normal" ? "normal" : "compact");
+    };
+    window.addEventListener("pacer:density", sync);
+    window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("pacer:density", sync); window.removeEventListener("storage", sync); };
+  }, []);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
   const [leftOpen, setLeftOpen] = usePanelState("settings", true);
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
@@ -150,16 +165,16 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
   const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
   const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
-  return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><AppFrame narrow={narrow}
+  return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings || tasks}
     right={details}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
     mainClass={`pc-main${!loading && !outdated && ["new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
-    main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
+    main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  />{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;
+  /></DensityProvider>{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;
 }

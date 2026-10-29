@@ -3006,7 +3006,11 @@
     },
     "HostSuggestParams": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "details": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": false
     },
     "HostTerminalParams": {

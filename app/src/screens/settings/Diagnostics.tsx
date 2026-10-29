@@ -7,15 +7,20 @@ import { Disclosure } from "../../ds/Controls";
 import { DiagnosticRow } from "../../ds/DiagnosticRow";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { time, useOperation } from "./shared";
+import { time, useOperation, useSettingsStyles } from "./shared";
 
-export interface DoctorReport { checkedAt: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
+export interface DoctorReport { checkedAt: number; durationSeconds?: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
 interface RepairPreview { revision: string; agent: string; files: string[]; undo: string; detail?: string }
 
+const REPORT_NOTE = "Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in the planner.";
 const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
+function diagnosticTiming(report: DoctorReport): string {
+  const checked = time(report.checkedAt);
+  return `Last run ${/^\d{2}:\d{2}$/.test(checked) ? `today ${checked}` : checked}${report.durationSeconds != null ? ` · took ${report.durationSeconds < 1 ? "<1" : Math.round(report.durationSeconds)}s` : ""}`;
+}
 export function diagnosticReportText(report: DoctorReport): string {
-  return [`Diagnostics · Last run ${time(report.checkedAt)}`, ...report.checks.map(check =>
-    `${diagnosticLevel[check.level].label}: ${diagnosticTitle(check.name)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${check.detail}${check.fix ? `\nSuggested next step: ${check.fix}` : ""}`)].join("\n\n");
+  return [`Diagnostics · ${diagnosticTiming(report)}`, ...report.checks.map(check =>
+    `${diagnosticLevel[check.level].label}: ${diagnosticTitle(check.name)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${check.detail}${check.fix ? `\nSuggested next step: ${check.fix}` : ""}`), REPORT_NOTE].join("\n\n");
 }
 function reportGroup(check: Check, planner?: string) {
   if (check.name.startsWith("Claude ") || check.name === "Legacy guard" ||
@@ -57,16 +62,25 @@ export function DiagnosticResults({ report, busy = false, onRepair }: { report: 
   </div>;
 }
 export function DiagnosticsSection() {
+  useSettingsStyles();
   const {api} = useTaskContext();
   const [report, setReport] = useState<DoctorReport>();
   const [copyError, setCopyError] = useState<unknown>();
   const [preview, setPreview] = useState<RepairPreview>();
   const [progress, setProgress] = useState("No checks run yet.");
   const action = useOperation(undefined, {notifySuccess: false});
+  function timedReport(report: DoctorReport, started: number) {
+    return { ...report, durationSeconds: (performance.now() - started) / 1000 };
+  }
+  async function readReport() {
+    const started = performance.now();
+    return timedReport(await api.call<DoctorReport>("doctor.run", {}), started);
+  }
   async function runChecks() {
     setPreview(undefined);
     setProgress("Running checks…");
-    const result = await action.run("doctor.run", {}, data => setReport(data));
+    const started = performance.now();
+    const result = await action.run("doctor.run", {}, data => setReport(timedReport(data, started)));
     setProgress(result ? "Checks complete." : "Checks failed. Try running checks again.");
   }
   async function previewRepair(agent: string) {
@@ -81,7 +95,7 @@ export function DiagnosticsSection() {
     const result = await action.run("agent.connect", {agent: preview.agent, consent: true, preview_revision: preview.revision}, async () => {
       setPreview(undefined);
       setProgress("Repair applied. Rechecking…");
-      setReport(await api.call<DoctorReport>("doctor.run", {}));
+      setReport(await readReport());
     });
     if (!result) setPreview(undefined);
     setProgress(result ? "Repair applied and checks refreshed. Review any remaining issues." : "Repair or recheck failed. Review the error and run checks again.");
@@ -94,12 +108,11 @@ export function DiagnosticsSection() {
   }
   return <section id="diagnostics" aria-label="Diagnostics" className="pc-diagnostics">
     <header className="pc-diagnostics-header">
-      <div><h1>Diagnostics</h1><p className="pc-diagnostic-caption">Checks that pacer, your planner and every executor are wired up.{report && ` Last run ${time(report.checkedAt)}.`}</p></div>
+      <div><h1>Diagnostics</h1><p className="pc-diagnostic-caption">Checks that pacer, your planner and every executor are wired up.{report && ` ${diagnosticTiming(report)}.`}</p></div>
       {report && <Button onClick={() => void copyReport()}>Copy report</Button>}
       <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
         onClick={() => void runChecks()}>Run all checks</Button>
     </header>
-    {!report && <p>Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in Claude.</p>}
     <div role="status" aria-live="polite" id="diagnostics-progress">{progress}</div>
     <ErrorMessage error={action.error}/><ErrorMessage error={copyError}/>
     {preview && <section className="pc-card" aria-label="Repair preview" aria-busy={action.busy}>
@@ -111,7 +124,7 @@ export function DiagnosticsSection() {
       <div className="u3-actions"><Button disabled={action.busy} onClick={() => void repair()}>Apply repair</Button>
         <Button variant="ghost" disabled={action.busy} onClick={() => {setPreview(undefined);setProgress("Repair cancelled. No changes were applied.");}}>Cancel</Button></div>
     </section>}
-    {report && <div aria-busy={action.busy}><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
+    {report && <div aria-busy={action.busy}><p className="pc-diagnostic-caption" role="note">{REPORT_NOTE}</p><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
     <NativeValidationSetup/>
   </section>;
 }

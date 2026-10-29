@@ -153,7 +153,8 @@ test("machine snapshot capacity counts local runs across executors and excludes 
  const ctx=fakeCtx(),{st,s}=capacityFixture();s.execution.local_max_tasks=5;
  const tasks=[record('running',1,{executor:'codex'}),record('running',2,{executor:'cursor'}),record('running',3,{executor:'codex@devbox'}),record('queued',4)].map(t=>apiTask(ctx,t));
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}});
- expect(model.machine).toEqual({used:2,max:5});
+ expect(model.machine).toMatchObject({used:2,max:5,arch:process.arch});
+ expect(model.machine.os).toMatch(process.platform === "darwin" ? /^macOS [\d.]+$/ : new RegExp(`^${process.platform}$`));
 });
 
 

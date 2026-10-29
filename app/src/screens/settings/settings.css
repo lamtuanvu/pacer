@@ -161,7 +161,7 @@
 .u3-machine-tile svg{width:var(--size-20);height:var(--size-20)}
 .u3-machine-body{padding:var(--space-1) var(--space-4) var(--space-3)}
 .u3-host-body{display:flex;flex-direction:column;gap:var(--space-3\.5);padding:var(--space-4)}
-.u3-aliases{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--size-150)),1fr));gap:var(--space-1\.5)}
+.u3-aliases{display:flex;flex-direction:column;gap:var(--space-1\.5);max-height:var(--size-300);overflow-y:auto}
 .u3-parallel-input{width:var(--size-72);max-width:100%;flex:none}
 .u3-terminal-picker{width:var(--size-220);max-width:100%}
 .u3-host-name{width:var(--size-200);max-width:100%;font-family:var(--font-mono)}
@@ -256,7 +256,7 @@
 
 /* Each machine card is narrower than the page; collapse the board row within it. */
 .u3-machine-body{container-type:inline-size;container-name:machine-body}
-.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(0,1fr);gap:var(--space-5);padding:var(--space-3) 0}
+.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(var(--size-220),1fr);gap:var(--space-5);padding:var(--space-3) 0}
 @container machine-body (max-width:420px){.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 
 /* The five-column board grammar gives every action its own visible cell. */
@@ -306,3 +306,9 @@
 /* The account policy stacks by its page width, not the viewport. */
 #accounts{container-type:inline-size;container-name:accounts-page}
 @container accounts-page (max-width:640px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}}
+
+/* Worktree paths use the board’s mono lane. */
+.u3-worktrees-path{padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane)}
+
+
+.u3-aliases .pc-choice-card{display:flex;justify-content:space-between;gap:var(--space-2)}

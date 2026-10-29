@@ -206,11 +206,12 @@ test('Machines uses the board cards and only reports known local facts and execu
   expect(html).toContain('pc-pill--good');
   expect(html).toContain('may use 3');
   expect(html).toContain('u3-parallel-input');
+  expect(html).toContain('~/.pacer/worktrees');
   expect(html).toContain('u3-terminal-picker');
-  for (const absent of ['macOS 27','arm64','Worktrees']) expect(html).not.toContain(absent);
+  for (const absent of ['macOS 27','arm64']) expect(html).not.toContain(absent);
   const empty=render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:4}}));
   expect(empty).toMatch(/pc-pill--neutral[^>]*>Running 0 of 4/);
-  expect(empty).not.toContain('may use');
+  expect(empty).toContain('Every executor may use the machine limit.');
 });
 
 test('Add host offers aliases without invented HostName captions and waits for a passed check', () => {
@@ -266,4 +267,9 @@ test('Add agent model picker uses only reported models and nests test status and
   const running=render(<AddExecutor initialDraft={{step:'4',account:'team',createdId:executor.id,jobId:job.id}}/>,{...withState({}),jobs:{[job.id]:{...job,state:'running'}}});
   expect(running).toContain('pc-check-list--unboxed');
   expect(running).toContain('Your draft is kept if you leave');
+});
+
+test('Machines renders the measured local OS and architecture when the service reports them', () => {
+  const html = render(<SettingsGeneral section="machine" initialData={settings}/>,withState({service:{version:'0.11.0'},machine:{used:0,max:4,os:'macOS 27.0',arch:'arm64'}}));
+  expect(html).toContain('macOS 27.0 · arm64 · pacer 0.11.0');
 });

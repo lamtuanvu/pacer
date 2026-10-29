@@ -47,7 +47,7 @@ export interface ServiceInfo { projectStrategyError?: string; version: string; p
 export interface ReadModelFields {
  desktopUpdates?: import("../../update/desktop/types").UpdateStatus[];
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
- machine: {used: number; max: number};
+ machine: {used: number; max: number; os?: string; arch?: string};
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
 }
 export type ReadModel = ReadModelFields;

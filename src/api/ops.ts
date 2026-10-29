@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { sshSuggestions } from "../remote/ssh-config";
 import { authorizeWorkOperation, submitWork, delegateChild, scopedWorkTree, scopedWorkEvents, reviewWork, retryWork, answerWork, stopWork, waitWork } from "../core/work";
 import { listWork, setWorkDependencies, waiveWorkDependency, workOptionsSchema } from "../dispatch/work";
 import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
@@ -303,7 +306,7 @@ export const OPS: Record<string, OpDef> = {
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
-  "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({}), handler: ctx => core.hosts.suggest(ctx) }),
+  "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({ details: z.boolean().optional() }), handler: (ctx, p) => { const names = core.hosts.suggest(ctx); return p.details ? sshSuggestions(ctx.home).filter(alias => names.includes(alias.name)) : names; } }),
   "host.get": op({ description: "Host facts, checks, capacity and recent work.", params: z.object({alias: id}), handler: (ctx, p) => core.hosts.detail(ctx, p.alias) }),
   "host.set": op({ description: "Set host capacity, pause new work, or choose recording-only or full live sessions.", params: z.object({alias: id, max_tasks: z.number().int().min(1).max(16).optional(), paused: z.boolean().optional(), session: z.enum(["recording", "full"]).optional()}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.set(ctx, p.alias, p)) }),
   "host.repo.map": op({ description: "Map a canonical repo key to a host checkout.", params: z.object({alias: id, key: id, path: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.mapRepo(ctx, p.alias, p.key, p.path)) }),
@@ -312,7 +315,13 @@ export const OPS: Record<string, OpDef> = {
   "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
   "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id,request_id:z.uuid().optional()}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, appTerminal(deps,p.request_id),{builtin:!!deps.appAuthenticated}) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
-  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
+  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => {
+    const result = config.get(ctx);
+    const apps: Record<string, string> = { ghostty: "Ghostty", iterm: "iTerm", "terminal-app": "Terminal" };
+    return { ...result, terminalChoices: result.terminalChoices.filter(choice => choice.value === "auto" || (process.platform === "darwin"
+      ? ["/Applications", join(ctx.home, "Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${apps[choice.value]}.app`)))
+      : !!ctx.which(choice.value))) };
+  } }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),

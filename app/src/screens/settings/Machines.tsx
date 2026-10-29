@@ -40,7 +40,7 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
     <div className="u3-machines-grid">
       <section className="u3-machine-card" aria-labelledby="this-machine">
         <div className="u3-machine-header"><span className="u3-machine-tile"><Icon name="laptop" /></span>
-        <div className="u3-machine-title"><SectionHeading variant="headline" id="this-machine">This Mac</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">pacer {snapshot.service.version}</span>}</div>
+        <div className="u3-machine-title"><SectionHeading variant="headline" id="this-machine">This Mac</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">{[snapshot.machine?.os, snapshot.machine?.arch, `pacer ${snapshot.service.version}`].filter(Boolean).join(" · ")}</span>}</div>
           {snapshot?.machine && <Pill tone={snapshot.machine.used ? "good" : "neutral"}>Running {snapshot.machine.used} of {snapshot.machine.max}</Pill>}</div>
         <div className="u3-machine-body"><ThisMachine initialData={initialData} />
         {!!local.length && <SettingRow variant="board" label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={e.id}><AgentMark agent={e.agent} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
@@ -54,35 +54,39 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
 function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const query = useResource("config.get", {}, initialData), action = useOperation(query.reload);
   const { state } = useTaskContext();
-  const caps = state.snapshot?.executors?.filter(e => !e.host && e.slots?.max != null).map(e => `${executorLabel(e.id)} may use ${e.slots.max}`).join(" · ");
+  const machineMax = state.snapshot?.machine?.max;
+  const limited = state.snapshot?.executors?.filter(e => !e.host && e.slots?.max != null && machineMax != null && e.slots.max < machineMax) ?? [];
+  const caps = machineMax == null || !state.snapshot?.executors ? undefined : limited.length ? limited.map((e, index) => `${executorLabel(e.id)}${index === 0 ? " may use" : ""} ${e.slots.max}`).join(" · ") : "Every executor may use the machine limit.";
   const keys = query.data?.keys, value = keys?.["execution.local_max_tasks"]?.value;
   const terminal = String(keys?.["terminal.open"]?.value ?? ""), legacy = String(keys?.["terminal.app"]?.value ?? "Terminal");
-  const choices = query.data?.terminalChoices ?? [{ value: "auto", label: "Automatic" }, { value: "terminal-app", label: "Terminal" }, { value: "iterm", label: "iTerm" }, { value: "ghostty", label: "Ghostty" }];
+  const choices = (query.data?.terminalChoices ?? [{ value: "auto", label: "Automatic" }]).map(choice => ({ ...choice, label: ({ "terminal-app": "Terminal.app", iterm: "iTerm2" } as Record<string, string>)[choice.value] ?? choice.label }));
   const legacyPreset = keys?.["terminal.app"]?.source === "default" ? undefined : ({ Terminal: "terminal-app", iTerm: "iterm", Ghostty: "ghostty" } as Record<string, string>)[legacy];
   const selected = terminal || (legacyPreset && choices.some(c => c.value === legacyPreset) ? legacyPreset : "auto");
-  const options = choices.some(c => c.value === selected) ? choices : [...choices, { value: selected, label: "Custom terminal (CLI)", disabled: true, reason: "Configured from the CLI" }];
   return <ResourceState resource={query}>
     <SettingRow variant="board" label="Parallel tasks" description="Shared by every executor on this Mac">
       <div className="u3-actions"><TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={String(value ?? 2)} disabled={action.busy}
         onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />{caps && <span className="u3-muted">{caps}</span>}</div>
     </SettingRow>
+    <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes · only terminals found on this machine">
+      <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={choices} placeholder={selected.includes("{cmd}") ? "Custom terminal (CLI)" : "Saved terminal not found"} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
+    </SettingRow>
+    <SettingRow variant="board" label="Worktrees" description="Each task gets one here"><code className="u3-worktrees-path">~/.pacer/worktrees</code></SettingRow>
     <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
       <ChoicePicker className="u3-terminal-picker" aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
     </SettingRow>
     <TaskBackendField value={keys?.["execution.backend"]?.value} source={keys?.["execution.backend"]?.source} disabled={action.busy} run={action.run} />
-    <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes">
-      <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
-    </SettingRow>
     <Feedback action={action} />
   </ResourceState>;
 }
 
 /** Guided add: an alias from the user's SSH config, a pacer name, then a live connect-and-check list. */
-export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
+export function AddHost({ initialAliases }: { initialAliases?: (string | { name: string; host: string })[] }) {
   const scoped = useScoped();
-  const { state } = useTaskContext(), aliases = useResource<string[]>("host.suggest", {}, initialAliases);
+  const { state } = useTaskContext(), aliases = useResource<(string | { name: string; host: string })[]>("host.suggest", { details: true }, initialAliases);
   // Adding only records the alias; the result that matters is the check, so adding stays quiet.
   const add = useOperation(undefined, { notifySuccess: false }), check = useOperation();
+  const suggestions = aliases.data?.map(alias => typeof alias === "string" ? { name: alias, host: alias } : alias);
+  const [filter, setFilter] = useState("");
   const [ssh, setSsh] = useState(""), [name, setName] = useState(""), [added, setAdded] = useState("");
   const taken = state.snapshot?.hosts?.map(h => h.alias).filter(alias => alias !== added) ?? [];
   const problem = !ssh ? "Pick a host from your SSH config first." : hostNameProblem(name, taken);
@@ -102,7 +106,9 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
       <legend>1 · Pick a host from your SSH config</legend>
       <p className="u3-muted">Aliases from <code>~/.ssh/config</code> that pacer doesn’t use yet. It must connect without a password prompt.</p>
       <ResourceState resource={aliases}>
-        <div className="u3-aliases">{aliases.data?.map(alias => <ChoiceCard layout="alias" key={alias} aria-pressed={ssh === alias} onClick={() => { setSsh(alias); setName(hostNameFrom(alias)); }}><code>{alias}</code></ChoiceCard>)}</div>
+        {(aliases.data?.length ?? 0) > 8 && <TextInput type="search" aria-label="Filter SSH aliases" placeholder="Filter SSH aliases" value={filter} onInput={event => setFilter(event.currentTarget.value)}/>}
+        <div className="u3-aliases">{suggestions?.filter(alias => `${alias.name} ${alias.host}`.toLowerCase().includes(filter.toLowerCase())).map(alias => <ChoiceCard layout="alias" key={alias.name} aria-pressed={ssh === alias.name} onClick={() => { setSsh(alias.name); setName(hostNameFrom(alias.name)); }}><code>{alias.name}</code><code className="u3-muted">{alias.host}</code></ChoiceCard>)}</div>
+        {aliases.data?.length && !suggestions?.some(alias => `${alias.name} ${alias.host}`.toLowerCase().includes(filter.toLowerCase())) ? <p className="u3-muted" role="status">No SSH aliases match.</p> : null}
       </ResourceState>
     </fieldset>
     <Field label="2 · Name it in pacer" help={!ssh ? "Pick a host from your SSH config first." : undefined}><div className="u3-actions">
