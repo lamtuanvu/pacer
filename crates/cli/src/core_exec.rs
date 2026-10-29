@@ -12,6 +12,22 @@ pub enum CoreMissing {
     InvalidArgv,
     #[error("pacer-core is missing next to {0}. Reinstall pacer")]
     Missing(String),
+    #[error("Reinstall the complete desktop app to restore its bundled core")]
+    Bundled,
+}
+
+pub fn is_bundled_executable(exe: &Path) -> bool {
+    let resolved = exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf());
+    let parts: Vec<_> = resolved
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    parts.windows(4).any(|parts| {
+        parts[0].to_ascii_lowercase().ends_with(".app")
+            && parts[1].eq_ignore_ascii_case("Contents")
+            && (parts[2].eq_ignore_ascii_case("Resources")
+                || parts[2].eq_ignore_ascii_case("MacOS"))
+    })
 }
 
 pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<String>, CoreMissing> {
@@ -27,6 +43,8 @@ pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<Str
     let core = exe.with_file_name("pacer-core");
     if core.is_file() {
         Ok(vec![core.to_string_lossy().into_owned()])
+    } else if is_bundled_executable(exe) {
+        Err(CoreMissing::Bundled)
     } else {
         Err(CoreMissing::Missing(exe.display().to_string()))
     }
@@ -34,6 +52,9 @@ pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<Str
 
 pub fn child_env(env: &HashMap<String, String>, exe: &Path) -> HashMap<String, String> {
     let mut child = env.clone();
+    child.remove("BUN_OPTIONS");
+    child.remove("NODE_OPTIONS");
+    child.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     child
         .entry("PACER_BIN".into())
         .or_insert_with(|| exe.to_string_lossy().into_owned());
@@ -45,6 +66,7 @@ pub fn exec_core(core: &[String], args: &[String], env: &HashMap<String, String>
         Command::new(program)
             .args(prefix)
             .args(args)
+            .env_clear()
             .envs(env)
             .exec()
     } else {
@@ -52,4 +74,15 @@ pub fn exec_core(core: &[String], args: &[String], env: &HashMap<String, String>
     };
     eprintln!("pacer: could not start pacer-core: {error}");
     std::process::exit(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn child_environment_does_not_forward_parent_native_authority_claims() {
+        let env = HashMap::from([("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "untrusted".into())]);
+        let child = child_env(&env, Path::new("/tmp/pacer"));
+        assert!(!child.contains_key("PACER_INTERNAL_NATIVE_BOOTSTRAP"));
+    }
 }
