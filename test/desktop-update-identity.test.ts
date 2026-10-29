@@ -91,6 +91,24 @@ test("bundle metadata fails closed on unsupported admission, architecture and sc
   }
 });
 
+test("paired layout metadata is retained and rejects unsupported layouts", () => {
+  expect(parseBundleRelease({ ...release, cliLayout: "paired" })).toMatchObject({ cliLayout: "paired" });
+  for (const cliLayout of ["single", "other", null, 1]) {
+    expect(() => parseBundleRelease({ ...release, cliLayout })).toThrow(CoreError);
+  }
+});
+
+test("paired installations require an owned, executable, nonredirected core", async () => {
+  for (const mode of ["missing", "nonexecutable", "symlink", "valid"]) {
+    const f = fixture(), core = join(f.app, "Contents/Resources/pacer-core");
+    writeFileSync(join(f.app, "Contents/Resources/pacer-release.json"), JSON.stringify({ ...release, cliLayout: "paired" }));
+    if (mode === "symlink") symlinkSync(f.cli, core);
+    else if (mode !== "missing") writeFileSync(core, "core fixture", { mode: mode === "valid" ? 0o755 : 0o600 });
+    if (mode === "valid") expect((await inspectInstallation(f.ctx, f.app)).version).toBe(release.version);
+    else await expect(inspectInstallation(f.ctx, f.app)).rejects.toBeInstanceOf(CoreError);
+  }
+});
+
 test("attached registration changes and swapped executable aliases invalidate the recorded identity", async () => {
   const f = fixture(), first = join(f.ctx.home, "old-pacer"), second = join(f.ctx.home, "other-pacer"), alias = join(f.ctx.home, "bin-pacer");
   for (const path of [first, second]) writeFileSync(path, "executable", { mode: 0o755 });

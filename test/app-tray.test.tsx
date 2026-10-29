@@ -80,6 +80,7 @@ test("all-clear board uses a green check, optional cleared review time and no wa
 test("planner uses its vendor, verdict, mode, meter tick and reset time", () => {
   const html = draw(fixture());
   expect(html).toContain("Gemini</strong>");
+  expect(html).toContain('title="Gemini planner" class="tray-identity"');
   expect(html).toContain("pc-agent-mark--gemini");
   expect(html).not.toContain("Claude");
   expect(html).toContain(">Behind pace</span>");

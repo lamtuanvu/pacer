@@ -631,6 +631,27 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         ));
         detail.version = Some(env!("CARGO_PKG_VERSION").into());
         crate::diagnostic_recovery(app, &detail);
+        #[cfg(feature = "ota-fixture")]
+        if logic::fixture_continue_old_service(
+            gate,
+            env!("CARGO_PKG_VERSION"),
+            session.service_version.as_deref(),
+            pacer_desktop::ota::trust::ReleaseTrust::configured()
+                .and_then(|trust| trust.fixture_policy().cloned())
+                .is_some_and(|policy| {
+                    policy.permits_old_service_choice()
+                        && std::env::current_exe().ok()
+                            == Some(policy.current_app.join("Contents/MacOS/pacer"))
+                }),
+        ) {
+            let queued = logic::queue_fixture_old_service_choice(
+                &mut app.state::<Shell>().shell_action.lock().unwrap(),
+            );
+            app.state::<Shell>().wake.notify_one();
+            if queued {
+                desktop_log!("pacer lifecycle: fixture old-service choice queued");
+            }
+        }
         return Err(page.into());
     }
     if matches!(
@@ -1141,6 +1162,8 @@ impl FirstRun {
                         });
                     *app.state::<Shell>().old_service_ack.lock().unwrap() = service_version;
                     *app.state::<Shell>().diagnosis.lock().unwrap() = None;
+                    #[cfg(feature = "ota-fixture")]
+                    desktop_log!("pacer lifecycle: fixture old-service choice processed");
                 }
             }
             // Re-read consent and CLI preference after the action, before any service operation.
