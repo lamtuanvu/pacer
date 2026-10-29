@@ -4156,6 +4156,48 @@ Params JSON Schema:
 }
 ```
 
+### `insights.summary`
+
+Where the work and tokens went in a period: distinct root tasks and child tasks reached by attempts ended in the period (the union across agent rows, not their sum), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison. Acceptance and retry counts retain the first-settle cohort.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "number",
+      "minimum": 0
+    },
+    "to": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "bucket": {
+      "default": "day",
+      "type": "string",
+      "enum": [
+        "day",
+        "week"
+      ]
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "bucket"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `issue.import`
 
 Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.
