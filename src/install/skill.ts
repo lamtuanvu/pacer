@@ -45,10 +45,16 @@ Use \`pacer help\` for stream/file commands. Do not read private task files, cre
 ## Brief fields
 
 JSON object: \`goal\` (required string), \`repo\` (absolute path, defaults to cwd),
-\`kind\`, \`scope\`, \`acceptance\` (verification command), \`constraints\`, \`context\`,
+\`kind\`, \`scope\`, \`acceptance\` (verification command), \`acceptance_pipefail\` (boolean,
+default false), \`constraints\`, \`context\`,
 \`executor\`, \`timeout_min\` (1–240), \`worktree\` (current/new/auto),
 \`worktree_reason\` (one line, max 200 characters).
 Command-line flags override file fields. Give a kind tag and a concrete acceptance command.
+\`acceptance\` runs exactly as written (\`bash -c\`/\`sh -c\`); pipeline idioms like
+\`grep -v ... | (! grep .)\` or \`cmd | grep -q ...\` behave normally. Set
+\`acceptance_pipefail: true\`, or write \`set -o pipefail;\` yourself, to also fail on a
+non-final pipeline stage. The reported result always includes the exit code and shell
+used, plus a hint for a 141 (SIGPIPE) or an instant empty-output failure.
 
 Choose current for uncommitted work, read-only research/review, installed dependencies/build
 output, or a small follow-up there. Choose new when another task or the user is editing there,
