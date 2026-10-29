@@ -278,6 +278,32 @@ for (const dryRun of [true, false]) test(`clean --force${dryRun ? " --dry-run" :
   expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
 });
 
+for (const dryRun of [true, false]) test(`clean${dryRun ? " --dry-run" : ""} removes a worktree through git when the worktrees folder is a symlink`, async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const root = taskWorktreesDir(ctx), moved = join(ctx.pacerHome, "moved-worktrees");
+  mkdirSync(moved, { recursive: true }); mkdirSync(dirname(root), { recursive: true }); symlinkSync(moved, root);
+  const ok = await finishedIn(ctx), tag = dirname(ok.w.path).slice(root.length + 1);
+  const sibling = join(moved, tag, "t-20260101-000000-0000"); mkdirSync(sibling);
+  const sentinels = [join(moved, "s"), join(moved, tag, "s"), join(sibling, "s")];
+  for (const s of sentinels) writeFileSync(s, "keep");
+  expect(await tasks.clean(ctx, { dryRun })).toEqual({ removed: [ok.t.id], kept: [] });
+  for (const s of sentinels) expect(existsSync(s)).toBe(true);
+  expect(existsSync(ok.w.path)).toBe(dryRun);
+  expect(existsSync(join(ok.rd, "stdout"))).toBe(dryRun);
+  if (!dryRun) expect(Bun.spawnSync(["git", "-C", ok.repo, "worktree", "list"]).stdout.toString()).not.toContain(ok.t.id);
+});
+
+test("clean --force prunes run files of a gone worktree and deleted repository under a symlinked worktrees folder", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const root = taskWorktreesDir(ctx), moved = join(ctx.pacerHome, "moved-worktrees");
+  mkdirSync(moved, { recursive: true }); mkdirSync(dirname(root), { recursive: true }); symlinkSync(moved, root);
+  const gone = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true }); rmSync(gone.w.path, { recursive: true, force: true });
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(false);
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
+});
+
 for (const dryRun of [true, false]) test(`clean --force${dryRun ? " --dry-run" : ""} deletes nothing when the repo-tag folder becomes a symlink after verification`, async () => {
   const ctx = fakeCtx({ run: realRun });
   const gone = await finishedIn(ctx);

@@ -7,7 +7,7 @@ import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName } from "../link/notification";
@@ -345,28 +345,30 @@ const WORKTREE_CHANGED = "worktree changed during cleanup; not deleted";
 type DirId = { path: string; dev: bigint; ino: bigint };
 
 /** This task's own worktree root, <worktrees>/<repo-tag>/<task-id>, or why the recorded path is not it.
- *  `real` is the same directory under the canonical worktrees root. The worktrees folder, repo-tag and task
- *  directories may not be symlinks; folders above the worktrees folder may be (macOS /var → /private/var, a
- *  linked home) and are resolved. `ids` pins the three checked directories for unchangedDirs before deletion. */
-export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean; ids: DirId[] } | { invalid: string } {
+ *  `real` is the same directory under the canonical worktrees root. The repo-tag and task directories may not
+ *  be symlinks; folders above the worktrees folder may be (macOS /var → /private/var, a linked home) and are
+ *  resolved. The worktrees folder itself may be a symlink (moved to another disk); `symlinkedRoot` reports it
+ *  so the direct delete can refuse it. `ids` pins the three checked directories for unchangedDirs before that delete. */
+export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean; symlinkedRoot: boolean; ids: DirId[] } | { invalid: string } {
   const root = taskWorktreesDir(ctx);
   if (!wt.startsWith(root + "/")) return { invalid: NOT_OWN_WORKTREE };
   const parts = wt.slice(root.length + 1).split("/");
   if (parts.length < 2 || parts.some(p => p === "" || p === "." || p === "..") || parts[1] !== t.id || normalize(wt) !== wt) return { invalid: NOT_OWN_WORKTREE };
   const [tag, id] = parts as [string, string], path = join(root, tag, id);
   let rootSt: BigIntStats;
-  try { rootSt = lstatSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, ids: [] }; throw e; }
-  if (rootSt.isSymbolicLink()) return { invalid: "worktrees folder is a symlink; not deleted" };
+  try { rootSt = lstatSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, symlinkedRoot: false, ids: [] }; throw e; }
+  const symlinkedRoot = rootSt.isSymbolicLink();
+  if (symlinkedRoot) try { rootSt = statSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, symlinkedRoot, ids: [] }; throw e; }
   if (!rootSt.isDirectory()) return { invalid: "worktrees folder is not a directory; not deleted" };
   const canonical = realpathSync(root), tagDir = join(canonical, tag), real = join(tagDir, id);
   const ids: DirId[] = [{ path: canonical, dev: rootSt.dev, ino: rootSt.ino }];
   for (const dir of [tagDir, real]) {
     let st: BigIntStats;
-    try { st = lstatSync(dir, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false, ids: [] }; throw e; }
+    try { st = lstatSync(dir, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false, symlinkedRoot, ids: [] }; throw e; }
     if (st.isSymbolicLink() || !st.isDirectory() || realpathSync(dir) !== dir) return { invalid: NOT_OWN_WORKTREE };
     ids.push({ path: dir, dev: st.dev, ino: st.ino });
   }
-  return { path, real, exists: true, ids };
+  return { path, real, exists: true, symlinkedRoot, ids };
 }
 
 /** True when every directory is still the same real directory that verifiedTaskWorktreeRoot checked. */
@@ -433,6 +435,7 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       if (top === null) {
         // Without the repository git cannot check or remove the worktree; --force deletes only this task's verified directory.
         if (!o.force) { kept.push({ id: t.id, reason: "source repository is missing; use --force to delete the worktree" }); continue; }
+        if (own.symlinkedRoot) { kept.push({ id: t.id, reason: "worktrees folder is a symlink; not deleted" }); continue; }
         cleanTestHooks.beforeRecheck?.(own.real);
         if (!unchangedDirs(own.ids)) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
         if (!o.dryRun) {
