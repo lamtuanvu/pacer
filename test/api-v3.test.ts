@@ -5,7 +5,7 @@ import {fixture,taskId} from './fixtures/protocol-v2/capture';
 test('v3 exposes only the read model and advertises the previous protocol',async()=>{
  const {ctx,status}=await fixture();const deps={getCtx:()=>ctx,status:async()=>status};
  const hello=await (await handleV2(new Request('http://localhost/v3/hello'),deps)).json();
- expect(hello).toMatchObject({protocol:'3.1.0',previous:'2.8.0'});
+ expect(hello).toMatchObject({protocol:'3.0.0',previous:'2.8.0'});
  expect(hello.events).not.toContain('budget');expect(hello.events).not.toContain('alert');expect(hello.events).toContain('planner');
  const r=await (await handleV2(new Request('http://localhost/v3/snapshot'),deps)).json();
  expect(Object.keys(r.snapshot).sort()).toEqual(['seq','at','service','planner','mode','counts','attention','executors','machine','accounts','hosts','repos','tasks','today','setup','pause','strategies','desktopUpdates'].sort());
@@ -65,7 +65,7 @@ test('stdio negotiates v3, rejects unsupported protocols and defaults to v2 per 
   return new Map(out.map(message=>[message.id,message]));
  }
  const v3=await rpc([{id:1,method:'hello',params:{protocol:3}},{id:2,method:'snapshot'},{id:3,method:'task.list'},{id:4,method:'task.review',params:{id:taskId(2),accepted:true}}]);
- expect(v3.get(1).result).toMatchObject({protocol:'3.1.0',previous:'2.8.0'});
+ expect(v3.get(1).result).toMatchObject({protocol:'3.0.0',previous:'2.8.0'});
  expect(v3.get(2).result.snapshot).not.toHaveProperty('budget');
  expect(v3.get(3).result).toMatchObject({tasks:expect.any(Array),next:null});
  expect(v3.get(4).error.data.code).toBe('invalid_input');

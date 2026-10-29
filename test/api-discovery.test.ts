@@ -6,7 +6,7 @@ import { fakeCtx } from './helpers';
 test('discovery lists compact sorted registry metadata including itself and combines filters', async () => {
   const ctx = fakeCtx();
   const all = await callOp(ctx, 'api.list', {}) as any;
-  expect(all.protocol).toBe('3.1.0');
+  expect(all.protocol).toBe('3.0.0');
   expect(all.ops.map((x: any) => x.name)).toEqual(opNames());
   expect(all.ops.find((x: any) => x.name === 'api.describe')).toBeDefined();
   expect(all.ops.every((x: any) => !('params' in x))).toBe(true);
@@ -26,7 +26,7 @@ test('describe returns one exact JSON parameter schema and rejects unknown opera
 
 test('v3 local client really uses current operations and current errors', async () => {
   const client = new InProcessClient(() => fakeCtx(), { protocol: 3 });
-  expect((await client.hello()).protocol).toBe('3.1.0');
+  expect((await client.hello()).protocol).toBe('3.0.0');
   expect((await client.call<any>('api.list')).ops.length).toBeGreaterThan(0);
   await expect(client.call('task.review', { id: 'missing', accepted: true })).rejects.toMatchObject({ code: 'invalid_input' });
   client.close();

@@ -6,7 +6,7 @@ Protocol 2.x remains available for one pacer minor release through the [compatib
 
 ## Overview
 
-The protocol version is `3.1.0` (semver). Clients can use HTTP + SSE from `pacer serve`, or line-delimited JSON-RPC 2.0 over stdio from `pacer api --stdio` without a daemon. Both transports call the same operation registry.
+The protocol version is `3.0.0` (semver). Clients can use HTTP + SSE from `pacer serve`, or line-delimited JSON-RPC 2.0 over stdio from `pacer api --stdio` without a daemon. Both transports call the same operation registry.
 
 HTTP binds to `127.0.0.1` only, and every request must carry `Host: 127.0.0.1:<port>` or `localhost:<port>` (otherwise 421). Every `/v3/*` route requires `Authorization: Bearer <token>` (the server token file has permissions `0600`) or, for the pacer app in a browser, the `pacer_session` cookie from `pacer open` (session exchange requires bearer authentication). Cookie requests other than GET/HEAD also need a loopback `Origin` and `X-Pacer-Client: app`; a `Sec-Fetch-Site` other than `same-origin` or `none` is refused. There is no CORS: `OPTIONS` returns 405. Operation request bodies are capped at 256 KiB in UTF-8 bytes; larger bodies return `413 too_large`. Operations and session exchange use POST; the other routes below use GET.
 
