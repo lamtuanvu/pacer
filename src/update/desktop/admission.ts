@@ -200,6 +200,18 @@ export function bindOrcaWorkSync(ctx: Ctx, leaseId: string, binding: { dispatchI
     lease.orca = binding;
   });
 }
+/**
+ * Release leases bound to an Orca terminal the caller proved dead by its own action (for example,
+ * pacer removed the terminal's worktree). A lease bound to another incarnation stays.
+ */
+export function releaseOrcaTerminalWorkSync(ctx: Ctx, terminal: string, incarnationId?: string): number {
+  return mutate(ctx, state => {
+    const before = state.leases.length;
+    state.leases = state.leases.filter(lease => lease.orca?.terminal !== terminal
+      || (lease.orca.incarnationId !== undefined && lease.orca.incarnationId !== incarnationId));
+    return before - state.leases.length;
+  });
+}
 export function finishOrcaWorkSync(ctx: Ctx, leaseId: string, proof: OrcaReply<WorkerClosureResult>): boolean {
   return mutate(ctx, state => {
     const lease = state.leases.find(item => item.id === leaseId);

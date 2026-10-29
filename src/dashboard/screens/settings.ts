@@ -202,6 +202,14 @@ const machine: Build = (ctx, width) => {
   const busy = ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined;
   rows.push(...fieldRows(field(ctx, width, "Parallel tasks", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(String(current), { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], busy), "setting:local-max"));
   rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. 1–16.", { fg: "muted" })])));
+  const backendKey = config!.value!.keys?.["execution.backend"];
+  const backend = backendKey?.value === "orca" ? "orca" : "direct";
+  // PACER_BACKEND wins over the saved value: a toggle here would save a value that has no effect.
+  const env = !!backendKey?.source?.startsWith("env");
+  const toggle = env ? undefined : set(ctx, "Task backend", "execution.backend", backend === "orca" ? "direct" : "orca");
+  items.push({ id: "setting:backend", actions: [], keys: toggle ? { left: toggle, right: toggle } : {} });
+  rows.push(...fieldRows(field(ctx, width, "Task backend", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(backend === "orca" ? "Orca" : "Direct", { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], env ? "Set by PACER_BACKEND" : undefined), "setting:backend"));
+  rows.push(...fieldRows(field(ctx, width, "", [span(`Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.${env ? " PACER_BACKEND overrides the saved setting. Unset PACER_BACKEND to change it here." : ""}`, { fg: "muted" })])));
   return { rows, items, hints: ["← → adjust"] };
 };
 
