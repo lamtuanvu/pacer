@@ -31,8 +31,8 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(functio
 export const TextAction = forwardRef<HTMLAnchorElement, JSX.AnchorHTMLAttributes<HTMLAnchorElement>>(function TextAction({ className, children, ...rest }, ref) {
   return <a {...rest} ref={ref} className={classes('pc-text-action', className)}>{children}</a>;
 });
-export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string; icon?: IconName }>(function IconButton({ icon, children, className, ...props }, ref) {
-  return <Button {...props} ref={ref} className={classes('pc-icon-button', className)}>
+export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string; icon?: IconName; tone?: 'bad' }>(function IconButton({ icon, tone, children, className, ...props }, ref) {
+  return <Button {...props} ref={ref} className={classes('pc-icon-button', tone && `pc-icon-button--${tone}`, className)}>
     {icon && <Icon name={icon} />}{children}
   </Button>;
 });

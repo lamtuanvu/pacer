@@ -10,7 +10,7 @@ import { attentionStatus, localHostWords, subtaskAttentionWords, taskOutcome, ta
 
 export type TaskAttention = "none" | "warn" | "bad";
 /** Icon names shared with the DS icon set; kept as a subset so the view model never imports the app. */
-export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing";
+export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing" | "notes";
 export interface TaskMetaItem { icon: TaskMetaIcon; text: string; tone?: Tone; title?: string }
 export interface TaskNodeView {
   id: string; title: string;
@@ -40,7 +40,8 @@ export interface TreeSnapshot { tasks: TreeTask[]; attention?: AttentionItem[] }
 
 const rank: Record<TaskAttention, number> = { none: 0, warn: 1, bad: 2 };
 
-function compact(n: number): string {
+/** 1234 → "1.2k", 18400000 → "18.4M": the one compact count format for token figures. */
+export function compactCount(n: number): string {
   const [div, unit] = n >= 1e6 ? [1e6, "M"] : n >= 1e3 ? [1e3, "k"] : [1, ""];
   const value = n / div;
   return `${value >= 100 || div === 1 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
@@ -49,7 +50,7 @@ function tokenOf(tokens: TreeTokens | null | undefined): Tok | null {
   if (!tokens || tokens.measuredAttempts + tokens.partialAttempts === 0) return null;
   return { total: tokens.total, lower: tokens.lowerBound };
 }
-const tokenText = (tok: Tok | null): string | undefined => tok ? `${tok.lower ? "≥ " : ""}${compact(tok.total)} tokens` : undefined;
+const tokenText = (tok: Tok | null): string | undefined => tok ? `${tok.lower ? "≥ " : ""}${compactCount(tok.total)} tokens` : undefined;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Tint, pill colour and words come from one vocabulary status, so they never disagree (UI-10). */
@@ -196,5 +197,5 @@ export function treeSummary(nodes: TaskNodeView[], now: number): { roots: number
   const oldest = dated.length ? Math.min(...dated) : undefined;
   const period = oldest === undefined ? undefined : now - oldest < 7 * 86400 ? "this week"
     : `since ${new Date(oldest * 1000).toLocaleDateString("en", { month: "short", day: "numeric" })}`;
-  return { roots: nodes.length, subtasks: count(nodes), ...(measured.length ? { tokens: `${compact(total)} tokens` } : {}), ...(period ? { period } : {}) };
+  return { roots: nodes.length, subtasks: count(nodes), ...(measured.length ? { tokens: `${compactCount(total)} tokens` } : {}), ...(period ? { period } : {}) };
 }

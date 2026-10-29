@@ -248,7 +248,8 @@ test('session detail retains all brief fields and uses the actual executor repor
  const model=sessionDetail({...detail,brief:{...detail.brief,scope:'Only client code',constraints:'Keep callbacks',context:'CI run',feedback:'Check cleanup',base:'main',qa:[{q:'Which platform?',a:'Both'}]},summary:'Executor-authored report'} as unknown as import('../src/core/task-detail').TaskDetail);
  expect(model.briefSections).toEqual([
   {label:'Goal',text:'Fix flaky retry test in the payments client'},
-  {label:'Repository',text:'/tmp/fixture/api'},
+  // Session board item 20 requires the display label, replacing the old path value.
+  {label:'Repository',text:'acme/api'},
   {label:'Scope',text:'Only client code'},
   {label:'Constraints',text:'Keep callbacks'},
   {label:'Context',text:'CI run'},

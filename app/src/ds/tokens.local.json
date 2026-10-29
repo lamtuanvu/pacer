@@ -23,14 +23,14 @@
       {
         "name": "space-7",
         "value": "28px",
-        "usage": "Tasks page top padding and child indent.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page top padding and child indent.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       },
       {
         "name": "space-10",
         "value": "40px",
-        "usage": "Tasks page side padding.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page side padding.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       }
     ]
   },
@@ -47,6 +47,26 @@
         "value": "2px",
         "usage": "Indicator bars and tiny meters.",
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "radius-4",
+        "value": "4px",
+        "provisional": "File viewer board: Esc key cap."
+      },
+      {
+        "name": "radius-5",
+        "value": "5px",
+        "provisional": "File viewer board: Line and Session running chips."
+      },
+      {
+        "name": "radius-2",
+        "value": "2px",
+        "provisional": "File viewer board: search match highlight."
+      },
+      {
+        "name": "radius-7",
+        "value": "7px",
+        "provisional": "File viewer board: Source/Preview segmented control."
       }
     ]
   },
@@ -56,13 +76,13 @@
         "name": "size-10",
         "value": "10px",
         "usage": "Root task status dot; title and status bar horizontal padding.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system. File viewer board: loading skeleton line height."
       },
       {
         "name": "size-14",
         "value": "14px",
         "usage": "Task fact icons; status bar item gap and glyph size.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system. File viewer board: header padding, title size and line-number gutter padding."
       },
       {
         "name": "size-15",
@@ -86,7 +106,7 @@
         "name": "size-52",
         "value": "52px",
         "usage": "Root task token column; activity bar width.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system."
       },
       {
         "name": "size-272",
@@ -97,8 +117,8 @@
       {
         "name": "size-1240",
         "value": "1240px",
-        "usage": "Tasks page maximum width.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page maximum width.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       },
       {
         "name": "size-3",
@@ -116,7 +136,7 @@
         "name": "size-5",
         "value": "5px",
         "usage": "Status bar budget gap.",
-        "provisional": "App frame chrome board value; not yet in the design system."
+        "provisional": "App frame chrome board value; not yet in the design system. File viewer board: Esc key cap padding."
       },
       {
         "name": "size-84",
@@ -135,6 +155,48 @@
         "value": "-6px",
         "usage": "Activity bar active indicator offset.",
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-10.5",
+        "value": "10.5px",
+        "provisional": "File viewer board: file glyph text."
+      },
+      {
+        "name": "size-12.5",
+        "value": "12.5px",
+        "provisional": "File viewer board: source code text; the design system's code style is 12px."
+      },
+      {
+        "name": "size-440",
+        "value": "440px",
+        "provisional": "File viewer board: empty-state text width."
+      },
+      {
+        "name": "size-72",
+        "value": "72px",
+        "usage": "Command menu distance from the top of the window.",
+        "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "size-220",
+        "value": "220px",
+        "provisional": "Dispatcher board: minimum available-executor pool column width."
+      },
+      {
+        "name": "size-140",
+        "value": "140px",
+        "provisional": "Dispatcher board: task-kind input column width."
+      },
+      {
+        "name": "size-110",
+        "value": "110px",
+        "provisional": "Dispatcher board: saved setup action column width."
+      },
+      {
+        "name": "size-9",
+        "value": "9px",
+        "usage": "Flush TaskCard row vertical padding.",
+        "provisional": "Dispatch board value; not yet in the design system."
       }
     ]
   },
@@ -146,6 +208,31 @@
         "lineHeight": "16px",
         "fontWeight": 700,
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "match-strong",
+        "fontSize": "13px",
+        "lineHeight": "19px",
+        "fontWeight": 700,
+        "sample": "Fix flaky retry test",
+        "usage": "Matched text in command menu results: underlined and one step heavier than body-strong.",
+        "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "session-title",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "fontWeight": 650,
+        "usage": "Visible task title in the frame title bar.",
+        "provisional": "Session board title style; not yet in the design system."
+      },
+      {
+        "name": "plugin-section",
+        "fontSize": "9px",
+        "lineHeight": "12px",
+        "fontWeight": 600,
+        "letterSpacing": "0.04em",
+        "provisional": "ActivityBar board Plugins section label; not yet in the design system."
       }
     ]
   }

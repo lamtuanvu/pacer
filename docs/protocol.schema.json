@@ -951,11 +951,14 @@
           "enum": [
             "task_retention_days",
             "execution.local_max_tasks",
+            "execution.launch_mode",
             "execution.backend",
             "planner",
             "pacing.order",
             "pacing.policy",
             "pacing.planner_reserve",
+            "pacing.planner_reserve_headroom",
+            "pacing.planner_probe",
             "pacing.accounts",
             "pacing.fill_threshold",
             "update_check",
@@ -1663,6 +1666,24 @@
       },
       "required": [
         "repo"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEnforcementConsentParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "granted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "account",
+        "granted"
       ],
       "additionalProperties": false
     },
@@ -2425,6 +2446,30 @@
       ],
       "additionalProperties": false
     },
+    "FilesSearchParams": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
     "HostAccountAddParams": {
       "type": "object",
       "properties": {
@@ -2643,6 +2688,46 @@
       },
       "required": [
         "alias"
+      ],
+      "additionalProperties": false
+    },
+    "IssueImportParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "issue": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "issue"
+      ],
+      "additionalProperties": false
+    },
+    "IssueSearchParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "repo",
+        "query"
       ],
       "additionalProperties": false
     },

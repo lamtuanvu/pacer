@@ -15,21 +15,21 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-import { validateExecution } from '../config/execution';
+import { LAUNCH_MODES, validateExecution } from '../config/execution';
 
 export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it is.";
 
 const pendingEdits = new Set<string>();
 const BACKEND_OVERRIDE_HINT = 'PACER_BACKEND overrides the saved task backend setting.';
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
-    'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+    'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
@@ -44,6 +44,7 @@ function parseValue(key:ConfigKey, value:string): unknown {
     if(!/^\d+$/.test(value) || !Number.isInteger(n) || n < 1 || n > 16) throw new CoreError('invalid_input', 'execution.local_max_tasks must be an integer from 1 to 16');
     return n;
   }
+  if(key==='execution.launch_mode' && !(LAUNCH_MODES as readonly string[]).includes(value)) throw new CoreError('invalid_input', 'execution.launch_mode must be interactive or headless');
   if(key==='execution.backend' && !['orca','direct'].includes(value)) throw new CoreError('invalid_input', 'execution.backend must be orca or direct');
   if(key==='pacing.order') {
     if(value==='') return [];
@@ -51,7 +52,7 @@ function parseValue(key:ConfigKey, value:string): unknown {
     return ids;
   }
   if(key==='update_check') {if(!['true','false'].includes(value)) throw Error('update_check must be true or false'); return value==='true';}
-  if(key==='pacing.planner_reserve' || key==='pacing.fill_threshold') {
+  if(key==='pacing.planner_reserve' || key==='pacing.planner_reserve_headroom' || key==='pacing.fill_threshold') {
     if(!/^\d+(?:\.\d+)?$/.test(value)) throw Error(`${key} requires a finite number`);
     return Number(value);
   }

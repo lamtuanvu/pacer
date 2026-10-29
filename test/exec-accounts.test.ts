@@ -30,7 +30,7 @@ function setup() {
     planner: "claude-code", accounts: Object.fromEntries(Object.entries(s.accounts).map(([name, a]) => [name, {
       kind: a.kind, ...(a.home ? {home: a.home} : {}), ...(a.orcaAccount ? {orca_account: a.orcaAccount} : {}), usage: a.usage,
       ...(a.model ? {model: a.model} : {}),
-    }])), routing: [{default: Object.keys(s.runners)}],
+    }])), routing: [{default: Object.keys(s.runners)}], execution: {launch_mode: "headless"},
   }));
   return {ctx, s, home};
 }

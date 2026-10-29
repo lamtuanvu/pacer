@@ -29,6 +29,10 @@ process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 delete process.env.PACER_ROLE;
 delete process.env.PACER_TASK_ID;
+// A planner shell may point Claude at a real account folder; Claude trust grants follow it.
+delete process.env.CLAUDE_CONFIG_DIR;
+// Executor launches would otherwise run the developer's real login shell; tests opt in with fakes.
+process.env.PACER_LOGIN_ENV = "off";
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

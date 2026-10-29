@@ -5,6 +5,8 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { defaultBackends } from "./backends-extra";
 import { type AttemptOutcome, runAttempt } from "./direct";
+import { launchModeFor } from "./launch";
+import { validateExecution } from "../config/execution";
 
 export interface Backend {
   id: string;
@@ -23,7 +25,9 @@ export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras
 /** Connections and unsupported agent TUIs require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = defaultBackends(), runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
-  if (runner?.session === "interactive") return directBackend;
+  // The same resolution as the attempt (runAttempt), including strict enforcement's headless rule.
+  if (runner && launchModeFor({id: runner.id, via: runner.agent === "opencode" ? "opencode" : null, session: runner.session}, validateExecution(s.execution),
+    {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"}).mode === "interactive") return directBackend;
   const account = runner ? s.accounts[runner.account] : undefined;
   const wantsOrca = ctx.env.PACER_BACKEND === "orca" || (!ctx.env.PACER_BACKEND && s.execution?.backend === "orca");
   if (wantsOrca && (account?.connection || (runner && !["claude-code", "codex"].includes(runner.agent)))) {

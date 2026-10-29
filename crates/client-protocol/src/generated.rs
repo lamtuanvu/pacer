@@ -3895,11 +3895,14 @@ impl ::std::default::Default for ConfigGetParams {
 ///      "enum": [
 ///        "task_retention_days",
 ///        "execution.local_max_tasks",
+///        "execution.launch_mode",
 ///        "execution.backend",
 ///        "planner",
 ///        "pacing.order",
 ///        "pacing.policy",
 ///        "pacing.planner_reserve",
+///        "pacing.planner_reserve_headroom",
+///        "pacing.planner_probe",
 ///        "pacing.accounts",
 ///        "pacing.fill_threshold",
 ///        "update_check",
@@ -4010,11 +4013,14 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///  "enum": [
 ///    "task_retention_days",
 ///    "execution.local_max_tasks",
+///    "execution.launch_mode",
 ///    "execution.backend",
 ///    "planner",
 ///    "pacing.order",
 ///    "pacing.policy",
 ///    "pacing.planner_reserve",
+///    "pacing.planner_reserve_headroom",
+///    "pacing.planner_probe",
 ///    "pacing.accounts",
 ///    "pacing.fill_threshold",
 ///    "update_check",
@@ -4041,6 +4047,8 @@ pub enum ConfigSetParamsKey {
     TaskRetentionDays,
     #[serde(rename = "execution.local_max_tasks")]
     ExecutionLocalMaxTasks,
+    #[serde(rename = "execution.launch_mode")]
+    ExecutionLaunchMode,
     #[serde(rename = "execution.backend")]
     ExecutionBackend,
     #[serde(rename = "planner")]
@@ -4051,6 +4059,10 @@ pub enum ConfigSetParamsKey {
     PacingPolicy,
     #[serde(rename = "pacing.planner_reserve")]
     PacingPlannerReserve,
+    #[serde(rename = "pacing.planner_reserve_headroom")]
+    PacingPlannerReserveHeadroom,
+    #[serde(rename = "pacing.planner_probe")]
+    PacingPlannerProbe,
     #[serde(rename = "pacing.accounts")]
     PacingAccounts,
     #[serde(rename = "pacing.fill_threshold")]
@@ -4072,11 +4084,14 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
         match *self {
             Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
+            Self::ExecutionLaunchMode => f.write_str("execution.launch_mode"),
             Self::ExecutionBackend => f.write_str("execution.backend"),
             Self::Planner => f.write_str("planner"),
             Self::PacingOrder => f.write_str("pacing.order"),
             Self::PacingPolicy => f.write_str("pacing.policy"),
             Self::PacingPlannerReserve => f.write_str("pacing.planner_reserve"),
+            Self::PacingPlannerReserveHeadroom => f.write_str("pacing.planner_reserve_headroom"),
+            Self::PacingPlannerProbe => f.write_str("pacing.planner_probe"),
             Self::PacingAccounts => f.write_str("pacing.accounts"),
             Self::PacingFillThreshold => f.write_str("pacing.fill_threshold"),
             Self::UpdateCheck => f.write_str("update_check"),
@@ -4091,11 +4106,14 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
         match value {
             "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
+            "execution.launch_mode" => Ok(Self::ExecutionLaunchMode),
             "execution.backend" => Ok(Self::ExecutionBackend),
             "planner" => Ok(Self::Planner),
             "pacing.order" => Ok(Self::PacingOrder),
             "pacing.policy" => Ok(Self::PacingPolicy),
             "pacing.planner_reserve" => Ok(Self::PacingPlannerReserve),
+            "pacing.planner_reserve_headroom" => Ok(Self::PacingPlannerReserveHeadroom),
+            "pacing.planner_probe" => Ok(Self::PacingPlannerProbe),
             "pacing.accounts" => Ok(Self::PacingAccounts),
             "pacing.fill_threshold" => Ok(Self::PacingFillThreshold),
             "update_check" => Ok(Self::UpdateCheck),
@@ -6868,6 +6886,158 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorSetupModelsParamsProvider {
             })
     }
 }
+///`FilesSearchParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "query"
+///  ],
+///  "properties": {
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 50.0,
+///      "minimum": 1.0
+///    },
+///    "query": {
+///      "type": "string",
+///      "maxLength": 200,
+///      "minLength": 1
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 512,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct FilesSearchParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<::std::num::NonZeroU64>,
+    pub query: FilesSearchParamsQuery,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repo: ::std::option::Option<FilesSearchParamsRepo>,
+}
+///`FilesSearchParamsQuery`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 200,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct FilesSearchParamsQuery(::std::string::String);
+impl ::std::ops::Deref for FilesSearchParamsQuery {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<FilesSearchParamsQuery> for ::std::string::String {
+    fn from(value: FilesSearchParamsQuery) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for FilesSearchParamsQuery {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for FilesSearchParamsQuery {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for FilesSearchParamsQuery {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`FilesSearchParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 512,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct FilesSearchParamsRepo(::std::string::String);
+impl ::std::ops::Deref for FilesSearchParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<FilesSearchParamsRepo> for ::std::string::String {
+    fn from(value: FilesSearchParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for FilesSearchParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 512usize {
+            return Err("longer than 512 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for FilesSearchParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for FilesSearchParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`Hello`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8200,6 +8370,76 @@ impl ::std::default::Default for HostSuggestParams {
     fn default() -> Self {
         Self {}
     }
+}
+///`IssueImportParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "issue",
+///    "repo"
+///  ],
+///  "properties": {
+///    "issue": {
+///      "type": "string"
+///    },
+///    "repo": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IssueImportParams {
+    pub issue: ::std::string::String,
+    pub repo: ::std::string::String,
+}
+///`IssueSearchParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "query",
+///    "repo"
+///  ],
+///  "properties": {
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "query": {
+///      "type": "string"
+///    },
+///    "repo": {
+///      "type": "string"
+///    },
+///    "state": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IssueSearchParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<i64>,
+    pub query: ::std::string::String,
+    pub repo: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub state: ::std::option::Option<::std::string::String>,
 }
 ///`JobCancelParams`
 ///

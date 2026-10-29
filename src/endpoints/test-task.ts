@@ -29,7 +29,8 @@ async function runInTestRepo(ctx: Ctx, runnerId: string, deps: TestTaskDeps, dir
     const git = await execProcess({argv: ["git", "init", "-q", repo], cwd: repo, env: executorEnv(ctx.env, {}), timeoutMs: 10000});
     if (git.code !== 0) throw Error("could not create test git repo");
     const provider = strategy.providers[runner.id];
-    const launch = launchFor(runner.agent === "claude-code" ? {...provider, session: "headless"} : provider,
+    // execution.launch_mode does not apply: a test task has no one to report completion.
+    const launch = launchFor({...provider, session: runner.agent === "claude-code" ? "headless" : provider.session ?? "headless"},
       "Create a file named hello.txt containing exactly: ok", repo, repo, "endpoint-test");
     if (runner.agent === "claude-code") {
       // Headless sessions do not run status lines. Claude's own stream includes

@@ -1,7 +1,8 @@
+import { isMacPlatform } from "./commands";
 /** The app's one shortcut registry. Pure apart from attachKeyRegistry, so tests need no DOM. */
 export interface Shortcut { keys: string; label: string; scope: "global" | string; run: () => void; allowInControl?: boolean }
 export interface KeyInput {
-  key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean;
+  key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey?: boolean;
   target: unknown; preventDefault(): void; defaultPrevented?: boolean;
 }
 const NOT_TEXT_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"]);
@@ -14,8 +15,9 @@ function isTextTarget(target: unknown): boolean {
 }
 
 /** controlActive: a terminal has control (only allowInControl keys run). blocked: a modal dialog owns the keyboard (nothing runs). */
-export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?: () => boolean; timeoutMs?: number; now?: () => number }) {
+export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?: () => boolean; timeoutMs?: number; now?: () => number; mac?: boolean }) {
   const timeout = opts.timeoutMs ?? 1000, now = opts.now ?? (() => Date.now());
+  const mac = opts.mac ?? isMacPlatform();
   const shortcuts: Shortcut[] = [];
   const listeners = new Set<() => void>();
   const notify = () => { for (const listener of listeners) listener(); };
@@ -32,11 +34,17 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.defaultPrevented || e.metaKey || e.altKey || opts.blocked?.()) return false;
-      const token = e.ctrlKey ? `Ctrl-${e.key}` : e.key;
+      if (e.defaultPrevented || e.altKey || opts.blocked?.()) return false;
+      // Mod-k also answers to Cmd, so ⌘K and Ctrl-K are one binding. Mod-b is ⌘B on macOS and Ctrl-b elsewhere, which leaves
+      // Ctrl-b (a terminal multiplexer prefix) free for a shell on macOS.
+      const letter = e.key.toLowerCase();
+      const modK = (e.metaKey || e.ctrlKey) && !e.shiftKey && letter === "k";
+      const modB = letter === "b" && !e.shiftKey && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+      if (e.metaKey && !modK && !modB) return false;
+      const token = modK ? "Mod-k" : modB ? "Mod-b" : e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;
-      // Escape and Ctrl combinations stay available in text fields; plain keys do not.
-      if (!e.ctrlKey && token !== "Escape" && isTextTarget(e.target)) { pending = null; return false; }
+      // Escape, Mod-k, Mod-b and Ctrl combinations stay available in text fields; plain keys do not.
+      if (!e.ctrlKey && token !== "Escape" && token !== "Mod-k" && token !== "Mod-b" && isTextTarget(e.target)) { pending = null; return false; }
       if (pending && now() - pending.at > timeout) pending = null;
       const candidates = active();
       for (const keys of pending ? [`${pending.keys} ${token}`, token] : [token]) {

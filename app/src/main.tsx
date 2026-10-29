@@ -1,3 +1,5 @@
+import { PluginContext, usePluginCatalog } from "./plugins/catalog";
+import { updateNoticeHiddenOn } from "./settings-pages";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -10,7 +12,7 @@ import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
 import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
-import { keys } from "./keys/instance";
+import { commands, keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
 import { useNarrow, activeRepo } from "./shell/narrow";
@@ -35,6 +37,7 @@ function App() {
   const [state, setState] = useState(store.getState);
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
+  const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
   const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
   useEffect(() => { resetDesktopPageScroll(); }, [hash]);
@@ -87,13 +90,13 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/overview") }),
-      keys.register({ keys: "g r", label: "Go to Needs you", scope: "global", run: go("#/needs-you") }),
-      keys.register({ keys: "g s", label: "Go to Tasks", scope: "global", run: go("#/tasks") }),
-      keys.register({ keys: "g t", label: "Go to Terminal", scope: "global", run: go("#/terminal") }),
-      keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
-      keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
-      keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
+      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "dispatch", keys: "g o", run: go("#/") }),
+      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
+      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
+      commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
+      commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
+      commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
+      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => setDelegate(true) }),
       // Screens with a "New task" button ask the shell to open the delegate dialog.
       (() => { const open = () => setDelegate(true); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
@@ -117,10 +120,10 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
+      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")} />
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}

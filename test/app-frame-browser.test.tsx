@@ -40,7 +40,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await open(page, built, "#/overview");
+    await open(page, built, "#/");
     const button = page.getByRole("button", { name: "Terminal", exact: true });
     await expect(button.getAttribute("aria-expanded")).resolves.toBe("false");
     await button.click();
@@ -68,7 +68,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
     await page.getByRole("button", { name: "New terminal" }).click();
     await dock.getByRole("navigation", { name: "Terminals" }).getByRole("button", { name: "Shell", exact: true }).waitFor();
-    expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+    expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().height;
@@ -115,7 +115,7 @@ browserTest("settings_panel_collapse_keeps_main_usable", async () => {
       await expect(page.getByRole("button", { name: "Save settings" }).isVisible()).resolves.toBe(true);
       const closedMain = await page.locator("#main-content").evaluate(node => node.getBoundingClientRect().width);
       await page.locator("#main-content").focus();
-      await page.keyboard.press("Control+b");
+      await page.keyboard.press("ControlOrMeta+b");
       await panel.waitFor();
       expect(await page.locator("#main-content").evaluate(node => node.getBoundingClientRect().width)).toBeLessThan(closedMain);
       expect(await noHorizontalOverflow(page)).toBe(true);
@@ -138,13 +138,13 @@ browserTest("panel_toggle_keeps_focus_on_its_control", async () => {
     await focused(page, '[aria-label="Show Settings"]');
     await page.keyboard.press("Enter");
     await focused(page, '[aria-label="Hide Settings"]');
-    // Ctrl-b from a link inside the panel removes that link; focus moves to the reopen control.
+    // Mod-b from a link inside the panel removes that link; focus moves to the reopen control.
     await page.getByRole("complementary", { name: "Settings" }).getByRole("link").first().focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await focused(page, '[aria-label="Show Settings"]');
-    // Ctrl-b from the work area leaves focus where it was.
+    // Mod-b from the work area leaves focus where it was.
     await page.locator("#main-content").focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await page.getByRole("complementary", { name: "Settings" }).waitFor();
     await focused(page, "#main-content");
   } finally { await browser.close(); }
@@ -154,12 +154,12 @@ browserTest("panels_and_dock_not_offered_where_hidden", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
-    // Between the narrow breakpoint and 768px the shell hides side panels, so Ctrl-b must not be registered.
+    // Between the narrow breakpoint and 768px the shell hides side panels, so Mod-b must not be registered.
     const page = await browser.newPage({ viewport: { width: 700, height: 800 } });
     await open(page, built, "#/settings");
     expect(await page.getByRole("button", { name: /^(Hide|Show) Settings$/ }).count()).toBe(0);
     await page.locator("#main-content").focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await page.waitForTimeout(100);
     expect(await page.evaluate(() => localStorage.getItem("pacer.panel.settings"))).toBeNull();
     // The dock is not offered there either: no status-bar control, and Ctrl-` does nothing.
@@ -183,7 +183,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       const badge = q(".pc-rail__badge--count"), chip = q(".pc-planner"), toggles = [...document.querySelectorAll(".pc-layout-toggles button")];
       return {
         top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, h1: size(q(".pc-topbar h1")) },
-        mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "Delegate")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
+        mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "New task")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
         badgeType: [css(badge).fontSize, css(badge).fontWeight, css(badge).color], chip: { h: size(chip)[1], r: css(chip).borderTopLeftRadius, mode: !!chip.querySelector(".pc-pill") },
         toggles: toggles.map(size), names: toggles.map(t => t.getAttribute("aria-label")), group: q(".pc-layout-toggles").getAttribute("aria-label"),
         rail: { w: size(rail)[0], pad: css(rail).padding, gap: css(rail).rowGap, item: size(on), bar: [css(on, "::before").width, css(on, "::before").height, css(on, "::before").left, css(on, "::before").backgroundColor], onBg: css(on).backgroundColor, lane: css(q(".pc-rail__divider")).height },
