@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import type { ClassifierConfig } from "../config/classifier";
 import type { AdapterId } from "../classify/types";
+import type { Ctx } from "../types";
+import type { CredentialBinding } from "./credential-bindings";
+import { resolveConfiguredSecret } from "./http-authority";
 
 export interface ClassifierSnapshot {
   readonly config: Readonly<Record<string, string | number | null>>;
   readonly hosts: readonly string[];
+  /** Exact origins (scheme, host, port) the adapter may reach and receive credentials for. */
+  readonly origins: readonly string[];
   readonly external: boolean;
   readonly secretAliases?: Readonly<Record<string, string>>;
 }
@@ -30,6 +35,7 @@ export function classifierSnapshot(
   };
   let config: Record<string, string | number | null> = {};
   let hosts: string[] = [];
+  let origins: string[] = [];
   let external = false;
   if (adapter === "ollama") {
     const value = cfg.adapters.ollama;
@@ -40,6 +46,7 @@ export function classifierSnapshot(
       keyRef: value.keyEnv ? reference(value.keyEnv) : null,
     };
     hosts = [new URL(value.baseUrl).hostname];
+    origins = [new URL(value.baseUrl).origin];
     external = !local(hosts[0]);
   } else if (adapter === "jev") {
     const value = cfg.adapters.jev;
@@ -51,16 +58,28 @@ export function classifierSnapshot(
       usdPerMtokOut: value.usdPerMtokOut,
     };
     hosts = [new URL(value.baseUrl).hostname];
+    origins = [new URL(value.baseUrl).origin];
     external = true;
   }
   return Object.freeze({
     config: Object.freeze(config),
     hosts: Object.freeze(hosts),
+    origins: Object.freeze(origins),
     external,
     ...(Object.keys(aliases).length
       ? { secretAliases: Object.freeze(aliases) }
       : {}),
   });
+}
+/** Bind exactly the configured key reference; a classifier can resolve no other credential. */
+export function classifierCredentialBindings(
+  ctx: Ctx,
+  snapshot: ClassifierSnapshot,
+): CredentialBinding[] {
+  const ref = snapshot.config.keyRef;
+  if (typeof ref !== "string") return [];
+  const aliases = snapshot.secretAliases;
+  return [{ ref, resolve: async () => resolveConfiguredSecret(ctx, ref, aliases) }];
 }
 export function classifierPluginConfig(cfg: ClassifierConfig) {
   return Object.freeze({

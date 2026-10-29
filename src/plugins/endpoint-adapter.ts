@@ -8,12 +8,12 @@ import {pluginRegistry} from './index';
 export async function discoverEndpointModels(ctx:Ctx,input:{baseUrl:string;key?:string|null;timeoutMs?:number},registry:Pick<PluginRegistry,'find'|'call'>=pluginRegistry(ctx)){
  const id=registry.find(ctx,'endpoint',value=>Array.isArray(value.apis)&&value.apis.includes('openai-compatible'));
  if(!id)throw new CoreError('plugin_unavailable','no enabled plugin provides OpenAI-compatible endpoints');
- let host:string;
- try{const url=new URL(input.baseUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();host=url.hostname;}
+ let host:string,origin:string;
+ try{const url=new URL(input.baseUrl);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();host=url.hostname;origin=url.origin;}
  catch{return {listed:false as const,error:'invalid_url',detail:'Check the URL and try again.'};}
  const key=input.key||null,ref=key?'endpoint:pending':null;
  const result=await registry.call(ctx,id,'endpoint.models',{baseUrl:input.baseUrl,keyRef:ref,...(input.timeoutMs===undefined?{}:{timeoutMs:input.timeoutMs})},{
-  resources:{reads:[],commands:[],stores:[],http:{hosts:[host]}},
+  resources:{reads:[],commands:[],stores:[],http:{hosts:[host],origins:[origin]}},
   credentialBindings:ref?[{ref,resolve:async()=>key}]:[],
   deadlineMs:(input.timeoutMs??10000)+2000,
  });

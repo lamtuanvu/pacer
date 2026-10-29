@@ -15,7 +15,7 @@ test('selected classifier snapshot binds exact destination and only a secret ref
 });
 test('rules and local classifications carry no remote authority', () => {
   const cfg = validateClassifier(undefined, {});
-  expect(classifierSnapshot(cfg, 'rules')).toEqual({ config: {}, hosts: [], external: false });
+  expect(classifierSnapshot(cfg, 'rules')).toEqual({ config: {}, hosts: [], origins: [], external: false });
   expect(classifierSnapshot(cfg, 'ollama').external).toBe(false);
   expect(classifierSnapshot(cfg, 'jev').config.keyRef).toBe('secrets:TYPESAFE_API_KEY');
 });
@@ -23,13 +23,17 @@ test('rules and local classifications carry no remote authority', () => {
 test('unusual configured secret names use host-owned aliases without narrowing config', async () => {
   const { createCallAuthority } = await import('../src/plugins/authority');
   const { secretPresence } = await import('../src/plugins/http-authority');
+  const { prepareCredentialBindings } = await import('../src/plugins/credential-bindings');
+  const { classifierCredentialBindings } = await import('../src/plugins/classifier-config');
   const { fakeCtx } = await import('./helpers');
   const cfg = validateClassifier({ adapters: { ollama: { key_env: 'A/B' } } }, {});
   const snapshot = classifierSnapshot(cfg, 'ollama');
   expect(snapshot.config.keyRef).toMatch(/^secrets:[A-Za-z0-9_][A-Za-z0-9_.-]*$/);
   const aliases = (snapshot as any).secretAliases;
   const ctx = fakeCtx({ env: { 'A/B': 'owned-fixture-value' } });
-  const a = createCallAuthority(ctx, { reads: [], commands: [], stores: [], secretAliases: aliases } as any, { grants: ['secrets.resolve'], deadlineMs: Date.now() + 1000 });
+  expect(aliases).toBeDefined();
+  const a = createCallAuthority(ctx, { reads: [], commands: [], stores: [] } as any, { grants: ['secrets.resolve'], deadlineMs: Date.now() + 1000 });
+  prepareCredentialBindings(a, classifierCredentialBindings(ctx, snapshot));
   try {
     expect(await secretPresence(a, snapshot.config.keyRef)).toEqual({ present: true });
     expect(JSON.stringify(snapshot)).not.toContain('owned-fixture-value');

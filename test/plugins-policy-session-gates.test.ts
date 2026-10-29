@@ -25,14 +25,20 @@ test("conversation veto leaves no task or attachment claim and retry remains pos
  const result=await createConversation(f.ctx,f.input,f.deps);expect(resolveAttachments(f.ctx,result.task_id).map(a=>a.id)).toEqual([attachment.id]);
 });
 
-for(const [from,to] of [["new","current"],["current","new"]] as const) {
- test(`conversation maps supported ${from} to ${to} placement amendment`,async()=>{
-  const f=setup({verdict:"amend",amend:{placement:to}},from);
-  const result=await createConversation(f.ctx,f.input,f.deps);
-  const task=listTasksWhere(f.ctx).find(t=>t.id===result.task_id);
-  expect(task?.placement?.requested).toBe(to);expect(task?.baseSha!==undefined).toBe(to==="new");
- });
-}
+test("conversation maps supported current to new placement amendment",async()=>{
+ const f=setup({verdict:"amend",amend:{placement:"new"}},"current");
+ const result=await createConversation(f.ctx,f.input,f.deps);
+ const task=listTasksWhere(f.ctx).find(t=>t.id===result.task_id);
+ expect(task?.placement?.requested).toBe("new");expect(task?.baseSha!==undefined).toBe(true);
+});
+
+test("conversation refuses a new to current isolation downgrade and keeps the requested placement in open mode (B3)",async()=>{
+ const f=setup({verdict:"amend",amend:{placement:"current"}},"new");
+ await expect(createConversation(f.ctx,f.input,f.deps)).rejects.toMatchObject({code:"not_allowed"});expect(listTasksWhere(f.ctx)).toEqual([]);
+ writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),JSON.stringify({...f.config,plugins:{...f.config.plugins,policy:{mode:"open"}}}));
+ const result=await createConversation(f.ctx,f.input,f.deps);
+ expect(listTasksWhere(f.ctx).find(t=>t.id===result.task_id)?.placement?.requested).toBe("new");
+});
 
 test("unsupported conversation kind or auto amendments obey open/closed mode",async()=>{
  for(const amend of [{kind:"tests"},{placement:"auto"}]) {

@@ -79,7 +79,7 @@ prerequisites, `bash -lc` execution, setup, transfer and failure recovery.
 
 ### Plugin policy
 
-The optional `plugins.policy.mode` controls what happens when an enabled policy plugin fails or returns an invalid decision. `open` is the default and lets the host continue using its ordinary validation and routing rules. `closed` refuses the affected policy decision. A valid plugin veto is enforced in either mode. The policy status in the API, CLI, TUI and app shows this mode and the count of enabled policy plugins; reading status does not start them. Installed plugin grants and the policy protocol are described in [plugin-protocol.md](plugin-protocol.md).
+The optional `plugins.policy.mode` controls what happens when an enabled policy plugin fails or returns an invalid decision. `open` is the default and lets the host continue using its ordinary validation and routing rules. `closed` refuses the affected policy decision; it also refuses while a granted, enabled policy plugin cannot load (its update needs a new grant, its manifest is unreadable or incompatible, or its folder is gone). Disable or remove such a plugin to stop the refusal. In `open` mode each ignored failure writes a `policy` warning to the activity log. A valid plugin veto is enforced in either mode. A policy may only restrict: a delegate amendment that chooses, changes or clears the executor, or moves placement anywhere but a new worktree, is treated as a failed decision. The policy status in the API, CLI, TUI and app shows this mode and the count of enabled policy plugins; reading status does not start them. Installed plugin grants and the policy protocol are described in [plugin-protocol.md](plugin-protocol.md).
 
 ```yaml
 plugins:

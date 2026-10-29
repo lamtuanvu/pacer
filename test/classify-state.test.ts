@@ -1,6 +1,7 @@
 import { createHttp } from "../packages/plugin-sdk/src/http";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
-import { prepareHttpAuthority } from "../src/plugins/http-authority";
+import { prepareHttpAuthority, resolveConfiguredSecret } from "../src/plugins/http-authority";
+import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
 import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
 import { fakeCtx } from "./helpers";
@@ -17,12 +18,14 @@ import {
 // Real SDK HTTP transport over the host capability broker; only owned loopback fixtures.
 const owners: CallAuthority[] = [];
 afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.revoke())); });
-function sdkHost(ctx = fakeCtx(), key: string | null = "test-key") {
+function sdkHost(ctx = fakeCtx(), key: string | null = "test-key", url?: string) {
   if (key !== null) ctx.env.TYPESAFE_API_KEY = key;
   const manifest = manifestSchema.parse({ id: "classifier-fixture", version: "1.0.0", publisher: "fixture", host: "^1.2", capabilities: [{ name: "net.http", scopes: ["127.0.0.1"] }, { name: "secrets.resolve" }] });
-  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"] } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
+  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"], ...(url ? { origins: [new URL(url).origin] } : {}) } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
   owners.push(owner);
   prepareHttpAuthority(owner, { declaredScopes: ["127.0.0.1"], explicitWildcardGrant: false });
+  // The host binds only the configured key reference, as classifier registry calls do.
+  prepareCredentialBindings(owner, [{ ref: "secrets:TYPESAFE_API_KEY", resolve: async () => resolveConfiguredSecret(ctx, "secrets:TYPESAFE_API_KEY") }]);
   const fits = (_method: string, params: unknown) => Buffer.byteLength(JSON.stringify(params)) < 1048000;
   const transport = { features: ["httpBodyChunks"], requestFits: (params: unknown) => fits("", params), resultFits: (result: unknown) => fits("", result) };
   const call = (method: string, params: unknown) => answerCapability(ctx, { id: manifest.id, manifest }, method, params, owner, undefined, transport);
@@ -100,7 +103,7 @@ test("postJson sends JSON and host-injected authorization and returns 200 JSON",
   let authorization: string | null = null;
   const app = server(async (request) => { authorization = request.headers.get("authorization"); return Response.json({ body: await request.json(), type: request.headers.get("content-type"), method: request.method }); });
   try {
-    expect(await postJson<Record<string, unknown>>(sdkHost(fakeCtx(), "fake"), app.url.href, { hello: "world" }, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).toEqual({ body: { hello: "world" }, type: "application/json", method: "POST" });
+    expect(await postJson<Record<string, unknown>>(sdkHost(fakeCtx(), "fake", app.url.href), app.url.href, { hello: "world" }, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).toEqual({ body: { hello: "world" }, type: "application/json", method: "POST" });
     expect(authorization as string | null).toBe("Bearer fake");
   } finally { await app.stop(true); }
 });
@@ -168,7 +171,7 @@ test("postJson rejects redirects without forwarding authorization", async () => 
     return new Response(null, { status: 302, headers: { Location: "/target" } });
   });
   try {
-    await expect(postJson(sdkHost(), app.url.href, {}, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).rejects.toThrow();
+    await expect(postJson(sdkHost(undefined, undefined, app.url.href), app.url.href, {}, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).rejects.toThrow();
     expect(redirected).toBe(0);
   } finally { await app.stop(true); }
 });

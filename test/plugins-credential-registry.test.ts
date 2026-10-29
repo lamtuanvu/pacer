@@ -12,7 +12,7 @@ test('real endpoint child discovers through an owner-bound credential without am
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch(request){requests++;observed.push(request.headers.get('authorization')??'');return Response.json({data:[{id:'owned-model'}]});}});
  const ctx=makeCtx({home:root,pacerHome:root});
  const registry=new PluginRegistry({bundled:[{manifest:manifestSchema.parse(manifest),main:()=>import('./fixtures/endpoint-write/credential-peer')}],spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'fixtures/endpoint-write/credential-peer.ts')],cwd:root,env:{}})});
- const resources={reads:[],commands:[],stores:[],http:{hosts:['127.0.0.1']}};
+ const resources={reads:[],commands:[],stores:[],http:{hosts:['127.0.0.1'],origins:[server.url.origin]}};
  try{
  const params={baseUrl:`http://127.0.0.1:${server.port}/v1`,keyRef:'endpoint:selected'};
  const result=await registry.call(ctx,manifest.id,'endpoint.models',params,{resources,credentialBindings:[{ref:'endpoint:selected',resolve:async()=>{reads++;return 'owned-pending-fixture';}}]});

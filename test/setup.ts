@@ -36,6 +36,9 @@ process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 delete process.env.PACER_ROLE;
 delete process.env.PACER_TASK_ID;
+// Bundled plugin children must run this source tree, never an installed pacer the shell points at.
+delete process.env.PACER_BIN;
+delete process.env.PACER_CORE_ARGV;
 // A planner shell may point Claude at a real account folder; Claude trust grants follow it.
 delete process.env.CLAUDE_CONFIG_DIR;
 // Executor launches would otherwise run the developer's real login shell; tests opt in with fakes.

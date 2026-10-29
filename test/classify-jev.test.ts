@@ -1,6 +1,7 @@
 import { createHttp } from "../packages/plugin-sdk/src/http";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
-import { prepareHttpAuthority } from "../src/plugins/http-authority";
+import { prepareHttpAuthority, resolveConfiguredSecret } from "../src/plugins/http-authority";
+import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
 import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
 import { afterEach, expect, test } from "bun:test";
@@ -15,12 +16,14 @@ import { fakeCtx } from "./helpers";
 // Real SDK HTTP transport over the host capability broker; only owned loopback fixtures.
 const owners: CallAuthority[] = [];
 afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.revoke())); });
-function sdkHost(ctx = fakeCtx(), key: string | null = "test-key") {
+function sdkHost(ctx = fakeCtx(), key: string | null = "test-key", url?: string) {
   if (key !== null) ctx.env.TYPESAFE_API_KEY = key;
   const manifest = manifestSchema.parse({ id: "classifier-fixture", version: "1.0.0", publisher: "fixture", host: "^1.2", capabilities: [{ name: "net.http", scopes: ["127.0.0.1"] }, { name: "secrets.resolve" }] });
-  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"] } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
+  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"], ...(url ? { origins: [new URL(url).origin] } : {}) } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
   owners.push(owner);
   prepareHttpAuthority(owner, { declaredScopes: ["127.0.0.1"], explicitWildcardGrant: false });
+  // The host binds only the configured key reference, as classifier registry calls do.
+  prepareCredentialBindings(owner, [{ ref: "secrets:TYPESAFE_API_KEY", resolve: async () => resolveConfiguredSecret(ctx, "secrets:TYPESAFE_API_KEY") }]);
   const fits = (_method: string, params: unknown) => Buffer.byteLength(JSON.stringify(params)) < 1048000;
   const transport = { features: ["httpBodyChunks"], requestFits: (params: unknown) => fits("", params), resultFits: (result: unknown) => fits("", result) };
   const call = (method: string, params: unknown) => answerCapability(ctx, { id: manifest.id, manifest }, method, params, owner, undefined, transport);
@@ -47,7 +50,7 @@ function serverFor(response: unknown) {
 }
 function adapter(baseUrl: string, overrides: Partial<Parameters<typeof jevClassifier>[0]> & { timeoutMs?: number; key?: string | null; ctx?: ReturnType<typeof fakeCtx> } = {}) {
   const { timeoutMs = 1000, key = "test-key", ctx = fakeCtx(), ...config } = overrides;
-  const plugin = jevClassifier({ baseUrl, model: "jev-latest", keyRef: "secrets:TYPESAFE_API_KEY", usdPerMtokIn: null, usdPerMtokOut: null, ...config }, sdkHost(ctx, key));
+  const plugin = jevClassifier({ baseUrl, model: "jev-latest", keyRef: "secrets:TYPESAFE_API_KEY", usdPerMtokIn: null, usdPerMtokOut: null, ...config }, sdkHost(ctx, key, baseUrl));
   return { ...plugin, ask: (state: string, question: Question) => plugin.ask(state, question, timeoutMs) };
 }
 function secretsFile(contents: string, mode = 0o600) {
@@ -128,7 +131,7 @@ test("host refuses mode 0644 secrets with chmod hint; plugin sees safe refusal a
   const { ctx, path } = secretsFile("TYPESAFE_API_KEY=file-key\n", 0o644);
   expect(() => readSecrets(ctx)).toThrow(`must be mode 0600 (is 0644); run: chmod 600 ${path}`);
   const { baseUrl, requests } = serverFor(choiceFixture);
-  await expect(adapter(baseUrl, { ctx, key: null }).ask("s", choice)).rejects.toThrow("secret reference could not be resolved");
+  await expect(adapter(baseUrl, { ctx, key: null }).ask("s", choice)).rejects.toThrow("bound credential could not be resolved");
   expect(requests).toHaveLength(0);
 });
 

@@ -9,6 +9,8 @@ export interface PolicySnapshot {
   readonly fingerprint: string;
   /** All configured enabled policy plugins, including unavailable processes. */
   readonly policies: readonly PolicyIdentity[];
+  /** Granted, non-disabled policy plugins that cannot be loaded; closed mode refuses while any is listed. */
+  readonly unavailable?: readonly {readonly id: string; readonly reason: string}[];
 }
 type DelegateInput = Extract<PolicyBeforeParams, {decision:"delegate"}>["input"];
 export interface PolicyEvaluationOptions {
@@ -22,6 +24,12 @@ export interface PolicyEvaluationOptions {
   deadline?: number;
   now?: () => number;
   onVeto?: (event: {pluginId:string; decision:PolicyBeforeParams["decision"]; reason:string}) => void;
+  /** Open mode ignored a failed or unavailable policy; the sink records a trace. */
+  onFailure?: (event: {pluginId:string; decision:PolicyBeforeParams["decision"]; reason:string}) => void;
+}
+function failureReason(error:unknown):string {
+  const text=error instanceof CoreError?`${error.code}: ${error.message}`:error instanceof Error?error.message:"invalid verdict";
+  return text.length>200?text.slice(0,200)+"…":text;
 }
 
 function boundedClone<T>(value:T):T {
@@ -38,7 +46,9 @@ export function freezePolicySnapshot(source:PolicySnapshot):PolicySnapshot {
     ids.add(p.id);
     return Object.freeze({id:p.id,generation:p.generation});
   }).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
-  return Object.freeze({mode:copy.mode,fingerprint:copy.fingerprint,policies:Object.freeze(policies)});
+  if(copy.unavailable!==undefined && (!Array.isArray(copy.unavailable) || copy.unavailable.some(u=>typeof u?.id!=="string" || !u.id || typeof u.reason!=="string"))) throw new CoreError("invalid_input","Invalid policy snapshot");
+  const unavailable=(copy.unavailable??[]).map(u=>Object.freeze({id:u.id,reason:u.reason}));
+  return Object.freeze({mode:copy.mode,fingerprint:copy.fingerprint,policies:Object.freeze(policies),unavailable:Object.freeze(unavailable)});
 }
 function checkCancelled(signal?:AbortSignal) {
   if(signal?.aborted) throw new CoreError("not_allowed","Policy operation cancelled");
@@ -81,6 +91,14 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     try {options.onVeto?.({pluginId:policy.id,decision:params.decision,reason});} catch { /* Denial still propagates. */ }
     throw new CoreError("not_allowed",reason,`plugin ${policy.id}`);
   };
+  const ignored=(policy:{id:string},reason:string)=>{
+    try {options.onFailure?.({pluginId:policy.id,decision:params.decision,reason});} catch { /* Tracing never changes the decision. */ }
+  };
+  for(const missing of snapshot.unavailable??[]) {
+    const reason=`Policy plugin is unavailable (${missing.reason})`;
+    if(snapshot.mode==="closed") veto({id:missing.id,generation:""},reason);
+    ignored(missing,reason);
+  }
   for(const policy of snapshot.policies) {
     checkCancelled(options.signal);
     let explicitVeto:string|undefined;
@@ -95,6 +113,9 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
         if(params.decision==="review") throw Error("Review amendments are forbidden");
         if(params.decision==="delegate") {
           const amend=policyDelegateAmend.parse(verdict.amend);
+          // Policy may only restrict: routing stays host-owned and isolation never weakens.
+          if(amend.requestedExecutor!==undefined && amend.requestedExecutor!==params.input.requestedExecutor) throw Error("Executor amendments are refused: the host chooses the executor");
+          if(amend.placement!==undefined && amend.placement!==params.input.placement && amend.placement!=="new") throw Error("Placement amendments may only move to an isolated worktree");
           const next={...params.input,...amend};
           if(amend.requestedExecutor!==undefined && amend.requestedExecutor!==null && !eligibleRunnerIds?.includes(amend.requestedExecutor)) throw Error("Executor is not eligible");
           if(amend.placement!==undefined && !allowedPlacements?.includes(amend.placement)) throw Error("Placement is not eligible");
@@ -110,9 +131,10 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
           params=next;
         }
       }
-    } catch {
+    } catch(error) {
       checkCancelled(options.signal);
       if(snapshot.mode==="closed") veto(policy,"Policy decision failed");
+      ignored(policy,`Policy decision failed and was ignored in open mode (${failureReason(error)})`);
     }
     if(explicitVeto!==undefined) veto(policy,explicitVeto);
   }

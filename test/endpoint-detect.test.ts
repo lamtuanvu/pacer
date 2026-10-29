@@ -64,3 +64,26 @@ test("failed opencode model listing returns null, not empty array", async () => 
   const {ctx} = ctxWith({"opencode models": {code: 1, stdout: ""}});
   expect(await opencodeModelIds(ctx, "openrouter")).toBeNull();
 });
+
+test("one failing local-server probe does not fail detection and keeps signed-in candidates (F3)", async () => {
+  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
+  let calls = 0;
+  const discover = (async (_ctx: unknown, input: {baseUrl: string}) => {
+    calls++;
+    if (calls === 1) throw Object.assign(Error("no enabled plugin provides OpenAI-compatible endpoints"), {code: "plugin_unavailable"});
+    return {listed: true, models: [{id: "m"}]};
+  }) as unknown as Parameters<typeof detectCandidates>[1]["discover"];
+  const d = await detectCandidates(ctx, {discover, catalog: null, accounts: {}});
+  expect(d.candidates.some(c => c.group === "signed_in" && c.provider === "openrouter")).toBe(true);
+  expect(d.candidates.filter(c => c.group === "local")).toHaveLength(calls - 1);
+  expect(d.notes).toContain("Could not check local model servers: no enabled plugin provides OpenAI-compatible endpoints");
+});
+
+test("detection with the endpoint plugin disabled still lists signed-in providers (F3)", async () => {
+  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({planner: "claude-code", providers: {"claude-code": {}}, plugins: {disabled: ["pacer-endpoints"]}}));
+  const d = await detectCandidates(ctx, {catalog: null, accounts: {}});
+  expect(d.candidates.map(c => c.group)).toEqual(["signed_in"]);
+  expect(d.notes.some(n => n.startsWith("Could not check local model servers"))).toBe(true);
+});

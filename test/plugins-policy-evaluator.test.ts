@@ -6,17 +6,44 @@ const snapshot = (mode:"open"|"closed"="open") => freezePolicySnapshot({mode,fin
 
 test("ordered policies see fresh cumulative amendments without mutating caller input",async()=>{
   const seen:string[]=[];
-  const result=await evaluatePolicy(snapshot(),delegate,{eligibleRunnerIds:["runner"],validateDelegate:()=>true,call:async(p,params)=>{
+  const result=await evaluatePolicy(snapshot(),delegate,{eligibleRunnerIds:["runner"],allowedPlacements:["auto","current","new"],validateDelegate:()=>true,call:async(p,params)=>{
     seen.push(p.id);
     if(params.decision!=="delegate") throw Error("wrong decision");
-    if(p.id==="a") {params.input.goal="mutated";return {verdict:"amend",amend:{requestedExecutor:"runner"}};}
-    expect(params.input).toEqual({...delegate.input,requestedExecutor:"runner"});
+    if(p.id==="a") {params.input.goal="mutated";return {verdict:"amend",amend:{placement:"new"}};}
+    expect(params.input).toEqual({...delegate.input,placement:"new"});
     return {verdict:"allow"};
   }});
   expect(seen).toEqual(["a","z"]);
-  expect(result.params.input).toEqual({...delegate.input,requestedExecutor:"runner"});
+  expect(result.params.input).toEqual({...delegate.input,placement:"new"});
   expect(delegate.input.goal).toBe("work");
   expect(()=>result.revalidate("changed")).toThrow("changed");
+});
+
+test("delegate amendments may only restrict: no executor steering and no isolation downgrade (B3)",async()=>{
+  const requested={decision:"delegate",input:{...delegate.input,requestedExecutor:"runner",placement:"new"}} as const;
+  const options={eligibleRunnerIds:["runner","other"],allowedPlacements:["auto","current","new"] as const,validateDelegate:()=>true};
+  for(const [input,amend] of [[delegate,{requestedExecutor:"runner"}],[requested,{requestedExecutor:"other"}],[requested,{requestedExecutor:null}],[requested,{placement:"current"}],[requested,{placement:"auto"}],[delegate,{placement:"current"}]] as const) {
+    await expect(evaluatePolicy(snapshot("closed"),input,{...options,call:async()=>({verdict:"amend",amend})}),JSON.stringify(amend)).rejects.toMatchObject({code:"not_allowed"});
+    const failures:{pluginId:string;reason:string}[]=[];
+    const open=await evaluatePolicy(snapshot(),input,{...options,onFailure:event=>{failures.push(event);},call:async()=>({verdict:"amend",amend})});
+    expect(open.params).toEqual(input);
+    expect(failures.map(f=>f.pluginId)).toEqual(["a","z"]);
+    expect(failures[0]!.reason).toMatch(/Executor amendments are refused|Placement amendments may only move/);
+  }
+  // Unchanged values and moves toward an isolated worktree remain allowed.
+  const kept=await evaluatePolicy(snapshot("closed"),requested,{...options,call:async()=>({verdict:"amend",amend:{requestedExecutor:"runner",placement:"new"}})});
+  expect(kept.params).toEqual(requested);
+  const isolated=await evaluatePolicy(snapshot("closed"),{decision:"delegate",input:{...delegate.input,placement:"current"}},{...options,call:async()=>({verdict:"amend",amend:{placement:"new"}})});
+  expect(isolated.params.decision==="delegate"&&isolated.params.input.placement).toBe("new");
+});
+
+test("closed mode vetoes listed unavailable policy plugins before calling any policy (B2)",async()=>{
+  const calls:string[]=[],vetoes:unknown[]=[],failures:unknown[]=[];
+  const source={mode:"closed" as const,fingerprint:"g",policies:[{id:"a",generation:"1"}],unavailable:[{id:"gone",reason:"needs_grant"}]};
+  await expect(evaluatePolicy(freezePolicySnapshot(source),delegate,{onVeto:v=>{vetoes.push(v);},call:async p=>{calls.push(p.id);return {verdict:"allow"};}})).rejects.toMatchObject({code:"not_allowed",hint:"plugin gone"});
+  expect(calls).toEqual([]);expect(vetoes).toEqual([{pluginId:"gone",decision:"delegate",reason:"Policy plugin is unavailable (needs_grant)"}]);
+  const open=await evaluatePolicy(freezePolicySnapshot({...source,mode:"open"}),delegate,{onFailure:v=>{failures.push(v);},call:async p=>{calls.push(p.id);return {verdict:"allow"};}});
+  expect(open.params).toEqual(delegate);expect(calls).toEqual(["a"]);expect(failures).toEqual([{pluginId:"gone",decision:"delegate",reason:"Policy plugin is unavailable (needs_grant)"}]);
 });
 
 test("explicit veto rejects even in open mode with bounded safe activity",async()=>{

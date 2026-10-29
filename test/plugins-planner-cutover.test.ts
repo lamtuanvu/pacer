@@ -107,3 +107,24 @@ test("actual readonly planner.check reports file integrity without changing file
     await rm(ctx.home, { recursive: true, force: true });
   }
 });
+
+test("real planner plugin writes the current Claude guard hook and pipefail skill text (F7 golden)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const ctx = fakeCtx({ which: () => null });
+  await mkdir(ctx.pacerHome, { recursive: true });
+  try {
+    const result = await installPlanner({ ctx, pacerArgv: ["pacer"], mcp: false }, "claude-code");
+    const settings = JSON.parse(await readFile(join(ctx.home, ".claude", "settings.json"), "utf8"));
+    const guard = settings.hooks.PreToolUse.find((entry: { matcher?: string }) => entry.matcher === "Agent|Task|Bash");
+    expect(guard?.hooks).toEqual([expect.objectContaining({ type: "command", timeout: 15 })]);
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+    const skill = result.record.files.map(file => typeof file === "string" ? file : (file as { path: string }).path).find(path => path.endsWith("SKILL.md"));
+    expect(skill).toBeDefined();
+    const text = await readFile(skill!, "utf8");
+    expect(text).toContain("acceptance_pipefail");
+    expect(text).toContain("set -o pipefail;");
+  } finally {
+    await shutdownPlugins(ctx);
+    await rm(ctx.home, { recursive: true, force: true });
+  }
+});

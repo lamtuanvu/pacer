@@ -24,3 +24,10 @@ test('host authorizes precisely the plugin notification vector with literal user
     expect(resources.stores).toEqual([]);
   }
 });
+
+test('notification vectors keep quotes, backslashes, newlines, shell text and leading dashes literal (F7, ported from notify-fallback)', () => {
+  const title = 'Title "quoted"\\\n$(touch bad)', body = 'Body "\\\n';
+  expect(notifierResources('darwin', title, body).commands).toEqual([{ argv: ['osascript', '-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', title, body], timeoutMs: 5000 }]);
+  expect(notifierResources('linux', '-title', 'body').commands).toEqual([{ argv: ['notify-send', '--', '-title', 'body'], timeoutMs: 5000 }]);
+  expect(notifierResources('win32', 'title', 'body').commands).toEqual([]);
+});

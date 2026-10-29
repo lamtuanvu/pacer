@@ -42,11 +42,14 @@ export interface RouteExplanation {
   uncertainty: Reason[];
 }
 
-/** The rules classifier runs in pacer-classify (P13): with it disabled or failing, the kind stays unknown. */
-async function detectKind(ctx: Ctx, strategy: Strategy, goal: string): Promise<string | null> {
-  const cfg = classifierConfig(strategy);
-  const answer = await buildAdapters(ctx, cfg, cfg.timeoutMs).rules.ask(JSON.stringify({ goal }), { type: "choice", id: "task_kind", instructions: "", criteria: {} }).catch(() => null);
-  return typeof answer?.value === "string" && (KINDS as readonly string[]).includes(answer.value) ? answer.value : null;
+/** The rules classifier runs in pacer-classify (P13): with it disabled, failing or misconfigured, the kind stays unknown and the reason is reported. */
+async function detectKind(ctx: Ctx, strategy: Strategy, goal: string): Promise<{ value: string | null; issue?: Reason }> {
+  let cfg: ReturnType<typeof classifierConfig>;
+  try { cfg = classifierConfig(strategy); } catch { return { value: null, issue: reason("classifier_unavailable", "info", { error: "invalid_config" }) }; }
+  let answer: Awaited<ReturnType<ReturnType<typeof buildAdapters>["rules"]["ask"]>>;
+  try { answer = await buildAdapters(ctx, cfg, cfg.timeoutMs).rules.ask(JSON.stringify({ goal }), { type: "choice", id: "task_kind", instructions: "", criteria: {} }); }
+  catch (error) { return { value: null, issue: reason("classifier_unavailable", "info", { error: error instanceof CoreError ? error.code : "failed" }) }; }
+  return { value: typeof answer?.value === "string" && (KINDS as readonly string[]).includes(answer.value) ? answer.value : null };
 }
 function chosenOf(c: Candidate, strategy: Strategy): Choice {
   return { executor: c.executor, account: c.account, runner: c.runner, model: c.binding.kind === "exact" ? { kind: "exact", id: c.binding.id } : { kind: "executor-default" }, host: strategy.runners[c.runner]?.host ?? null };
@@ -82,16 +85,18 @@ export async function explainDispatch(ctx: Ctx, input: unknown, deps: Pick<Dispa
   const requested = p.executor ? resolveRunner(strategy, p.executor)?.id ?? null : null;
   if (p.executor && !requested) throw new CoreError("unknown_executor", `Unknown executor "${p.executor}"`, `Configured: ${Object.keys(strategy.runners).join(", ")}`);
 
-  const kind: RouteExplanation["kind"] = p.kind !== undefined ? { value: p.kind, source: "given" } : await detectKind(ctx, strategy, p.goal).then(v => v ? { value: v, source: "detected" as const } : { value: null, source: "unknown" as const });
+  const detected = p.kind !== undefined ? undefined : await detectKind(ctx, strategy, p.goal);
+  const kind: RouteExplanation["kind"] = p.kind !== undefined ? { value: p.kind, source: "given" } : detected?.value ? { value: detected.value, source: "detected" } : { value: null, source: "unknown" };
+  const withIssue = (explanation: RouteExplanation) => { if (detected?.issue) explanation.uncertainty.push(detected.issue); return explanation; };
   const store = openReadOnlyStore(ctx);
   try {
-    if (p.via === "delegate") return await explainRankedDispatch(ctx, strategy, p, kind, requested, store, deps);
+    if (p.via === "delegate") return withIssue(await explainRankedDispatch(ctx, strategy, p, kind, requested, store, deps));
     const ro: ReadOnlyDispatch = { store, exclusions: [], uncertainty: [] };
     const preview = await previewDispatch(ctx, {
       repo: p.repo, goal: p.goal.slice(0, 8000), ...(kind.value ? { kind: kind.value } : {}), requirements: p.requirements, preferences: p.preferences,
       ...(p.model ? { model: p.model } : {}), ...(p.delegationEnforcement ? { delegationEnforcement: p.delegationEnforcement } : {}),
     }, { ...deps, strategy, readOnly: ro, difficulty: p.difficulty ?? "standard", includePlanner: !!p.allowDelegation });
-    return build(ctx, strategy, p, kind, requested, preview, ro, !!p.strategyDraft);
+    return withIssue(build(ctx, strategy, p, kind, requested, preview, ro, !!p.strategyDraft));
   } finally { store.close(); }
 }
 

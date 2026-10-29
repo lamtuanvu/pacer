@@ -307,7 +307,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const requested = req && !tried.has(req) && rankedIds.includes(req);
         const f = requested ? rankedIds : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
         const routable = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
-        routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},id,routable.filter(id=>!tried.has(id)),{
+        // Managed work may retry a tried runner that still has an untried dispatch candidate
+        // (another model or account), as on main; plain tasks never retry a tried executor.
+        const untried=(runner:string)=>work?dispatchCandidates.some(c=>c.runner===runner&&!triedCandidates.has(c.id)):!tried.has(runner);
+        routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},id,routable.filter(untried),{
           strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({tried:[...tried],triedCandidates:[...triedCandidates]}),
         });
         const authorized=routeAdmission.candidates;

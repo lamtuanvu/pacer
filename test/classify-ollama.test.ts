@@ -1,6 +1,7 @@
 import { createHttp } from "../packages/plugin-sdk/src/http";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
-import { prepareHttpAuthority } from "../src/plugins/http-authority";
+import { prepareHttpAuthority, resolveConfiguredSecret } from "../src/plugins/http-authority";
+import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
 import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
 import { fakeCtx } from "./helpers";
@@ -16,12 +17,14 @@ const state = '{"goal":"Add tests"}';
 // Real SDK HTTP transport over the host capability broker; only owned loopback fixtures.
 const owners: CallAuthority[] = [];
 afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.revoke())); });
-function sdkHost(ctx = fakeCtx(), key: string | null = "test-key") {
+function sdkHost(ctx = fakeCtx(), key: string | null = "test-key", url?: string) {
   if (key !== null) ctx.env.TYPESAFE_API_KEY = key;
   const manifest = manifestSchema.parse({ id: "classifier-fixture", version: "1.0.0", publisher: "fixture", host: "^1.2", capabilities: [{ name: "net.http", scopes: ["127.0.0.1"] }, { name: "secrets.resolve" }] });
-  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"] } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
+  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"], ...(url ? { origins: [new URL(url).origin] } : {}) } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
   owners.push(owner);
   prepareHttpAuthority(owner, { declaredScopes: ["127.0.0.1"], explicitWildcardGrant: false });
+  // The host binds only the configured key reference, as classifier registry calls do.
+  prepareCredentialBindings(owner, [{ ref: "secrets:TYPESAFE_API_KEY", resolve: async () => resolveConfiguredSecret(ctx, "secrets:TYPESAFE_API_KEY") }]);
   const fits = (_method: string, params: unknown) => Buffer.byteLength(JSON.stringify(params)) < 1048000;
   const transport = { features: ["httpBodyChunks"], requestFits: (params: unknown) => fits("", params), resultFits: (result: unknown) => fits("", result) };
   const call = (method: string, params: unknown) => answerCapability(ctx, { id: manifest.id, manifest }, method, params, owner, undefined, transport);
@@ -47,7 +50,7 @@ for (const fixture of [
     } });
     try {
       let time = 100;
-      const adapter = ollamaClassifier({ ...options, baseUrl: `${app.url.href}v1///`, keyRef: "secrets:TYPESAFE_API_KEY", nowMs: () => { time += 7; return time; } }, sdkHost(fakeCtx(), "fake-key"));
+      const adapter = ollamaClassifier({ ...options, baseUrl: `${app.url.href}v1///`, keyRef: "secrets:TYPESAFE_API_KEY", nowMs: () => { time += 7; return time; } }, sdkHost(fakeCtx(), "fake-key", app.url.href));
       expect(adapter.id).toBe("ollama");
       expect(await adapter.ask(state, fixture.q, 1000)).toEqual({ value: fixture.value, confidence: 0.9, latencyMs: 7, costUsd: 0 });
       expect(path).toBe("/v1/chat/completions");

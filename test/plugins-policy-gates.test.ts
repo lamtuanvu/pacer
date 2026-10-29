@@ -17,10 +17,16 @@ test("real core and lower creation gateways veto before task persistence or laun
 });
 
 test("real delegate amendments map only eligible fields before commit",async()=>{
- const f=fixture({verdict:"amend",amend:{kind:"tests",requestedExecutor:"codex",placement:"new"}});
+ const f=fixture({verdict:"amend",amend:{kind:"tests",placement:"new"}});
  const result=await tasks.delegate(f.ctx,{brief:{goal:"work",repo:f.repo}},f.spawn);
- expect(result).toMatchObject({kind:"tests",requestedExecutor:"codex",placement:{requested:"new"}});
+ expect(result).toMatchObject({kind:"tests",requestedExecutor:null,placement:{requested:"new"}});
  expect(f.launches()).toBe(1);
+});
+
+test("real delegate executor amendments are refused and never steer routing (B3)",async()=>{
+ const f=fixture({verdict:"amend",amend:{requestedExecutor:"codex"}});
+ await expect(tasks.delegate(f.ctx,{brief:{goal:"work",repo:f.repo}},f.spawn)).rejects.toMatchObject({code:"not_allowed"});
+ expect(listTasksWhere(f.ctx)).toEqual([]);expect(f.launches()).toBe(0);
 });
 
 test("concurrent same-key creation invokes policy once and replays the original",async()=>{

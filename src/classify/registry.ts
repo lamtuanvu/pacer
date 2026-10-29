@@ -2,7 +2,7 @@ import type { ClassifierConfig } from "../config/classifier";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { pluginRegistry } from "../plugins";
-import { classifierSnapshot } from "../plugins/classifier-config";
+import { classifierCredentialBindings, classifierSnapshot } from "../plugins/classifier-config";
 import { answerSchema } from "../plugins/classifier-protocol";
 import { ADAPTER_IDS, type AdapterId, type Classifier } from "./types";
 
@@ -23,7 +23,8 @@ export function buildAdapters(ctx: Ctx, cfg: ClassifierConfig, timeoutMs: number
         if (!id) throw new CoreError("plugin_unavailable", `no enabled plugin provides classifier ${adapter}`);
         const options = {
           deadlineMs: timeoutMs, classifierConfig: captured,
-          resources: { reads: [], commands: [], stores: [], http: { hosts: [...snapshot.hosts] }, ...(snapshot.secretAliases ? { secretAliases: { ...snapshot.secretAliases } } : {}) },
+          resources: { reads: [], commands: [], stores: [], http: { hosts: [...snapshot.hosts], origins: [...snapshot.origins] } },
+          credentialBindings: classifierCredentialBindings(ctx, snapshot),
         };
         const result = await registry.call(ctx, id, "classifier.ask", {
           adapter, state, question, timeoutMs, config: snapshot.config,

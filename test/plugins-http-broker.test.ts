@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createCallAuthority, type CallAuthority } from '../src/plugins/authority';
-import { prepareHttpAuthority } from '../src/plugins/http-authority';
+import { prepareHttpAuthority, resolveConfiguredSecret } from '../src/plugins/http-authority';
+import { prepareCredentialBindings } from '../src/plugins/credential-bindings';
 import { fakeCtx } from './helpers';
 import { answerCapability } from '../src/plugins/host';
 import { manifestSchema } from '../src/plugins/protocol';
@@ -18,9 +19,10 @@ function fixture() {
   let effects = 0;
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => { effects++; return new Response('\0'.repeat(300000)); } });
   servers.push(server);
-  const authority = createCallAuthority(fakeCtx(), { reads: [], stores: [], commands: [], http: { hosts: ['127.0.0.1'] } }, { grants: ['net.http'], deadlineMs: Date.now() + 5000 });
+  const authority = createCallAuthority(fakeCtx(), { reads: [], stores: [], commands: [], http: { hosts: ['127.0.0.1'], origins: [server.url.origin] } }, { grants: ['net.http'], deadlineMs: Date.now() + 5000 });
   owners.push(authority);
   prepareHttpAuthority(authority, { declaredScopes: ['127.0.0.1'], explicitWildcardGrant: false });
+  prepareCredentialBindings(authority, [{ ref: 'env:KEY', resolve: async () => resolveConfiguredSecret(authority.ctx, 'env:KEY') }]);
   const transport = { features: ['httpBodyChunks'], requestFits: () => true, resultFits: (r: unknown) => Buffer.byteLength(JSON.stringify(r)) < 1048500 };
   return { authority, transport, request: { url: server.url.href, method: 'GET', timeoutMs: 1000 }, get effects() { return effects; } };
 }

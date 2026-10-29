@@ -47,7 +47,10 @@ export interface DispatchDeps {
 function warnNotifier(ctx: Ctx, id: string, message: string): void {
   try { appendPluginLog(ctx, id, "warn", message); } catch { /* A failed diagnostic cannot stop notification retries. */ }
 }
-async function deliverWithPlugins(ctx: Ctx, data: NotifyData, deps: DispatchDeps): Promise<boolean> {
+const clip = (text: string, max: number) => text.length <= max ? text : text.slice(0, max - 1) + "…";
+async function deliverWithPlugins(ctx: Ctx, full: NotifyData, deps: DispatchDeps): Promise<boolean> {
+  // The notifier protocol bounds title and body; clip so long attention text is still delivered once.
+  const data = { ...full, title: clip(full.title, 256), body: clip(full.body, 2048) };
   let ids: string[];
   try {
     ids = [...(deps.notifiers ?? pluginRegistry(ctx).findAll(ctx, "notifier"))].sort();

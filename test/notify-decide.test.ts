@@ -175,3 +175,11 @@ test("notifier order uses locale-independent identifier sorting", async () => {
   await dispatchNotifications(ctx, [item()], { notifiers: ["a0", "a-b", "aa"], deliver: async id => { asked.push(id); return false; } });
   expect(asked).toEqual(["a-b", "a0", "aa"]);
 });
+
+test("oversize attention text is clipped to the notifier protocol bounds and delivered once (F9)", async () => {
+ const ctx=fakeCtx();const seen:{title:string;body:string}[]=[];
+ const long=item({title:"T".repeat(400),detail:"B".repeat(3000)});
+ const deps={notifiers:["pacer-notify"],deliver:async(_id:string,data:{title:string;body:string})=>{seen.push(data);return true;}};
+ await dispatchNotifications(ctx,[long],deps);await dispatchNotifications(ctx,[long],deps);
+ expect(seen).toHaveLength(1);expect(seen[0]!.title.length).toBe(256);expect(seen[0]!.body.length).toBe(2048);expect(seen[0]!.title.endsWith("…")).toBe(true);
+});

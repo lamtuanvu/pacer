@@ -161,9 +161,9 @@ export const percentage = (value: number): string => `${Math.round(value)}%`;
 export interface PolicySummary { mode: "open" | "closed"; plugins: number }
 export function policyWords(policy?: PolicySummary): string {
   if (!policy) return "policy: unknown";
-  return policy.mode === "closed" ? `policy: closed (${policy.plugins} plugins)` : "policy: open";
+  return policy.mode === "closed" ? `policy: closed (${policy.plugins} ${policy.plugins === 1 ? "plugin" : "plugins"})` : "policy: open";
 }
-export const policyDetail = (policy?: PolicySummary): string => policy ? `${policyWords(policy)} · ${policy.plugins} enabled policy plugins` : policyWords(policy);
+export const policyDetail = (policy?: PolicySummary): string => policy ? `${policyWords(policy)} · ${policy.plugins} enabled policy ${policy.plugins === 1 ? "plugin" : "plugins"}` : policyWords(policy);
 
 /** Width-constrained terminals: slash separates the mode from the enabled plugin count. */
 export function compactPolicyWords(policy?: PolicySummary): string {

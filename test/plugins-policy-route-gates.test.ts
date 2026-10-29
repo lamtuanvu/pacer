@@ -54,11 +54,34 @@ test("fallback re-evaluates remaining candidates without re-adding earlier polic
  expect(f.policyCalls().map(line=>JSON.parse(line).input.candidates)).toEqual([["codex","cursor","agy"],["agy"]]);
 });
 
-test("queue-drain veto preserves waiting task and never reserves or launches",async()=>{
+test("queue-drain veto holds the waiting task with the reason and never reserves or launches (F1)",async()=>{
  const f=setup({verdict:"veto",reason:"route blocked"});
  updateTask(f.ctx,f.task.id,t=>{t.queue={reason:"no_slot",since:f.ctx.now,position:1};});
- await expect(drainQueue(f.ctx,f.spawn,f.deps)).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
- expect(readTask(f.ctx,f.task.id)).toMatchObject({state:"queued",queue:{reason:"no_slot"}});expect(readTask(f.ctx,f.task.id)?.executor).toBeUndefined();expect(f.launches()).toBe(0);
+ expect(await drainQueue(f.ctx,f.spawn,f.deps)).toEqual([]);
+ const held=readTask(f.ctx,f.task.id);
+ expect(held).toMatchObject({state:"queued",queue:{reason:"waiting_retry",since:f.ctx.now}});expect(held?.queue?.detail).toContain("route blocked");expect(held?.queue?.detail).toContain("plugin fx-policy");
+ expect(held?.queue?.nextAt).toBeGreaterThan(Date.now()/1000);expect(held?.executor).toBeUndefined();expect(f.launches()).toBe(0);
+ // The backoff keeps the next drain from asking the policy again at once.
+ const calls=f.policyCalls().length;await drainQueue(f.ctx,f.spawn,f.deps);expect(f.policyCalls()).toHaveLength(calls);
+});
+
+test("a policy veto on one queued task does not block the tasks behind it (F1)",async()=>{
+ const f=setup({verdict:"allow"});
+ const second=createTask(f.ctx,{brief:{goal:"other",repo:f.repo},kind:null,requestedExecutor:null,timeoutS:60});
+ for(const id of [f.task.id,second.id])updateTask(f.ctx,id,t=>{t.queue={reason:"no_slot",since:f.ctx.now,position:1};});
+ writeFileSync(join(f.dir,"settings.json"),JSON.stringify({verdict:{verdict:"allow"},byTask:{[f.task.id]:{verdict:"veto",reason:"first blocked"}},delay:0}));
+ expect(await drainQueue(f.ctx,f.spawn,f.deps)).toEqual([second.id]);
+ expect(readTask(f.ctx,f.task.id)).toMatchObject({state:"queued",queue:{reason:"waiting_retry"}});
+ expect(readTask(f.ctx,second.id)?.state).toBe("running");expect(f.launches()).toBe(1);
+});
+
+test("task wait on an unrelated task is not failed by another task's policy veto (F1)",async()=>{
+ const {taskWait}=await import("../src/tasks/api");
+ const f=setup({verdict:"veto",reason:"route blocked"});
+ updateTask(f.ctx,f.task.id,t=>{t.queue={reason:"no_slot",since:f.ctx.now,position:1};});
+ const other=createTask(f.ctx,{brief:{goal:"other",repo:f.repo},kind:null,requestedExecutor:null,timeoutS:60});
+ updateTask(f.ctx,other.id,t=>{t.state="done";t.result={status:"done",executor:"codex",model:null,files:"",report:"ok",backend:"direct"};});
+ expect((await taskWait(f.ctx,other.id,0,1))?.state).toBe("done");
 });
 
 test("queue-drain excludes a runner before provisional reservation",async()=>{
@@ -101,12 +124,12 @@ test("capacity is rechecked after policy before executor selection",async()=>{
  const result=await pending;expect(result.state).toBe("done");expect(f.calls).toEqual(["cursor"]);
 });
 
-test("task cancellation while queue policy waits prevents reservation and launch",async()=>{
+test("task cancellation while queue policy waits prevents reservation and launch without aborting the drain",async()=>{
  const f=setup({verdict:"allow"});writeFileSync(join(f.dir,"settings.json"),JSON.stringify({verdict:{verdict:"allow"},delay:60}));
  updateTask(f.ctx,f.task.id,t=>{t.queue={reason:"no_slot",since:f.ctx.now,position:1};});
  const pending=drainQueue(f.ctx,f.spawn,f.deps),until=Date.now()+2000;while(!f.policyCalls().length&&Date.now()<until)await Bun.sleep(5);
  updateTask(f.ctx,f.task.id,t=>{t.state="stopped";});
- await expect(pending).rejects.toMatchObject({code:"conflict"});expect(readTask(f.ctx,f.task.id)?.state).toBe("stopped");expect(f.launches()).toBe(0);
+ expect(await pending).toEqual([]);expect(readTask(f.ctx,f.task.id)?.state).toBe("stopped");expect(f.launches()).toBe(0);
 });
 
 test("malformed route amendments follow actual open and closed gate modes",async()=>{

@@ -15,6 +15,7 @@ import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../term
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
 import { writeEndpointConfig } from "../plugins/endpoint-adapter";
+import { appendActivity } from "../activity/log";
 import { endpointRow } from "../endpoints/row";
 import type { Ctx } from "../types";
 
@@ -63,7 +64,14 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
     if (result.error.includes("changed during edit")) throw settingsConflict();
     throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
   }
-  await writeEndpointConfig(ctx, loadStrategy(ctx).accounts);
+  const accounts = loadStrategy(ctx).accounts;
+  try { await writeEndpointConfig(ctx, accounts); }
+  catch (error) {
+    // The edit is already saved; an unavailable endpoint plugin must not report it as failed.
+    if (!(error instanceof CoreError && error.code === "plugin_unavailable")) throw error;
+    if (Object.values(accounts).some(account => account.connection))
+      appendActivity(ctx, {kind: "config", level: "warn", text: `Settings saved, but the OpenCode endpoint configuration was not updated: ${error.message}`});
+  }
   return result.diff;
 }
 /** A delete-home operation must never remove a shared, default, or symlinked folder. */

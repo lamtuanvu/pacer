@@ -1,5 +1,5 @@
 import {afterEach,expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {spawn} from "node:child_process";
 import {fakeCtx} from "./helpers";
@@ -87,10 +87,10 @@ test("a context race during an actual call conflicts before returning authorizat
 });
 
 test("actual delegate amendment requires complete host eligibility validation",async()=>{
-  const f=fixture("closed");f.install({verdict:"amend",amend:{requestedExecutor:"runner",placement:"new",kind:"tests"}});
+  const f=fixture("closed");f.install({verdict:"amend",amend:{placement:"new",kind:"tests"}});
   await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context",eligibleRunnerIds:["runner"],allowedPlacements:["new"]})).rejects.toMatchObject({code:"not_allowed"});
-  const receipt=await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context",eligibleRunnerIds:["runner"],allowedPlacements:["new"],validateDelegate:next=>next.requestedExecutor==="runner"&&next.placement==="new"&&next.kind==="tests"});
-  expect(receipt.params).toEqual({decision:"delegate",input:{...input,requestedExecutor:"runner",placement:"new",kind:"tests"}});
+  const receipt=await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context",eligibleRunnerIds:["runner"],allowedPlacements:["new"],validateDelegate:next=>next.requestedExecutor===null&&next.placement==="new"&&next.kind==="tests"});
+  expect(receipt.params).toEqual({decision:"delegate",input:{...input,placement:"new",kind:"tests"}});
 });
 
 test("cancellation and caller deadline propagate through actual registry call",async()=>{
@@ -129,4 +129,45 @@ test("policy process retirement during a closed decision remains a host conflict
   const path=join(dir,"pacer-plugin.json"),manifest=JSON.parse(readFileSync(path,"utf8"));manifest.contributes.policy={revision:2};writeFileSync(path,JSON.stringify(manifest));f.registry.list(f.ctx);
   await expect(pending).rejects.toMatchObject({code:"conflict",message:"Policy context changed"});
   expect(readActivity(f.ctx).entries.filter(entry=>entry.kind==="policy")).toEqual([]);
+});
+
+test("closed mode refuses while a granted policy plugin cannot load, with a visible reason (B2)",async()=>{
+  const granted={installed:{"fx-policy":{version:"1.0.0",capabilities:[],policy:true}}};
+  const cases:Record<string,(dir:string)=>void>={
+    needsGrant:dir=>{const path=join(dir,"pacer-plugin.json");const m=JSON.parse(readFileSync(path,"utf8"));m.capabilities=[{name:"tasks.read"}];writeFileSync(path,JSON.stringify(m));},
+    unreadable:dir=>writeFileSync(join(dir,"pacer-plugin.json"),"{not json"),
+    incompatible:dir=>{const path=join(dir,"pacer-plugin.json");const m=JSON.parse(readFileSync(path,"utf8"));m.host="^99.0";writeFileSync(path,JSON.stringify(m));},
+    deleted:dir=>rmSync(dir,{recursive:true,force:true}),
+  };
+  for(const [name,breakIt] of Object.entries(cases)) {
+    const f=fixture("closed");const dir=f.install();f.configure("closed",granted);breakIt(dir);
+    await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"}),name).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
+    const entry=readActivity(f.ctx).entries.find(e=>e.kind==="policy");
+    expect(entry?.text,name).toContain("unavailable");expect(f.starts()).toBe(0);
+    // Open mode keeps going but leaves the same trace (F5).
+    f.configure("open",granted);
+    await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
+    expect(readActivity(f.ctx).entries.filter(e=>e.kind==="policy").length,name).toBe(2);
+    // A user who disables or removes the grant opts out of the refusal.
+    f.configure("closed",{...granted,disabled:["fx-policy"]});
+    await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
+  }
+});
+
+test("closed mode refuses an updated policy manifest that needs a new grant even without a recorded marker (B2)",async()=>{
+  const f=fixture("closed");const dir=f.install();const path=join(dir,"pacer-plugin.json");const m=JSON.parse(readFileSync(path,"utf8"));m.capabilities=[{name:"tasks.read"}];writeFileSync(path,JSON.stringify(m));
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"})).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
+});
+
+test("enabling a policy plugin records the policy marker in its grant (B2)",async()=>{
+  const f=fixture("closed");f.install();f.configure("closed",{installed:{}});
+  await f.registry.enable(f.ctx,"fx-policy",true);
+  expect(readFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"utf8")).toMatch(/policy: true/);
+});
+
+test("open mode records a trace when it ignores a failing policy plugin (F5)",async()=>{
+  const f=fixture("open");f.install({verdict:"not-a-verdict"});
+  await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
+  const entry=readActivity(f.ctx).entries.find(e=>e.kind==="policy");
+  expect(entry).toMatchObject({level:"warn"});expect(entry?.text).toContain("fx-policy");expect(entry?.text).toContain("ignored in open mode");expect(entry?.text).not.toContain(input.goal);
 });

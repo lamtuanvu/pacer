@@ -8,7 +8,7 @@ import { prepareCredentialBindings, type CredentialBinding } from "./credential-
 import { BUNDLED } from "../../plugins/bundled";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { validateClassifier, type ClassifierConfig } from "../config/classifier";
-import { classifierPluginConfig, classifierSnapshot } from "./classifier-config";
+import { classifierCredentialBindings, classifierPluginConfig, classifierSnapshot } from "./classifier-config";
 import type { AdapterId } from "../classify/types";
 import { prepareHttpAuthority } from "./http-authority";
 import { spawn as nodeSpawn } from "node:child_process";
@@ -97,6 +97,21 @@ export class PluginRegistry {
     this.refresh(ctx);const cfg=pluginsConfig(ctx);
     return [...this.entries.values()].filter(e=>e.manifest&&Object.hasOwn(e.manifest.contributes,"policy")&&["idle","starting","ready","failing"].includes(e.state))
       .sort((a,b)=>a.id.localeCompare(b.id)).map(e=>structuredClone({id:e.id,manifest:e.manifest!,bundled:e.bundled,grant:e.bundled?null:cfg.installed[e.id]??null,config:cfg.config[e.id]??{}}));
+  }
+  /**
+   * Granted, non-disabled policy plugins that cannot take part in decisions: an
+   * updated manifest needs a new grant, the manifest is unreadable or incompatible,
+   * or the folder is gone. Closed mode refuses while any is listed.
+   */
+  policyUnavailable(ctx:Ctx):readonly {id:string;reason:string}[] {
+    this.refresh(ctx);const cfg=pluginsConfig(ctx);const out=new Map<string,string>();
+    const healthy=(e:Entry|undefined)=>!!e?.manifest&&Object.hasOwn(e.manifest.contributes,"policy")&&["idle","starting","ready","failing"].includes(e.state);
+    for(const e of this.entries.values()) {
+      if(e.bundled||cfg.disabled.includes(e.id)||!cfg.installed[e.id]||healthy(e)) continue;
+      if(cfg.installed[e.id]!.policy===true||(e.manifest&&Object.hasOwn(e.manifest.contributes,"policy"))) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
+    }
+    for(const [id,grant] of Object.entries(cfg.installed)) if(grant.policy===true&&!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))) out.set(id,this.entries.has(id)?"no longer contributes policy":"plugin folder is missing");
+    return [...out].sort(([a],[b])=>a.localeCompare(b)).map(([id,reason])=>({id,reason}));
   }
   private eventTimerState():void {
     const active=[...this.entries.values()].some(e=>e.subscription?.active);
@@ -573,7 +588,7 @@ export class PluginRegistry {
 
   async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
     const startedAt = Date.now();
-    const credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
+    let credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
     const e = this.findEntry(ctx, id);
     const plannerFingerprint=e.plannerFingerprint;
     const observationFingerprint=e.observationFingerprint;
@@ -601,8 +616,9 @@ export class PluginRegistry {
       input = { ...value, config: selected.config };
       const base = { ...(resources ?? { reads: [], commands: [], stores: [] }) };
       delete base.secretAliases;
-      resources = { ...base, http: { hosts: [...selected.hosts] },
-        ...(selected.secretAliases ? { secretAliases: { ...selected.secretAliases } } : {}) };
+      resources = { ...base, http: { hosts: [...selected.hosts], origins: [...selected.origins] } };
+      // The canonical classifier may resolve only the key reference of its selected configuration.
+      credentialBindings = classifierCredentialBindings(ctx, selected);
     }
     return this.admission.run(deadlineAt, async signal => {
       const run = async () => {
@@ -674,7 +690,8 @@ export class PluginRegistry {
     const surfaces = surfaceKinds(m);
     const covered = e.bundled || grantCovers(m, current);
     if (!covered && !grant) return { id, state: "needs_grant", needs, ...(surfaces.length ? { surfaces } : {}) };
-    if (!e.bundled && (!covered || current?.version !== m.version)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces });
+    const policy = Object.hasOwn(m.contributes, "policy");
+    if (!e.bundled && (!covered || current?.version !== m.version || (current?.policy === true) !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, ...(policy ? { policy: true as const } : {}) });
     await setPluginDisabled(ctx, id, false);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";

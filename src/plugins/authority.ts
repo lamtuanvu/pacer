@@ -6,8 +6,8 @@ import type { Ctx } from "../types";
 export interface CallResources {
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
-  /** Exact hostnames derived only from validated host configuration/grants. */
-  http?: { hosts: string[] };
+  /** Exact hostnames, and optionally exact origins, derived only from validated host configuration/grants. */
+  http?: { hosts: string[]; origins?: string[] };
   writes?: { path: string; root?: string; kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
   reads: { path: string; kind: "file" | "codex-logs" }[];
   commands: {
@@ -53,7 +53,7 @@ export class CallAuthority {
       for (const resource of this.resources.writes) { Object.freeze(resource.operations); Object.freeze(resource); }
       Object.freeze(this.resources.writes);
     }
-    if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
+    if (this.resources.http) { Object.freeze(this.resources.http.hosts); if (this.resources.http.origins) Object.freeze(this.resources.http.origins); Object.freeze(this.resources.http); }
     if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };

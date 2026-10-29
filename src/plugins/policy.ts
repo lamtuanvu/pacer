@@ -24,10 +24,11 @@ const fingerprint=(value:unknown)=>createHash("sha256").update(JSON.stringify(ca
 function metadata(ctx:Ctx) {
   const registry=pluginRegistry(ctx);
   const policies=registry.policySnapshot(ctx);
+  const unavailable=registry.policyUnavailable(ctx);
   const config=pluginsConfig(ctx);
   // Hashes bind the complete persisted config, grants and manifest. No runtime
   // state/PID participates: lazy first start cannot invalidate authorization.
-  return {registry,mode:config.policy.mode,policies,fingerprint:fingerprint({config,policies})};
+  return {registry,mode:config.policy.mode,policies,unavailable,fingerprint:fingerprint({config,policies,unavailable})};
 }
 
 /** Cheap discovery only: no doctor, usage refresh, handshake or process start. */
@@ -54,7 +55,7 @@ export async function applyPolicy<D extends Decision>(ctx:Ctx,decision:D,input:I
     catch {return true;}
   };
   let contextConflict=false;
-  const receipt=await evaluatePolicy({mode:initial.mode,fingerprint:frozenFingerprint,policies:initial.policies.map(policy=>({id:policy.id,generation:fingerprint(policy)}))},{decision,input},{
+  const receipt=await evaluatePolicy({mode:initial.mode,fingerprint:frozenFingerprint,policies:initial.policies.map(policy=>({id:policy.id,generation:fingerprint(policy)})),unavailable:initial.unavailable},{decision,input},{
     ...options,
     call:(policy,params,callOptions)=>{
       if(contextConflict || capture()!==frozenFingerprint) {
@@ -64,6 +65,10 @@ export async function applyPolicy<D extends Decision>(ctx:Ctx,decision:D,input:I
       return initial.registry.call(ctx,policy.id,"policy.before",params,callOptions);
     },
     onVeto:({pluginId,decision,reason})=>{
+      if(contextConflict||changed()) {contextConflict=true;return;}
+      appendActivity(ctx,{kind:"policy",level:"warn",text:`plugin ${pluginId}: ${decision}: ${reason}`});
+    },
+    onFailure:({pluginId,decision,reason})=>{
       if(contextConflict||changed()) {contextConflict=true;return;}
       appendActivity(ctx,{kind:"policy",level:"warn",text:`plugin ${pluginId}: ${decision}: ${reason}`});
     },

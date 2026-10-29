@@ -141,7 +141,7 @@ describe("classifier decide", () => {
     const set = buildAdapters(ctx, config, 3000);
     try {
       expect(await decide(ctx, config, set, input)).toMatchObject({ adapter: "rules", fallback: true });
-      expect(readDecisions(ctx)[0].fallback_reason).toContain("secret reference could not be resolved");
+      expect(readDecisions(ctx)[0].fallback_reason).toContain("bound credential could not be resolved");
       expect(JSON.stringify(readDecisions(ctx))).not.toContain("test-key");
     } finally { await shutdownPlugins(ctx); }
   });
