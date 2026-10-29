@@ -17,7 +17,7 @@ describe("dispatch trace", () => {
     const resolved = resolveRoute(hrefFor(target));
     expect(resolved).toMatchObject({name:"sessions", id:"task /1", view:"trace", query:{repo:"repo"}});
     if ("name" in resolved) expect(pageOwnsTitle(resolved)).toBe(true);
-    expect(resolveRoute("#/tasks/task%20%2F1/review")).toMatchObject({name:"sessions",id:"task /1",view:"review"});
+    expect(resolveRoute("#/tasks/task%20%2F1/review")).toMatchObject({name:"task-review",id:"task /1"});
     expect(resolveRoute("#/tasks/%XX/trace")).toMatchObject({name:"dispatch"});
   });
   test("Tasks aside trace link retains the active repo filter", () => {

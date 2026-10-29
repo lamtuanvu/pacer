@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
+- Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 
 ### Fixed
 
@@ -15,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Match Dispatch to its design board: sentence-case section headings, four KPI tiles with explicit unmeasured states, planner advice and a single usage caption, Ready routing preview, three attention cards, and a recent dispatch ledger with one row per root, subtask token totals, and compact unknown-token states. Remove the redundant Start work composer and link cards to their task actions.
 - Align the live session with the Session and ViewerDesktop boards: a separate session header, compact Sessions tree with dispatch parent links and a centered status pill, workspace and live usage details, acceptance checks, diff links and file preview tabs.
 - Show rounded percentages, friendly agent and account names, clear readiness reasons and weekly usage in Settings and Work. Show bundled plugin names, versions and descriptions. Keep technical eligibility details in tooltips and hide the unimplemented command-menu open-beside shortcut.
+- Keep resolved failed tasks retryable, retain brief editing when retry is unavailable, show remaining attention after acceptance, and offer result file preview only for a current local direct run.
 
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 

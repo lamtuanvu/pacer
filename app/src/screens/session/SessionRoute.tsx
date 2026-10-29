@@ -103,7 +103,11 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   } else if(stop) await invoke(stop).catch(error=>setShortcutError(message(error)??'Could not end session'));
  } finally { setEndBusy(false); }
  } : undefined;
- const header=task.data&&<><SessionHeader task={task.data} onEnd={endSession} busy={endBusy}/>{next && frame?.details && !frame.details.open && <div className="pc-session-next"><Button size="sm" onClick={()=>openPanel(next.tab)}>{next.label}</Button></div>}</>;
+ const nextAction=next && (next.label==='Review result'||(frame?.details&&!frame.details.open)) && <Button size="bar" onClick={()=>{
+  if(next.label==='Review result')location.hash=`#/tasks/${encodeURIComponent(id)}/${task.data!.acceptance.state==='failed'||['failed','partial','limit'].includes(task.data!.state)?'failure':'review'}${location.hash.includes('?')?`?${location.hash.split('?')[1]}`:''}`;
+  else openPanel(next.tab);
+ }}>{next.label}</Button>;
+ const header=task.data&&<SessionHeader task={task.data} onEnd={endSession} busy={endBusy} actions={nextAction}/>;
  if(task.data?.interactionMode==='conversation')return <>{dialogs.dialog}{header}{shortcutError&&<p role="alert">{shortcutError}</p>}<Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/></>;
  return <>{dialogs.dialog}{header}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }

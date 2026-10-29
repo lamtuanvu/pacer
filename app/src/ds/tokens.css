@@ -114,6 +114,9 @@
   --type-sheet-body-size: 14px;
   --type-sheet-body-line: 20px;
   --type-sheet-body-weight: 400;
+  --type-failure-output-size: 12px;
+  --type-failure-output-line: 17px;
+  --type-failure-output-weight: 400;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;

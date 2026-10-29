@@ -100,7 +100,9 @@ browserTest("session panel toggles, keyboard tabs, navigator collapse and narrow
 browserTest("closed Details retains next step, and ended sessions retain review and retry",async()=>withBrowser(async browser=>{
  const page=await openSession(browser,"ended");expect(await page.getByRole("button",{name:"End session",exact:true}).count()).toBe(0);
  await page.getByRole("button",{name:"Toggle details panel"}).click();
- await page.getByRole("button",{name:"Review result",exact:true}).click();
+ await page.locator(".pc-session-bar").getByRole("button",{name:"Review result",exact:true}).click();
+ expect(page.url()).toContain("#/tasks/t-0412/review");
+ await page.getByRole("button",{name:"Toggle details panel"}).click();
  const panel=page.getByRole("complementary",{name:"Session details"});await panel.waitFor();
  expect(await panel.getByRole("button",{name:"Mark accepted",exact:true}).isVisible()).toBe(true);
  await panel.getByRole("button",{name:"Retry session…"}).click();await page.getByRole("dialog").getByRole("button",{name:"Retry",exact:true}).click();
@@ -282,7 +284,8 @@ browserTest("narrow_desktop_starts_with_the_side_panels_closed", async () => wit
 browserTest("no_actions_on_ended_session", async () => withBrowser(async browser => {
   const page = await openSession(browser, "ended");
   const actions = page.locator(".pc-frame-actions");
-  // Nothing in the title bar would act on a session that has ended; only the frame's details toggle remains.
+  // Session mutations disappear from the top bar; result navigation stays in the session header.
+  await expect(page.locator(".pc-session-bar").getByRole("button", { name: "Review result", exact: true }).count()).resolves.toBe(1);
   await expect(actions.getByRole("button").count()).resolves.toBe(0);
   await expect(page.getByRole("button", { name: "Toggle details panel" }).count()).resolves.toBe(1);
   for (const name of ["End session", "Stop", "Take over", "Resume conversation", "Open in terminal"]) await expect(page.getByRole("button", { name, exact: true }).count()).resolves.toBe(0);
@@ -344,24 +347,30 @@ const callsOf = (page: Page, op: string) => page.evaluate(op => (window as any).
 
 browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(async browser => {
   const page = await openSession(browser, "ended");
-  const actions = page.locator(".pc-frame-actions");
-  // Open panel: the next step is in the panel, so the title bar offers nothing extra.
-  await expect(page.locator(".pc-session-next").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  const actions = page.locator(".pc-session-bar");
+  // Dedicated result navigation remains reachable with either panel state.
+  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(1);
   await page.getByRole("button", { name: "Toggle details panel" }).click();
-  const next = page.locator(".pc-session-next").getByRole("button", { name: "Review result" });
+  const next = actions.getByRole("button", { name: "Review result" });
   await expect(next.getAttribute("class")).resolves.toContain("pc-btn--secondary");
-  // Keyboard activation reopens the panel on Details, where the verdict actions are.
   await next.focus();
   await page.keyboard.press("Enter");
+  expect(page.url()).toContain("#/tasks/t-0412/review");
+  await page.getByRole("button", { name: "Toggle details panel" }).click();
   const panel = page.getByRole("complementary", { name: "Session details" });
   await panel.waitFor();
   await expect(panel.getByRole("tab", { name: "Details" }).getAttribute("aria-selected")).resolves.toBe("true");
   await expect(panel.getByRole("button", { name: "Mark accepted" }).isVisible()).resolves.toBe(true);
-  await expect(page.locator(".pc-session-next").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(1);
+  const failed = await openSession(browser, "failed");
+  await failed.evaluate(() => { location.hash += "?repo=repo&scope=all"; });
+  await failed.locator(".pc-session-bar").getByRole("button", { name: "Review result", exact: true }).click();
+  expect(failed.url()).toContain("#/tasks/t-0412/failure?repo=repo&scope=all");
+  await failed.close();
   // A running session has no next step to surface, even with the panel closed.
   const running = await openSession(browser, "supervised");
   await running.getByRole("button", { name: "Toggle details panel" }).click();
-  await expect(running.getByRole("banner").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  await expect(running.locator(".pc-session-bar").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
   await page.close(); await running.close();
 }), 30_000);
 

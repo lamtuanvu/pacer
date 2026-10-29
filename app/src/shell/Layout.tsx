@@ -171,7 +171,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     left={settings || tasks}
     right={details}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
-    mainClass={`pc-main${!loading && !outdated && ["new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
+    mainClass={`pc-main${!loading && !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} folder={(route.name === "sessions" && route.id ? state.snapshot?.tasks.find(task => task.id === route.id)?.worktree : undefined) ?? state.snapshot?.repos?.find(item => item.key === repo)?.path} close={toggleDock} />}

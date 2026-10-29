@@ -30,7 +30,7 @@ export interface TaskDiff { patch: string; untracked: string[]; truncated: boole
 /** Title-bar facts and actions for a task's session: status, elapsed time, repository, the details toggle, then actions. */
 export function SessionTitle({ status, live, facts, repo, branch, actions, next }: {
   status: Status; live: boolean; facts: string[]; repo?: string; branch?: string | null; actions?: ComponentChildren;
-  /** The task's next step, which lives in the right panel. While that panel is closed it stays reachable here. */
+  /** Review navigates to its own page; other next steps reopen the right panel. */
   next?: { label: string; tab: SessionPanelTab; open: (tab: SessionPanelTab) => void };
 }) {
   const details = useFrame()?.details;
@@ -76,7 +76,7 @@ export function SessionTitle({ status, live, facts, repo, branch, actions, next 
       {facts.filter(Boolean).map(fact => <span className="pc-session-title-time" key={fact} title={fact}>{fact}</span>)}</span></span>
     <div ref={group} className="pc-session-title-actions" role="group" aria-label="Session actions" onFocusIn={() => { within.current = true; }}
       onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>
-      {next && details && !details.open && <Button size="sm" variant="primary" onClick={() => next.open(next.tab)}>{next.label}</Button>}
+      {next && details && (next.label === "Review result" || !details.open) && <Button size="sm" variant="primary" onClick={() => next.open(next.tab)}>{next.label}</Button>}
       {actions}
     </div>
   </>;
@@ -104,7 +104,7 @@ export function WorktreeChanges({ diff, loading, error }: { diff?: TaskDiff | nu
 }
 
 /** The frame owns the h1; the session header retains its content and actions. */
-export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?: () => void; busy?: boolean }) {
+export function SessionHeader({ task, onEnd, busy, actions }: { task: TaskDetail; onEnd?: () => void; busy?: boolean; actions?: ComponentChildren }) {
   const {current} = useNavigation();
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
   useFrameHeading({ title, agent: markAgent(task.executor ?? "unknown") });
@@ -122,6 +122,7 @@ export function SessionHeader({ task, onEnd, busy }: { task: TaskDetail; onEnd?:
     <h2 title={title}>{title}</h2><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
     <StatusPill status={taskStatus(task)}/><span className="pc-session-bar__spacer"/>
     <a className="pc-text-action" href={hrefFor(routes.trace(task.id,current.query))}>Dispatch trace</a>
+    {actions}
     {onEnd && <Button size="bar" className="pc-session-end" busy={busy} onClick={onEnd} title="End session (asks to confirm)">End session</Button>}
   </header>;
 }

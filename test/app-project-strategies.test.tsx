@@ -73,10 +73,10 @@ test("an unavailable project preview explains each excluded executor", async()=>
 
 test("project rows resolve snapshot status by executor ID and preserve unavailable references", () => {
   const snapshot = { repos: [view.repo], tasks: [], accounts: [], executors: [
-    { id: "cursor#team", agent: "cursor", account: "team", state: "blocked", reason: "Maintenance" },
+    { id: "cursor#team", agent: "cursor", account: "team", enabled: true, state: "blocked", reason: "Maintenance" },
   ] };
   const html = render({ ...state, snapshot }, { ...view, executors: [...view.executors, "removed#old@local"] });
-  expect(html).toContain("Blocked until unblocked");
+  expect(html).toContain("Blocked by you");
   expect(html).toContain('class="pc-executor-id">cursor#team');
   expect(html).toContain("Unavailable in the active setup");
   expect(html).toContain("pc-sortable--icons");

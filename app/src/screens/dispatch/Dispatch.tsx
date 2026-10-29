@@ -52,8 +52,8 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/tasks/${enc
  * The card's actions: one on Dispatch, as on the board, and both on the standalone Needs you page. A task failure's first action is
  * the primary; executor, host and setup problems keep secondary actions. An answer opens the task.
  */
-function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2) {
-  return item.actions.slice(0, count).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
+function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery) {
+  return item.actions.slice(0, count).map((action, i) => item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label)) ? <TextAction key={i} href={withQuery(`#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "review" ? "review" : "failure"}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction> : <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
     action={action.op === "task.answer" ? { label: action.label, op: "ui.open", params: { view: "task", id: item.taskId } } : action} confirmDone={gone(item)} />);
 }
 
@@ -75,7 +75,7 @@ function AttentionCard({ card, snapshot, runner, now, query, actions }: { card: 
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
         : <span className="pc-ellipsis" title={title}>{title}</span>}</div>
         <div className="pc-attn-card__caption muted" title={caption}>{caption}{more}</div></div>}
-      actions={actions === 1 && destination ? <ButtonLink size="sm" variant={item.kind === "failed" ? "primary" : "secondary"} href={withQuery(destination.href, query)}>{destination.label}</ButtonLink> : itemActions(item, runner, bad && card.kind === "task", actions)} />
+      actions={actions === 1 && destination ? <ButtonLink size="sm" variant={item.kind === "failed" ? "primary" : "secondary"} href={withQuery(destination.href, query)}>{destination.label}</ButtonLink> : itemActions(item, runner, bad && card.kind === "task", actions, query)} />
   </li>;
 }
 
