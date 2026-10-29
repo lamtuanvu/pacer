@@ -975,6 +975,9 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
 }
 async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> {
     let mut strikes = logic::HealthStrikes::default();
+    // A new session must not inherit the previous session's transaction state; its first
+    // snapshot sets it again.
+    app.state::<Shell>().update_transaction.store(false, Ordering::SeqCst);
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let probe = health(client).await;

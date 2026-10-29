@@ -166,10 +166,11 @@ impl TrayModel {
     }
 }
 
-/// Whether any update or adoption is waiting, reserved or installing. The snapshot only
+/// Whether any update or adoption is waiting, reserved, installing, verifying, rolling back,
+/// restoring or recovering. The snapshot only
 /// lists installations of the service this desktop is connected to.
 pub fn transaction_in_flight(updates: &[Value]) -> bool {
-    let active = |phase: &Value| matches!(phase.as_str(), Some("waiting" | "reserved" | "installing"));
+    let active = |phase: &Value| matches!(phase.as_str(), Some("waiting" | "reserved" | "installing" | "verifying" | "rolling-back" | "restoring" | "recovering"));
     updates
         .iter()
         .any(|update| active(&update["phase"]) || active(&update["adoption"]["phase"]))
@@ -197,7 +198,7 @@ mod tests {
     fn update_and_adoption_transactions_are_in_flight() {
         let update = |phase: &str| json!({"desktopUpdates":[{"phase":phase,"target":"1.1.0"}]});
         let adopting = |phase: &str| json!({"desktopUpdates":[{"phase":"idle","target":null,"adoption":{"phase":phase}}]});
-        for phase in ["waiting", "reserved", "installing"] {
+        for phase in ["waiting", "reserved", "installing", "verifying", "rolling-back", "restoring", "recovering"] {
             assert_eq!(TrayModel::from_snapshot(&update(phase)).transaction, Some(true), "{phase}");
             assert_eq!(TrayModel::from_snapshot(&adopting(phase)).transaction, Some(true), "{phase}");
         }
