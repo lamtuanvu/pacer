@@ -58,6 +58,8 @@ struct Shell {
     navigation: Mutex<pacer_desktop::ota::control::NavigationState>,
     adoption: Mutex<Option<pacer_desktop::ota::control::AdoptionReconnectPlan>>,
     maintenance: AtomicBool,
+    /// Whether the last snapshot showed an update or adoption transaction in flight.
+    update_transaction: AtomicBool,
     /// Whether the tray icon currently carries the red attention dot.
     tray_alert: AtomicBool,
     #[cfg(target_os = "macos")]
@@ -94,6 +96,7 @@ impl Default for Shell {
             navigation: Mutex::new(Default::default()),
             adoption: Mutex::new(None),
             maintenance: AtomicBool::new(false),
+            update_transaction: AtomicBool::new(false),
             tray_alert: AtomicBool::new(false),
             #[cfg(target_os = "macos")]
             relaunch: Mutex::new(None),
@@ -804,6 +807,7 @@ fn recovery(app: &AppHandle, state: &str) {
                 paused: false,
                 tooltip: title.into(),
                 alert,
+                transaction: None,
             },
         );
     }
@@ -947,6 +951,9 @@ fn set_error_dot(app: &AppHandle, error: bool) {
     }
 }
 fn update_tray(app: &AppHandle, model: TrayModel) {
+    if let Some(transaction) = model.transaction {
+        app.state::<Shell>().update_transaction.store(transaction, Ordering::SeqCst);
+    }
     if let Err(e) = render_tray(app, model) {
         desktop_log!("Unable to update pacer tray: {e}");
     }
