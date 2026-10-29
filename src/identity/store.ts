@@ -16,7 +16,8 @@ import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBack
 export interface MachineMeta {
   rev: number; name: string; createdAt: number; backend: KeyBackend; publicId?: string; rotatedFrom?: string; saltHash?: string;
   cloneDetected?: boolean; cloneDetectedAt?: number;
-  pendingRotation?: { oldId: string; newId: string; signature: string; stagedAt: number };
+  /** `saltHash` is the hash of the salt the rotation writes, so a load can tell it from a copied home's missing or foreign salt. */
+  pendingRotation?: { oldId: string; newId: string; signature: string; stagedAt: number; saltHash?: string };
   lastRotation?: RotationStatement;
 }
 /** `signature` (base64) is the old key's signature over `oldId 0x00 newId` with plugin id `pacer` and purpose `rotate`. */

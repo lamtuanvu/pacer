@@ -21,9 +21,10 @@ export async function readSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<st
   return (await findPassword(ctx, KEYCHAIN_SERVICE, account(ctx)))?.trim() ?? null;
 }
 
-/** Write a new salt and confirm it was stored; throws otherwise. */
-export async function writeSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<string> {
-  const salt = randomBytes(32).toString("hex");
+export const newSalt = () => randomBytes(32).toString("hex");
+
+/** Write a salt (a new one unless given) and confirm it was stored; throws otherwise. */
+export async function writeSalt(ctx: Ctx, platform?: NodeJS.Platform, salt = newSalt()): Promise<string> {
   if (keyBackend(identityPlatform(platform)) === "file") writePrivateFile(saltPath(ctx), salt + "\n");
   else await writePassword(ctx, KEYCHAIN_SERVICE, account(ctx), Buffer.from(salt), printed => printed.trim() === salt);
   return salt;

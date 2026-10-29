@@ -7,7 +7,7 @@ import { base32, rawPublicKey } from "./encoding";
 import { deletePrivateKey, readPrivateKey, writePrivateKey } from "./key-store";
 import { clearIdentityCache, loadIdentityLocked, readMeta, withIdentityLock, writeMeta, type MachineMeta } from "./store";
 import { signWith, clearTransportKeys } from "./sign";
-import { writeSalt, saltHash } from "./salt";
+import { newSalt, readSalt, writeSalt, saltHash } from "./salt";
 
 /** Rotation steps, in order. Each is durable before the next starts; a load after any of them completes or rolls back. */
 export type RotationStep = "pending" | "staged" | "swapped" | "salted" | "unstaged" | "committed";
@@ -36,9 +36,12 @@ async function rotateLocked(ctx: Ctx, deps: RotateDeps) {
   const meta = readMeta(ctx)!;
   const privateKey = generateKeyPairSync("ed25519").privateKey;
   const newId = idOf(privateKey)!;
+  const salt = newSalt();
   const { signature } = await signWith(ctx, async () => old, "pacer", "rotate", rotationPayload(old.id, newId));
-  const pending: Pending = { oldId: old.id, newId, signature: Buffer.from(signature).toString("base64"), stagedAt: ctx.now };
-  const step = (s: RotationStep) => deps.afterStep?.(s, newId);
+  const pending: Pending = { oldId: old.id, newId, signature: Buffer.from(signature).toString("base64"), stagedAt: ctx.now, saltHash: saltHash(salt) };
+  // An afterStep error models the process stopping there, so it is never retried.
+  const stops = new WeakSet<object>();
+  const step = (s: RotationStep) => { try { deps.afterStep?.(s, newId); } catch (e) { if (e instanceof Object) stops.add(e); throw e; } };
   const undo = async (e: unknown): Promise<never> => {
     try {
       if (idOf(await readPrivateKey(ctx, meta.backend)) !== old.id) await writePrivateKey(ctx, meta.backend, old.privateKey);
@@ -53,14 +56,27 @@ async function rotateLocked(ctx: Ctx, deps: RotateDeps) {
   step("staged");
   await writePrivateKey(ctx, meta.backend, privateKey).catch(undo);
   step("swapped");
-  try { await complete(ctx, meta, pending, deps.platform, step); } finally { clearIdentityCache(); }
+  try {
+    // The new key is in place, so the rotation can only go forward: retry once, then leave it to the next load.
+    try { await commit(ctx, meta, pending, deps.platform, step, salt); }
+    catch (e) {
+      if (e instanceof Object && stops.has(e)) throw e;
+      try { await commit(ctx, meta, pending, deps.platform, step, salt); }
+      catch (again) {
+        if (again instanceof Object && stops.has(again)) throw again;
+        throw new CoreError("unavailable", "The new machine key is in place, but pacer could not finish the rotation. It completes the next time pacer loads the machine identity.",
+          "Run pacer machine show to finish it now.", { rotationPending: true, oldId: old.id, newId });
+      }
+    }
+    await announce(ctx, pending);
+  } finally { clearIdentityCache(); }
   return { oldId: old.id, newId, signature: pending.signature };
 }
 
-/** Finish a rotation whose new key is the current key. */
-async function complete(ctx: Ctx, meta: MachineMeta, p: Pending, platform: NodeJS.Platform | undefined, step: (s: RotationStep) => void): Promise<MachineMeta> {
+/** Finish a rotation whose new key is the current key: store `salt`, remove the staged key, commit machine.json. */
+async function commit(ctx: Ctx, meta: MachineMeta, p: Pending, platform: NodeJS.Platform | undefined, step: (s: RotationStep) => void, salt: string): Promise<MachineMeta> {
   clearTransportKeys(ctx);
-  const salt = await writeSalt(ctx, platform);
+  await writeSalt(ctx, platform, salt);
   step("salted");
   await deletePrivateKey(ctx, meta.backend, "staging");
   step("unstaged");
@@ -68,23 +84,43 @@ async function complete(ctx: Ctx, meta: MachineMeta, p: Pending, platform: NodeJ
   const next: MachineMeta = { ...rest, rev: meta.rev + 1, publicId: p.newId, rotatedFrom: p.oldId, saltHash: saltHash(salt), lastRotation: { oldId: p.oldId, newId: p.newId, signature: p.signature, at: ctx.now } };
   writeMeta(ctx, next);
   step("committed");
+  return next;
+}
+
+/** Announce a committed rotation. A stop before this loses the event; `machine.get` still returns the statement. */
+async function announce(ctx: Ctx, p: Pending): Promise<void> {
   appendActivity(ctx, { kind: "config", level: "info", text: `Machine identity rotated (${p.oldId.slice(0, 8)} → ${p.newId.slice(0, 8)})` });
   await publish(ctx, [{ type: "entity", data: { kind: "machine", id: "self", value: { event: "rotated", oldId: p.oldId, newId: p.newId, signature: p.signature } } }]);
-  return next;
 }
 
 /** Complete an interrupted rotation whose new key was stored, or roll it back. Called by the identity load, under the identity lock. */
 export async function recoverRotation(ctx: Ctx, meta: MachineMeta, platform?: NodeJS.Platform): Promise<MachineMeta> {
   const p = meta.pendingRotation!;
+  const { pendingRotation: _, ...rest } = meta;
+  let salt: string | null = null;
+  if (meta.saltHash && !meta.cloneDetected) {
+    // A home copied mid-rotation finds no salt under its own tag, or a foreign one. Completing would hand it the
+    // source's new key with a fresh salt and no flag, so flag it as copied and drop the rotation instead.
+    salt = await readSalt(ctx, platform);
+    const hash = salt ? saltHash(salt) : null;
+    if (hash !== meta.saltHash && hash !== p.saltHash) {
+      const flagged: MachineMeta = { ...rest, cloneDetected: true, cloneDetectedAt: ctx.now };
+      writeMeta(ctx, flagged);
+      await deletePrivateKey(ctx, meta.backend, "staging");
+      return flagged;
+    }
+    if (hash !== p.saltHash) salt = null;
+  }
   if (idOf(await readPrivateKey(ctx, meta.backend)) !== p.newId) {
     const staged = await readPrivateKey(ctx, meta.backend, "staging");
     if (idOf(staged) !== p.newId) {
-      const { pendingRotation: _, ...rest } = meta;
       writeMeta(ctx, rest);
       await deletePrivateKey(ctx, meta.backend, "staging");
       return rest;
     }
     await writePrivateKey(ctx, meta.backend, staged!);
   }
-  return complete(ctx, meta, p, platform, () => {});
+  const next = await commit(ctx, meta, p, platform, () => {}, salt ?? newSalt());
+  await announce(ctx, p);
+  return next;
 }

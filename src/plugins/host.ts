@@ -27,7 +27,10 @@ async function refuseSign(ctx: Ctx, pluginId: string, params: unknown, reason: s
 export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown): Promise<unknown> {
   const name = capabilityOf(method), def = CAPABILITY_METHODS[method];
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
-  if (!plugin.manifest.capabilities.some(c => c.name === name)) throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
+  if (!plugin.manifest.capabilities.some(c => c.name === name)) {
+    if (name === "identity.sign") await refuseSign(ctx, plugin.id, params, "capability not declared");
+    throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
+  }
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) {
