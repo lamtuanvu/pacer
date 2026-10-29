@@ -1,11 +1,6 @@
 function scrollTarget(): Window | HTMLElement {
-  // An open terminal dock fits the frame to the viewport, so the work area scrolls instead of the window.
-  const docked = document.querySelector<HTMLElement>(".pc-app--with-dock .pc-work");
-  if (docked) return docked;
-  if (document.documentElement.hasAttribute("data-pacer-desktop")) {
-    return document.querySelector<HTMLElement>(".pc-work") ?? document.getElementById("app") ?? window;
-  }
-  return window;
+  // The viewport-pinned frame scrolls its work area on web, desktop and with an open dock.
+  return document.querySelector<HTMLElement>(".pc-work") ?? document.getElementById("app") ?? window;
 }
 
 export function pageScrollY(): number {
@@ -28,5 +23,5 @@ export function onPageScroll(listener: () => void): () => void {
 }
 
 export function resetDesktopPageScroll(): void {
-  if (document.documentElement.hasAttribute("data-pacer-desktop")) scrollPageTo(0);
+  scrollPageTo(0);
 }

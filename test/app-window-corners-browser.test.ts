@@ -45,7 +45,7 @@ browserTest("bundled desktop startup screen also clips its canvas", async () => 
   }
 }, 20000);
 
-browserTest("desktop route reset and Tasks scroll positions use the clipped canvas", async () => {
+browserTest("web and desktop route reset and Tasks scroll positions use the clipped canvas", async () => {
   const built = await Bun.build({ entrypoints: ["test/fixtures/ui/page-scroll.ts"], target: "browser" });
   expect(built.success).toBe(true);
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
@@ -80,10 +80,15 @@ browserTest("desktop route reset and Tasks scroll positions use the clipped canv
     const web = await page.evaluate(() => {
       const fixture = (window as typeof window & { pageScrollFixture: typeof import("../app/src/shell/page-scroll") }).pageScrollFixture;
       fixture.scrollPageTo(300);
-      return { position: fixture.pageScrollY(), windowScroll: window.scrollY };
+      const position = fixture.pageScrollY();
+      const workScroll = document.querySelector(".pc-work")!.scrollTop;
+      fixture.resetDesktopPageScroll();
+      return { position, workScroll, afterReset: fixture.pageScrollY(), windowScroll: window.scrollY };
     });
     expect(web.position).toBe(300);
-    expect(web.windowScroll).toBe(300);
+    expect(web.workScroll).toBe(300);
+    expect(web.afterReset).toBe(0);
+    expect(web.windowScroll).toBe(0);
   } finally {
     await browser.close();
   }
