@@ -175,7 +175,7 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     expect(await bar.isVisible()).toBe(false);
     const aside=await page.locator('.pc-page-columns__aside').evaluate(el=>({width:el.getBoundingClientRect().width,padding:getComputedStyle(el).padding}));
     expect(aside).toEqual({width:400,padding:'28px 24px'});
-    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(2);
+    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(3);
     await input.fill('3');
     expect(await bar.isVisible()).toBe(true);
     await page.evaluate(() => (window as any).executorFixture.holdSave());

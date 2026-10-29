@@ -230,7 +230,9 @@ test('Add agent has a breadcrumb, polite panel, found state, selection check and
     {agent:'cursor',found:false,version:null,path:'',install_hint:'install-cursor'},
   ]}/>);
   expect(html).toContain('aria-label="Breadcrumb"');
-  expect(html).toContain('aria-live="polite" aria-labelledby="agent-step-heading" class="u3-wizard-panel"');
+  expect(html).toContain('aria-labelledby="agent-step-heading" class="u3-wizard-panel"');
+  // The step is announced once, by the status line; the panel itself is not a live region.
+  expect(html).not.toContain('aria-live="polite" aria-labelledby="agent-step-heading"');
   expect(html).toContain('u3-selected-check');
   expect(html).toContain('--agent-size:28px');
   expect(html).toContain('Not found');
