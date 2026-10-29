@@ -1029,7 +1029,9 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .ny-chip.pc-btn.pc-btn--normal,.ny-chip.pc-btn.pc-btn--compact{height:var(--size-28);min-height:var(--size-28)}
 .pc-side-dialog__head .pc-icon-button.pc-btn{height:var(--size-28);min-height:var(--size-28);width:var(--size-28);min-width:var(--size-28)}
 
-.pc-chip.pc-chip--repo{border-radius:var(--radius-md)}
+.pc-chip.pc-chip--repo{border-radius:var(--radius-md);gap:var(--space-1)}
+.pc-chip--repo>svg{flex:none;width:var(--size-12);height:var(--size-12);color:var(--ink-secondary)}
+@media(min-width:561px) and (pointer:fine){.pc-chip--repo{--button-control:var(--size-32)}}
 .pc-layout-toggles .pc-btn[aria-pressed=true]{background:transparent;color:var(--ink-secondary)}
 .pc-work-panel-bar>.pc-icon-button.pc-btn,.pc-task-nav__head .pc-icon-button.pc-btn{width:var(--size-26);height:var(--size-26);min-width:var(--size-26);min-height:var(--size-26)}
 
