@@ -59,6 +59,8 @@
 .u3-settings td[data-label="Parallel tasks"]{width:10%}
 .u3-settings td[data-label="Enabled"]{width:12%}
 .u3-settings .u3-checks{max-width:var(--size-680)}
+/* The consent disclosure is read before quota is spent, so it keeps a measure rather than the card's full width. */
+.u3-settings .u3-setting-consent{max-width:var(--size-680)}
 @media(max-width:700px){
  .u3-settings:not(.pc-page){padding:var(--space-4)}
  .u3-settings td[data-label]{width:auto}
