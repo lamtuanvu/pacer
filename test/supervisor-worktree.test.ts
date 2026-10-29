@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo } from "../src/core/git";
-import { createTaskWorktree, removeTaskWorktree, taskWorktreePath, worktreeDirty } from "../src/supervisor/worktree";
+import { createTaskWorktree, removeTaskWorktree, taskWorktreePath, worktreeDirty, worktreeUnchanged } from "../src/supervisor/worktree";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 const ID = "t-20261014-120000-abcd";
@@ -49,4 +49,15 @@ test("dirty check and removal; removal refuses a dirty worktree without force an
   expect(await removeTaskWorktree(ctx, i.top, w.path, { force: true })).toEqual({ ok: true });
   expect(existsSync(w.path)).toBe(false);
   expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${ID}`]).exitCode).toBe(0);
+});
+
+test("a worktree counts as unchanged only against a known base; with no base it is unknown", async () => {
+  const ctx = fakeCtx({ run: realRun }), repo = gitRepo();
+  const w = await createTaskWorktree(ctx, await info(repo), ID, "main");
+  if ("error" in w) throw new Error(w.error);
+  expect(await worktreeUnchanged(ctx, w.path, "main")).toBe(true);
+  Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "work"], { cwd: w.path });
+  expect(await worktreeUnchanged(ctx, w.path, "main")).toBe(false);
+  // A clean tree may still hold commits: without a base, git cannot tell, so callers keep the worktree.
+  expect(await worktreeUnchanged(ctx, w.path, undefined)).toBeNull();
 });

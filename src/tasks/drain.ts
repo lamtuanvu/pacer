@@ -14,7 +14,7 @@ import { readPause } from "../core/pause";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
 import { rankExecutors } from "../engine/rank";
-import { slotBlock, slotUse, type SlotUse } from "../engine/slots";
+import { SLOT_STATES, slotBlock, slotUse, type SlotUse } from "../engine/slots";
 import { queueCapacity } from "./capacity";
 import { computeStatus, type Status } from "../engine/status";
 import { remoteExclusion } from "../remote/eligibility";
@@ -152,7 +152,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           });
           return;
         }
-        const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
+        const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }));
         const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
         if (!executor) { refreshCapacityWait(ctx, task.id, s, eligible.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.3.0",
-  "version": "1.3.0",
+  "title": "pacer plugin protocol 1.4.0",
+  "version": "1.4.0",
   "$defs": {
     "manifest": {
       "type": "object",
@@ -63,7 +63,8 @@
                   "secrets.resolve",
                   "config.get",
                   "entitlement.report",
-                  "log"
+                  "log",
+                  "identity.sign"
                 ]
               },
               "scopes": {
@@ -209,7 +210,8 @@
                       "secrets.resolve",
                       "config.get",
                       "entitlement.report",
-                      "log"
+                      "log",
+                      "identity.sign"
                     ]
                   },
                   "scopes": {
@@ -277,7 +279,8 @@
               "secrets.resolve",
               "config.get",
               "entitlement.report",
-              "log"
+              "log",
+              "identity.sign"
             ]
           }
         }
@@ -2897,6 +2900,41 @@
           }
         }
       ]
+    },
+    "capability.identity.sign.params": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+        },
+        "payload": {
+          "type": "string",
+          "maxLength": 87384,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      },
+      "required": [
+        "purpose",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "capability.identity.sign.result": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string"
+        },
+        "machineId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "signature",
+        "machineId"
+      ],
+      "additionalProperties": false
     }
   }
 }

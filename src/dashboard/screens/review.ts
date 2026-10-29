@@ -27,6 +27,14 @@ const ACCEPTANCE: Record<string, Status> = {
   running: { label: "Testing", tone: "info", glyph: "▶" },
 };
 
+/** The answer action for a managed work step waiting on its question (`dispatch.answer`), when it can succeed. */
+export function managedAnswerAct(ctx: ScreenCtx, id: string, rev: number | undefined, detail?: TaskDetail): Act | undefined {
+  const managedEligible=detail?.workTree?.nodes.find(node=>node.taskId===id)?.retryEligibility?.allowed===true;
+  return detail?.work&&managedEligible&&typeof rev==="number"&&detail.state==="needs_input"&&detail.question?.text&&!detail.question.answer&&ctx.supports("dispatch.answer")?{
+    label:"Answer work question",effect:{type:"prompt",prompt:{title:detail.question.text,label:"Your answer",required:"Add an answer first.",submit:value=>({type:"action",action:{label:"Answer recorded",op:"dispatch.answer",params:{id,expect_rev:rev,requestId:`tui-answer-${id}-${rev}`,text:value}}})}}
+  }:undefined;
+}
+
 export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, detail?: TaskDetail): Item {
   const id = a.taskId!, title = task ? displayTitle(task) : a.title;
   const rev = typeof task?.rev === "number" ? task.rev : detail?.rev;
@@ -51,9 +59,7 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   const managedRetry:Act|undefined=detail?.work&&managedEligible&&typeof rev==="number"&&ctx.supports("dispatch.retry")?{
     label:"Retry work",effect:{type:"action",action:{label:"Retry queued",op:"dispatch.retry",params:{id,expect_rev:rev,requestId:`tui-${id}-${rev}`}}}
   }:undefined;
-  const managedAnswer:Act|undefined=detail?.work&&managedEligible&&typeof rev==="number"&&detail.state==="needs_input"&&detail.question?.text&&!detail.question.answer&&ctx.supports("dispatch.answer")?{
-    label:"Answer work question",effect:{type:"prompt",prompt:{title:detail.question.text,label:"Your answer",required:"Add an answer first.",submit:value=>({type:"action",action:{label:"Answer recorded",op:"dispatch.answer",params:{id,expect_rev:rev,requestId:`tui-answer-${id}-${rev}`,text:value}}})}}
-  }:undefined;
+  const managedAnswer=managedAnswerAct(ctx,id,rev,detail);
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   return {
     id: `review:${id}`, actions: defined([

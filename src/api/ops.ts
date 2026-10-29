@@ -51,6 +51,7 @@ import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
+import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
@@ -87,6 +88,8 @@ export interface OpDeps {
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
   client?: string;
+  /** The calling client instance, which identifies a `task.send` driving-lease holder. */
+  clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
   terminal?: Partial<TerminalDeps>;
@@ -325,6 +328,12 @@ export const OPS: Record<string, OpDef> = {
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
+    handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
+  "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),
+    handler: (ctx, p) => mutation(ctx, "machine", async () => { const m = await import("../identity"); await m.setMachineName(ctx, p.name, p.expect_rev); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); }) }),
+  "machine.rotate": op({ description: "Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.", params: z.object({}),
+    handler: ctx => mutation(ctx, "machine", async () => { const { rotateIdentity } = await import("../identity"); const r = await rotateIdentity(ctx); return { oldId: r.oldId, newId: r.newId }; }) }),
   "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
@@ -381,6 +390,11 @@ export const OPS: Record<string, OpDef> = {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
     },
+  }),
+  "task.send": op({
+    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
+    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
+    handler: (ctx, p, deps) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev, by: callerIdentity(ctx, deps.client, deps.clientInstance) }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
