@@ -7,7 +7,10 @@ import type { Ctx } from "../types";
 import type { Strategy } from "../config/strategy";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { isPlannerRunner } from "../config/runner-id";
-import { listRepos } from "../core/repos";
+import { repoFor } from "../core/repos";
+import { listActiveAndRecentTasks } from "../tasks/store";
+import { launchModeFor } from "../exec/launch";
+import { validateExecution } from "../config/execution";
 import { computeStatus, type Status } from "../engine/status";
 import { startJob } from "../jobs/registry";
 import {
@@ -224,7 +227,9 @@ export function isScheduledRunner(s: Strategy, runnerId: string): boolean {
 export function plannerScheduleKey(s: Strategy): string | null {
   const planner = findPlannerRunner(s);
   if (!planner) return null;
-  return JSON.stringify([planner.id, planner.account, s.providers[planner.id]?.session ?? "headless"]);
+  const cfg = s.providers[planner.id];
+  if (!cfg) return null;
+  return JSON.stringify([planner.id, planner.account, launchModeFor(cfg, validateExecution(s.execution), { managed: true }).mode]);
 }
 
 export function recordProbeOutcome(
@@ -267,7 +272,7 @@ export interface TickDeps {
    */
   status?: (ctx: Ctx, strategy: Strategy) => Promise<Status>;
   /**
-   * Override the active repository. Default uses listRepos or cwd().
+   * Override the scheduled repository. Default follows active and recent managed work.
    * Useful in tests to avoid repo-specific control files affecting the result.
    */
   repo?: string;
@@ -300,15 +305,28 @@ function isListedForRouting(s: Strategy, runnerId: string): boolean {
   return false;
 }
 
-/** The repository tick certifies, or null when none is registered and tick does nothing. */
+/**
+ * Certify where managed work most recently ran or is running, using the same
+ * active/recent task signal as taskRepos. With no such activity, use registry
+ * insertion order (the first registered repository), never lastUsed order.
+ * Reading diagnostics marks a repository used: sorting by lastUsed would make
+ * the certificate follow the cursor and name whatever is on screen. The switch
+ * cap and 24-hour pause only make sense when the target moves with WORK: each
+ * switch invalidates the certificate and spends real account quota.
+ */
 export function scheduledRepo(ctx: Ctx): string | null {
-  return getActiveRepo(ctx);
-}
-
-function getActiveRepo(ctx: Ctx): string | null {
-  const repos = listRepos(ctx);
-  if (repos.length > 0) return repos[0].path;
-  return null;
+  const registry = readJson<Record<string, { path: string }>>(join(ctx.pacerHome, "state", "repos.json")) ?? {};
+  const registered = Object.values(registry);
+  if (!registered.length) return null;
+  const updatedAt = (t: ReturnType<typeof listActiveAndRecentTasks>[number]) => {
+    const last = t.attempts.at(-1);
+    return Math.max(t.createdAt, last?.startedAt ?? 0, last?.endedAt ?? 0, t.attemptStartedAt ?? 0);
+  };
+  const tasks = listActiveAndRecentTasks(ctx).filter(t =>
+    ["queued", "running"].includes(t.state) || (!t.dismissed && updatedAt(t) >= ctx.now - DAY_S));
+  tasks.sort((a, b) => updatedAt(b) - updatedAt(a));
+  if (tasks.length) return (tasks[0].repo ?? repoFor(ctx, tasks[0].brief.repo)).path;
+  return registered[0].path;
 }
 
 /**
@@ -375,7 +393,7 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     const runnerId = planner.id;
     const plannerAccount = planner.account;
 
-    const repo = deps.repo ?? getActiveRepo(ctx);
+    const repo = deps.repo ?? scheduledRepo(ctx);
     if (!repo) return;
 
     // Buy nothing the decision cannot use. Resolving the target spawns
