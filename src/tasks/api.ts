@@ -40,7 +40,7 @@ export const delegateSchema = {
   base: z.string().min(1).max(4096).refine(validBase, "base must be a branch name or a 7–40 hex SHA").optional(),
   source: z.enum(["planner", "ui", "cli"]).optional(),
   goal: z.string().min(1), repo: z.string().min(1),
-  scope: z.string().optional(), acceptance: z.string().optional(), constraints: z.string().optional(), context: z.string().optional(),
+  scope: z.string().optional(), acceptance: z.string().optional(), acceptance_pipefail: z.boolean().optional(), constraints: z.string().optional(), context: z.string().optional(),
   kind: z.enum(KINDS).optional(), executor: z.string().optional(),
   worktree_base: z.enum(["default", "head"]).optional(),
   worktree: z.enum(["current", "new", "auto"]).optional(), worktree_reason: z.string().max(200).optional(),
@@ -50,7 +50,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }

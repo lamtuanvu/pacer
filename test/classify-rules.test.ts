@@ -107,8 +107,15 @@ test("guard classifies general-purpose and near misses as execution", async () =
 });
 
 test("result_check uses acceptance when present even if status disagrees", async () => {
-  expect(await ask("result_check", { status: "failed", acceptance: { passed: true } })).toMatchObject({ value: true, confidence: 0.95 });
-  expect(await ask("result_check", { status: "done", acceptance: { passed: false } })).toMatchObject({ value: false, confidence: 0.95 });
+  expect(await ask("result_check", { status: "failed", acceptance: { passed: true, tail: "ok" } })).toMatchObject({ value: true, confidence: 0.95 });
+  expect(await ask("result_check", { status: "done", acceptance: { passed: false, tail: "2 failed" } })).toMatchObject({ value: false, confidence: 0.95 });
+});
+
+test("result_check lowers confidence when acceptance has no output to show for its exit code", async () => {
+  // A SIGPIPE-killed `| grep -q` (issue #450) or an exit-code-only check both leave an empty tail.
+  expect(await ask("result_check", { status: "partial", acceptance: { passed: false, tail: "" } })).toMatchObject({ value: false, confidence: 0.6 });
+  expect(await ask("result_check", { status: "done", acceptance: { passed: true, tail: "" } })).toMatchObject({ value: true, confidence: 0.6 });
+  expect(await ask("result_check", { status: "partial", acceptance: { passed: false } })).toMatchObject({ value: false, confidence: 0.6 });
 });
 
 test("result_check without acceptance passes only done", async () => {

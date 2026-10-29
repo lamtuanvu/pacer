@@ -161,3 +161,9 @@ test("delegate stores trimmed titles and derives absent ones, including activity
   const r=await tasks.retry(ctx,t.id,{}, {delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
   expect(r.retry.title).toBe("Queue fix");
 });
+test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by default", () => {
+  const brief={goal:"g",repo:tmpDir(),acceptance:"test -f x"};
+  expect(parseDelegateBrief(brief,brief.repo).brief.pipefail).toBeUndefined();
+  expect(parseDelegateBrief({...brief,acceptance_pipefail:true},brief.repo).brief.pipefail).toBe(true);
+  expect(parseDelegateBrief({...brief,acceptance_pipefail:false},brief.repo).brief.pipefail).toBe(false);
+});

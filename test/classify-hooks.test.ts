@@ -94,7 +94,9 @@ test("resultCheck uses classifier and rules acceptance", async () => {
   const hooks = makeClassifierHooks({ loadStrategy: () => strategy({ default: "ollama" }), adapters: () => adapters(false) });
   expect(await hooks.resultCheck(ctx, t, result)).toEqual({ pass: false, confidence: 0.9, adapter: "ollama" });
   const rules = makeClassifierHooks({ loadStrategy: () => strategy() });
-  expect(await rules.resultCheck(ctx, t, { ...result, status: "partial", acceptance: { cmd: "test", passed: false, tail: "" } })).toEqual({ pass: false, confidence: 0.95, adapter: "rules" });
+  // An empty tail (an exit code with no output, e.g. a SIGPIPE-killed `| grep -q`) gets a lower confidence (issue #450).
+  expect(await rules.resultCheck(ctx, t, { ...result, status: "partial", acceptance: { cmd: "test", passed: false, tail: "" } })).toEqual({ pass: false, confidence: 0.6, adapter: "rules" });
+  expect(await rules.resultCheck(ctx, t, { ...result, status: "partial", acceptance: { cmd: "test", passed: false, tail: "2 failed" } })).toEqual({ pass: false, confidence: 0.95, adapter: "rules" });
 });
 
 for (const mode of ["off", "non-rules", "rules", "error", "execution", "fallback"] as const) test(`guard ${mode}`, async () => {

@@ -46,9 +46,18 @@ write a brief JSON file:
 
 Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
-`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `constraints`, `context`,
+`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_pipefail`, `constraints`, `context`,
 `worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
+
+`acceptance` runs exactly as written, as `bash -c "<cmd>"` (or `sh -c` where bash is
+unavailable): idioms like `grep -v ... | (! grep .)` or `git log | grep -q ...` keep
+their ordinary meaning. Set `acceptance_pipefail: true` (or `--acceptance-pipefail`),
+or write `set -o pipefail;` at the start of the command yourself, to fail the check on
+a non-final pipeline stage's exit code too. The result always reports the acceptance
+command's exit code and which shell/options ran it; a 141 (SIGPIPE) or an instant,
+empty-output failure comes with a hint, since both often mean a piped command raced
+past an earlier stage rather than the task actually failing.
 
 Delegate accepts kind aliases in `--kind` and brief files: `bugfix`, `fix`, and `bug`
 map to `debug`; `test` maps to `tests`; `doc` maps to `docs`; and `perf` maps to

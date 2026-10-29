@@ -69,7 +69,11 @@ export const rulesClassifier: Classifier = {
       case "result_check": {
         const acceptance = input.acceptance;
         if (acceptance !== null && typeof acceptance === "object" && "passed" in acceptance && typeof acceptance.passed === "boolean") {
-          return answer(acceptance.passed, 0.95);
+          // An exit code with no stdout/stderr is weak evidence either way: it is the
+          // signature a forced-pipefail SIGPIPE leaves behind (issue #450), so a verdict
+          // resting on it alone should not read as high-confidence.
+          const tail = "tail" in acceptance && typeof acceptance.tail === "string" ? acceptance.tail.trim() : "";
+          return answer(acceptance.passed, tail ? 0.95 : 0.6);
         }
         return answer(input.status === "done", 0.5);
       }

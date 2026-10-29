@@ -2730,6 +2730,9 @@ Params JSON Schema:
     "acceptance": {
       "type": "string"
     },
+    "acceptance_pipefail": {
+      "type": "boolean"
+    },
     "constraints": {
       "type": "string"
     },
