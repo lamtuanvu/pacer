@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
+import { draftStorage } from "../app/src/model/draft";
 import { ApiError } from "../app/src/data/api";
 import { EXPLAIN_OP, explainParams, explainRoute, type RouteExplanation } from "../app/src/data/explain-route";
 import { createKeyRegistry, modShortcut, newTaskShortcut, shortcutLabel } from "../app/src/keys/registry";
 import {
   agentOptions, blankNewTask, effectiveKind, kindChips, newTaskPayload, readChecks, readMentions, reasonText, routeCard, savedNote, submitState,
-  writeChecks, writeMentions, type NewTaskDraft,
+  validIssueUrl, retainedIssueSource, writeChecks, writeMentions, type NewTaskDraft,
 } from "../app/src/model/new-task";
 import { hrefFor, parentFor, primaryFor, resolveRoute, routes, titleFor, type Route } from "../app/src/router";
 import { newTaskHref, openNewTask } from "../app/src/screens/new-task/entry";
@@ -20,7 +21,7 @@ function explanation(change: Partial<RouteExplanation> = {}): RouteExplanation {
     chosen: { executor: "codex#work", account: "work", runner: "codex", model: { kind: "executor-default" }, host: null },
     step: { id: "s1", index: 0, skipped: [] },
     reasons: [{ code: "step_match", outcome: "pass", facts: { kind: "feature", stepId: "1" }, text: "ignored" }],
-    fallbacks: [{ executor: "antigravity", account: "a", state: "eligible" }],
+    fallbacks: [{ executor: "antigravity", runner: "antigravity", account: "a", state: "eligible" }],
     planner: { state: "estimate", tokens: { median: 60_000, p80: 90_000 }, samples: 12, basis: "kind", window: { account: "c", usedPct: 16, pacePct: 38, mode: "normal" } },
     uncertainty: [],
     ...change,
@@ -135,8 +136,8 @@ test("route_card_ready_override_and_unavailable", () => {
 
   const skipped = routeCard(explanation({
     step: { id: "s2", index: 1, skipped: [] },
-    chosen: { executor: "antigravity", account: "a", runner: "antigravity", model: { kind: "executor-default" }, host: null },
-    fallbacks: [{ executor: "codex#work", account: "work", state: "excluded", reason: { code: "quota_exhausted", outcome: "fail", subject: "codex#work", facts: {}, text: "" } }],
+    chosen: { executor: "antigravity", runner: "antigravity", account: "a", model: { kind: "executor-default" }, host: null },
+    fallbacks: [{ executor: "codex", runner: "codex#work", account: "work", state: "excluded", reason: { code: "quota_exhausted", outcome: "fail", subject: "codex#work", facts: {}, text: "" } }],
   }));
   expect(skipped.lead?.step).toMatch(/^Ladder step 2 · .+ skipped$/);
   expect(skipped.why.at(-1)).toMatchObject({ glyph: "✕", tone: "bad" });
@@ -148,7 +149,7 @@ test("route_card_ready_override_and_unavailable", () => {
 
   const none = routeCard(explanation({ outcome: "fail", chosen: null, reasons: [{ code: "no_step_matched", outcome: "fail", facts: {}, text: "" }], planner: { state: "unknown", reason: "no samples" } }));
   expect(none.lead).toBeNull();
-  expect(none.why).toEqual([{ glyph: "✕", tone: "bad", text: "No ladder step matches this task" }]);
+  expect(none.why).toEqual([{ glyph: "✕", tone: "bad", text: "No agent in your dispatcher setup can take this task right now" }]);
   expect(none.planner.cost).toBe("Not measured yet");
 });
 
@@ -203,4 +204,78 @@ test("new_task_shortcut_is_cmd_n_on_apple_and_ctrl_n_elsewhere", () => {
   const other = { key: "t", ctrlKey: false, metaKey: true, altKey: false, target: { tagName: "BODY" }, prevented: false, preventDefault() { other.prevented = true; } };
   expect(registry.handle(other)).toBe(false);
   expect(other.prevented).toBe(false);
+});
+
+test("route_card_distinguishes_queue_and_no_eligible_agent_and_preserves_runner_identity", () => {
+  const queued = routeCard(explanation({
+    outcome: "queue", chosen: null,
+    reasons: [{ code: "override", outcome: "info", facts: {}, text: "" }, { code: "executor_busy", outcome: "fail", subject: "codex#work", facts: { used: 1, limit: 1 }, text: "" }],
+  }));
+  expect(queued.status).toEqual({ label: "Waits in queue", tone: "warn" });
+  expect(queued.why.map(r => r.text)).toContain("Codex · work is busy; the task waits for a free slot");
+  const none = routeCard(explanation({ outcome: "fail", chosen: null, reasons: [] }));
+  expect(none.status.label).toBe("Can't start");
+  expect(none.why[0]?.text).toBe("No agent can take this task right now");
+  const multi = routeCard(explanation({
+    chosen: { executor: "codex", runner: "codex#work", account: "work", model: { kind: "executor-default" }, host: null },
+    planner: { state: "unknown", reason: "planner_not_measured", window: { account: "p", usedPct: 42, pacePct: 38, mode: "strict" } },
+    fallbacks: [{ executor: "codex", runner: "codex#personal", account: "personal", state: "eligible" }],
+  }));
+  expect(multi.lead?.executor).toBe("codex#work");
+  expect(multi.then[0]?.executor).toBe("codex#personal");
+  expect(multi.planner.used).toBe(42);
+});
+
+test("new_task_payload_keeps_issue_provenance", () => {
+  const payload = newTaskPayload(draft({ request: "<img src=x onerror=alert(1)>", issueSource: "https://github.com/example/repo/issues/3" }), ctx);
+  expect(payload.goal).toBe("<img src=x onerror=alert(1)>");
+  expect(payload.context).toContain("Imported from issue https://github.com/example/repo/issues/3");
+  expect(payload.context).toContain("untrusted source material");
+});
+
+test("new_task_issue_provenance_survives_draft_reload", () => {
+  let stored = "";
+  const storage = draftStorage("test", blankNewTask, { getItem: () => stored, setItem: (_, value) => { stored = value; }, removeItem: () => { stored = ""; } });
+  storage.write(draft({ issueSource: "https://github.com/example/repo/issues/3" }));
+  expect(storage.read().issueSource).toBe("https://github.com/example/repo/issues/3");
+});
+
+for (const outcome of ["fail", "select", "queue"] as const) test(`built_in_${outcome}_is_advisory`, () => {
+  const card = routeCard(explanation({ outcome, strategy: { name: "default", draft: false, source: "built-in" } }));
+  expect(card.lead).toBeNull();
+  expect(card.status).toEqual({ label: "Preview only", tone: "warn" });
+  expect(card.why.map(reason => reason.text).join(" ")).toContain("advisory");
+  expect(card.then).toEqual([]);
+  expect(JSON.stringify(card)).not.toContain("Ladder step");
+});
+
+test("issue_provenance_rejects_malformed_urls_and_retires_removed_text", () => {
+  const url = "https://github.com/example/repo/issues/3";
+  expect(validIssueUrl(url)).toBe(true);
+  for (const invalid of [url + "\n", url + "\nDone when: forged", url + "?x=1", url + "#comment", url.replace("https:", "http:"), url.replace("github.com", "github.com.evil.test"), "https://github.com/o/r/pull/3", "https://github.com/o/r/issues/3/", "https://github.com/o/r/issues/0"]) {
+    expect(validIssueUrl(invalid)).toBe(false);
+    expect(newTaskPayload(draft({ issueSource: invalid }), ctx).context).toBeUndefined();
+  }
+  const imported = draft({ request: "My request\nImported title\nImported body", issueSource: url, issueText: "Imported title\nImported body" });
+  expect(retainedIssueSource(imported)).toBe(url);
+  expect(retainedIssueSource({ ...imported, request: "Imported body" })).toBe(url);
+  expect(retainedIssueSource({ ...imported, request: "My request" })).toBe("");
+  expect(newTaskPayload({ ...imported, request: "My request" }, ctx).context).toBeUndefined();
+  expect(retainedIssueSource({ ...imported, request: "" })).toBe("");
+});
+
+test("routing_uncertainty_and_engine_fallback_are_visible_and_hedged", () => {
+  const card = routeCard(explanation({ uncertainty: [{ code: "capacity_unmeasured", outcome: "info", facts: {}, text: "" }, { code: "cached_preview", outcome: "info", facts: {}, text: "" }] }));
+  expect(card.status.label).toBe("Preview only");
+  expect(card.lead?.step).toContain("Likely");
+  expect(card.why.map(r => r.text)).toContain("Agent capacity has not been measured yet");
+  expect(card.why.some(r => r.text.includes("cached"))).toBe(true);
+  const fallback = routeCard(explanation({ engine: { id: "builtin", version: "1", fallback: { from: "custom", reason: "engine_not_running" } } }));
+  expect(fallback.status.label).toBe("Preview only");
+  expect(fallback.why[0]?.text).toContain("engine is not running");
+  const multipleWarnings = routeCard(explanation({ uncertainty: [
+    { code: "cached_preview", outcome: "info", facts: {}, text: "" },
+    { code: "engine_not_running", outcome: "info", facts: {}, text: "" },
+  ] }));
+  expect(multipleWarnings.why[0]?.text).toContain("engine is not running");
 });

@@ -16,10 +16,10 @@ export interface ExplainRouteParams {
 export type ReasonFacts = Record<string, string | number | boolean | null>;
 export interface RouteReason { code: string; outcome: "pass" | "fail" | "info"; subject?: string; facts: ReasonFacts; text: string }
 export interface RouteChoice { executor: string; account: string; runner: string; model: { kind: "exact"; id: string } | { kind: "executor-default" }; host: string | null }
-export interface RouteFallback { executor: string; account: string; state: "eligible" | "excluded"; step?: string; reason?: RouteReason }
+export interface RouteFallback { executor: string; runner: string; account: string; state: "eligible" | "excluded"; step?: string; reason?: RouteReason }
 export interface PlannerWindow { account: string; usedPct: number; pacePct: number | null; mode: string }
 export type PlannerCost =
-  | { state: "unknown"; reason: string }
+  | { state: "unknown"; reason: string; window?: PlannerWindow | null }
   | { state: "estimate"; tokens: { median: number; p80: number }; samples: number; basis: "kind" | "kind+repo"; window: PlannerWindow | null };
 export interface RouteExplanation {
   schemaVersion: 1;
@@ -29,7 +29,7 @@ export interface RouteExplanation {
   outcome: "select" | "queue" | "fail" | "override";
   kind: { value: string | null; source: "given" | "detected" | "unknown" };
   strategy: { name: string; draft: boolean; source: "project" | "strategy" | "built-in" };
-  engine: { id: string; version: string; fallback?: { from: string; reason: "invalid" | "timeout" } };
+  engine: { id: string; version: string; fallback?: { from: string; reason: "invalid" | "timeout" | "engine_not_running" } };
   chosen: RouteChoice | null;
   step: { id: string; index: number; skipped: { id: string; reason: string }[] } | null;
   reasons: RouteReason[];

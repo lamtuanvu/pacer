@@ -91,7 +91,7 @@ test("a throwing selected extra backend is recorded", async () => {
   const ctx = withLoginIndicators(fakeCtx());
   const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const backend = fake("throwing-extra", async () => true, new Error("worker startup failed"));
-  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: unmetered }\n");
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: unmetered }\nexecution:\n  launch_mode: headless\n");
   EXTRA_BACKENDS.unshift(backend);
   try {
     const r = await runTask(ctx, t.id);
@@ -136,7 +136,7 @@ for (const source of ["pacer", "orca"]) {
     const raw = {
       accounts: {plan: {kind: "claude"}, team: {kind: "claude", usage: "unmetered",
         ...(source === "pacer" ? {home} : {orca_account: "team-id"})}},
-      planner: "claude-code", routing: [{default: ["claude-code#team"]}], execution: {backend: "orca"},
+      planner: "claude-code", routing: [{default: ["claude-code#team"]}], execution: {backend: "orca", launch_mode: "headless"},
     };
     await Bun.write(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
     const strategy = validateStrategy(raw, "test");
@@ -164,6 +164,24 @@ test("interactive runners use the builtin PTY even when Orca is available or for
   const strategy = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
   const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
   expect((await selectBackend(ctx, strategy, [fake("orca", async () => true)], "codex")).id).toBe("direct");
+});
+
+test("the default interactive launch mode selects the builtin PTY; launch_mode headless keeps extra backends", async () => {
+  const extra = fake("extra", async () => true), ctx = withLoginIndicators(fakeCtx());
+  const interactive = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "/x");
+  expect((await selectBackend(ctx, interactive, [extra], "codex")).id).toBe("direct");
+  const headless = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}, execution: {launch_mode: "headless"}}, "/x");
+  expect((await selectBackend(ctx, headless, [extra], "codex")).id).toBe("extra");
+});
+
+test("backend selection uses the attempt's launch mode: strict enforcement keeps a default-derived interactive mode headless", async () => {
+  const extra = fake("extra", async () => true), ctx = withLoginIndicators(fakeCtx());
+  const interactive = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "/x");
+  const strict = {...ctx, env: {...ctx.env, PACER_ENFORCEMENT_MODE: "strict"}};
+  expect((await selectBackend(strict, interactive, [extra], "codex")).id).toBe("extra");
+  // An explicit runner session is not default-derived and still selects the builtin PTY.
+  const explicit = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  expect((await selectBackend(strict, explicit, [extra], "codex")).id).toBe("direct");
 });
 
 test("Orca permission fallback executes directly and logs why", async () => {

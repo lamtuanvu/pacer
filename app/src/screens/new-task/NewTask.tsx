@@ -15,6 +15,7 @@ import { Page, PageTitle } from "../../ds/Page";
 import { Card, LoadingState } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { UsageMeter } from "../../ds/UsageMeter";
+import { IssuePicker } from "./IssuePicker";
 import { ApiError } from "../../data/api";
 import { explainRoute, type ExplainResult, type RouteExplanation } from "../../data/explain-route";
 import { filesFromPaste, insertPastedText, useAttachments } from "../../model/attachments";
@@ -24,7 +25,7 @@ import type { Routing } from "../../model/home";
 import type { Account } from "../../model/accounts";
 import {
   agentOptions, blankNewTask, kindChips, newTaskPayload, NEW_TASK_DRAFT_KEY, readChecks, readMentions, routeCard, savedNote, submitState,
-  WORKSPACES, writeChecks, writeMentions, effectiveKind, type AcceptanceCheck, type NewTaskDraft,
+  WORKSPACES, writeChecks, writeMentions, effectiveKind, retainedIssueSource, type AcceptanceCheck, type NewTaskDraft,
 } from "../../model/new-task";
 import { taskHref, type TaskSummary } from "../../model/tasks";
 import { hrefFor, routes, type RouteQuery } from "../../router";
@@ -50,6 +51,8 @@ function useNewTaskDraft(filterRepo: string | null) {
   /** `quiet` changes (a default the composer picked itself) are stored without claiming the user's draft was saved. */
   const set = (change: Partial<NewTaskDraft> | ((previous: NewTaskDraft) => NewTaskDraft), quiet = false) => {
     const next = typeof change === "function" ? change(current.current) : { ...current.current, ...change };
+    next.issueSource = retainedIssueSource(next);
+    if (!next.issueSource) next.issueText = "";
     current.current = next; storage.write(next); update(next);
     if (!quiet) setSavedAt(Date.now());
   };
@@ -107,6 +110,7 @@ export function NewTask({ query }: { query: RouteQuery }) {
   const preview = useRoutePreview({ repo: draft.repo, goal: draft.request, kind: draft.kind, executor: draft.executor });
   const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }));
   const action = useAction();
+  const [issuePicker, setIssuePicker] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   // A new id whenever the goal or repository changes; a retry of the same request keeps it, so the service deduplicates.
   const requestId = useMemo(newId, [draft.request.trim(), draft.repo]);
@@ -137,11 +141,15 @@ export function NewTask({ query }: { query: RouteQuery }) {
   useEffect(() => { if (action.error) setFailure(action.error); }, [action.error]);
   const cancel = () => { location.hash = hrefFor(routes.tasks(), query); };
 
-  const props: ViewProps = { draft, set, base, repo, choices, preview, card, routing: routing.data, accounts: accounts.data ?? [], uploads, checks, mentions, submit, failure, apple, planner, mode: state.snapshot?.mode?.mode ?? planner?.mode ?? "", lastRepo: lastRepo(), onDelegate: delegate, onSave: save, onCancel: cancel, note: savedNote(savedAt, now, failed), onUseWorktree: () => { set({ workspace: "worktree" }); setFailure(undefined); } };
-  return narrow ? <NewTaskSheet {...props} /> : <NewTaskPage {...props} />;
+  const props: ViewProps = { canImportIssue: state.features.ops.has("issue.import"), onIssue: () => setIssuePicker(true), draft, set, base, repo, choices, preview, card, routing: routing.data, accounts: accounts.data ?? [], uploads, checks, mentions, submit, failure, apple, planner, mode: state.snapshot?.mode?.mode ?? planner?.mode ?? "", lastRepo: lastRepo(), onDelegate: delegate, onSave: save, onCancel: cancel, note: savedNote(savedAt, now, failed), onUseWorktree: () => { set({ workspace: "worktree" }); setFailure(undefined); } };
+  return <>{narrow ? <NewTaskSheet {...props} /> : <NewTaskPage {...props} />}
+    {issuePicker && state.features.ops.has("issue.import") && <IssuePicker repo={draft.repo} canSearch={state.features.ops.has("issue.search")} close={() => setIssuePicker(false)}
+      onImport={issue => { set({ request: [latest().request.trim(), issue.title, issue.body].filter(Boolean).join("\n\n"), issueSource: [latest().issueSource, issue.url].filter(Boolean).join(", "), issueText: [latest().issueText, issue.title, issue.body].filter(Boolean).join("\n\n") }); setIssuePicker(false); }} />}
+  </>;
 }
 
 interface ViewProps {
+  canImportIssue: boolean; onIssue: () => void;
   draft: NewTaskDraft; set: (change: Partial<NewTaskDraft>) => void; base: string; repo?: RepoChoice; choices: RepoChoice[];
   preview: ReturnType<typeof useRoutePreview>; card: ReturnType<typeof routeCard> | null; routing?: Routing; accounts: Account[];
   uploads: ReturnType<typeof useAttachments>; checks: AcceptanceCheck[]; mentions: string[]; submit: ReturnType<typeof submitState>;
@@ -174,6 +182,7 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
     <TextArea ref={input} id="nt-request" rows={rows} value={p.draft.request} className="pc-request-box__input" aria-describedby="nt-request-help"
       placeholder="e.g. Make remote-support access opt-out, and update the settings copy and docs"
       onInput={event => p.set({ request: event.currentTarget.value })} onPaste={onPaste(p)} />
+    {retainedIssueSource(p.draft) && <span className="pc-caption pc-issue-source" role="note">Imported from issue: {retainedIssueSource(p.draft)} · Untrusted text. Review it before delegating. <Button variant="quiet" size="sm" onClick={() => p.set({ issueSource: "", issueText: "" })}>Remove source</Button></span>}
     {chips && <div className="pc-request-box__chips">
       {p.uploads.items.map(item => <FileChip key={item.id} removeLabel={`Remove ${item.name}`} onRemove={() => void p.uploads.remove(item.id)}>
         <Icon name="image" /><span className="pc-file-chip__name" title={item.name}>{item.name}</span>
@@ -193,8 +202,10 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
     <div className="pc-request-box__tools">
       <AttachmentPicker variant="tool" onFiles={p.uploads.uploadFiles} label={<><Icon name="attach" /><span className="pc-request-box__tool-word">Attach</span></>} accessibleLabel="Attach a file" />
       <Button variant="quiet" size="sm" className="pc-request-box__tool" aria-label="Mention a file or folder" onClick={() => setMentioning(true)}><span className="pc-request-box__at" aria-hidden="true">@</span><span className="pc-request-box__tool-word">File or folder</span></Button>
+      {p.canImportIssue && <Button variant="quiet" size="sm" className="pc-request-box__tool" onClick={p.onIssue} aria-label="From an issue" disabled={!p.repo}><Icon name="issue" /><span className="pc-request-box__tool-word">From an issue</span></Button>}
+      {p.canImportIssue && !p.repo && <span className="pc-caption">Choose a repository to import an issue</span>}
       <span className="grow" />
-      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 25 MB"}</span>
+      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 25 MiB per file"}</span>
     </div>
   </div>;
 }
@@ -261,8 +272,8 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
       <AgentMark agent={card.lead.agent} size={compact ? 32 : 36} />
       <span className="pc-route-card__who"><span className="pc-route-card__name">{card.lead.name}</span><span className="pc-caption">{card.lead.step}</span></span>
       <Pill tone={card.lead.pill.tone}>{card.lead.pill.label}</Pill>
-    </div> : <span className="pc-route-card__name">Nobody can take it now</span>}
-    {!compact && <ul className="pc-route-card__why">{card.why.map((y, i) => <li key={i}><span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span><span>{y.text}</span></li>)}</ul>}
+    </div> : <span className="pc-route-card__name">{card.status.label}</span>}
+    <ul className="pc-route-card__why">{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}><span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span><span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>
     {!compact && card.then.length > 0 && <div className="pc-route-card__then">
       <span className="pc-caption">If it can't:</span>
       {card.then.map(n => <span key={n.executor} className={`pc-route-card__fallback${n.excluded ? " pc-route-card__fallback--excluded" : ""}`} title={n.reason ?? undefined} tabIndex={n.excluded ? 0 : undefined}>
@@ -334,7 +345,7 @@ function NewTaskPage(p: ViewProps) {
         <div className="pc-new-task__field">
           <label htmlFor="nt-request" className="pc-new-task__label">What should get done?</label>
           <RequestBox p={p} rows={6} />
-          <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. Add it as an acceptance check below." : ""}</span>
+          <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. pacer turns it into acceptance checks you can edit below." : ""}</span>
         </div>
         <div className="pc-new-task__pair">
           <div className="pc-new-task__field">
@@ -345,7 +356,7 @@ function NewTaskPage(p: ViewProps) {
           <div className="pc-new-task__field">
             <span className="pc-new-task__label" id="nt-branch-label">Branch name</span>
             <ValueBox aria-labelledby="nt-branch-label" role="group" meta="Auto"><span className="mono">pacer/…</span></ValueBox>
-            <span className="pc-caption">Named after the task when it starts</span>
+            <span className="pc-caption">Made from the request; edit it if you like</span>
           </div>
         </div>
         <fieldset className="pc-new-task__fieldset">

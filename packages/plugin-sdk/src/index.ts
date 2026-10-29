@@ -1,3 +1,4 @@
+export * from "./ui";
 export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentDelegationControl, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
 
 export interface PluginManifest {
@@ -11,6 +12,8 @@ export interface HostClient {
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
+  /** Ask the host to re-render one ui surface, or all of them. Fire and forget; the host coalesces. */
+  invalidate(id?: string): void;
 }
 export type Handler = (params: unknown, host: HostClient, signal: AbortSignal) => unknown | Promise<unknown>;
 export interface ServeOptions {
@@ -62,6 +65,7 @@ export async function serve(o: ServeOptions): Promise<void> {
       });
     },
     async log(level, message) { await host.call("capability.log", { level, message }); },
+    invalidate(id) { send({ method: "ui.invalidate", params: id === undefined ? {} : { id } }); },
     async config() { return (await host.call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
   };
   const builtin: Record<string, Handler> = {

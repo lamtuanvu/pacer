@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { generateTokensCss, readTokens } from "../app/tokens-gen";
@@ -5,7 +7,7 @@ import { generateTokensCss, readTokens } from "../app/tokens-gen";
 // Run with PACER_TEST_BROWSER pointing to a local Chromium/Chrome executable; without it these checks skip.
 const browserPath = process.env.PACER_TEST_BROWSER;
 const browserTest = test.skipIf(!browserPath);
-type Stub = { explain?: "ok" | "missing" | "unknown" | "error"; delegate?: "ok" | "fail"; mode?: string };
+type Stub = { explain?: "ok" | "missing" | "unknown" | "error"; delegate?: "ok" | "fail"; mode?: string; issue?: "ok" | "error" | "import-only" | "invalid-url"; route?: "queue" | "fail" | "fallback" | "override" | "built-in-fail" | "built-in-select" | "built-in-queue" | "uncertain" | "engine-not-running" };
 
 let built: Promise<{ source: string; css: string }> | undefined;
 function composer() {
@@ -233,4 +235,211 @@ browserTest("new_task_submit_never_uses_a_stale_preview_and_keeps_a_mention_adde
     expect(params).toMatchObject({ goal: "Document the config flags.", scope: "docs/config.md" });
     expect(params.kind).toBeUndefined();
   });
+}, 30_000);
+
+for (const [route, label, reason] of [
+  ["queue", "Waits in queue", "Codex is busy; the task waits for a free slot"],
+  ["fail", "Can't start", "No agent in your dispatcher setup can take this task right now"],
+  ["fallback", "Ladder step 2 · Codex skipped", "Codex is out of budget"],
+  ["override", "Chosen by you · this task only", "Skips the dispatcher ladder for this task"],
+] as const) {
+  browserTest(`new_task_route_${route}_has_plain_reason`, async () => {
+    await withComposer(async page => {
+      await page.locator("#nt-request").fill(REQUEST);
+      const card = page.getByRole("region", { name: "Will go to" });
+      await card.getByText(label, { exact: true }).waitFor();
+      await card.getByText(reason, { exact: true }).waitFor();
+      expect(await card.textContent()).not.toContain("Internal text must not be shown");
+    }, { stub: { route } });
+  }, 30_000);
+}
+
+browserTest("new_task_issue_option_is_feature_gated", async () => {
+  await withComposer(async page => {
+    expect(await page.getByRole("button", { name: "From an issue" }).count()).toBe(0);
+  });
+});
+
+for (const width of [1440, 375]) {
+  browserTest(`new_task_issue_picker_plain_text_and_provenance_${width}`, async () => {
+    await withComposer(async page => {
+      await page.locator("#nt-request").fill("My request");
+      await page.getByRole("button", { name: "From an issue" }).click();
+      const picker = page.getByRole("dialog", { name: "From an issue" });
+      await picker.getByRole("textbox").fill("failure");
+      await picker.getByRole("button", { name: "Search issues", exact: true }).click();
+      await picker.getByRole("button", { name: "#42 <img src=x onerror=alert(1)>" }).click();
+      await picker.getByText("<script>window.issueExecuted=true</script>", { exact: false }).waitFor();
+      expect(await picker.locator("img,script").count()).toBe(0);
+      await picker.getByRole("button", { name: "Use issue text" }).click();
+      await page.getByRole("note").filter({ hasText: "Imported from issue:" }).waitFor();
+      expect(await page.locator("#nt-request").inputValue()).toContain("My request");
+      expect(await page.locator("#nt-request").inputValue()).toContain("<script>window.issueExecuted=true</script>");
+      expect(await calls(page, "issue.search")).toEqual([{ repo: "econ-v1/node", query: "failure", state: "open", limit: 20 }]);
+      expect(await calls(page, "issue.import")).toEqual([{ repo: "econ-v1/node", issue: "42" }]);
+      await page.getByRole("button", { name: /^Delegate task/ }).click();
+      await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+      expect((await calls(page, "task.delegate"))[0].context).toContain("Imported from issue https://github.com/econ-v1/node/issues/42");
+    }, { width, height: 900, stub: { issue: "ok" } });
+  }, 30_000);
+}
+
+browserTest("new_task_issue_picker_errors_and_cancel_preserve_draft", async () => {
+  await withComposer(async page => {
+    await page.locator("#nt-request").fill("Keep my request");
+    await page.getByRole("button", { name: "From an issue" }).click();
+    const picker = page.getByRole("dialog", { name: "From an issue" });
+    await picker.getByRole("textbox").fill("test");
+    await picker.getByRole("button", { name: "Search issues", exact: true }).click();
+    await picker.getByRole("alert").getByText("gh is not signed in. Run gh auth login, then retry.").waitFor();
+    await page.keyboard.press("Escape");
+    expect(await page.locator("#nt-request").inputValue()).toBe("Keep my request");
+  }, { stub: { issue: "error" } });
+}, 30_000);
+
+browserTest("new_task_issue_picker_can_import_without_search", async () => {
+  await withComposer(async page => {
+    await page.getByRole("button", { name: "From an issue" }).click();
+    const picker = page.getByRole("dialog", { name: "From an issue" });
+    expect(await picker.getByRole("button", { name: "Search issues" }).count()).toBe(0);
+    await picker.getByRole("textbox").fill("https://github.com/econ-v1/node/issues/42");
+    await picker.getByRole("button", { name: "Read issue", exact: true }).click();
+    await picker.getByRole("button", { name: "Use issue text" }).waitFor();
+    expect(await calls(page, "issue.search")).toEqual([]);
+    await picker.getByRole("button", { name: "Close", exact: true }).click();
+    expect(await page.locator("#nt-request").inputValue()).toBe("");
+  }, { stub: { issue: "import-only" } });
+}, 30_000);
+
+for (const width of [1440, 768, 375]) for (const dark of [false, true]) {
+  browserTest(`new_task_board_typography_and_containment_${width}_${dark ? "dark" : "light"}`, async () => {
+    await withComposer(async page => {
+      await page.locator("#nt-request").fill(REQUEST);
+      await page.getByText("Ladder step 1 · strategy no-agy", { exact: true }).waitFor();
+      const geometry = await page.evaluate(() => {
+        const style = getComputedStyle(document.querySelector("#nt-request")!);
+        const name = getComputedStyle(document.querySelector(".pc-route-card__name")!);
+        const title = document.querySelector(".pc-sheet__title");
+        return {
+          requestSize: style.fontSize, requestLine: style.lineHeight, agentSize: name.fontSize,
+          titleSize: title ? getComputedStyle(title).fontSize : null,
+          overflow: document.scrollingElement!.scrollWidth > innerWidth,
+        };
+      });
+      expect(geometry).toMatchObject({ requestSize: "14px", requestLine: width === 375 ? "20px" : "21px", agentSize: width === 375 ? "14px" : "18px", overflow: false });
+      if (width === 375) expect(geometry.titleSize).toBe("17px");
+      const evidence = process.env.PACER_COMPOSER_EVIDENCE;
+      if (evidence) {
+        mkdirSync(evidence, { recursive: true });
+        await page.screenshot({ path: join(evidence, `composer-${width}-${dark ? "dark" : "light"}.png`), fullPage: true });
+        await page.getByRole("button", { name: "From an issue" }).click();
+        const picker = page.getByRole("dialog", { name: "From an issue" });
+        await picker.getByRole("textbox").fill("42");
+        await picker.getByRole("button", { name: "Read issue", exact: true }).click();
+        await picker.getByRole("button", { name: "Use issue text" }).waitFor();
+        await page.screenshot({ path: join(evidence, `issue-picker-${width}-${dark ? "dark" : "light"}.png`), fullPage: true });
+      }
+    }, { width, height: 900, dark, stub: { issue: "ok" } });
+  }, 30_000);
+}
+
+for (const route of ["built-in-fail", "built-in-select", "built-in-queue", "fail", "uncertain", "engine-not-running"] as const) {
+  browserTest(`new_task_preview_${route}_never_blocks_delegate`, async () => {
+    await withComposer(async page => {
+      await page.locator("#nt-request").fill(REQUEST);
+      const card = page.getByRole("region", { name: "Will go to" });
+      await card.getByText(route === "fail" ? "Can't start" : "Preview only", { exact: true }).waitFor();
+      if (route.startsWith("built-in-")) {
+        expect(await card.locator(".pc-route-card__lead").count()).toBe(0);
+        expect(await card.textContent()).not.toContain("Ladder step");
+        await card.getByText(/this preview is advisory/).waitFor();
+      }
+      if (route === "uncertain") {
+        await card.getByText("Agent capacity has not been measured yet").waitFor();
+        await card.getByText(/uses cached information/).waitFor();
+      }
+      if (route === "engine-not-running") await card.getByText(/engine is not running/).waitFor();
+      const delegate = page.getByRole("button", { name: /^Delegate task/ });
+      expect(await delegate.isDisabled()).toBe(false);
+      await delegate.click();
+      await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+      expect((await calls(page, "task.delegate")).length).toBe(1);
+    }, { stub: { route } });
+  }, 30_000);
+}
+
+for (const width of [1440, 375]) browserTest(`new_task_issue_picker_traps_tab_and_enter_searches_${width}`, async () => {
+  await withComposer(async page => {
+    await page.getByRole("button", { name: "From an issue" }).click();
+    const picker = page.getByRole("dialog", { name: "From an issue" });
+    const assertCycle = async () => {
+      for (const key of ["Tab", "Shift+Tab"]) for (let i = 0; i < 10; i++) {
+        await page.keyboard.press(key);
+        expect(await picker.evaluate(dialog => dialog.contains(document.activeElement))).toBe(true);
+      }
+    };
+    await picker.getByRole("textbox").focus();
+    await assertCycle();
+    await picker.getByRole("textbox").fill("failure");
+    await picker.getByRole("textbox").press("Enter");
+    const result = picker.getByRole("button", { name: "#42 <img src=x onerror=alert(1)>" });
+    await result.waitFor();
+    expect(await calls(page, "issue.search")).toEqual([{ repo: "econ-v1/node", query: "failure", state: "open", limit: 20 }]);
+    await assertCycle();
+    await result.click();
+    await picker.getByRole("button", { name: "Use issue text" }).waitFor();
+    await assertCycle();
+    await page.keyboard.press("Escape");
+    expect(await picker.count()).toBe(0);
+    expect(await calls(page, "task.delegate")).toEqual([]);
+  }, { width, height: 900, stub: { issue: "ok" } });
+}, 30_000);
+
+for (const action of ["remove", "empty", "replace"] as const) browserTest(`new_task_issue_provenance_clears_on_${action}`, async () => {
+  await withComposer(async page => {
+    await page.locator("#nt-request").fill("Original request");
+    await page.getByRole("button", { name: "From an issue" }).click();
+    const picker = page.getByRole("dialog", { name: "From an issue" });
+    await picker.getByRole("textbox").fill("42");
+    await picker.getByRole("textbox").press("Enter");
+    await picker.getByRole("button", { name: "Use issue text" }).click();
+    const note = page.getByRole("note").filter({ hasText: "Imported from issue:" });
+    await note.waitFor();
+    if (action === "remove") {
+      const before = await page.locator("#nt-request").inputValue();
+      await note.getByRole("button", { name: "Remove source" }).click();
+      expect(await page.locator("#nt-request").inputValue()).toBe(before);
+    } else {
+      await page.locator("#nt-request").fill(action === "empty" ? "" : "Original request");
+    }
+    expect(await note.count()).toBe(0);
+    if (action === "empty") await page.locator("#nt-request").fill("Fresh request");
+    await page.getByRole("button", { name: /^Delegate task/ }).click();
+    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    expect((await calls(page, "task.delegate"))[0].context).toBeUndefined();
+  }, { stub: { issue: "import-only" } });
+}, 30_000);
+
+browserTest("new_task_issue_invalid_service_url_is_visible_and_not_imported", async () => {
+  await withComposer(async page => {
+    await page.getByRole("button", { name: "From an issue" }).click();
+    const picker = page.getByRole("dialog", { name: "From an issue" });
+    await picker.getByRole("textbox").fill("42");
+    await picker.getByRole("button", { name: "Read issue", exact: true }).click();
+    await picker.getByRole("alert").getByText(/invalid GitHub issue URL/).waitFor();
+    expect(await picker.getByRole("button", { name: "Use issue text" }).count()).toBe(0);
+    expect(await page.locator("#nt-request").inputValue()).toBe("");
+  }, { stub: { issue: "invalid-url" } });
+}, 30_000);
+
+browserTest("new_task_375_card_has_one_summary_reason_line", async () => {
+  await withComposer(async page => {
+    await page.locator("#nt-request").fill(REQUEST);
+    const card = page.getByRole("region", { name: "Where this task goes" });
+    await card.getByText("Ready", { exact: true }).waitFor();
+    expect(await card.locator(".pc-route-card__why > li").count()).toBe(1);
+    const summary = card.locator(".pc-route-card__why > li > span:last-child");
+    expect(await summary.evaluate(el => getComputedStyle(el).whiteSpace)).toBe("nowrap");
+    expect(await summary.getAttribute("title")).toContain("spare capacity");
+  }, { width: 375, height: 812 });
 }, 30_000);

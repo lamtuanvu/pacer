@@ -15,6 +15,10 @@ Primary references: [Codex CLI reference](https://developers.openai.com/codex/cl
 This is additive to the service and plugin contracts. It grants no governance exception. Applicable architecture, API, security, UI and CT-11 rules remain in force.
 
 
+## Amendment 2026-10-28: interactive default launch
+
+Delegated tasks now launch interactively by default. Unattended Claude Code task launches answer a scoped set of native prompts: folder trust for pacer-created task worktrees, the external import warning, the bypass acknowledgement, and project MCP approval that keeps the user's rejections. Conversations keep the native MCP prompt. Claude trust, the login environment and account-folder resolution are host-side, because the `agentSession` plugin has no filesystem or process grants. See [ADR interactive default launch](2026-10-28-interactive-default-launch.md), which supersedes the "preserve native permission prompts" statements in that scope.
+
 ## Expanded native adapter support
 
 The approved [three-agent support design](../specs/2026-10-24-interactive-agent-support-design.md) completes Claude Code, Codex and OpenCode support within the existing native-terminal architecture. Installed CLI interface probes replace exact-version eligibility. The plugin supplies native launch/resume arguments, identity allocation/recovery plans and OpenCode reporting source; the host executes those plans in the selected account/workspace, materializes private reporting artifacts and persists state. No native credentials enter plugin inputs.

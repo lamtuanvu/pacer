@@ -2,7 +2,8 @@ import {expect,test} from 'bun:test';
 import {options} from 'preact';
 import {renderToString} from 'preact-render-to-string';
 import {OverviewView} from '../app/src/screens/Overview';
-import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {SessionsList} from './fixtures/ui/sessions-list';
+import {taskTree} from '../src/view-model/task-tree';
 import {createActionRunner} from '../app/src/data/actions';
 import snapshot from './fixtures/ui/snapshot.json';
 import fixture from './fixtures/ui/session.json';
@@ -24,7 +25,7 @@ test('Overview takeover remains available while Tasks uses direct row navigation
   expect(calls).toEqual([['task.takeover',{id:overview?snapshot.tasks.find(t=>t.state==='running')!.id:'t-0415'}]]);
   expect(routes).toEqual([overview?`#/tasks/${snapshot.tasks.find(t=>t.state==='running')!.id}?takeover=driving`:'#/tasks/t-0415?takeover=driving']);
  }
- const list=renderToString(<SessionsList running={{data:[fixture as SessionData]}}/>);
+ const list=renderToString(<SessionsList running={{data:taskTree({tasks:[{id:'t-0415',goal:(fixture as SessionData).goal,state:'running',executor:'codex',backend:null,worktree:null,updatedAt:1}]},{now:2})}}/>);
  expect(list).toContain('href="#/tasks/t-0415"');
  expect(list).not.toContain('Take over');
 });

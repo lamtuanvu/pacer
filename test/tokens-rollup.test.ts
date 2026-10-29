@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
-import { registerWork, workTree } from "../src/dispatch/work";
+import { listWork, registerWork, workTree } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { recordAttemptUsage } from "../src/tokens/store";
 import { rollupTokens } from "../src/tokens/rollup";
@@ -89,4 +89,15 @@ test("a record's own tokens win over an index row, and task detail falls back to
   const detail = await taskDetail(ctx, root.id);
   expect(detail.attempts.map(a => a.tokens?.total)).toEqual([5, 7]);
   expect(detail.tokens?.total).toBe(12);
+});
+
+test("work list rows carry each task's own token roll-up and branch, null when nothing was measured", () => {
+  const { ctx, root, make } = tree();
+  const child = make("child", root.id);
+  updateTask(ctx, root.id, t => { t.attempts.push(attempt("codex", tok("measured", 100)), attempt("codex", tok("partial", 40))); });
+  const rows = listWork(ctx, { relation: "all" }).tasks;
+  const own = rows.find(row => row.id === root.id)!, none = rows.find(row => row.id === child.id)!;
+  expect(own.tokens).toEqual({ total: 140, lowerBound: true, measuredAttempts: 1, partialAttempts: 1 });
+  expect(none.tokens).toBeNull();
+  expect(own.branch).toBeNull();
 });

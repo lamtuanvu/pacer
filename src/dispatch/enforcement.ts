@@ -4,17 +4,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Ctx } from "../types";
 import { dispatchDatabase } from "./store";
+import type { ReadOnlyStore } from "./readonly";
 import type { Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { accountFolder } from "../install/role";
 import { opencodeConfigPath } from "../install/opencode";
-import { launchFor } from "../exec/launch";
+import { launchFor, launchModeFor } from "../exec/launch";
+import { validateExecution } from "../config/execution";
 import { execProcess } from "../exec/process";
 import { agentDelegationControl } from "../plugins/agent-session";
 import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
 import { withLock } from "../core/lock";
+import { isScheduledRunner, readScheduleState, scheduledRepo, scheduleReason, type ScheduleState } from "./certification-schedule";
 
 export interface EnforcementTarget {runner:string;account:string;agent:string;version:string;binary:string;controlFiles:string[];launchMode:string;launchArgs:string[];guardArgv?:string[]}
 export type CertificateStatus = {state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number};
@@ -49,7 +52,11 @@ export function observeClaudeCanary(output:string,entry:string):CanaryResult {
   const blocked=matching.length>0&&matching.every(([id])=>results.get(id)?.error===true&&results.get(id)?.denied===true);
   return {attempted:matching.length>0,blocked,childStarted,...(!blocked?{reason:`The ${entry} native tool did not return a correlated Pacer denial`}:{})};
 }
-export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):Promise<EnforcementTarget> {
+/** Last successful `--version` check per binary path and modification time. Only submit, the runner and dispatch.enforcement fill it; dispatch.explain only reads it. */
+const checkedVersions=new Map<string,string>();
+const versionKey=(binary:string)=>{try{return `${binary}:${statSync(binary).mtimeMs}`;}catch{return binary;}};
+export class EnforcementUnverified extends Error{constructor(readonly agent:string){super(`${agent} version has not been checked in this process`);}}
+export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string,opts:{cachedVersionOnly?:boolean}={}):Promise<EnforcementTarget> {
   const runner=strategy.runners[runnerId],cfg=strategy.providers[runnerId];
   if(!runner||!cfg||runner.host)throw new CoreError("not_allowed","Strict native control requires a local executor");
   const executable:Partial<Record<typeof runner.agent,string>>={"claude-code":"claude",codex:"codex",cursor:"cursor-agent",opencode:"opencode"};
@@ -57,18 +64,31 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
   if(!command)throw new CoreError("not_allowed",`No native control adapter for ${runner.agent}`);
   const binary=ctx.which(command);
   if(!binary)throw new CoreError("not_allowed",`Executor ${runner.agent} is not installed`);
-  const versionResult=await ctx.run([binary,"--version"],5000);
-  const version=/\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9]+)?/.exec(versionResult.stdout)?.[0];
-  if(versionResult.code!==0||!version)throw new CoreError("not_allowed",`Could not verify ${runner.agent} version`);
-  const account=strategy.accounts[runner.account];
-  if(!account)throw new CoreError("not_allowed","Executor account is unavailable");
+  let version:string|undefined;
+  if(opts.cachedVersionOnly){
+    version=checkedVersions.get(versionKey(binary));
+    if(!version)throw new EnforcementUnverified(runner.agent);
+  } else {
+    const versionResult=await ctx.run([binary,"--version"],5000);
+    version=/\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9]+)?/.exec(versionResult.stdout)?.[0];
+    if(versionResult.code!==0||!version)throw new CoreError("not_allowed",`Could not verify ${runner.agent} version`);
+    checkedVersions.set(versionKey(binary),version);
+  }
+  if(!strategy.accounts[runner.account])throw new CoreError("not_allowed","Executor account is unavailable");
+  const controlFiles=controlFilesFor(ctx,strategy,runnerId,repo);
+  // The same precedence as a strict attempt: only an explicit runner session makes it interactive.
+  const launchMode=launchModeFor(cfg,validateExecution(strategy.execution),{managed:true}).mode;
+  const launch=launchFor({...cfg,session:launchMode},"__prompt__","__repo__","__run__","__task__");
+  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode,launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
+}
+/** The native control files a probe of `runnerId` in `repo` depends on; reads no process. */
+function controlFilesFor(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):string[] {
+  const runner=strategy.runners[runnerId]!,account=strategy.accounts[runner.account]!;
   const folder=accountFolder(ctx,account)??join(ctx.home,runner.agent==="claude-code"?".claude":`.${runner.agent}`);
-  const controlFiles=runner.agent==="claude-code"?[join(folder,"settings.json"),join(repo,".claude","settings.json"),join(repo,".claude","settings.local.json")]
+  return runner.agent==="claude-code"?[join(folder,"settings.json"),join(repo,".claude","settings.json"),join(repo,".claude","settings.local.json")]
     :runner.agent==="codex"?[join(folder,"hooks.json"),join(repo,".codex","hooks.json")]
     :runner.agent==="cursor"?[join(folder,"hooks.json"),join(repo,".cursor","hooks.json")]
     :[opencodeConfigPath(ctx),join(repo,"opencode.json"),join(repo,"opencode.jsonc")];
-  const launch=launchFor(cfg,"__prompt__","__repo__","__run__","__task__");
-  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode:cfg.session??"headless",launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
 }
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const key=(target:EnforcementTarget)=>JSON.stringify([target.runner,target.account,target.launchMode]);
@@ -95,9 +115,10 @@ export function strictClaudeLaunch(ctx:Ctx,argv:string[],runDir:string):string[]
   const copy=[...argv];copy.splice(at>=0?at:Math.max(1,copy.length-1),0,"--settings",settings);
   return copy;
 }
-export function certificateStatus(ctx:Ctx,target:EnforcementTarget):CertificateStatus {
-  const row=dispatchDatabase(ctx).query<{fingerprint:string;probed_at:number;expires:number},[string]>(
-    "SELECT fingerprint,probed_at,expires FROM enforcement_certificates WHERE target=?").get(key(target));
+export function certificateStatus(ctx:Ctx,target:EnforcementTarget,store?:ReadOnlyStore):CertificateStatus {
+  const sql="SELECT fingerprint,probed_at,expires FROM enforcement_certificates WHERE target=?";
+  const row=store?(store.has("enforcement_certificates")?store.query<{fingerprint:string;probed_at:number;expires:number}>(sql,key(target))[0]:undefined)
+    :dispatchDatabase(ctx).query<{fingerprint:string;probed_at:number;expires:number},[string]>(sql).get(key(target));
   if(!row)return {state:"uncertified",reason:"Native subagent control has not been verified"};
   if(row.expires<=ctx.now)return {state:"stale",reason:"Native subagent control verification expired",probedAt:row.probed_at,expiresAt:row.expires};
   if(row.fingerprint!==enforcementFingerprint(target))return {state:"stale",reason:"Executor or native control configuration changed",probedAt:row.probed_at,expiresAt:row.expires};
@@ -111,8 +132,10 @@ export function certificateEvidence(ctx:Ctx,target:EnforcementTarget){
   return {policy:"strict" as const,adapter:target.agent,version:target.version,account:target.account,
     fingerprint:enforcementFingerprint(target),entryPoints:evidence?.entries??[],probedAt:status.probedAt!,expiresAt:status.expiresAt!};
 }
-function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
-  if(target.launchMode==="interactive")return "Native child blocking for interactive launches has not been verified";
+/** Strict work cannot wait this out: only a configuration change makes the launch certifiable. */
+export const STRICT_INTERACTIVE_REASON="Native subagent control is certified only for headless launches; remove the runner's session: interactive or set it to headless";
+export function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
+  if(target.launchMode==="interactive")return STRICT_INTERACTIVE_REASON;
   if(target.agent==="codex")return "Native subagent control: Codex tool-result observation is not implemented for this CLI version";
   if(target.agent==="cursor")return "Cursor has not proven that subagentStart denial prevents child startup";
   if(target.agent==="opencode")return "OpenCode permission denial needs a host-observed native canary";
@@ -131,19 +154,96 @@ export async function enforcementExclusion(ctx:Ctx,strategy:Strategy,runnerId:st
     return error instanceof Error?error.message:"Native subagent control is unverified";
   }
 }
+/**
+ * What the schedule will do for this row. tick probes the scheduled repository,
+ * and the certificate fingerprint covers that repository's control files, so a
+ * row for another repository is evaluated there and says which one it is.
+ */
+function scheduleFor(ctx:Ctx,strategy:Strategy,target:EnforcementTarget,repo:string,scheduled:string|null,
+  unsupported:string|null,cert:CertificateStatus,state:ScheduleState):{reason:string;paused:boolean}|null {
+  if(!isScheduledRunner(strategy,target.runner)||scheduled===repo)return scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now);
+  // Turned off is the setting a person chose, and it holds wherever the schedule would run.
+  if(scheduled===null)return strategy.pacing.plannerProbe==="off"?scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now)
+    :{reason:"no repository is registered, so there is nothing to certify",paused:false};
+  const there={...target,controlFiles:controlFilesFor(ctx,strategy,target.runner,scheduled)};
+  const hold=scheduleReason(strategy,target.runner,key(there),certificateStatus(ctx,there),probeSupportReason(there,scheduled),state,ctx.now);
+  const prefix=`scheduled probing certifies ${scheduled}, not this repository`;
+  return {reason:hold?`${prefix}; there: ${hold.reason}`:prefix,paused:hold?.paused??false};
+}
+/**
+ * The read-only form of `enforcementExclusion`: it never spawns `--version` and never opens the writable store.
+ * With no cached version check the runner is not excluded on that ground and `unverified` is set instead.
+ */
+export async function enforcementExclusionCached(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string,store:ReadOnlyStore,conversation=false):Promise<{reason:string|null;unverified:string|null}> {
+  try {
+    if(conversation)return {reason:"Native child blocking for conversation launches has not been verified",unverified:null};
+    const target=await resolveEnforcementTarget(ctx,strategy,runnerId,repo,{cachedVersionOnly:true});
+    const unsupported=probeSupportReason(target,repo);
+    if(unsupported)return {reason:unsupported,unverified:null};
+    const status=certificateStatus(ctx,target,store);
+    return {reason:status.state==="certified"?null:status.reason??"Native subagent control is unverified",unverified:null};
+  } catch(error) {
+    if(error instanceof EnforcementUnverified)return {reason:null,unverified:error.agent};
+    return {reason:error instanceof Error?error.message:"Native subagent control is unverified",unverified:null};
+  }
+}
 export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:string){
+  const state = readScheduleState(ctx);
+  const scheduled = scheduledRepo(ctx);
   const rows=[];
   for(const runner of Object.values(strategy.runners)){
     try {
       const target=await resolveEnforcementTarget(ctx,strategy,runner.id,repo);
       const unsupported=probeSupportReason(target,repo);
-      rows.push({runner:runner.id,account:target.account,agent:target.agent,version:target.version,probeSupported:!unsupported,...(unsupported?{state:"uncertified" as const,reason:unsupported}:certificateStatus(ctx,target))});
+      const cert = certificateStatus(ctx,target);
+      const attempt = state.attempts[key(target)];
+      const consentVal = state.consent[target.account];
+      rows.push({
+        runner:runner.id,
+        account:target.account,
+        agent:target.agent,
+        version:target.version,
+        probeSupported:!unsupported,
+        unsupportedReason: unsupported ?? null,
+        probeMode: strategy.pacing.plannerProbe,
+        // An unsupported runner reports no certificate at all: carrying a probedAt
+        // or expiresAt beside state "uncertified" would contradict itself.
+        ...(unsupported
+          ? {state:"uncertified" as const,reason:unsupported,lastProbedAt:null,expiresAt:null}
+          : {...cert,lastProbedAt:cert.probedAt ?? null,expiresAt:cert.expiresAt ?? null}),
+        nextEligibleAt: attempt?.nextEligibleAt ?? 0,
+        probesToday: attempt?.probesToday ?? 0,
+        lastCostPct: attempt?.lastCostPct ?? null,
+        consent: consentVal ?? "unasked" as const,
+        // Computed, not stored: a stored reason goes stale between ticks.
+        ...scheduleFields(scheduleFor(ctx,strategy,target,repo,scheduled,unsupported,cert,state)),
+      });
     } catch(error) {
-      rows.push({runner:runner.id,account:runner.account,agent:runner.agent,version:null,probeSupported:false,state:"uncertified" as const,reason:error instanceof Error?error.message:String(error)});
+      rows.push({
+        runner:runner.id,
+        account:runner.account,
+        agent:runner.agent,
+        version:null,
+        probeSupported:false,
+        unsupportedReason: null,
+        probeMode: strategy.pacing.plannerProbe,
+        state:"uncertified" as const,
+        reason:error instanceof Error?error.message:String(error),
+        lastProbedAt: null,
+        expiresAt: null,
+        nextEligibleAt: 0,
+        probesToday: 0,
+        lastCostPct: null,
+        consent: "unasked" as const,
+        // The target could not be resolved, so tick cannot probe it either.
+        scheduleReason: error instanceof Error?error.message:String(error),
+        schedulePaused: false,
+      });
     }
   }
   return {repo,scope:"native subagent entry points at admission",runners:rows};
 }
+const scheduleFields=(hold:{reason:string;paused:boolean}|null)=>({scheduleReason:hold?.reason??null,schedulePaused:hold?.paused??false});
 export async function certifyExecutor(ctx:Ctx,target:EnforcementTarget,probe:()=>Promise<CanaryResult>):Promise<CertificateStatus> {
  return withLock(ctx,`enforcement-${digest(key(target))}`,async()=>{
   const before=enforcementFingerprint(target),result=await probe();
@@ -181,6 +281,7 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
         delete env.PACER_AUTH_TOKEN;
         delete env.CLAUDE_CONFIG_DIR;
         delete env.CODEX_HOME;
+        // A default account runs strict work in the service's own folder (no login profile), as certified here.
         if(account.source!=="default"){
           const folder=accountFolder(ctx,account);
           if(!folder)return {attempted:false,blocked:false,childStarted:false,reason:"The selected account has no resolvable configuration folder"};

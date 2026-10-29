@@ -55,6 +55,8 @@ function materialize(ctx:Ctx,draft:Draft) {
   const {raw,yaml}=draftYaml(ctx,draft);
   return {strategy:validateStrategy(raw,"draft",draft.from),yaml};
 }
+/** Validate a draft into a strategy without writing it. Throws StrategyError with the draft's problems. */
+export function draftStrategy(ctx:Ctx,draft:Draft) {return validateStrategy(draftYaml(ctx,draft).raw,"draft",draft.from);}
 export async function preview(ctx:Ctx,draft:Draft) {
   ctx={...ctx,readOnly:true};
   const readings=new Map<string,UsageReading>();
