@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Extend Claude Code's planner delegation guard from the Agent/Task subagent hook to the Bash tool: it now also blocks a shell command that starts a known executor CLI (`claude`, `codex`, `pi`, `opencode`) with `PACER_ROLE=executor` or a pacer-managed `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, pointing to `pacer delegate` instead — recognized through `env`/`exec`, an `export` earlier in the same command, and `bash -c`/`sh -c`, not just the bare inline form. Same exemptions as the subagent guard (`PACER=off`, relaxed mode, executor sessions, no eligible alternative executor); a strict-managed executor's own Bash use stays unaffected. This is a best-effort pattern match on the command text, not a shell-level security boundary, and it now runs `pacer guard` on every Bash call rather than only Agent/Task. See [Terminal and servers](docs/install.md#terminal-and-servers).
+
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 
 - Restyle the app frame chrome to the design canvas: a 44px title bar with the pacer mark, planner chip and panel-toggle buttons, a 52px activity bar with an active indicator and count badges, and a 28px status bar with per-vendor budget meters, running and queued counts and the terminal shortcut. The Setup and Settings attention dots are now red.
