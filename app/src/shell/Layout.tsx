@@ -1,3 +1,4 @@
+import { applyDensity, savedDensity, DENSITY_KEY } from "../density";
 import { counts as snapshotCounts } from "../../../src/view-model/selectors";
 import { DensityContext, DensityProvider } from '../ds/Density';
 import { LoadingState } from "../ds/Patterns";
@@ -50,17 +51,16 @@ function Skeleton() {
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
   useAgentDeepLink(route);
-  const [density, setDensity] = useState<"normal" | "compact">(() => {
-    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
-    catch { return "normal"; }
-  });
+  const [density, setDensity] = useState(savedDensity);
   useEffect(() => {
-    const sync = (event: Event) => {
-      let value: unknown;
-      try { value = event instanceof CustomEvent ? event.detail : localStorage.getItem("pacer.density"); }
-      catch { return; }
-      setDensity(value === "compact" ? "compact" : "normal");
+    const sync = (event?: Event) => {
+      if (event instanceof StorageEvent && event.key !== null && event.key !== DENSITY_KEY) return;
+      const value = event instanceof CustomEvent && event.detail === "compact" ? "compact"
+        : event instanceof CustomEvent ? "normal" : savedDensity();
+      applyDensity(value);
+      setDensity(value);
     };
+    sync();
     window.addEventListener("pacer:density", sync);
     window.addEventListener("storage", sync);
     return () => { window.removeEventListener("pacer:density", sync); window.removeEventListener("storage", sync); };
