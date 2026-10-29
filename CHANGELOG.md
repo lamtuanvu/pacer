@@ -12,6 +12,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.
+- The macOS desktop can take back its own service after another build replaces `~/.local/bin/pacer` (for example a source build copied over the app's link). It explains what changed, lists the running work it can see, and switches the service to the app's signed copy only after you confirm, restoring the original if the switch fails. Settings → Updates shows the reason and a **Review service replacement** button, and notes when the terminal command and the service run different builds. See [Desktop updates](docs/desktop-updates.md).
 
 ### Fixed
 

@@ -35,7 +35,21 @@ async function desktopControls(pid: number) {
   async function controls() {
     const window_id = await window();
     const result = await nativeCommand({ command: "inspect", pid, start_identity: identity!.start_identity, window_id });
-    return { window_id, elements: result.elements as Array<{ref: string; role: string; name: string; value?: string; actions: string[]}> };
+    return { window_id, elements: result.elements as Array<{ref: string; role: string; name: string; value?: string; actions: string[]; focused?: boolean; disabled?: boolean}> };
+  }
+  async function key(key: string) {
+    const window_id = await window();
+    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
+  }
+  async function texts() {
+    const { elements } = await controls();
+    return elements.flatMap(element => [element.name, element.value ?? ""]).filter(Boolean);
+  }
+  async function capture(path: string) {
+    const window_id = await window();
+    const result = await nativeCommand({ command: "capture", pid, start_identity: identity!.start_identity, window_id });
+    writeFileSync(path, Buffer.from(result.png, "base64"), { flag: "wx", mode: 0o600 });
   }
   async function click(name: string) {
     const { window_id, elements } = await controls();
@@ -44,8 +58,14 @@ async function desktopControls(pid: number) {
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
   }
-  return { controls, click };
+  return { controls, click, key, texts, capture };
 }
+
+type Controls = Awaited<ReturnType<typeof desktopControls>>;
+// Internal states and reason codes must never reach the page text.
+const INTERNAL = /\b(prepared|stopping|switched|verifying|committed|recovery-failed)\b|[a-z-]+:(identity|unavailable|invalid|io|timeout|busy)\b|redetect|interrupted:/;
+
+function hasText(texts: string[], text: string) { return texts.some(value => value.includes(text)); }
 
 async function waitFor<T>(read: () => Promise<T | null>, timeout: number, message: string): Promise<T> {
   const end = Date.now() + timeout;
@@ -100,39 +120,96 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   mkdirSync(config, { recursive: true, mode: 0o700 });
   writeFileSync(join(config, "consent.json"), JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { flag: "wx", mode: 0o600 });
   const preserved = ["strategy.yaml", "token"].map(name => ({ name, hash: digest(privateFixtureBytes(join(state.pacerHome, name), 1048576)) }));
+  // Each scenario fixes its theme, so light and dark captures are both covered.
+  const theme = (["takeover", "takeover-dismiss", "takeover-crash"] as string[]).includes(scenario) ? "light" : "dark";
+  const evidence = (name: string) => join(session.root, "evidence", name);
+  const observed: Record<string, unknown> = { scenario, theme, originalPid: null, originalRegistration: null };
+  async function capture(ui: Controls, name: string, text: string) {
+    try {
+      await ui.capture(evidence(name));
+      record(session, { kind: "capture", behavior: `OTA ${scenario} ${text}`, surface: "native desktop", path: evidence(name), text });
+    } catch (error) {
+      record(session, { kind: "note", behavior: `OTA ${scenario} capture ${name}`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
+    }
+  }
+  function launch(logName: string, desktopTheme: string): ProcessIdentity {
+    writeFileSync(join(config, "theme.json"), JSON.stringify(desktopTheme), { mode: 0o600 });
+    const log = openSync(evidence(logName), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      // Settings → Updates is the first service page, so it can be checked after the offer.
+      const child = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer"), "--pacer-relaunch-route=/settings/updates"], { env: fixtureEnvironment(state), stdin: "ignore", stdout: log, stderr: log });
+      child.unref();
+      const identity = processIdentity(child.pid);
+      if (!identity) throw Error("Desktop process identity unavailable");
+      return identity;
+    } finally { closeSync(log); }
+  }
+  async function offerShown(ui: Controls) {
+    return waitFor(async () => {
+      const seen = await ui.controls();
+      return seen.elements.some(e => e.name === "Use the app's service" && e.role === "button") && seen.elements.some(e => e.name === "Not now" && e.role === "button") ? seen : null;
+    }, 60000, "Takeover page did not precede the version gate");
+  }
+  async function tabOrder(ui: Controls, name: string) {
+    // Default macOS keyboard settings: Full Keyboard Access is not required.
+    const order: string[] = [];
+    for (let step = 0; step < 6; step++) {
+      await ui.key("Tab");
+      await sleep(200);
+      // WebKit also marks the focused control's scroll area and web area as focused; report the control.
+      const focused = (await ui.controls()).elements.filter(element => element.focused && !["AXWebArea", "AXScrollArea"].includes(element.role)).at(-1);
+      order.push(focused ? `${focused.role}: ${focused.name}` : "none");
+    }
+    writeFileSync(evidence(name), JSON.stringify({ keys: "Tab x6", order }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    const position = (text: string) => order.findIndex(entry => entry.endsWith(`: ${text}`));
+    const [choice, confirm, dismiss] = [position("Also point the terminal command at the app"), position("Use the app's service"), position("Not now")];
+    const passed = choice >= 0 && confirm > choice && dismiss > confirm;
+    record(session, { kind: "note", behavior: `OTA ${scenario} offer keyboard order`, surface: "native desktop", verdict: passed ? "PASS" : "FAIL", text: `Tab order without Full Keyboard Access: ${order.join(" → ")}. VoiceOver WAIVED (VO-TEMP-2026-10), not tested.` });
+    if (!passed) throw Error(`Takeover offer controls are not reachable in order by Tab: ${order.join(", ")}`);
+  }
+  async function settings(ui: Controls, name: string, takeover: boolean) {
+    const texts = await waitFor(async () => {
+      const seen = await ui.texts();
+      const ready = takeover
+        ? hasText(seen, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(seen, "Review service replacement")
+        : hasText(seen, "Updates") && !hasText(seen, "Use the app's service");
+      return ready ? seen : null;
+    }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`);
+    await sleep(500);
+    await capture(ui, name, `Settings → Updates ${takeover ? "before replacement" : "after replacement"} (${name.includes("dark") ? "dark" : "light"})`);
+    if (!takeover && (hasText(texts, "replaced by another build") || hasText(texts, "Review service replacement"))) throw Error("Settings still reports a replaced service after commit");
+    return texts;
+  }
   state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: { ...newExercise(scenario, driver, installationId), state: "running" }, runtime: { ...state.runtime!, state: "managed" } }, options);
   await waitFor(async () => {
     const response = await fetch(`http://127.0.0.1:${state.innerPort}/health`, { signal: AbortSignal.timeout(1000) });
     return response.ok && (await response.json()).pid === originalProcess.pid ? true : null;
   }, 30000, "Takeover service did not become healthy");
-  const log = openSync(join(session.root, "evidence/native-desktop.log"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  let desktop: ProcessIdentity | null;
-  try {
-    const child = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer")], { env: fixtureEnvironment(state), stdin: "ignore", stdout: log, stderr: log });
-    child.unref(); desktop = processIdentity(child.pid);
-  } finally { closeSync(log); }
-  if (!desktop) throw Error("Desktop process identity unavailable");
+  let desktop: ProcessIdentity | null = launch("native-desktop.log", theme);
   state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: state.exercise, runtime: { ...state.runtime!, desktop } }, options);
   const ui = await desktopControls(desktop.pid);
-  const offer = await waitFor(async () => {
-    const observed = await ui.controls();
-    return observed.elements.some(e => e.name === "Use the app's service") && observed.elements.some(e => e.name === "Not now") ? observed : null;
-  }, 60000, "Takeover page did not precede the version gate");
-  const nativeId = processIdentitySync(desktop.pid);
-  if (nativeId) {
-    try {
-      const capture = await nativeCommand({ command: "capture", pid: desktop.pid, start_identity: nativeId.start_identity, window_id: offer.window_id });
-      const path = join(session.root, "evidence/takeover-offer.png");
-      writeFileSync(path, Buffer.from(capture.png, "base64"), { flag: "wx", mode: 0o600 });
-      record(session, { kind: "capture", behavior: `OTA ${scenario} offer`, surface: "native desktop", path, text: "Takeover confirmation before version gate" });
-    } catch (error) {
-      record(session, { kind: "note", behavior: `OTA ${scenario} native capture`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
-    }
-  }
-  record(session, { kind: "note", behavior: `OTA ${scenario} offer`, surface: "native desktop", verdict: "PASS", text: `Takeover choice was visible before the version gate; original service PID ${originalProcess.pid}, registration ${originalRegistration}; certificate-pinned lease rejected the ad hoc CLI.` });
+  await offerShown(ui);
+  await sleep(500);
+  const offerTexts = await ui.texts();
+  if (offerTexts.some(text => INTERNAL.test(text)) || hasText(offerTexts, "Starting pacer")) throw Error("Takeover offer shows internal text or the starting heading");
+  // Paths may break at <wbr>, which accessibility can expose as separate text runs.
+  const offerText = offerTexts.join("");
+  if (!offerText.includes(fixtureTakeoverCli(state)) || !offerText.includes(join(state.currentApp, "Contents/Resources/pacer"))) throw Error("Takeover offer does not show both full executable paths");
+  await capture(ui, `takeover-offer-${theme}.png`, `offer before the version gate (${theme})`);
+  if (scenario === "takeover" || scenario === "takeover-dismiss") await tabOrder(ui, "takeover-offer-tab-order.json");
+  observed.originalPid = originalProcess.pid;
+  observed.originalRegistration = originalRegistration;
+  record(session, { kind: "note", behavior: `OTA ${scenario} offer`, surface: "native desktop", verdict: "PASS", text: `Takeover choice was visible before the version gate with both full executable paths and no internal text; original service PID ${originalProcess.pid}, registration ${originalRegistration}; certificate-pinned lease rejected the ad hoc CLI.` });
   if (scenario === "takeover-dismiss") {
     await ui.click("Not now");
     await waitFor(async () => existsSync(join(config, "takeover-dismissed.json")) ? true : null, 10000, "Dismissal was not persisted");
+    await settings(ui, "settings-before-light.png", true);
+    // The Settings button opens the bundled confirmation again, even after Not now.
+    await ui.click("Review service replacement");
+    await offerShown(ui);
+    record(session, { kind: "note", behavior: "OTA takeover-dismiss Settings review button", surface: "native desktop / service web app", verdict: "PASS", text: "Settings → Updates showed the replaced-service reason and Review service replacement; the button opened the bundled confirmation page." });
+    await ui.click("Not now");
+    await settings(ui, "settings-after-not-now-light.png", true);
     const dismissal = JSON.parse(readFileSync(join(config, "takeover-dismissed.json"), "utf8"));
     if (!/^[a-f0-9]{64}$/.test(dismissal.sha256) || !/^[a-f0-9]{40}$/.test(dismissal.cdhash)) throw Error("Dismissal identity is malformed");
     const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
@@ -140,28 +217,42 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     if (!sameProcess(processIdentity(desktop.pid), desktop)) throw Error("Dismissed desktop incarnation changed");
     process.kill(desktop.pid, "SIGTERM");
     await waitFor(async () => incarnationExited(desktop!) ? true : null, 10000, "Dismissed desktop did not exit");
+    // The same executable identity is not offered again after a relaunch.
+    const same = launch("native-desktop-same.log", "dark");
+    state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: state.exercise, runtime: { ...state.runtime!, desktop: same } }, options);
+    const sameUi = await desktopControls(same.pid);
+    await settings(sameUi, "settings-before-dark.png", true);
+    if ((await sameUi.controls()).elements.some(e => e.name === "Use the app's service")) throw Error("Dismissed identity was offered again");
+    record(session, { kind: "note", behavior: "OTA takeover-dismiss same identity", surface: "native desktop", verdict: "PASS", text: "After Not now, a relaunch with the same executable identity opened the service app directly; Settings still explained the replaced service." });
+    process.kill(same.pid, "SIGTERM");
+    await waitFor(async () => incarnationExited(same) ? true : null, 10000, "Same-identity desktop did not exit");
     const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
     JSON.parse(await shell(state, [helper, "--ota-fixture-refresh-takeover"]));
     if (digest(readFileSync(file)) === originalHash) throw Error("Fixed dismissal probe did not change the executable");
     const changed = await inspectFixtureJobs(readOtaRecord(id, options));
     if (!changed.jobs[0].loaded || changed.jobs[0].registrationSha256 !== originalRegistration || sameProcess(changed.jobs[0].process, originalProcess)) throw Error("Changed service did not reload under the same registration");
-    const secondLog = openSync(join(session.root, "evidence/native-desktop-reoffer.log"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    let relaunched: ProcessIdentity | null;
-    try {
-      const child = Bun.spawn([join(state.currentApp, "Contents/MacOS/pacer")], { env: fixtureEnvironment(state), stdin: "ignore", stdout: secondLog, stderr: secondLog });
-      child.unref(); relaunched = processIdentity(child.pid);
-    } finally { closeSync(secondLog); }
-    if (!relaunched) throw Error("Relaunched desktop identity unavailable");
+    const relaunched = launch("native-desktop-reoffer.log", "dark");
     state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: state.exercise, runtime: { ...state.runtime!, desktop: relaunched } }, options);
     const secondUi = await desktopControls(relaunched.pid);
-    await waitFor(async () => {
-      const observed = await secondUi.controls();
-      return observed.elements.some(e => e.name === "Use the app's service") && observed.elements.some(e => e.name === "Not now") ? true : null;
-    }, 60000, "Changed executable did not re-offer takeover");
+    await offerShown(secondUi);
+    await sleep(500);
+    await capture(secondUi, "takeover-offer-dark.png", "re-offer for a changed executable (dark)");
+    observed.dismissal = { sha256: dismissal.sha256, cdhash: dismissal.cdhash, reofferedAfterChange: true };
   } else {
     if (scenario === "takeover-relink") await ui.click("Also point the terminal command at the app");
     await ui.click("Use the app's service");
     const expected = scenario === "takeover" || scenario === "takeover-relink" ? "committed" : "restored";
+    // Best effort: the switch may finish before the first frame is captured.
+    const progressTexts = await ui.texts().catch(() => [] as string[]);
+    await capture(ui, `takeover-progress-${theme}.png`, `progress after confirming (${theme})`);
+    observed.progressText = progressTexts.filter(text => /service|Checking|Stopping|Starting|Restoring/.test(text)).slice(0, 6);
+    if (progressTexts.some(text => INTERNAL.test(text))) throw Error("Takeover progress shows internal text");
+    if (scenario === "takeover-crash") {
+      // The helper exits after the switch. Until the recovery job finishes, the
+      // desktop holds an in-progress page and leaves the service alone.
+      await waitFor(async () => hasText(await ui.texts(), "Replacing the pacer service") ? true : null, 60000, "In-progress page was not shown after the helper exited");
+      await capture(ui, "takeover-in-progress-light.png", "transaction in progress after a helper crash (light)");
+    }
     const result = await waitFor(async () => {
       const tx = takeoverJournal(state.pacerHome);
       return tx?.journal.state === expected ? tx : null;
@@ -181,9 +272,35 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
         const backups = readdirSync(join(state.pacerHome, ".local/bin")).filter(name => /^pacer\.pre-app-\d{8}T\d{6}Z$/.test(name));
         if (backups.length !== 1 || digest(readFileSync(join(state.pacerHome, ".local/bin", backups[0]))) !== originalHash || readlinkSync(file) !== bundled) throw Error("Terminal command was not safely relinked");
       } else if (!lstatSync(file).isFile() || digest(readFileSync(file)) !== originalHash) throw Error("Original terminal command changed");
+      await settings(ui, `settings-after-${theme}.png`, false);
+      observed.relinked = scenario === "takeover-relink";
+      observed.service = { executable: jobs.jobs[0].executable, registrationSha256: jobs.jobs[0].registrationSha256, ownership: "managed" };
     } else {
       if (!jobs.jobs[0].loaded || jobs.jobs[0].executable !== file || jobs.jobs[0].registrationSha256 !== originalRegistration || digest(readFileSync(file)) !== originalHash) throw Error("Original service was not restored");
+      const restored = await waitFor(async () => {
+        const seen = await ui.controls();
+        return seen.elements.some(e => e.name === "Continue current service" && e.role === "button") ? seen : null;
+      }, 60000, "Restored page did not appear");
+      await sleep(500);
+      const texts = restored.elements.flatMap(e => [e.name, e.value ?? ""]);
+      if (!hasText(texts, "Kept your current service") || texts.some(text => INTERNAL.test(text))) throw Error("Restored page shows internal text or the wrong heading");
+      await capture(ui, `takeover-restored-${theme}.png`, `restored outcome (${theme})`);
+      observed.restoredText = texts.filter(text => /service/.test(text)).slice(0, 4);
+      if (scenario === "takeover-crash") {
+        // From the helper's exit until the restored outcome, the desktop must not
+        // install, start or sign in to the service the recovery job owns.
+        const log = readFileSync(evidence("native-desktop.log"), "utf8");
+        const start = log.indexOf("service takeover failed");
+        const end = log.indexOf("holding takeover page takeoverRestored", start);
+        const pending = start < 0 ? "" : log.slice(start, end < 0 ? undefined : end);
+        if (!pending.includes("holding takeover page takeoverProgress") || /automatic (install|start|restart) succeeded|desktop sign-in complete/.test(pending)) throw Error("Desktop acted on the service while the takeover transaction was pending");
+        observed.pendingGate = "no install, start or sign-in while the transaction was pending";
+      }
+      await ui.click("Continue current service");
+      await waitFor(async () => existsSync(join(config, "takeover-acknowledged.json")) ? true : null, 10000, "Continuing did not record the outcome");
+      observed.continued = true;
     }
+    observed.journal = { tx: result.tx, state: result.journal.state, error: result.journal.error, steps: result.journal.steps.map((step: any) => `${step.action.kind}:${step.outcome ?? (step.uncertain ? "uncertain" : "open")}`) };
   }
   if (scenario !== "takeover" && scenario !== "takeover-relink") {
     // The kept or restored service is the source-built CLI, which cannot ask
@@ -195,5 +312,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   for (const item of preserved) if (digest(privateFixtureBytes(join(state.pacerHome, item.name), 1048576)) !== item.hash) throw Error(`User data changed: ${item.name}`);
   state = readOtaRecord(id, options);
   updateOtaDriverRecord(id, state, { exercise: { ...state.exercise!, state: "complete" }, runtime: { ...state.runtime!, request: null } }, options);
-  record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: "Verified fixed takeover outcome, fixture registration, terminal command and preserved user data. Native and VoiceOver presentation not separately audited." });
+  observed.preserved = preserved.map(item => item.name);
+  writeFileSync(evidence("takeover-observed.json"), JSON.stringify(observed, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `Observed: ${JSON.stringify(observed)}. VoiceOver WAIVED (VO-TEMP-2026-10), not tested.` });
 }

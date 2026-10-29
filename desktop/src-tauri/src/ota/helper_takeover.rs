@@ -62,8 +62,9 @@ pub fn run_takeover(trust: ReleaseTrust) -> Result<(), OtaError> {
     crate::ota::helper::verify_takeover_parent(&manifest, &trust)?;
     let home = &manifest.candidate.home;
     let user_home = crate::ota::platform::user_home(&trust)?;
-    let store = TakeoverStore::create(home, &manifest)?;
+    // Lock first: a contended or refused attempt leaves no transaction behind.
     let _locks = lock_transaction(&trust, &manifest)?;
+    let store = TakeoverStore::create(home, &manifest)?;
     let platform = NativeTakeoverPlatform::new(trust, user_home.clone(), config_dir(&user_home))?;
     let _ = control::write_frame(
         &mut channel,
@@ -77,15 +78,12 @@ pub fn run_takeover(trust: ReleaseTrust) -> Result<(), OtaError> {
     });
     let journal = store.journal()?;
     let state = journal.state;
-    // The journal reason is a short public code; it never carries paths.
-    let error = outcome
-        .as_ref()
-        .err()
-        .map(ToString::to_string)
-        .or(journal.error)
-        .or_else(|| {
-            (state == TakeoverState::RecoveryFailed).then(|| OtaError::RecoveryFailed.to_string())
-        });
+    // Only short public reason codes cross the channel; never paths or messages.
+    let error = journal.error.or_else(|| {
+        outcome.as_ref().err().map(|error| {
+            format!("helper:{}", serde_json::to_value(error).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_else(|| "unknown".into()))
+        })
+    });
     let _ = control::write_frame(&mut channel, &Progress { state, error });
     outcome.map(|_| ())
 }
@@ -113,12 +111,10 @@ pub fn run_recovery(trust: ReleaseTrust, tx: &str) -> Result<(), OtaError> {
     let _locks = lock_transaction(&trust, store.manifest())?;
     let user_home = crate::ota::platform::user_home(&trust)?;
     let platform = NativeTakeoverPlatform::new(trust, user_home.clone(), config_dir(&user_home))?;
-    let state = engine::recover(&store, &platform)?;
-    if state == TakeoverState::RecoveryFailed {
-        Err(OtaError::RecoveryFailed)
-    } else {
-        Ok(())
-    }
+    // A terminal state is durable once recover returns, and the job is retired.
+    // Recovery failure is reported by the desktop from the retained journal; a
+    // failing exit here would only make launchd relaunch the job.
+    engine::recover(&store, &platform).map(|_| ())
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -220,7 +216,9 @@ mod tests {
         let received: TakeoverManifest = control::read_frame(&mut reader).unwrap();
         let home = tempfile::tempdir().unwrap();
         let store = TakeoverStore::create(home.path(), &received).unwrap();
-        assert_eq!(engine::execute(&store, &Reject), Err(OtaError::Identity));
-        assert!(store.journal().unwrap().steps.is_empty());
+        assert_eq!(engine::execute(&store, &Reject), Ok(TakeoverState::Restored));
+        let journal = store.journal().unwrap();
+        assert!(journal.steps.is_empty());
+        assert_eq!(journal.error.as_deref(), Some("redetect:identity"));
     }
 }

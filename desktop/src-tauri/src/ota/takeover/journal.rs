@@ -45,7 +45,6 @@ pub enum TakeoverAction {
     SwitchRegistration,
     LaunchManaged,
     Verify,
-    RetireRecovery,
     RestoreRegistration,
     LaunchOriginal,
 }
@@ -80,7 +79,86 @@ pub struct TakeoverJournal {
     pub manifest_sha256: String,
     pub state: TakeoverState,
     pub steps: Vec<TakeoverStep>,
+    #[serde(deserialize_with = "required_nullable")]
     pub error: Option<String>,
+}
+
+impl TakeoverState {
+    pub fn terminal(self) -> bool {
+        matches!(self, Self::Committed | Self::Restored | Self::RecoveryFailed)
+    }
+}
+
+/// The latest finished transaction, as the desktop reports it at launch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FinishedTakeover {
+    pub transaction_id: String,
+    pub state: TakeoverState,
+    pub error: Option<String>,
+    pub candidate: TakeoverCandidate,
+}
+
+/// What the desktop must respect before it acts on the service.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TakeoverStatus {
+    /// A transaction has made or may have made effects and has not finished.
+    /// The helper or its recovery job owns the service until it does.
+    pub pending: bool,
+    pub latest: Option<FinishedTakeover>,
+}
+
+/// Reads every takeover transaction under `home` without taking its lock. An
+/// unreadable or invalid transaction is treated as pending, so the desktop
+/// never acts on a service whose ownership it cannot establish.
+pub fn status(home: &Path) -> TakeoverStatus {
+    let mut status = TakeoverStatus::default();
+    let Ok(home) = home.canonicalize() else { return status };
+    let root = home.join("desktop-updates/native/takeover");
+    let Ok(entries) = std::fs::read_dir(&root) else { return status };
+    let mut latest: Option<(std::time::SystemTime, FinishedTakeover)> = None;
+    for entry in entries.flatten() {
+        let Some(tx) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        if !valid_id(&tx) {
+            continue;
+        }
+        let Ok((manifest, journal)) = read_unlocked(&home, &tx) else {
+            status.pending = true;
+            continue;
+        };
+        if !journal.state.terminal() {
+            // Nothing happened and no recovery job exists yet: a helper that
+            // stopped before its first effect leaves the service untouched.
+            if !(journal.state == TakeoverState::Prepared && journal.steps.is_empty()) {
+                status.pending = true;
+            }
+            continue;
+        }
+        let modified = std::fs::metadata(root.join(&tx).join(JOURNAL))
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if latest.as_ref().is_none_or(|(time, _)| modified > *time) {
+            latest = Some((modified, FinishedTakeover {
+                transaction_id: tx,
+                state: journal.state,
+                error: journal.error,
+                candidate: manifest.candidate,
+            }));
+        }
+    }
+    status.latest = latest.map(|(_, finished)| finished);
+    status
+}
+
+fn read_unlocked(home: &Path, tx: &str) -> Result<(TakeoverManifest, TakeoverJournal), OtaError> {
+    let directory = PrivateDir::open(&TakeoverStore::path(home, tx)?)?;
+    let bytes = directory.read(MANIFEST, LIMIT)?;
+    let manifest: TakeoverManifest = serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)?;
+    validate_manifest(&manifest)?;
+    require(manifest.transaction_id == tx)?;
+    let journal: TakeoverJournal =
+        serde_json::from_slice(&directory.read(JOURNAL, LIMIT)?).map_err(|_| OtaError::Invalid)?;
+    validate_journal(&journal, &manifest, &digest(&bytes))?;
+    Ok((manifest, journal))
 }
 
 pub struct TakeoverStore {
@@ -692,10 +770,14 @@ mod tests {
         let mut early = valid.clone();
         early["error"] = serde_json::json!("arm-recovery:io");
         reject(&early);
+        // `error` is required even when it is null.
+        let mut absent = valid.clone();
+        absent.as_object_mut().unwrap().remove("error");
+        reject(&absent);
         let mut failed = valid.clone();
         failed["state"] = serde_json::json!("recovery-failed");
         reject(&failed);
-        failed["error"] = serde_json::json!("/Users/someone/pacer");
+        failed["error"] = serde_json::json!("/tmp/pacer-fixture/pacer");
         reject(&failed);
         std::fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
         assert_eq!(
@@ -712,6 +794,54 @@ mod tests {
                 .err(),
             Some(OtaError::Invalid)
         );
+    }
+    fn manifest_with_id(id: &str) -> TakeoverManifest {
+        TakeoverManifest { transaction_id: id.into(), ..manifest() }
+    }
+    #[test]
+    fn launch_status_reports_pending_and_the_latest_finished_transaction() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(status(temp.path()), TakeoverStatus::default());
+        // A helper that stopped before its first effect leaves nothing pending.
+        let idle = TakeoverStore::create(temp.path(), &manifest_with_id("tx-idle")).unwrap();
+        drop(idle);
+        assert_eq!(status(temp.path()), TakeoverStatus::default());
+        // An effect without a final state is pending, even while its lock is held.
+        let store = TakeoverStore::create(temp.path(), &manifest_with_id("tx-pending")).unwrap();
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        let pending = status(temp.path());
+        assert!(pending.pending);
+        assert_eq!(pending.latest, None);
+        store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).unwrap();
+        store.transition(TakeoverState::Stopping).unwrap();
+        assert!(status(temp.path()).pending);
+        store.transition_with(TakeoverState::Restoring, Some("stop-original:identity")).unwrap();
+        assert!(status(temp.path()).pending);
+        store.transition(TakeoverState::Restored).unwrap();
+        let finished = status(temp.path());
+        assert!(!finished.pending);
+        let latest = finished.latest.unwrap();
+        assert_eq!(latest.transaction_id, "tx-pending");
+        assert_eq!(latest.state, TakeoverState::Restored);
+        assert_eq!(latest.error.as_deref(), Some("stop-original:identity"));
+        assert_eq!(latest.candidate, manifest().candidate);
+    }
+    #[test]
+    fn launch_status_prefers_the_newest_journal_and_treats_damage_as_pending() {
+        let temp = tempfile::tempdir().unwrap();
+        let older = TakeoverStore::create(temp.path(), &manifest_with_id("tx-older")).unwrap();
+        older.intend(TakeoverAction::ArmRecovery).unwrap();
+        older.complete(&TakeoverAction::ArmRecovery, StepOutcome::Failed).unwrap();
+        older.transition_with(TakeoverState::Restoring, Some("arm-recovery:io")).unwrap();
+        older.transition_with(TakeoverState::RecoveryFailed, Some("restore-registration:identity")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let newer = TakeoverStore::create(temp.path(), &manifest_with_id("tx-newer")).unwrap();
+        newer.transition_with(TakeoverState::Restored, Some("redetect:identity")).unwrap();
+        let latest = status(temp.path()).latest.unwrap();
+        assert_eq!((latest.transaction_id.as_str(), latest.state), ("tx-newer", TakeoverState::Restored));
+        let path = TakeoverStore::path(temp.path(), "tx-older").unwrap().join(JOURNAL);
+        std::fs::write(&path, b"{").unwrap();
+        assert!(status(temp.path()).pending);
     }
     #[test]
     fn state_graph_rejects_illegal_edges() {

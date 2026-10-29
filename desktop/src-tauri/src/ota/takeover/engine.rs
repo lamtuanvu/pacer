@@ -47,7 +47,6 @@ fn action_code(action: &Action) -> &'static str {
         Action::SwitchRegistration => "switch-registration",
         Action::LaunchManaged => "launch-managed",
         Action::Verify => "verify",
-        Action::RetireRecovery => "retire-recovery",
         Action::RestoreRegistration => "restore-registration",
         Action::LaunchOriginal => "launch-original",
     }
@@ -115,9 +114,9 @@ fn restore(
         }
     };
     progress(state);
-    if state == State::Restored {
-        let _ = p.retire_recovery(m);
-    }
+    // Both outcomes are durable now. A failed restoration keeps its journal and
+    // snapshot as evidence, but its recovery job must not relaunch forever.
+    let _ = p.retire_recovery(m);
     Ok(state)
 }
 
@@ -131,7 +130,12 @@ pub fn execute_with_progress(
     progress: &mut dyn FnMut(State),
 ) -> Result<State, OtaError> {
     let m = store.manifest();
-    p.redetect(m)?;
+    if let Err(error) = p.redetect(m) {
+        // Nothing was changed: finish without effects, so no transaction is left open.
+        store.transition_with(State::Restored, Some(&failure("redetect", error).reason))?;
+        progress(State::Restored);
+        return Ok(State::Restored);
+    }
     if let Err(failed) = effect(store, Action::ArmRecovery, || p.arm_recovery(m)) {
         // A failed arm may have partially loaded the recovery job.
         return restore(store, p, progress, Some(&failed.reason)).or(Err(failed.error));
@@ -168,7 +172,11 @@ pub fn recover(store: &TakeoverStore, p: &dyn TakeoverPlatform) -> Result<State,
             p.retire_recovery(store.manifest())?;
             Ok(journal.state)
         }
-        State::RecoveryFailed => Ok(State::RecoveryFailed),
+        State::RecoveryFailed => {
+            // Evidence stays in the transaction directory; only the job is retired.
+            p.retire_recovery(store.manifest())?;
+            Ok(State::RecoveryFailed)
+        }
         State::Prepared if journal.steps.is_empty() => {
             store.transition(State::Restored)?;
             Ok(State::Restored)
@@ -303,9 +311,14 @@ mod tests {
         );
         let (_temp, store) = fixture();
         let fake = Fake::new(Some("redetect"));
-        assert_eq!(execute(&store, &fake), Err(OtaError::Identity));
-        assert!(store.journal().unwrap().steps.is_empty());
-        assert_eq!(store.journal().unwrap().error, None);
+        let mut states = vec![];
+        // Drift is refused with no effects, and the transaction is finished.
+        assert_eq!(execute_with_progress(&store, &fake, &mut |state| states.push(state)), Ok(State::Restored));
+        let journal = store.journal().unwrap();
+        assert!(journal.steps.is_empty());
+        assert_eq!(journal.state, State::Restored);
+        assert_eq!(journal.error.as_deref(), Some("redetect:identity"));
+        assert_eq!(states, [State::Restored]);
         assert_eq!(fake.calls(), ["redetect"]);
     }
     #[test]
@@ -357,7 +370,35 @@ mod tests {
             journal.steps.last().unwrap().outcome,
             Some(StepOutcome::Failed)
         );
-        assert_eq!(fake.calls(), ["restore"]);
+        // The recovery job is retired; the journal and snapshot stay as evidence.
+        assert_eq!(fake.calls(), ["restore", "retire"]);
+        // A relaunched recovery job only retires itself again.
+        let again = Fake::new(None);
+        assert_eq!(recover(&store, &again), Ok(State::RecoveryFailed));
+        assert_eq!(again.calls(), ["retire"]);
+        assert_eq!(store.journal().unwrap(), journal);
+    }
+    #[test]
+    fn restore_refuses_an_original_program_that_changed() {
+        // The pinned launch refuses a program whose file or code identity
+        // differs from the one captured at confirmation, before bootstrap.
+        let (_temp, store) = fixture();
+        let fake = Fake::new(Some("launch-original"));
+        store.intend(Action::ArmRecovery).unwrap();
+        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store.transition(State::Stopping).unwrap();
+        store.intend(Action::StopOriginal).unwrap();
+        store.complete(&Action::StopOriginal, StepOutcome::Ok).unwrap();
+        store.transition(State::Switched).unwrap();
+        assert_eq!(recover(&store, &fake), Ok(State::RecoveryFailed));
+        let journal = store.journal().unwrap();
+        assert_eq!(journal.error.as_deref(), Some("launch-original:identity"));
+        // Nothing runs after the refused launch: no verification and no forward step.
+        assert_eq!(fake.calls(), ["restore", "launch-original", "retire"]);
+        assert_eq!(
+            journal.steps.iter().filter(|s| s.action == Action::LaunchOriginal).map(|s| s.outcome).collect::<Vec<_>>(),
+            [Some(StepOutcome::Failed)]
+        );
     }
     #[test]
     fn interrupted_recovery_records_the_interrupted_step() {
@@ -482,7 +523,7 @@ mod tests {
             let fake = Fake::new(Some("restore"));
             assert_eq!(recover(&store, &fake), Ok(State::RecoveryFailed));
             assert_eq!(store.journal().unwrap().state, State::RecoveryFailed);
-            assert_eq!(fake.calls(), ["restore"]);
+            assert_eq!(fake.calls(), ["restore", "retire"]);
         }
     }
     #[test]

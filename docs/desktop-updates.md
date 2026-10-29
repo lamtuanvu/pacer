@@ -54,18 +54,35 @@ legacy service update automatically.
 
 If a previously consented desktop service runs from a build the app cannot
 verify, the desktop offers **Use the app's service** before its normal version
-check. The confirmation shows both command paths, the service label, port,
-data home and any work counts it can read. **Not now** keeps the current
-service and is remembered for that executable identity. A changed executable
-causes the choice to appear again.
+check. The confirmation is a page bundled with the app, not the service's web
+app. It shows both command paths, the version the other build reports, the
+service label, port, data home and any work counts it can read. **Not now**
+keeps the current service and is remembered for that executable identity. A
+changed executable causes the choice to appear again. While the offer is open,
+the desktop checks the service about every 30 seconds instead of continuously.
+
+**Settings → Updates** explains that the service was replaced and offers
+**Review service replacement**, which opens the same confirmation page, also
+after **Not now**. Settings also notes when the terminal command and the
+service run different builds.
 
 Confirming stops the inspected service job, registers the signed CLI bundled
 with the app and verifies the new service. Settings and task data stay in the
 same home; the original command file stays in place. The optional terminal
 checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
-`~/.local/bin/pacer` to the bundled CLI. If startup fails, the helper restores
-the original registration and service. If recovery cannot verify the original
-service, keep the recovery files and follow the recovery guidance below.
+`~/.local/bin/pacer` to the bundled CLI. If the service changed after you
+reviewed it, nothing is changed.
+
+If startup fails, the original registration and service are restored. A
+separate recovery job finishes the restore even if the helper or the desktop
+stops during the switch. Until the transaction finishes, the desktop shows that
+the service is being replaced and does not install, start or sign in to the
+service. It then shows **Kept your current service** with the reason. **Continue
+current service** also hides the offer for that build, like **Not now**. If
+recovery cannot verify the original service, the desktop shows **Service
+replacement needs attention** on every launch. Keep the transaction files under
+`$PACER_HOME/desktop-updates/native/takeover/` and follow the recovery guidance
+below.
 
 ## Updating
 

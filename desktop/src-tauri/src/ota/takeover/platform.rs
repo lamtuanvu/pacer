@@ -52,6 +52,25 @@ fn restore_plan(
     Err(OtaError::Identity)
 }
 
+/// Prepare refuses any drift between the confirmed authorization and live
+/// state: plist bytes, the loaded PID and its incarnation, and the program's
+/// file and code identity. A disabled override is refused as in adoption.
+fn authorization_matches(
+    m: &TakeoverManifest,
+    redetected: Option<&super::detect::TakeoverCandidate>,
+    registration: Option<&[u8]>,
+    original: &[u8],
+    disabled: bool,
+) -> Result<(), OtaError> {
+    if redetected != Some(&m.candidate)
+        || registration.is_some_and(|bytes| bytes != original)
+        || disabled
+    {
+        return Err(OtaError::Identity);
+    }
+    Ok(())
+}
+
 impl NativeTakeoverPlatform {
     fn disabled(&self, label: &str) -> Result<bool, OtaError> {
         let label = label.to_owned();
@@ -371,22 +390,20 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
             &m.bundled_cli,
             &self.trust,
         )?;
-        if candidate.as_ref() != Some(&m.candidate) {
-            return Err(OtaError::Identity);
-        }
+        authorization_matches(m, candidate.as_ref(), None, &[], false)?;
         let observed = control::observe_service_registration(
             &self.user_home,
             &m.candidate.home,
             m.candidate.port,
             &self.trust,
         )?;
-        if observed.registration != self.original(m)? {
-            return Err(OtaError::Identity);
-        }
-        if self.disabled(&m.candidate.label)? {
-            return Err(OtaError::Identity);
-        }
-        Ok(())
+        authorization_matches(
+            m,
+            candidate.as_ref(),
+            Some(&observed.registration),
+            &self.original(m)?,
+            self.disabled(&m.candidate.label)?,
+        )
     }
     fn arm_recovery(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
         let app = m
@@ -650,6 +667,44 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
 #[cfg(test)]
 mod restore_tests {
     use super::*;
+
+    #[test]
+    fn prepare_refuses_every_kind_of_authorization_drift() {
+        let m: TakeoverManifest = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/fixtures/desktop-update/takeover-manifest.json"
+        )))
+        .unwrap();
+        let original = base64::engine::general_purpose::STANDARD
+            .decode(&m.original_registration_b64)
+            .unwrap();
+        let same = m.candidate.clone();
+        assert_eq!(authorization_matches(&m, Some(&same), Some(&original), &original, false), Ok(()));
+        // Detection no longer holds at all.
+        assert_eq!(authorization_matches(&m, None, Some(&original), &original, false), Err(OtaError::Identity));
+        // Plist bytes changed.
+        let mut changed = original.clone();
+        changed.push(b'\n');
+        assert_eq!(authorization_matches(&m, Some(&same), Some(&changed), &original, false), Err(OtaError::Identity));
+        let mut plist = same.clone();
+        plist.registration_sha256 = "0".repeat(64);
+        // The loaded PID, its incarnation, or the program's identity changed.
+        let mut pid = same.clone();
+        pid.process.pid += 1;
+        let mut incarnation = same.clone();
+        incarnation.process.birth.push('1');
+        let mut content = same.clone();
+        content.identity.sha256 = "c".repeat(64);
+        let mut code = same.clone();
+        code.identity.cdhash = "d".repeat(40);
+        let mut inode = same.clone();
+        inode.identity.inode.push('9');
+        for drift in [plist, pid, incarnation, content, code, inode] {
+            assert_eq!(authorization_matches(&m, Some(&drift), Some(&original), &original, false), Err(OtaError::Identity));
+        }
+        // A disabled override is refused.
+        assert_eq!(authorization_matches(&m, Some(&same), Some(&original), &original, true), Err(OtaError::Identity));
+    }
 
     #[test]
     fn restore_plan_covers_registration_and_loaded_job_combinations() {

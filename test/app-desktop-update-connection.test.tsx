@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { openDesktopTakeover, readDesktopUpdateConnection } from "../app/src/data/desktop";
-import { DesktopUpdateConnection } from "../app/src/screens/settings/DesktopUpdateConnection";
+import { DesktopUpdateConnection, reviewServiceReplacement } from "../app/src/screens/settings/DesktopUpdateConnection";
+import { desktopConnectionView } from "../src/view-model/updates";
 
 test("native update connection is read independently of the service snapshot", async () => {
   const calls: [string, unknown][] = [];
@@ -18,9 +19,26 @@ test("supported takeover reason offers only the bundled shell page", async () =>
   expect(connection?.reason).toBe("service-takeover");
   const html = renderToString(<DesktopUpdateConnection connection={connection}/>);
   expect(html).toContain("The pacer service was replaced by another build. Automatic updates are paused.");
-  expect(html).toContain("Use the app's service");
+  expect(html).toContain(">Review service replacement</button>");
+  // The control sits outside the live status region, so it is not announced as status.
+  const status = html.slice(html.indexOf('role="status"'), html.indexOf("</div>", html.indexOf('role="status"')));
+  expect(status).not.toContain("<button");
+  expect(html.indexOf("<button")).toBeGreaterThan(html.indexOf("</div>", html.indexOf('role="status"')));
   await openDesktopTakeover(host);
   expect(calls).toEqual(["desktop_update_connection", "takeover_open"]);
+});
+
+test("a takeover page that cannot be opened is reported in plain copy", async () => {
+  const view = desktopConnectionView({ state: "unavailable", reason: "service-takeover" });
+  expect(view.takeoverAction).toBe("Review service replacement");
+  expect(await reviewServiceReplacement(async () => {}, view.takeoverError)).toBeNull();
+  const error = await reviewServiceReplacement(async () => { throw new Error("No service takeover was detected"); }, view.takeoverError);
+  expect(error?.message).toBe("The service replacement page couldn't be opened. The service may have changed; check again in a moment.");
+  // Older shells without the command fail the same visible way.
+  expect((await reviewServiceReplacement(() => openDesktopTakeover({}), view.takeoverError))?.message).toBe(view.takeoverError);
+  for (const reason of ["service-identity", "connection", null]) {
+    expect(desktopConnectionView({ state: "unavailable", reason }).takeoverAction).toBeNull();
+  }
 });
 
 test("connection diagnostics reject malformed or unknown native payloads", async () => {

@@ -47,6 +47,8 @@ async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Resul
 struct Shell {
     takeover: Mutex<Option<TakeoverView>>,
     takeover_progress: Mutex<Option<Value>>,
+    /// The main window's document authority and its single-use takeover token.
+    main_page: Mutex<logic::MainPage>,
     #[cfg(feature = "ota-fixture")]
     fixture_tray_auth: Mutex<Option<Url>>,
     native: Mutex<Option<Arc<pacer_desktop::ota::control::NativeConnection>>>,
@@ -81,6 +83,7 @@ impl Default for Shell {
         Self {
             takeover: Mutex::new(None),
             takeover_progress: Mutex::new(None),
+            main_page: Mutex::new(logic::MainPage::default()),
             #[cfg(feature = "ota-fixture")]
             fixture_tray_auth: Mutex::new(None),
             native: Mutex::new(None),
@@ -186,15 +189,6 @@ fn desktop_update_connection(window: WebviewWindow, app: AppHandle, supports: Op
         }
     }
     Ok(result)
-}
-fn authorized_shell(window: &WebviewWindow) -> Result<(), String> {
-    if window.label() == "main" && window.url().is_ok_and(|url| logic::bundled_shell(Some(&url))) { Ok(()) }
-    else { Err("Takeover inspection is restricted to the bundled shell".into()) }
-}
-#[tauri::command]
-fn takeover_inspection(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
-    authorized_shell(&window)?;
-    app.state::<Shell>().takeover.lock().unwrap().as_ref().map(|view| view.inspection.clone()).ok_or("No service takeover was detected".into())
 }
 #[tauri::command]
 fn takeover_open(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
@@ -556,7 +550,7 @@ fn navigate(app: &AppHandle, raw: &str) {
 fn shell_url(url: &Url) -> bool {
     url.scheme() == "tauri" && url.host_str() == Some("localhost")
 }
-fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
+fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -> bool {
     if logic::dismiss_relink(url, current)
         && app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
             .is_some_and(|d| d.page == "relink")
@@ -571,21 +565,17 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
     }
     let bundled = logic::bundled_shell(current);
     if let Some(action) = logic::shell_action_url(url) {
-        if matches!(action, logic::ShellAction::TakeoverOpen) {
-            let origin = app.state::<Shell>().origin.lock().unwrap().clone();
-            if current.is_some_and(|page| logic::service_navigation(page, origin.as_deref()))
-                && app.state::<Shell>().takeover.lock().unwrap().is_some() {
-                *app.state::<Shell>().shell_action.lock().unwrap() = Some(action);
-                app.state::<Shell>().expired.notify_one();
+        if matches!(action, logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss) {
+            // Only the token the bundled takeover page received authorizes these.
+            // The token is consumed by any attempt, including a rejected one.
+            if main && app.state::<Shell>().main_page.lock().unwrap().authorize_takeover(url, action) {
+                app.state::<Shell>().shell_action.lock().unwrap().get_or_insert(action);
                 app.state::<Shell>().wake.notify_one();
+            } else {
+                desktop_log!("pacer lifecycle: rejected a takeover action without a valid page token");
             }
             return true;
         }
-        if matches!(action, logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss)
-            && !current.is_some_and(|page| logic::bundled_shell(Some(page))
-                && (page.query() == Some("state=takeover") || (action == logic::ShellAction::TakeoverDismiss
-                    && page.query() == Some("state=restored")
-                    && app.state::<Shell>().takeover_progress.lock().unwrap().as_ref().is_some_and(|p| p["state"] == "restored")))) { return true; }
         if bundled && (action != logic::ShellAction::ContinueOldService
             || app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
                 .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"))) {
@@ -636,10 +626,13 @@ fn diagnostic_recovery(app: &AppHandle, diagnosis: &logic::Diagnosis) {
     recovery(app, diagnosis.page);
 }
 fn render_diagnosis(app: &AppHandle) {
+    render_diagnosis_in(app, &["main", "tray"]);
+}
+fn render_diagnosis_in(app: &AppHandle, labels: &[&str]) {
     let detail = app.state::<Shell>().diagnosis.lock().unwrap().clone();
     if let Some(detail) = detail {
         if let Ok(json) = serde_json::to_string(&detail) {
-            for label in ["main", "tray"] {
+            for label in labels.iter().copied() {
                 if let Some(window) = app.get_webview_window(label) {
                     if window.url().is_ok_and(|url| shell_url(&url)) {
                         let _ = window.eval(format!("window.renderShell?.({json})"));
@@ -649,41 +642,31 @@ fn render_diagnosis(app: &AppHandle) {
         }
     }
 }
+/// Delivers inspection, progress and a fresh single-use action token to the
+/// bundled takeover page only. Inspection data is never available over IPC.
 fn render_takeover(app: &AppHandle) {
     let shell = app.state::<Shell>();
-    let present = shell.takeover.lock().unwrap().is_some();
+    let inspection = shell.takeover.lock().unwrap().as_ref().map(|view| view.inspection.clone());
     let progress = shell.takeover_progress.lock().unwrap().clone();
     let Some(window) = app.get_webview_window("main") else { return };
-    if !window.url().is_ok_and(|url| logic::bundled_shell(Some(&url))) { return }
-    if !present { return }
-    let payload = serde_json::json!({"progress":progress});
-    let script = format!(r#"(async () => {{
-      const data = {payload};
-      try {{ data.inspection = await window.__TAURI__.core.invoke('takeover_inspection'); }} catch {{ return; }}
-      const panel = document.getElementById('takeover');
-      if (!panel) return;
-      const pageState = new URLSearchParams(location.search).get('state');
-      if (pageState === 'restored' && data.progress?.state === 'restored') {{
-        document.querySelector('h1').textContent = 'Kept your current service';
-        document.getElementById('message').textContent = data.progress.error || 'The app could not start its service. Your current service was restored.';
-        document.getElementById('message').hidden = false;
-      }}
-      document.getElementById('takeover-restored-actions').hidden = !(pageState === 'restored' && data.progress?.state === 'restored');
-      panel.hidden = pageState !== 'takeover';
-      if (panel.hidden) return;
-      document.querySelector('h1').textContent = 'Use the app\'s service';
-      document.getElementById('spinner').hidden = true;
-      document.getElementById('message').hidden = true;
-      for (const [id, key] of [['takeover-current','currentPath'],['takeover-version','currentVersion'],['takeover-replacement','replacementPath'],['takeover-label','label'],['takeover-port','port'],['takeover-home','dataHome']]) document.getElementById(id).textContent = String(data.inspection[key] ?? 'Unknown');
-      for (const [id, key] of [['takeover-tasks','tasks'],['takeover-terminals','terminals']]) document.getElementById(id).textContent = data.inspection.work[key] === null ? 'unknown' : String(data.inspection.work[key]);
-      const choice = document.getElementById('takeover-relink');
-      const confirm = document.getElementById('takeover-confirm');
-      if (!choice.dataset.bound) {{ choice.addEventListener('change', () => {{ confirm.href = 'tauri://localhost/action/takeover-confirm?relink=' + (choice.checked ? '1' : '0'); }}); choice.dataset.bound = '1'; }}
-      const progress = data.progress;
-      document.getElementById('takeover-actions').hidden = !!progress && progress.state !== 'error';
-      document.getElementById('takeover-progress').textContent = progress ? (progress.error ? progress.state + ': ' + progress.error : progress.state) : '';
-    }})();"#);
-    let _ = window.eval(script);
+    let Some(kind) = window.url().ok().and_then(|url| logic::takeover_page(Some(&url))) else { return };
+    // No action is possible while a transaction runs; only an error re-enables the offer.
+    let in_flight = progress.as_ref().is_some_and(|p| p["state"] != "error");
+    // Never hold the page lock across webview calls, which run on the main thread.
+    // The cached page is cleared when a navigation starts, so a document in
+    // flight never receives a valid token, even if the webview still reports
+    // the old URL; a token issued just before a navigation is already void.
+    let token = if kind == logic::TakeoverPage::Offer && in_flight {
+        shell.main_page.lock().unwrap().revoke_takeover_token();
+        None
+    } else {
+        let Ok(random) = pacer_desktop::ota::journal::random_id() else { return };
+        let Some(token) = shell.main_page.lock().unwrap().issue_takeover_token(random) else { return };
+        Some(token)
+    };
+    let payload = serde_json::json!({"inspection":inspection,"progress":progress,"token":token});
+    // `location` is unforgeable: a document from another origin never gets the payload.
+    let _ = window.eval(format!("if (location.protocol === 'tauri:' && location.host === 'localhost') window.renderTakeover?.({payload});"));
 }
 fn set_takeover_progress(app: &AppHandle, value: Value) {
     *app.state::<Shell>().takeover_progress.lock().unwrap() = Some(value);
@@ -725,6 +708,9 @@ fn recovery(app: &AppHandle, state: &str) {
                     "incomplete" => "incomplete",
                     "relink" => "relink",
                     "takeover" => "takeover",
+                    "takeoverProgress" => "takeoverProgress",
+                    "takeoverRestored" => "takeoverRestored",
+                    "takeoverFailed" => "takeoverFailed",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
                     "installing" => "installing",
@@ -739,6 +725,7 @@ fn recovery(app: &AppHandle, state: &str) {
         }
     }
     if changed {
+        desktop_log!("pacer lifecycle: showing the {state} page");
         if let Some(window) = app.get_webview_window("main") {
             if let Ok(url) = Url::parse(&format!("tauri://localhost/index.html?state={state}")) {
                 let _ = window.navigate(url);
@@ -762,6 +749,9 @@ fn recovery(app: &AppHandle, state: &str) {
         "foreign" => "Another pacer is running",
         "relink" => "pacer's terminal command was removed",
         "takeover" => "Use the app's service",
+        "takeoverProgress" => "Replacing the pacer service",
+        "takeoverRestored" => "Kept your current service",
+        "takeoverFailed" => "Service replacement needs attention",
         "protocol" => "Unable to connect to pacer",
         "installing" => "Installing update",
         "rollingBack" => "Restoring the previous version",
@@ -769,7 +759,7 @@ fn recovery(app: &AppHandle, state: &str) {
         "recoveryFailed" => "Recovery needs attention",
         _ => "Starting pacer…",
     };
-    let alert = matches!(state, "stuck" | "recoveryFailed");
+    let alert = matches!(state, "stuck" | "recoveryFailed" | "takeoverFailed");
     shell.tray_alert.store(alert, Ordering::SeqCst);
     set_error_dot(app, alert);
     if changed {
@@ -809,11 +799,12 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     .on_page_load(move |window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
             *loaded.lock().unwrap() = Some(payload.url().clone());
-            render_diagnosis(window.app_handle());
+            // Only the tray reloaded; the main window keeps its own page.
+            render_diagnosis_in(window.app_handle(), &["tray"]);
         }
     })
     .on_navigation(move |url| {
-        if shell_action(&nav, url, current.lock().unwrap().as_ref()) {
+        if shell_action(&nav, url, current.lock().unwrap().as_ref(), false) {
             return false;
         }
         shell_url(url) && matches!(url.path(), "/" | "/index.html")
@@ -1286,7 +1277,6 @@ fn main() {
             rounded_window_supported,
             native_titlebar_supported,
             desktop_update_connection,
-            takeover_inspection,
             takeover_open,
             native_validation_setup,
             windowMinimize,
@@ -1295,8 +1285,6 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
-            app.add_capability(CapabilityBuilder::new("takeover-shell")
-                .local(true).window("main").permission("allow-takeover-inspection"))?;
             if let Some(route) = std::env::args().find_map(|arg| {
                 arg.strip_prefix("--pacer-relaunch-route=")
                     .and_then(logic::route)
@@ -1305,9 +1293,8 @@ fn main() {
             }
             let nav = handle.clone();
             // WKWebView can have no URL during navigation policy callbacks. Cache
-            // completed page loads for source checks; never query the webview there.
-            let current = Arc::new(Mutex::new(None::<Url>));
-            let loaded = current.clone();
+            // completed page loads for source checks in Shell::main_page; never
+            // query the webview there.
             let builder =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .visible(!std::env::args().any(|arg| arg == "--pacer-relaunch-hidden"))
@@ -1326,11 +1313,13 @@ fn main() {
                                 .lock()
                                 .unwrap()
                                 .invalidate();
+                            window.app_handle().state::<Shell>().main_page.lock().unwrap().started();
                             return;
                         }
-                        *loaded.lock().unwrap() = Some(payload.url().clone());
+                        window.app_handle().state::<Shell>().main_page.lock().unwrap().finished(payload.url().clone());
                         check_main_document(&window, payload.url());
                         if shell_url(payload.url()) {
+                            desktop_log!("pacer lifecycle: shell page loaded: {}", payload.url().query().unwrap_or(""));
                             render_diagnosis(window.app_handle());
                             render_takeover(window.app_handle());
                         }
@@ -1358,13 +1347,16 @@ fn main() {
                         }
                     })
                     .on_navigation(move |url| {
-                        let current = current.lock().unwrap().clone();
-                        if shell_action(&nav, url, current.as_ref()) {
+                        let current = nav.state::<Shell>().main_page.lock().unwrap().current().cloned();
+                        if shell_action(&nav, url, current.as_ref(), true) {
                             return false;
                         }
                         let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
                         match logic::main_navigation(url, current.as_ref(), origin.as_deref()) {
-                            logic::Navigation::Allow => true,
+                            logic::Navigation::Allow => {
+                                nav.state::<Shell>().main_page.lock().unwrap().navigating(url);
+                                true
+                            }
                             logic::Navigation::OpenExternal => {
                                 open_external(url);
                                 false
