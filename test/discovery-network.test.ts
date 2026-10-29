@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { RunFn } from "../src/types";
 import { fakeCtx } from "./helpers";
-import { currentNetwork } from "../src/discovery/network";
+import { currentNetwork, interfaceIPv4 } from "../src/discovery/network";
 
 function runner(map: Record<string, string>): RunFn {
   return async (argv: string[]) => {
@@ -159,4 +159,14 @@ test("the same gateway and SSID give the same key; a different SSID gives anothe
   const c = await currentNetwork(fakeCtx({ run: runner({ ...base, "/usr/sbin/ipconfig getsummary en0": "  SSID : two\n" }) }), { platform: "darwin" });
   expect(a!.key).toBe(b!.key);
   expect(a!.key).not.toBe(c!.key);
+});
+
+test("the interface's first external IPv4 address and netmask feed the radio's on-link filter", () => {
+  const v4 = (address: string, netmask: string, internal = false) => ({ address, netmask, family: "IPv4" as const, internal, mac: "00:00:00:00:00:00", cidr: null });
+  const v6 = { address: "fe80::1", netmask: "ffff:ffff:ffff:ffff::", family: "IPv6" as const, internal: false, mac: "00:00:00:00:00:00", cidr: null, scopeid: 4 };
+  const interfaces = { en0: [v6, v4("192.168.1.10", "255.255.255.0"), v4("192.168.1.11", "255.255.255.0")], lo0: [v4("127.0.0.1", "255.0.0.0", true)], en5: [v6] };
+  expect(interfaceIPv4("en0", interfaces)).toEqual({ addr: "192.168.1.10", mask: "255.255.255.0" });
+  expect(interfaceIPv4("lo0", interfaces)).toBeNull();
+  expect(interfaceIPv4("en5", interfaces)).toBeNull();
+  expect(interfaceIPv4("utun3", interfaces)).toBeNull();
 });

@@ -36,6 +36,17 @@ test("on an approved network the advert has id, name and version but no machine 
   expect(cfg.iface).toBe("en0");
 });
 
+test("the config carries the interface's IPv4 address and netmask for the on-link filter", async () => {
+  const ctx = fakeCtx();
+  const asked: string[] = [];
+  const ipv4 = (iface: string) => { asked.push(iface); return { addr: "192.168.1.10", mask: "255.255.255.0" }; };
+  expect(await buildRadioConfig(ctx, { network: home, ipv4 })).toMatchObject({ listen: true, iface: "en0", ifaceAddr: "192.168.1.10", ifaceMask: "255.255.255.0" });
+  expect(asked).toEqual(["en0"]);
+  expect(await buildRadioConfig(ctx, { network: home, ipv4: () => null })).toMatchObject({ iface: "en0", ifaceAddr: null, ifaceMask: null });
+  expect(await buildRadioConfig(ctx, { network: null, ipv4 })).toMatchObject({ iface: null, ifaceAddr: null, ifaceMask: null });
+  expect(asked).toEqual(["en0"]);
+});
+
 test("without plugin hints the advert has no h key and uses the discard port", async () => {
   const ctx = fakeCtx();
   await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
@@ -157,7 +168,7 @@ test("the radio endpoints answer only on the internal channel with the internal 
     const cfg = await fetch(url("/_internal/discovery/config"), { method: "POST", headers });
     expect(cfg.status).toBe(200);
     // The fake context identifies no network, so there is no interface to listen on.
-    expect(await cfg.json()).toMatchObject({ enabled: true, listen: false, iface: null, advertise: null });
+    expect(await cfg.json()).toMatchObject({ enabled: true, listen: false, iface: null, ifaceAddr: null, ifaceMask: null, advertise: null });
     const observed = await fetch(url("/_internal/discovery/observed"), { method: "POST", headers, body: JSON.stringify({ observations: [{ id: "h".repeat(26), name: "desk", v: "1", h: "" }, "junk"] }) });
     expect(await observed.json()).toMatchObject({ accepted: 1 });
     expect(readState(ctx).seen["h".repeat(26)].name).toBe("desk");

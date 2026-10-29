@@ -2,7 +2,7 @@ import type { Ctx } from "../types";
 import { publish } from "../link/publish";
 import { ensureIdentity } from "../identity/store";
 import { currentVersion } from "../update/version";
-import { currentNetwork, type NetworkInfo } from "./network";
+import { currentNetwork, interfaceIPv4, type NetworkInfo } from "./network";
 import { DISCOVERY_ID, promptDue, takePrompt } from "./policy";
 import { sanitizeText } from "./sanitize";
 import { discoveryEnabled, ensureNetwork, readState, updateState } from "./state";
@@ -10,8 +10,9 @@ import { discoveryEnabled, ensureNetwork, readState, updateState } from "./state
 /**
  * What the front door's radio should do. advertise is null unless the user approved the current network.
  * iface is the default route's interface, the only one the radio may use (SEC-11); null means neither listen nor advertise.
+ * ifaceAddr and ifaceMask are its IPv4 address and netmask, which define the link the radio answers and listens on; without them the radio stays off.
  */
-export interface RadioConfig { rev: number; enabled: boolean; listen: boolean; iface: string | null; advertise: null | { instance: string; port: number; txt: Record<string, string> } }
+export interface RadioConfig { rev: number; enabled: boolean; listen: boolean; iface: string | null; ifaceAddr: string | null; ifaceMask: string | null; advertise: null | { instance: string; port: number; txt: Record<string, string> } }
 /** One raw TXT record set from the radio. Every field is untrusted (SEC-16). */
 export interface Observation { id: unknown; name: unknown; v: unknown; h: unknown; iface?: unknown }
 export interface PairingHints { port?: number; h?: string }
@@ -29,17 +30,20 @@ export function radioStatus(): { available: boolean; lastContact: number | null 
   return { available: lastContact !== null && Date.now() / 1000 - lastContact < 30, lastContact };
 }
 
-export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo | null; hintsFor?: () => PairingHints | null } = {}): Promise<RadioConfig> {
+const NO_IFACE = { iface: null, ifaceAddr: null, ifaceMask: null };
+
+export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo | null; hintsFor?: () => PairingHints | null; ipv4?: (iface: string) => { addr: string; mask: string } | null } = {}): Promise<RadioConfig> {
   lastContact = Date.now() / 1000;
-  if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, iface: null, advertise: null }; }
+  if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, ...NO_IFACE, advertise: null }; }
   const network = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
   lastNetwork = network;
-  if (!network) return { rev: readState(ctx).rev, enabled: true, listen: false, iface: null, advertise: null };
-  const iface = network.iface;
+  if (!network) return { rev: readState(ctx).rev, enabled: true, listen: false, ...NO_IFACE, advertise: null };
+  const v4 = (deps.ipv4 ?? interfaceIPv4)(network.iface);
+  const iface = { iface: network.iface, ifaceAddr: v4?.addr ?? null, ifaceMask: v4?.mask ?? null };
   let s = readState(ctx);
   if (!s.networks[network.key] && !ctx.readOnly) s = await updateState(ctx, st => { ensureNetwork(st, network.key, network.label); });
   const entry = s.networks[network.key];
-  if (entry?.advertise !== true) return { rev: s.rev, enabled: true, listen: true, iface, advertise: null };
+  if (entry?.advertise !== true) return { rev: s.rev, enabled: true, listen: true, ...iface, advertise: null };
   // SEC-11: only the per-network id, the machine name and the version; never the machine id or the OS user name.
   const identity = await ensureIdentity(ctx);
   const hints = deps.hintsFor?.() ?? null;
@@ -47,7 +51,7 @@ export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo |
   const h = sanitizeText(hints?.h, 200);
   if (h) txt.h = h;
   const port = Number.isInteger(hints?.port) && hints!.port! > 0 && hints!.port! < 65536 ? hints!.port! : DISCARD_PORT;
-  return { rev: s.rev, enabled: true, listen: true, iface, advertise: { instance: entry.discoveryId, port, txt } };
+  return { rev: s.rev, enabled: true, listen: true, ...iface, advertise: { instance: entry.discoveryId, port, txt } };
 }
 
 /** Records sanitized observations; returns the discovery ids that may be prompted for now. */

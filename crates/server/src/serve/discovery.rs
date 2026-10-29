@@ -1,6 +1,7 @@
 //! The LAN discovery radio (SEC-11, SEC-16): presence-only mDNS adverts and browsing. The core owns
 //! every policy decision; the radio pulls its advert config and pushes bounded raw observations over
-//! the private `/_internal/discovery/*` channel. mDNS failures never stop `pacer serve`.
+//! the private `/_internal/discovery/*` channel. mDNS runs on `pacer-mdns`, which answers and
+//! accepts only on-link IPv4 traffic on the one interface. mDNS failures never stop `pacer serve`.
 use super::core_child::CoreChild;
 use axum::body::{Body, to_bytes};
 use hyper::Request;
@@ -8,16 +9,16 @@ use hyper_util::{
     client::legacy::{Client, connect::HttpConnector},
     rt::TokioExecutor,
 };
-use mdns_sd::{IfKind, ScopedIp, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties};
+use pacer_mdns::{Advert, Interface, Responder, valid_netmask};
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
+    net::Ipv4Addr,
     sync::Arc,
     time::Duration,
 };
 use tokio::{sync::Mutex, task::JoinHandle};
 
-pub const SERVICE: &str = "_pacer._udp.local.";
 const ID_LEN: usize = 26;
 const IFACE_MAX: usize = 32;
 const TXT_MAX: usize = 400;
@@ -26,19 +27,13 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STOP_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Advert {
-    pub instance: String,
-    pub port: u16,
-    pub txt: HashMap<String, String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub rev: u64,
     pub enabled: bool,
     pub listen: bool,
-    /// The default route's interface (SEC-11): the only one the radio uses. None means no radio.
-    pub iface: Option<String>,
+    /// The default route's interface with its IPv4 address and netmask (SEC-11): the only link the
+    /// radio uses. None means no radio.
+    pub iface: Option<Interface>,
     pub advertise: Option<Advert>,
 }
 
@@ -50,33 +45,22 @@ fn is_iface(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"._:@-".contains(&b))
 }
 
-/// The daemon calls that scope the radio to one interface.
-pub trait InterfaceScope {
-    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()>;
-    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()>;
+/// An IPv4 address the radio can serve a link from.
+fn ipv4(raw: &Value, key: &str) -> Option<Ipv4Addr> {
+    raw.get(key)?.as_str()?.parse().ok()
 }
 
-impl InterfaceScope for ServiceDaemon {
-    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()> {
-        self.enable_interface(kind)
-    }
-    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()> {
-        self.disable_interface(kind)
-    }
-}
-
-/// Turns every interface off, loopback and container bridges included, then turns on only `iface`.
-pub fn scope_to(daemon: &impl InterfaceScope, iface: &str) -> mdns_sd::Result<()> {
-    daemon.disable(IfKind::All)?;
-    daemon.enable(IfKind::Name(iface.to_string()))
-}
-
-/// Whether a resolved service was heard on `iface`; an address with no interface does not count.
-pub fn seen_on(addresses: &HashSet<ScopedIp>, iface: &str) -> bool {
-    addresses.iter().any(|addr| match addr {
-        ScopedIp::V4(v4) => v4.interface_ids().iter().any(|id| id.name == iface),
-        ScopedIp::V6(v6) => v6.scope_id().name == iface,
-        _ => false,
+/// The interface name with its IPv4 address and netmask, all three valid, or None.
+fn iface_from(raw: &Value) -> Option<Interface> {
+    let name = raw.get("iface")?.as_str().filter(|i| is_iface(i))?;
+    let addr = ipv4(raw, "ifaceAddr").filter(|a| {
+        !(a.is_unspecified() || a.is_loopback() || a.is_multicast() || a.is_broadcast())
+    })?;
+    let mask = ipv4(raw, "ifaceMask").filter(|m| valid_netmask(*m))?;
+    Some(Interface {
+        name: name.to_string(),
+        addr,
+        mask,
     })
 }
 
@@ -103,7 +87,7 @@ fn txt_size<'a>(entries: impl Iterator<Item = (&'a str, &'a str)>) -> usize {
     entries.map(|(k, v)| k.len() + v.len() + 2).sum()
 }
 
-fn bounded_txt(txt: &HashMap<String, String>) -> bool {
+fn bounded_txt(txt: &BTreeMap<String, String>) -> bool {
     txt.get("id").is_some_and(|id| is_id(id))
         && txt.get("name").is_some_and(|name| !name.is_empty())
         && txt
@@ -120,7 +104,7 @@ fn advert_from(raw: &Value) -> Option<Advert> {
         .as_object()?
         .iter()
         .map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-        .collect::<Option<HashMap<_, _>>>()?;
+        .collect::<Option<BTreeMap<_, _>>>()?;
     (is_id(instance) && port != 0 && bounded_txt(&txt)).then(|| Advert {
         instance: instance.to_string(),
         port,
@@ -129,16 +113,12 @@ fn advert_from(raw: &Value) -> Option<Advert> {
 }
 
 /// Parses the core's radio config. An advert outside the hard bounds is dropped, never trimmed.
-/// Without a valid interface the radio neither listens nor advertises.
+/// Without a valid interface, IPv4 address and netmask the radio neither listens nor advertises.
 pub fn validate_config(raw: &Value) -> Option<Config> {
     let rev = raw.get("rev")?.as_u64()?;
     let enabled = raw.get("enabled")?.as_bool()?;
     let listen = raw.get("listen")?.as_bool()?;
-    let iface = raw
-        .get("iface")
-        .and_then(Value::as_str)
-        .filter(|i| enabled && is_iface(i))
-        .map(str::to_string);
+    let iface = iface_from(raw).filter(|_| enabled);
     let advertise = raw.get("advertise").and_then(advert_from);
     Some(Config {
         rev,
@@ -166,21 +146,11 @@ pub fn observation_from(props: &HashMap<String, String>) -> Option<Value> {
     Some(out)
 }
 
-/// TXT entries as strings; a value that is not UTF-8 drops the whole record.
-fn props_of(txt: &TxtProperties) -> Option<HashMap<String, String>> {
-    txt.iter()
-        .map(|p| {
-            let value = std::str::from_utf8(p.val().unwrap_or_default()).ok()?;
-            Some((p.key().to_string(), value.to_string()))
-        })
-        .collect()
-}
-
 /// What the radio does with its advert after a poll.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AdvertAction {
     Keep,
-    /// Withdraw any previous advert, then register the next one.
+    /// Publish the next advert; `pacer-mdns` says goodbye to a renamed one.
     Register,
     Unregister,
 }
@@ -203,10 +173,10 @@ pub struct RadioOptions {
 }
 
 struct Mdns {
-    daemon: ServiceDaemon,
-    iface: String,
-    browse: Option<mdns_sd::Receiver<ServiceEvent>>,
-    advertised: Option<String>,
+    responder: Responder,
+    iface: Interface,
+    advertised: bool,
+    browsing: bool,
 }
 
 #[derive(Default)]
@@ -232,24 +202,23 @@ impl State {
             .clone()
             .filter(|_| next.listen || next.advertise.is_some())
         else {
-            self.teardown();
+            self.teardown().await;
             self.config = Some(next);
             return;
         };
-        // A new interface gets a new daemon: the old one says goodbye on the old interface.
+        // A new interface or address gets a new responder: the old one says goodbye on its link.
         if self.mdns.as_ref().is_some_and(|m| m.iface != iface) {
-            self.teardown();
+            self.teardown().await;
             self.config = None;
         }
         if self.mdns.is_none() {
-            match ServiceDaemon::new().and_then(|daemon| scope_to(&daemon, &iface).map(|()| daemon))
-            {
-                Ok(daemon) => {
+            match Responder::start(&iface.name, iface.addr, iface.mask) {
+                Ok(responder) => {
                     self.mdns = Some(Mdns {
-                        daemon,
+                        responder,
                         iface,
-                        browse: None,
-                        advertised: None,
+                        advertised: false,
+                        browsing: false,
                     });
                 }
                 Err(error) => {
@@ -265,75 +234,37 @@ impl State {
         let Some(mdns) = self.mdns.as_mut() else {
             return;
         };
-        let action = advert_action(self.config.as_ref(), mdns.advertised.is_some(), &next);
-        if action != AdvertAction::Keep {
-            // Wait for the goodbye so the next registration does not collide with the old name.
-            if let Some(fullname) = mdns.advertised.take()
-                && let Ok(status) = mdns.daemon.unregister(&fullname)
-            {
-                let _ = tokio::time::timeout(STOP_TIMEOUT, status.recv_async()).await;
-            }
-            if let Some(advert) = next
-                .advertise
-                .as_ref()
-                .filter(|_| action == AdvertAction::Register)
-            {
-                let host = format!("{}.local.", advert.instance);
-                let info = ServiceInfo::new(
-                    SERVICE,
-                    &advert.instance,
-                    &host,
-                    "",
-                    advert.port,
-                    advert.txt.clone(),
-                )
-                .map(|mut info| {
-                    info.set_interfaces(vec![IfKind::Name(mdns.iface.clone())]);
-                    info.enable_addr_auto()
-                });
-                match info {
-                    Ok(info) => {
-                        let fullname = info.get_fullname().to_string();
-                        match mdns.daemon.register(info) {
-                            Ok(()) => mdns.advertised = Some(fullname),
-                            Err(error) => eprintln!("pacer: discovery: advertise: {error}"),
-                        }
-                    }
-                    Err(error) => eprintln!("pacer: discovery: advertise: {error}"),
+        match advert_action(self.config.as_ref(), mdns.advertised, &next) {
+            AdvertAction::Keep => {}
+            AdvertAction::Register => {
+                let result = mdns.responder.set_advert(next.advertise.clone());
+                if let Err(error) = &result {
+                    eprintln!("pacer: discovery: advertise: {error}");
                 }
+                mdns.advertised = result.is_ok();
+            }
+            AdvertAction::Unregister => {
+                let _ = mdns.responder.set_advert(None);
+                mdns.advertised = false;
             }
         }
-        if next.listen && mdns.browse.is_none() {
-            match mdns.daemon.browse(SERVICE) {
-                Ok(receiver) => mdns.browse = Some(receiver),
+        if next.listen != mdns.browsing {
+            match mdns.responder.set_browse(next.listen) {
+                Ok(()) => mdns.browsing = next.listen,
                 Err(error) => eprintln!("pacer: discovery: browse: {error}"),
             }
-        } else if !next.listen && mdns.browse.take().is_some() {
-            let _ = mdns.daemon.stop_browse(SERVICE);
         }
         self.config = Some(next);
     }
 
-    /// Queues resolved services, keeping the newest `QUEUE_MAX`.
+    /// Queues resolved services, keeping the newest `QUEUE_MAX`. `pacer-mdns` already dropped
+    /// anything not heard from the interface's link.
     fn drain(&mut self) {
-        let Some((receiver, iface)) = self
-            .mdns
-            .as_ref()
-            .and_then(|m| Some((m.browse.as_ref()?, m.iface.as_str())))
-        else {
+        let Some(mdns) = self.mdns.as_ref().filter(|m| m.browsing) else {
             return;
         };
-        while let Ok(event) = receiver.try_recv() {
-            let ServiceEvent::ServiceResolved(service) = event else {
-                continue;
-            };
-            if !seen_on(service.get_addresses(), iface) {
-                continue;
-            }
-            let Some(observation) = props_of(service.get_properties())
-                .as_ref()
-                .and_then(observation_from)
-            else {
+        while let Ok(resolved) = mdns.responder.browse_events().try_recv() {
+            let Some(observation) = observation_from(&resolved.txt) else {
                 continue;
             };
             if self.queue.len() >= QUEUE_MAX {
@@ -343,16 +274,13 @@ impl State {
         }
     }
 
-    /// Unregisters (goodbye packets) and shuts the daemon down; returns its exit status channel.
-    fn teardown(&mut self) -> Option<mdns_sd::Receiver<mdns_sd::DaemonStatus>> {
-        let mdns = self.mdns.take()?;
-        if let Some(fullname) = mdns.advertised {
-            let _ = mdns.daemon.unregister(&fullname);
-        }
-        if mdns.browse.is_some() {
-            let _ = mdns.daemon.stop_browse(SERVICE);
-        }
-        mdns.daemon.shutdown().ok()
+    /// Withdraws the advert with goodbye packets and stops the responder thread.
+    async fn teardown(&mut self) {
+        let Some(mdns) = self.mdns.take() else {
+            return;
+        };
+        let stop = tokio::task::spawn_blocking(move || mdns.responder.shutdown());
+        let _ = tokio::time::timeout(STOP_TIMEOUT, stop).await;
     }
 }
 
@@ -431,14 +359,12 @@ impl Radio {
         Radio { task, state }
     }
 
-    /// Stops polling, withdraws the advert with goodbye packets and shuts the daemon down.
+    /// Stops polling, withdraws the advert with goodbye packets and stops the responder.
     pub async fn stop(self) {
         if let Some(task) = self.task {
             task.abort();
             let _ = task.await;
         }
-        if let Some(status) = self.state.lock().await.teardown() {
-            let _ = tokio::time::timeout(STOP_TIMEOUT, status.recv_async()).await;
-        }
+        self.state.lock().await.teardown().await;
     }
 }

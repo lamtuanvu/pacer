@@ -10,6 +10,7 @@ rust-version.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }
 hyper = { version = "1", features = ["client", "http1"] }
@@ -21,7 +22,6 @@ subtle = "2"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
-mdns-sd = { version = "0.21.6", default-features = false, features = ["async"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }

@@ -1,45 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-use super::discovery::{
-    AdvertAction, InterfaceScope, advert_action, observation_from, scope_to, seen_on,
-    validate_config,
-};
-use mdns_sd::{IfKind, InterfaceId, ScopedIp, ScopedIpV4};
+use super::discovery::{AdvertAction, advert_action, observation_from, validate_config};
+use pacer_mdns::Interface;
 use serde_json::json;
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    net::{IpAddr, Ipv4Addr},
-};
+use std::{collections::HashMap, net::Ipv4Addr};
 
 fn advert(txt: serde_json::Value) -> serde_json::Value {
-    json!({"rev": 1, "enabled": true, "listen": true, "iface": "en0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": txt}})
-}
-
-#[derive(Default)]
-struct Recorder(RefCell<Vec<String>>);
-
-impl InterfaceScope for Recorder {
-    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()> {
-        self.0.borrow_mut().push(format!("enable {kind:?}"));
-        Ok(())
-    }
-    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()> {
-        self.0.borrow_mut().push(format!("disable {kind:?}"));
-        Ok(())
-    }
-}
-
-#[test]
-fn the_radio_is_scoped_to_the_named_interface_only() {
-    let daemon = Recorder::default();
-    scope_to(&daemon, "wlp2s0").unwrap();
-    assert_eq!(
-        daemon.0.into_inner(),
-        vec![
-            "disable All".to_string(),
-            "enable Name(\"wlp2s0\")".to_string()
-        ]
-    );
+    json!({"rev": 1, "enabled": true, "listen": true, "iface": "en0", "ifaceAddr": "192.168.1.10", "ifaceMask": "255.255.255.0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": txt}})
 }
 
 #[test]
@@ -48,7 +14,14 @@ fn config_carries_the_interface_and_no_interface_means_no_radio() {
         json!({"id": "a".repeat(26), "name": "n", "v": "1"}),
     ))
     .unwrap();
-    assert_eq!(cfg.iface.as_deref(), Some("en0"));
+    assert_eq!(
+        cfg.iface,
+        Some(Interface {
+            name: "en0".into(),
+            addr: Ipv4Addr::new(192, 168, 1, 10),
+            mask: Ipv4Addr::new(255, 255, 255, 0),
+        })
+    );
     assert!(cfg.listen && cfg.advertise.is_some());
     for iface in [
         json!(null),
@@ -70,27 +43,31 @@ fn config_carries_the_interface_and_no_interface_means_no_radio() {
 }
 
 #[test]
-fn observations_count_only_from_the_selected_interface() {
-    let on = |name: &str| {
-        ScopedIp::V4(ScopedIpV4::new(
-            Ipv4Addr::new(192, 168, 1, 20),
-            InterfaceId {
-                name: name.to_string(),
-                index: 2,
-            },
-        ))
-    };
-    assert!(seen_on(&HashSet::from([on("en0")]), "en0"));
-    assert!(seen_on(&HashSet::from([on("docker0"), on("en0")]), "en0"));
-    assert!(!seen_on(&HashSet::from([on("docker0")]), "en0"));
-    assert!(!seen_on(&HashSet::new(), "en0"));
-    let unscoped = ScopedIp::from(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
-    assert!(!seen_on(&HashSet::from([unscoped]), "en0"));
+fn without_a_usable_ipv4_address_and_netmask_there_is_no_radio() {
+    let cases = [
+        ("ifaceAddr", json!(null)),
+        ("ifaceAddr", json!("fe80::1")),
+        ("ifaceAddr", json!("192.168.1")),
+        ("ifaceAddr", json!("127.0.0.1")),
+        ("ifaceAddr", json!("0.0.0.0")),
+        ("ifaceAddr", json!("224.0.0.251")),
+        ("ifaceMask", json!(null)),
+        ("ifaceMask", json!("255.0.255.0")),
+        ("ifaceMask", json!("0.0.0.0")),
+        ("ifaceMask", json!("255.255.255.255")),
+    ];
+    for (key, value) in cases {
+        let mut raw = advert(json!({"id": "a".repeat(26), "name": "n", "v": "1"}));
+        raw[key] = value.clone();
+        let cfg = validate_config(&raw).unwrap();
+        assert_eq!(cfg.iface, None, "{key} {value}");
+        assert!(!cfg.listen && cfg.advertise.is_none(), "{key} {value}");
+    }
 }
 
 #[test]
 fn config_with_bounded_txt_is_accepted() {
-    let raw = json!({"rev": 3, "enabled": true, "listen": true, "iface": "en0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": {"id": "a".repeat(26), "name": "pacer-k3x9", "v": "3.1.0"}}});
+    let raw = json!({"rev": 3, "enabled": true, "listen": true, "iface": "en0", "ifaceAddr": "10.0.0.2", "ifaceMask": "255.255.0.0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": {"id": "a".repeat(26), "name": "pacer-k3x9", "v": "3.1.0"}}});
     let cfg = validate_config(&raw).expect("valid");
     assert_eq!(cfg.rev, 3);
     assert!(cfg.listen);
@@ -216,9 +193,15 @@ fn a_changed_advert_or_interface_registers_again() {
         AdvertAction::Register
     );
     let mut wifi = previous.clone();
-    wifi.iface = Some("en1".to_string());
+    wifi.iface.as_mut().unwrap().name = "en1".to_string();
     assert_eq!(
         advert_action(Some(&previous), true, &wifi),
+        AdvertAction::Register
+    );
+    let mut readdressed = previous.clone();
+    readdressed.iface.as_mut().unwrap().addr = Ipv4Addr::new(192, 168, 1, 11);
+    assert_eq!(
+        advert_action(Some(&previous), true, &readdressed),
         AdvertAction::Register
     );
     assert_eq!(

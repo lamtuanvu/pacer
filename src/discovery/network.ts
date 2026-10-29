@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIPv6 } from "node:net";
+import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 import type { Ctx } from "../types";
 
 /** The current network: a stable hashed key, a label to show the user and the default route's interface (SEC-11 scopes the radio to it). */
@@ -58,4 +59,10 @@ export async function currentNetwork(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   if (!found) return null;
   const key = createHash("sha256").update(`pacer-network/v2\0${found.identity}\0${found.ssid ?? ""}`).digest("hex").slice(0, 32);
   return { key, label: found.ssid ?? `Network ${key.slice(0, 6)}`, iface: found.iface };
+}
+
+/** The interface's first external IPv4 address and netmask: the radio answers and listens only on that link (SEC-11). IPv4 only. */
+export function interfaceIPv4(iface: string, interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces()): { addr: string; mask: string } | null {
+  const found = interfaces[iface]?.find(i => i.family === "IPv4" && !i.internal);
+  return found ? { addr: found.address, mask: found.netmask } : null;
 }
