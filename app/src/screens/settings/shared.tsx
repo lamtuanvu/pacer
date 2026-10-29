@@ -17,7 +17,7 @@ import { ErrorMessage, useTaskContext } from "../task-shared";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
-function useSettingsStyles() {
+export function useSettingsStyles() {
  useEffect(()=>{if(styledDocuments.has(document))return;const sheet=new CSSStyleSheet();sheet.replaceSync(styles);document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];styledDocuments.add(document);},[]);
 }
 export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefined {
@@ -26,14 +26,15 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
 }
 export const SettingsPageContext = createContext<string | null>(null);
 
-export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
+export function Section({id,title,detail,actions,children,step}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren;step?:number}) {
  useSettingsStyles();
  const page = useContext(SettingsPageContext) === id;
+ if (step !== undefined) return <section aria-label={title} id={id} className="pc-settings-step"><span className="pc-settings-step__number" aria-hidden="true">{step}</span><div className="pc-settings-step__body"><div className="pc-settings-step__heading"><h2>{title}</h2>{detail && <p>{detail}</p>}{actions}</div>{children}</div></section>;
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => op !== "update.check" || area !== "update"));
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
@@ -84,7 +85,7 @@ export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
  return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
-export function Segment(props:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
+export function Segment(props:{variant?:"board";label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
 export const time=(value:number|null)=>value===null?'Not checked':clock(value,Date.now()/1000);
 /** Keep host jobs visible after navigation or a service reconnect. */

@@ -43,37 +43,36 @@
 .pc-detail-panel .pc-session-main>.pc-tabs{position:static}
 
 /* Tasks remains the primary destination; this layout only arranges its selected task. */
-.pc-task-workspace{display:grid;grid-template-columns:var(--size-272) minmax(0,1fr);min-width:0;height:calc(100dvh - var(--size-64));min-height:var(--size-520);background:var(--surface-page)}
-.pc-task-nav{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line);background:var(--surface-card)}
+/* The frame's side panels hold the Sessions list and the session details; the centre holds the session. */
+.pc-task-workspace{display:flex;flex-direction:column;min-width:0;height:calc(100dvh - var(--frame-top) - var(--frame-status));min-height:0;background:var(--surface-page)}
+.pc-task-nav{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface-card)}
 .pc-task-nav__head{display:flex;align-items:center;height:var(--size-38);padding:0 var(--space-2) 0 var(--space-3\.5)}
-.pc-task-nav__head strong{font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
+.pc-task-nav__head strong{flex:1;font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
 .pc-task-nav__scroll{overflow:auto;min-height:0;padding:0 var(--space-2) var(--space-3)}
-.pc-task-workspace__main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
-.pc-task-workspace__navigation{display:flex;flex-direction:column;border-bottom:1px solid var(--line);background:var(--surface-page)}
-.pc-task-workspace__breadcrumb{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4) 0;color:var(--ink-muted);font-size:var(--type-caption-size)}
-.pc-task-workspace__breadcrumb .pc-text-action{color:var(--ink-secondary)}
-.pc-task-workspace__head{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-2) var(--space-4) var(--space-3);min-width:0}
-.pc-task-workspace__identity{flex:1;min-width:0}
-.pc-task-workspace__meta{display:flex;gap:var(--space-2);color:var(--ink-muted);font-size:var(--type-caption-size);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pc-task-workspace__meta>span{flex:none}
-.pc-task-workspace__status{display:inline-flex;align-items:center;gap:var(--space-2);flex:none;font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight);color:var(--ink-secondary)}
-.pc-task-workspace__status::before{content:"";width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--ink-muted)}
-.pc-task-workspace__status--info::before{background:var(--info-fg)}.pc-task-workspace__status--good::before{background:var(--good-fill)}.pc-task-workspace__status--warn::before{background:var(--warn-fill)}.pc-task-workspace__status--bad::before{background:var(--bad-fill)}
-.pc-task-workspace__tabs{padding-inline:var(--space-4)}
-.pc-task-workspace__panel{flex:1;min-height:0;overflow:auto;padding:var(--space-3);background:var(--surface-lane)}
+.pc-task-workspace__main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;padding:var(--space-3)}
+.pc-task-workspace__main:has(>.pc-conversation){overflow:hidden;padding:0}
+.pc-task-workspace__details{padding:var(--space-4) var(--space-3);border-top:1px solid var(--line);background:var(--surface-card)}
+.pc-session-title-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:var(--space-3);flex:1;min-width:0;overflow:hidden;white-space:nowrap;color:var(--ink-muted);font-size:var(--type-caption-size)}
+.pc-session-title-facts>.pc-status-dot,.pc-session-title-repo,.pc-session-title-time{flex-shrink:0}
+.pc-session-title-extras{display:flex;align-items:center;gap:var(--space-3);min-width:0;overflow:hidden}
+.pc-session-title-facts [hidden]{display:none}
+.pc-session-title-actions{display:flex;align-items:center;gap:var(--space-1);flex:none}
+.pc-session-panel{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
+.pc-session-panel__body{min-width:0}
+.pc-changed-files{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-1)}
+.pc-changed-files__row{display:flex;align-items:baseline;gap:var(--space-2);min-width:0;font-family:var(--font-mono);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-changed-files__path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.pc-changed-files__stat{flex:none;color:var(--ink-muted);font-variant-numeric:tabular-nums}.pc-changed-files__stat--added{color:var(--good-fg)}.pc-changed-files__stat--removed{color:var(--bad-fg)}
 .pc-task-workspace .pc-session-layout{grid-template-columns:minmax(0,1fr);gap:var(--space-5)}
-.pc-task-workspace .pc-session-aside{border-left:0;border-top:1px solid var(--line);padding:var(--space-4) 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr))}
 .pc-task-workspace .pc-terminal-pane{height:max(var(--size-520),calc(100dvh - var(--size-260)))}
 @media(max-width:767px){.pc-task-workspace{display:block;height:auto;min-height:calc(100dvh - var(--size-120))}.pc-task-nav{display:none}.pc-task-workspace__main{min-height:calc(100dvh - var(--size-120));overflow:visible}.pc-task-workspace__panel{overflow:visible}.pc-task-workspace .pc-terminal-pane,.pc-task-workspace .pc-conversation-terminal .pc-terminal-pane{height:max(var(--size-360),calc(100dvh - var(--size-260)))}.pc-task-workspace__status{font-size:var(--type-label-size)}}
 .pc-task-workspace .pc-session-main>.pc-tabs{position:static}
 /* Conversation inside the task workspace: the workspace owns title, status and tabs; the
    conversation owns an action row, the session UI filling the panel, and a pinned control footer. */
-.pc-task-workspace__panel:has(>.pc-conversation){display:flex;padding:0;overflow:hidden;background:var(--surface-page)}
 .pc-conversation{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
-.pc-conversation-actions{flex:none;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--line)}
-.pc-conversation-actions:empty{display:none}
 /* Scrolls only when a tall alert (failed session, zoom) or files cannot fit; the session panel shrinks first. */
 .pc-conversation-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
-.pc-conversation-body>.pc-alert,.pc-conversation-body>.pc-session-notice:not(:empty),.pc-conversation-body>.pc-conversation-files{flex:none;margin:var(--space-3) var(--space-4) 0}
+.pc-conversation-body>.pc-alert,.pc-conversation-body>.pc-session-notice:not(:empty){flex:none;margin:var(--space-3) var(--space-4) 0}
 .pc-conversation-session{flex:1;min-height:0;min-width:0;display:flex}
 .pc-conversation-session>.pc-session-empty{flex:1;margin:var(--space-4)}
 .pc-terminal-view--fill{flex:1;min-width:0;min-height:0;gap:0}
@@ -99,8 +98,6 @@
 .pc-task-workspace__main:has(.pc-conversation){height:calc(100dvh - var(--size-64));min-height:0;overflow:hidden}
 /* The phone layout replaces the status bar with a taller top bar and bottom navigation. */
 .pc-app--narrow .pc-task-workspace__main:has(.pc-conversation){height:calc(100dvh - var(--size-120) - env(safe-area-inset-bottom))}
-.pc-task-workspace__main:has(.pc-conversation)>.pc-task-workspace__panel{flex:1;min-height:0}
-.pc-conversation-actions{padding:var(--space-2) var(--space-3)}
 .pc-session-control{flex-wrap:wrap;padding:var(--space-1) var(--space-3);gap:var(--space-1) var(--space-2)}
 .pc-session-control__mode{flex:1 0 100%}
 .pc-session-control__hint,.pc-session-control__size{display:none}
@@ -141,3 +138,22 @@
 @media(max-width:767px){.pc-tasks-page{padding:var(--space-4) var(--space-4) var(--space-6)}.pc-tasks-page__search{flex:1 1 100%;min-width:0}.pc-task-aside{display:none}}
 .pc-tasks-page .pc-tabs{flex-wrap:wrap}
 .pc-tasks-page .pc-tabs .pc-btn{min-height:var(--control-settings);padding:0 var(--space-3)}
+
+/* Session board: caption facts yield to the title and actions in the frame. */
+.pc-session-title-repo,.pc-session-title-branch{font-family:var(--font-mono);color:var(--ink-secondary)}
+.pc-session-title-branch{display:flex;align-items:center;gap:var(--space-1);min-width:var(--size-40);flex:1;overflow:hidden}
+.pc-session-title-branch>svg{flex:none;width:var(--size-14);height:var(--size-14)}
+.pc-session-title-branch>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* Session board details: one rhythm through the optional sections and groups. */
+.pc-session-details{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;overflow-wrap:anywhere}
+.pc-session-details .pc-session-detail-group,.pc-session-details .pc-session-brief{display:contents}
+.pc-session-details section{display:flex;flex-direction:column;gap:var(--space-1\.5);min-width:0;padding-top:var(--space-3\.5);border-top:var(--size-1) solid var(--line)}
+.pc-session-details .pc-session-workspace{padding-top:0;border-top:0}
+.pc-session-workspace dl,.pc-session-token-counts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-1) var(--space-2\.5);margin:0;font-size:var(--type-code-size);line-height:var(--type-code-line)}
+.pc-session-workspace dt,.pc-session-token-counts dt{color:var(--ink-secondary)}
+.pc-session-workspace dd,.pc-session-token-counts dd{min-width:0;margin:0;font-family:var(--font-mono);overflow-wrap:anywhere}
+.pc-session-brief .pc-session-repository{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre-wrap;overflow-wrap:anywhere}
+.pc-session-command{padding:0;border:0;background:transparent}
+.pc-session-command code{display:block;font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane);white-space:pre-wrap;overflow-wrap:anywhere}
+
+.pc-session-details section>p{margin:0}

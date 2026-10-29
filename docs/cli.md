@@ -389,7 +389,9 @@ command. Account and runner list JSON are arrays (see the accounts guide).
 | planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
 | pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
 | pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |
-| pacing.planner_reserve | Percent, 0–99 (default 15) |
+| pacing.planner_reserve | Percent, 0–99 (default 15); scales the planner's pace, and is not the probe floor below |
+| pacing.planner_reserve_headroom | Percent, 0–99 (default 25); measured headroom a planner account must keep before Pacer will spend its quota on a certification probe |
+| pacing.planner_probe | `ask` (default), `auto` or `off`; whether scheduled certification probes may run, given that each spends the certified account's own quota |
 | pacing.accounts | `spread` or `fill` (default `spread`) |
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
 | update_check | `true` or `false` (default `true`) |

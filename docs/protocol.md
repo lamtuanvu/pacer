@@ -44,6 +44,8 @@ HTTP route errors after authentication use `{ "error": { "code": "...", "message
 | `capability_denied` | 403 |
 | `unknown_plugin` | 404 |
 | `not_found` | 404 |
+| `unavailable` | 503 |
+| `rate_limited` | 429 |
 
 Missing or invalid HTTP tokens return 401 with the plain-text body `unauthorized`. A wrong HTTP verb returns 405 with `invalid_input`.
 
@@ -1418,6 +1420,8 @@ Params JSON Schema:
         "pacing.order",
         "pacing.policy",
         "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
@@ -2355,6 +2359,34 @@ Params JSON Schema:
   },
   "required": [
     "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.enforcement.consent`
+
+Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "granted": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "account",
+    "granted"
   ],
   "additionalProperties": false
 }
@@ -3681,6 +3713,66 @@ Params JSON Schema:
   },
   "required": [
     "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `issue.import`
+
+Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "issue": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "repo",
+    "issue"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `issue.search`
+
+Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "query"
   ],
   "additionalProperties": false
 }
