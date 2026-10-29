@@ -1,4 +1,4 @@
-import { closeSync, fchmodSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, fchmodSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 
 export function readJson<T>(path: string): T | null {
@@ -15,6 +15,17 @@ export function writeJsonAtomic(path: string, data: unknown): void {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(data));
   renameSync(tmp, path);
+}
+
+/** mkdirSync's mode applies only to a directory it creates, so an existing, wider private directory is narrowed to
+ * 0700 (SEC-7). One owned by another user is refused rather than written into. */
+export function narrowDir(dir: string): void {
+  const st = statSync(dir);
+  if ((st.mode & 0o077) === 0) return;
+  if (process.getuid && st.uid !== process.getuid()) {
+    throw new Error(`${dir} is mode ${(st.mode & 0o777).toString(8)} and owned by another user; make it 0700 and owned by you`);
+  }
+  chmodSync(dir, 0o700);
 }
 
 /** Append one JSONL record to a 0600 file. Call it under the log's `wx` lock (the scoped SEC-7 append exception in

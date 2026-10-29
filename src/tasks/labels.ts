@@ -1,24 +1,14 @@
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { appendJsonLine } from "../fsutil";
+import { appendJsonLine, narrowDir } from "../fsutil";
 import type { Ctx } from "../types";
 
 const labelsFile = (ctx: Ctx) => join(ctx.pacerHome, "labels.jsonl");
 
-// mkdirSync's mode applies only to a directory it creates, so an existing wider pacer home is narrowed (SEC-7).
-function narrowHome(dir: string): void {
-  const st = statSync(dir);
-  if ((st.mode & 0o077) === 0) return;
-  if (process.getuid && st.uid !== process.getuid()) {
-    throw new Error(`pacer home ${dir} is mode ${(st.mode & 0o777).toString(8)} and owned by another user; make it 0700 and owned by you`);
-  }
-  chmodSync(dir, 0o700);
-}
-
 // Serialize appends across processes (CLI, hooks, service) like the activity log, so a line is never interleaved.
 function withLabelsLock<T>(ctx: Ctx, action: () => T): T {
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
-  narrowHome(ctx.pacerHome);
+  narrowDir(ctx.pacerHome);
   const lock = join(ctx.pacerHome, "labels.lock"), deadline = Date.now() + 10_000;
   const sleep = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
