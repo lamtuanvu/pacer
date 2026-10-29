@@ -130,7 +130,7 @@
 .u3-settings .u3-agents-table td{padding:var(--space-2\.5) var(--space-4);border-bottom:0;border-top:1px solid var(--surface-lane)}
 .u3-agents-table .u3-agent{gap:var(--space-2\.5)}
 .u3-agents-table .u3-muted,.u3-agents-table .u3-executor-model{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
-.u3-agents-table .u3-executor-model{font-family:var(--font-sans);max-width:var(--size-180);white-space:nowrap}
+.u3-agents-table .u3-executor-model{font-family:var(--font-sans);max-width:var(--size-180);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .u3-agents-table td[data-label="Parallel tasks"]{text-align:right;white-space:nowrap}
 .u3-settings tr.u3-row--bad{background:var(--bad-tint);box-shadow:var(--shadow-agent-failure)}
 .u3-settings tr.u3-row--bad td{background:var(--bad-tint)}
@@ -261,7 +261,7 @@
 
 /* The five-column board grammar gives every action its own visible cell. */
 #executors .u3-agents-table table,#executors .u3-agents-table tbody{display:block}
-#executors .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(var(--size-120),1fr) var(--size-130) var(--size-90) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4)}
+#executors .u3-agents-table tr{display:grid;grid-template-columns:minmax(var(--size-120),1.4fr) minmax(var(--size-120),1fr) var(--size-130) var(--size-90) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4)}
 #executors .u3-agents-table th,#executors .u3-agents-table td{display:block;padding:0;min-width:0;width:auto;border:0;overflow-wrap:anywhere}
 #executors .u3-agents-table thead{display:block}
 #executors .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
@@ -269,7 +269,7 @@
 #executors .u3-agents-table th:last-child{font-size:0}
 #executors .u3-agents-table tr.u3-row--selected{background:var(--surface-lane)}
 .u3-settings #executors tr.u3-row--selected td{background:transparent}
-@container agents-table (max-width:520px){
+@container agents-table (max-width:571px){
  #executors .u3-agents-table thead{display:none}
  #executors .u3-agents-table tr{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}
  #executors .u3-agents-table td[data-label]{text-align:left}
