@@ -107,6 +107,9 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
 ## Service supervisor settings
 
 - **Linux.** The generated unit gains `KillMode=process`. `pacer update`, `update.apply` and `service install`/`restart` compare the installed unit with the generated one. If they differ, the path rewrites the unit and runs `systemctl --user daemon-reload` before restarting. `pacer service uninstall`, on both platforms, lists running tasks and sessions and asks before removing the service. With `--stop-work` it stops each runner and session host it can identify from the task store and run directories, because `KillMode=process` no longer cleans them up on Linux.
+- **Linux trade-offs.**
+  - With `KillMode=process`, `systemctl --user stop` no longer stops runners and session hosts. That is the point, but a stopped service can leave work running. `pacer status` lists that work, and `pacer service uninstall --stop-work` cleans it up.
+  - The first upgrade *into* this version still runs the old update code against the old unit, so on Linux that upgrade kills running work as today. The release notes say so.
 - **macOS.** Runners and session hosts start in their own sessions, so `kickstart -k` (restart) and bootout/bootstrap (install) should not signal them. Live validation is the acceptance condition. If either path does signal them, the failure is recorded and the design is revisited. No plist change is made in advance.
 
 ## Upgrade paths and callers
@@ -127,6 +130,15 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
 - **`pacer status` and Settings → Updates** list sessions still on an older host and tasks still on an older runner.
 - **Sessions outside the support window** show **Reopen to update**.
 - **Public status** carries versions and counts, never paths.
+
+## Documentation
+
+These change with the feature (REPO-7):
+- `README.md` (updating pacer);
+- `docs/desktop-updates.md`, to state that desktop updates still wait for idle until part C;
+- `docs/testing/live-validation.md`, for the new scenarios;
+- the CLI help for `pacer update` and `pacer service`;
+- a `CHANGELOG.md` entry.
 
 ## Out of scope
 
