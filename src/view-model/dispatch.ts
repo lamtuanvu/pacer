@@ -214,10 +214,9 @@ export interface RouteExplanationView {
   reasons: (RouteReason & { outcome: "pass" | "fail" | "info" })[];
 }
 /**
- * Whether the explanation describes what delegating would do. Without a dispatch block in the strategy, delegated
- * tasks are not managed work: the runner ranks executors as `routing.route` does, not by the ladder the explanation runs.
- * This describes work delegated from the app (Delegate, New task), which sends no dispatch options of its own;
- * dispatch.submit and MCP child delegation always pass them and are managed work whatever the strategy says.
+ * Whether the explanation describes what delegating would do. The app's callers ask with `via: "delegate"`, which
+ * explains the runner's executor ranking, so its answers apply; only an older service that ran the ladder for every
+ * request answers with a built-in strategy that delegated work would not follow.
  */
 export const explanationApplies = (e: RouteExplanationView): boolean => e.strategy.source !== "built-in";
 /** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
