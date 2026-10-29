@@ -252,8 +252,29 @@ Existing `pacer uninstall <planner>` remains available for a single integration.
 
 pacer no longer ships an Orca plugin. `pacer plugin uninstall` removes one that an
 earlier version installed: its files, its install record and pacer's keys in Orca's
-plugin storage. Every other `pacer plugin` subcommand exits 2 and points to the
-desktop app or `pacer open`.
+plugin storage.
+
+## Plugins (unreleased)
+
+Plugin management is separate from the retired Orca plugin:
+
+```sh
+pacer plugin list --json
+pacer plugin doctor pacer-usage --json
+pacer plugin disable pacer-usage
+pacer plugin enable pacer-usage
+```
+
+`list` shows bundled and installed plugins, their state and capabilities.
+`doctor` checks an enabled plugin's handshake and liveness, starting it if
+needed. It does not verify a provider login or fetch fresh quota data. `pacer-usage` supplies the
+[usage readers](accounts.md#usage-reader-plugin-unreleased). Disabling it stops
+new reads through that plugin without selecting a built-in fallback.
+
+Installed plugins need a grant before use. `enable` asks before granting requested
+capabilities; `--yes` grants without the interactive question. A version requesting
+additional capabilities needs another grant. `remove <id>` removes an installed
+plugin; bundled plugins can be disabled but cannot be removed.
 
 ## pacer open
 

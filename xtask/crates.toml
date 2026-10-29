@@ -39,6 +39,12 @@ generated = true
 [crates.pacer-plugin-agent-session-protocol]
 layer = 0
 generated = true
+[crates.pacer-plugin-install-protocol]
+layer = 0
+generated = true
+[crates.pacer-plugin-policy-protocol]
+layer = 0
+generated = true
 [crates.pacer-assistant-protocol]
 layer = 0
 generated = true

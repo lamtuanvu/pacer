@@ -14,7 +14,7 @@ test("manual indefinite block persists, excludes ranking and prevents explicit d
  const st=await computeStatus(ctx,strategy,{profile:null});
  expect(st.executors.ranked.map(e=>e.id)).toEqual(["codex"]);
  expect(renderLine(st)).not.toContain("agy");
- expect(()=>delegate(ctx,{brief:{goal:"g",repo:ctx.home},executor:"agy"},()=>123,strategy)).toThrow("Blocked by you");
+ await expect(delegate(ctx,{brief:{goal:"g",repo:ctx.home},executor:"agy"},()=>123,strategy)).rejects.toThrow("Blocked by you");
  const listed=await executorCommand(["list"],ctx);expect(listed.out).toContain("blocked by user until unblocked");
  await executorCommand(["unblock","agy"],ctx);expect(readBlocked(ctx).agy).toBeUndefined();
 });

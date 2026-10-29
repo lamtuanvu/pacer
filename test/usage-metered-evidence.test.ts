@@ -1,7 +1,10 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { readAccountUsage } from "../src/usage";
 import { validateStrategy } from "../src/config/strategy";
-import { fakeCtx } from "./helpers";
+
 
 test("malformed metered statistics never become zero measured spend", async () => {
   const strategy = validateStrategy({ planner: "claude-code", providers: {

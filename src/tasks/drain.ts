@@ -1,3 +1,4 @@
+import { authorizeRoute } from "./policy-route";
 import { getWork, pendingDependencies } from "../dispatch/work";
 import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { executorExclusion } from "../executors/availability";
@@ -137,15 +138,22 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         }
         eligible.push(id);
       }
+      const routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},task.id,eligible,{
+        strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),
+      });
+      for(const [id,plugin] of Object.entries(routeAdmission.excludedBy)) ranking.excluded.push({id,reason:`excluded by plugin ${plugin}`});
+      const permitted=routeAdmission.candidates;
       let policyChanged = false;
       await withLock(ctx, "slots", async () => {
         const reserved = await withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+        routeAdmission.revalidate();
         requirePolicyIdentity(ctx, repo);
         if (projectRevision(readProjectStrategies(ctx), snapshot.repoKey) !== snapshot.rev) { policyChanged = true; return; }
         const current = readTask(ctx, task.id);
         if (current?.state !== "queued" || !current.queue || readPause(ctx)) return;
-        if (selection && !eligible.length && task.interactionMode !== "conversation") {
+        if (selection && !permitted.length && task.interactionMode !== "conversation") {
           updateTask(ctx, task.id, t => {
+            routeAdmission.revalidate();
             t.state = "limit"; delete t.queue;
             const reasons = ranking.excluded.map(e => `${e.id}: ${e.reason}`).join(", ") || "no choices passed the routing filter";
             t.result = {status:"limit",executor:null,model:null,files:"",report:`no project executor available (${reasons})`,backend:"direct"};
@@ -153,10 +161,11 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }));
-        const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
-        if (!executor) { refreshCapacityWait(ctx, task.id, s, eligible.find(id => !executorExclusion(ctx, s, id)), use); return; }
+        const executor = permitted.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
+        if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.
-        updateTask(ctx, task.id, t => {t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
+        const selected=updateTask(ctx, task.id, t => {routeAdmission.revalidate();t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
+        routeAdmission.checkpoint(selected);
         return current;
         });
         if (!reserved) return;

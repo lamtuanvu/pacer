@@ -195,6 +195,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     {snapshot?.pause && <div className="tray-paused" role="status"><Icon name="pause" /><span className="tray-grow"><strong>Delegation paused</strong><span className="tray-reason">New work waits {snapshot.pause.until === null ? "until you resume" : `until ${timeOnly(snapshot.pause.until)}`}{!!model?.waiting && ` · ${model.waiting} ${model.waiting === 1 ? "task" : "tasks"} waiting`}</span></span><Button size="sm" busy={busy} disabled={sessionEnded} onClick={() => act(() => api.call("delegation.resume", {}))}>Resume</Button></div>}
     {sessionEnded ? <p className="tray-notice" role="alert">Session ended. Run pacer open.</p> : !snapshot ? <LoadingState label="Connecting to pacer…" /> : !connected && <p className="tray-notice" role="status">Reconnecting…</p>}
     {model && <>
+      <div className="tray-line" title={model.policyDetail}><span className="muted">{model.policy}</span></div>
       <nav className="tray-counts" aria-label="Task counts">{[
         { n: model.needsCount, label: "needs you", route: "/needs-you", warn: true },
         { n: snapshot.counts?.running ?? model.active.length, label: "running", route: "/sessions" },

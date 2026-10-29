@@ -16,7 +16,7 @@ test("pause persists, queues delegation before spawning, expires and resumes", a
   const state = pause(ctx, {for: "1h", reason: "break", by: "planner"});
   expect(state).toEqual({until: ctx.now + 3600, reason: "break", by: "planner"});
   expect(readPause(ctx)).toEqual(state);
-  expect(delegate(ctx, {brief: {goal: "work", repo: ctx.home}}, () => {throw Error("spawned");}, strategy())).toMatchObject({state: "queued", queue: {reason: "paused"}});
+  expect((await delegate(ctx, {brief: {goal: "work", repo: ctx.home}}, () => {throw Error("spawned");}, strategy()))).toMatchObject({state: "queued", queue: {reason: "paused"}});
   const st = await computeStatus(ctx, strategy(), {profile: null});
   expect(st.paused).toEqual(state);
   const line = "Delegation paused until 20:00 — do the work yourself or wait.";
@@ -44,7 +44,7 @@ test("pause and resume CLI validate arguments and update state", async () => {
 });
 test("paused delegation queues and starts on drain after expiry", async () => {
   const ctx = fakeCtx(), state = pause(ctx, {for: "1h"});
-  const task = delegate(ctx, {brief: {goal: "work", repo: ctx.home}}, () => {throw Error("spawned while paused");}, strategy());
+  const task = (await delegate(ctx, {brief: {goal: "work", repo: ctx.home}}, () => {throw Error("spawned while paused");}, strategy()));
   expect(task.queue?.reason).toBe("paused");
   expect(await drainQueue(ctx, () => process.pid, queueDeps())).toEqual([]);
   expect(await drainQueue({...ctx, now: state.until!}, () => process.pid, queueDeps())).toEqual([task.id]);

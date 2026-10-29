@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { bundleDefs } from "./schema-bundle";
-import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, DOC_LIMITS, NOTIFICATIONS, UI_ICONS, UI_LIMITS, UI_ROUTES, uiContributionSchema, viewNodeSchema, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema } from "../src/plugins/protocol";
+import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, DOC_LIMITS, NOTIFICATIONS, UI_ICONS, UI_LIMITS, UI_ROUTES, uiContributionSchema, viewNodeSchema, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema, callMetadata, pluginMetadata, readOwnerMetadata, policyEvent, RESULT_CHUNK_METHOD, resultChunkParams, resultChunkAck, chunkedResult } from "../src/plugins/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
 const section = (name: string, description: string, params: z.ZodTypeAny, result: z.ZodTypeAny, deadline?: number) => [
@@ -17,6 +17,9 @@ export function renderPluginProtocolDoc(): string {
     "## Overview", "",
     "A plugin is a subprocess the host starts lazily. Both sides speak newline-delimited JSON-RPC 2.0 on the plugin's stdin and stdout (one object per line, 1 MiB cap). stderr is captured to `$PACER_HOME/logs/plugins/<id>.log`. Both sides send requests, so each side matches replies by id. Additive changes do not bump the version; removals bump the major, and the host serves the previous major for one pacer minor release.", "",
     `The host sends \`${HELLO_METHOD}\` first and refuses a plugin whose reply has a different protocol major, or an id or version that differs from its manifest. Every call carries a deadline owned by the host; on expiry it sends the notification \`${CANCEL_METHOD}\` with \`{ id }\`, fails the call with \`plugin_timeout\` and drops any later reply.`, "",
+    "Protocol 1.5.0 adds optional top-level `_meta: { capabilityCall }` correlation on host extension requests and their capability calls. Legacy peers may omit metadata; uncorrelated calls never gain new account-scoped authority. Tokens are bounded opaque call identifiers and expire with their owning request.", "",
+    "Protocol 1.5.0 also adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.", "",
+    "Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.", "",
     "SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).", "",
     "## Manifest", "",
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
@@ -41,6 +44,14 @@ export function renderPluginProtocolDoc(): string {
     "Plugin replies use JSON-RPC errors `{ code: -32000, message, data: { code, hint? } }`; a `data.code` the host knows is passed through, anything else becomes `plugin_unavailable`.", "",
     "## Handshake", "",
     ...section(HELLO_METHOD, "Host → plugin, first message.", helloParams, helloResult, 10000),
+    ...section(RESULT_CHUNK_METHOD, "Negotiated plugin → host result transfer for an active usage request; not an independent capability.", resultChunkParams, resultChunkAck),
+    "Large-result completion envelope:", "", "```json", json(chunkedResult), "```", "",
+    "## Policy observation notification contract", "",
+    "`$/event` is a host → plugin notification: no request id and no reply. Its payload is a canonical v3 API event. Initial subscription requires a current host-owned `diagnostic.ping` (doctor) or `policy.before` call, declared/granted `events.subscribe`, and negotiated `policyObservations`; a pending usage or other call cannot bootstrap it. The TypeScript SDK automatically subscribes for `onEvent` before replying to the first such call unless its handler already subscribed. Metadata-only enable does not start the process or subscribe.", "",
+    "A subscription starts at the current cursor and delivers only future requested event types, plus every reset. It runs independently of public API subscribers. One opaque read owner is retained per process generation after the initial call settles; it carries no file, command, HTTP, secret or install resources. Disable, removal, manifest/config/grant changes, stdout EOF and process exit revoke it. Executor work grants cannot subscribe to global events; task reads retain their original work-grant scope and expiry.", "",
+    "The TypeScript callback receives an isolated tasks/events/log/config client, never the transient effect client from an overlapping call. Task reads use the public task projections (list defaults to 100, maximum 500, states filtered before limit) and the existing complete-frame size limit. Log/config keep their existing declaration and grant checks.", "",
+    "Reset means discard incremental assumptions and re-read the snapshot. Host delivery and TypeScript callback backlogs are bounded to 128 notifications and 256 KiB including active delivery; overflow discards obsolete queued notifications for a bounded reset. Persistent blocked delivery/reset retires the process or SDK lifecycle rather than growing the queue. Callback exceptions are contained with a safe diagnostic. EOF or retirement aborts pending callback reads; recovery requires a fresh valid process generation and subscription.", "",
+    "```json", json(policyEvent), "```", "",
     "## Extension points (host → plugin)", "",
     ...Object.entries(EXTENSION_METHODS).flatMap(([name, d]) => section(name, d.description, d.params, d.result, d.deadlineMs)),
     "## Capabilities (plugin → host)", "",
@@ -50,7 +61,7 @@ export function renderPluginProtocolDoc(): string {
 }
 
 export function pluginProtocolSchema(): unknown {
-  const defs: Record<string, unknown> = { manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
+  const defs: Record<string, unknown> = { pluginMetadata: z.toJSONSchema(pluginMetadata.unwrap()), readOwnerMetadata: z.toJSONSchema(readOwnerMetadata), policyEvent: z.toJSONSchema(policyEvent), resultChunkParams: z.toJSONSchema(resultChunkParams), resultChunkAck: z.toJSONSchema(resultChunkAck), chunkedResult: z.toJSONSchema(chunkedResult), callMetadata: z.toJSONSchema(callMetadata.unwrap()), manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
   for (const [name, d] of [...Object.entries(EXTENSION_METHODS), ...Object.entries(CAPABILITY_METHODS)]) { defs[`${name}.params`] = z.toJSONSchema(d.params); defs[`${name}.result`] = z.toJSONSchema(d.result); }
   return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, version: PLUGIN_PROTOCOL_VERSION, $defs: bundleDefs(defs) };
 }

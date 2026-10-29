@@ -960,10 +960,11 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-decision-protocol",
+ "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
  "serde",
  "serde_json",
@@ -973,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-agent-session-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regress",
  "serde",
@@ -982,7 +983,16 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-decision-protocol"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pacer-plugin-install-protocol"
+version = "0.2.0"
 dependencies = [
  "regress",
  "serde",
@@ -999,8 +1009,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-policy-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-plugin-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regress",
  "serde",

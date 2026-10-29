@@ -1,5 +1,6 @@
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { clock } from "../../../src/view-model/time";
+import { policyWords, policyDetail } from "../../../src/view-model/words";
 import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
@@ -51,7 +52,7 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
   const queued = tasks.filter(t => t.state === "queued").sort((a, b) => (a.queue?.position ?? Infinity) - (b.queue?.position ?? Infinity) || (a.queue?.since ?? a.updatedAt) - (b.queue?.since ?? b.updatedAt));
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
-  return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
+  return { policy: policyWords(snapshot.policy), policyDetail: policyDetail(snapshot.policy), update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot).filter(row => row.rank !== "planner" && row.id !== snapshot.planner?.runner) };
 }
 

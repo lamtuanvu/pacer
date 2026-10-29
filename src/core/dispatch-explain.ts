@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { resolveRunner } from "../config/runner-id";
 import { KINDS, loadStrategy, type Strategy } from "../config/strategy";
 import { classifierConfig } from "../config/classifier";
-import { rulesClassifier } from "../classify/rules";
+import { buildAdapters } from "../classify/registry";
 import { evaluateLadder } from "../dispatch/ladder";
 import { decisionHash } from "../dispatch/engines";
 import { openReadOnlyStore, reservationsReadOnly } from "../dispatch/readonly";
@@ -42,9 +42,11 @@ export interface RouteExplanation {
   uncertainty: Reason[];
 }
 
-async function detectKind(goal: string): Promise<string | null> {
-  const answer = await rulesClassifier.ask(JSON.stringify({ goal }), { type: "choice", id: "task_kind", instructions: "", criteria: {} });
-  return typeof answer.value === "string" && (KINDS as readonly string[]).includes(answer.value) ? answer.value : null;
+/** The rules classifier runs in pacer-classify (P13): with it disabled or failing, the kind stays unknown. */
+async function detectKind(ctx: Ctx, strategy: Strategy, goal: string): Promise<string | null> {
+  const cfg = classifierConfig(strategy);
+  const answer = await buildAdapters(ctx, cfg, cfg.timeoutMs).rules.ask(JSON.stringify({ goal }), { type: "choice", id: "task_kind", instructions: "", criteria: {} }).catch(() => null);
+  return typeof answer?.value === "string" && (KINDS as readonly string[]).includes(answer.value) ? answer.value : null;
 }
 function chosenOf(c: Candidate, strategy: Strategy): Choice {
   return { executor: c.executor, account: c.account, runner: c.runner, model: c.binding.kind === "exact" ? { kind: "exact", id: c.binding.id } : { kind: "executor-default" }, host: strategy.runners[c.runner]?.host ?? null };
@@ -80,7 +82,7 @@ export async function explainDispatch(ctx: Ctx, input: unknown, deps: Pick<Dispa
   const requested = p.executor ? resolveRunner(strategy, p.executor)?.id ?? null : null;
   if (p.executor && !requested) throw new CoreError("unknown_executor", `Unknown executor "${p.executor}"`, `Configured: ${Object.keys(strategy.runners).join(", ")}`);
 
-  const kind: RouteExplanation["kind"] = p.kind !== undefined ? { value: p.kind, source: "given" } : await detectKind(p.goal).then(v => v ? { value: v, source: "detected" as const } : { value: null, source: "unknown" as const });
+  const kind: RouteExplanation["kind"] = p.kind !== undefined ? { value: p.kind, source: "given" } : await detectKind(ctx, strategy, p.goal).then(v => v ? { value: v, source: "detected" as const } : { value: null, source: "unknown" as const });
   const store = openReadOnlyStore(ctx);
   try {
     if (p.via === "delegate") return await explainRankedDispatch(ctx, strategy, p, kind, requested, store, deps);

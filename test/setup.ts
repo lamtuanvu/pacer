@@ -1,9 +1,10 @@
-import { afterAll } from "bun:test";
+import { afterAll, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
 import { cleanupTestTmp } from "./helpers";
 import { setMachineReaders } from "../src/engine/machine";
+import { cleanupFixtureResources } from "./fixture-cleanup";
 
 // Tests must never touch the real ~/.pacer or agent configs. HOME and PACER_HOME point
 // at a throwaway folder for the whole run, so a test that forgets to isolate itself (or
@@ -43,6 +44,9 @@ process.env.PACER_LOGIN_ENV = "off";
 const { installKeychainStub } = await import("../scripts/live/keychain");
 installKeychainStub(join(isolatedHome, "bin"), join(isolatedHome, "keychain"));
 process.env.PATH = `${join(isolatedHome, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`;
+
+// Preload hooks apply across files; hooks in cached imported helpers do not.
+afterEach(cleanupFixtureResources);
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

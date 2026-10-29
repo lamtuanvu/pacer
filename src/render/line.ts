@@ -3,29 +3,29 @@ import { agentInfo, runnerAgent } from "../view-model/agents";
 import { backIn, meterText } from "../view-model/format";
 import { counts, plannerMeter } from "../view-model/selectors";
 import type { ClientSnapshot } from "../view-model/snapshot";
-import { compactVerdictWords, modeWords, offlineWords, toneFor } from "../view-model/words";
+import { compactPolicyWords, policyWords, type PolicySummary, compactVerdictWords, modeWords, offlineWords, toneFor } from "../view-model/words";
 
-export interface LineOptions { width?: number; color?: boolean }
+export interface LineOptions { width?: number; color?: boolean; policy?: PolicySummary }
 export interface LineFields {
-  online: boolean; planner: string | null; agent: string | null; usedPct: number | null; pacePct: number | null;
+  policy?: PolicySummary; online: boolean; planner: string | null; agent: string | null; usedPct: number | null; pacePct: number | null;
   verdict: string | null; resetsAt: number | null; running: number | null; attention: number | null; mode: string | null;
 }
 
 /** Status remains accepted for the installed agent status-bar capture path. */
-export function lineFields(input: ClientSnapshot | Status | null): LineFields {
+export function lineFields(input: ClientSnapshot | Status | null, policy?: PolicySummary): LineFields {
   const offline: LineFields = { online: false, planner: null, agent: null, usedPct: null, pacePct: null, verdict: null, resetsAt: null, running: null, attention: null, mode: null };
   if (!input) return offline;
   if ("generatedAt" in input) {
     const p = input.providers.find(p => p.id === input.planner);
     const agent = p?.agent ?? runnerAgent(input.planner);
-    return { ...offline, online: true, planner: agentInfo(agent).name, agent, usedPct: p?.binding?.usedPct ?? null, pacePct: p?.binding?.pace ?? null, verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, mode: input.mode };
+    return { ...offline, policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent, usedPct: p?.binding?.usedPct ?? null, pacePct: p?.binding?.pace ?? null, verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, mode: input.mode };
   }
   const p = plannerMeter(input), c = counts(input);
   const count = (n: number | undefined): number | null => n !== undefined && Number.isInteger(n) && n >= 0 ? n : null;
   const legacy = input.budget?.providers.find(p => p.id === input.budget!.planner);
   const agent = p?.agent ?? (input.budget ? legacy?.agent ?? runnerAgent(input.budget.planner) : null);
   if (!agent) return offline;
-  return { online: true, planner: agentInfo(agent).name, agent, usedPct: p?.usedPct ?? legacy?.usedPct ?? null,
+  return { policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent, usedPct: p?.usedPct ?? legacy?.usedPct ?? null,
     pacePct: p?.pacePct ?? legacy?.pacePct ?? null, verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
     resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, running: count(c?.running), attention: count(c?.attention),
     mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal" };
@@ -40,7 +40,7 @@ export function fmtReset(ts: number | null, now: number): string {
 }
 
 export function renderLine(input: ClientSnapshot | Status | null, options: LineOptions = {}): string {
-  const f = lineFields(input);
+  const f = lineFields(input, options.policy);
   // The board keeps the mark, dimmed, so the slot stays recognisable while pacer is down.
   if (!f.online) return options.color ?? true ? `\x1b[2m▬┃\x1b[0m ${offlineWords}` : `▬┃ ${offlineWords}`;
   if (input && "disabled" in input && input.disabled) return "pacer off (PACER=off)";
@@ -57,13 +57,20 @@ export function renderLine(input: ClientSnapshot | Status | null, options: LineO
   const running = f.running === null ? "" : paint(`▸${f.running}`, "93c5fd");
   const attention = f.attention ? paint(`⚑${f.attention}`, "fcd34d") : "";
   const mode = f.mode && f.mode !== "normal" ? modeWords(f.mode).toLowerCase() : "";
+  const policy = policyWords(f.policy);
   const stages = [
-    [mark, name, main].join(" ") + [running, attention, mode].filter(Boolean).map(s => `  ${s}`).join(""),
-    [mark, name, main].join(" ") + [running, attention].filter(Boolean).map(s => `  ${s}`).join(""),
-    [mark, main, running, attention].filter(Boolean).join(" "),
-    `${mark}${used}${attention ? ` ${attention}` : ""}`,
+    [mark, name, main].join(" ") + [policy, running, attention, mode].filter(Boolean).map(s => `  ${s}`).join(""),
+    [mark, name, main].join(" ") + [policy, running, attention].filter(Boolean).map(s => `  ${s}`).join(""),
+    [mark, main, policy, running, attention].filter(Boolean).join(" "),
+    [mark, used, policy, attention].filter(Boolean).join(" "),
+    [mark, used, compactPolicyWords(f.policy), attention].filter(Boolean).join(" "),
+    [`${mark}${used}`, compactPolicyWords(f.policy), attention].filter(Boolean).join(" "),
+    [compactPolicyWords(f.policy), attention].filter(Boolean).join(" "),
+    [`${mark}${used}`, compactPolicyWords(f.policy)].join(" "),
+    [mark, compactPolicyWords(f.policy)].join(" "),
+    compactPolicyWords(f.policy),
   ];
   const width = Number.isFinite(options.width) && options.width! > 0 ? Math.floor(options.width!) : 80;
   const start = width <= 20 ? 3 : width <= 40 ? 2 : width <= 60 ? 1 : 0;
-  return stages.slice(start).find(s => s.replace(/\x1b\[[0-9;]*m/g, "").length <= width) ?? stages[3]!;
+  return stages.slice(start).find(s => s.replace(/\x1b\[[0-9;]*m/g, "").length <= width) ?? stages.at(-1)!;
 }

@@ -98,6 +98,14 @@ const inputs: Input[] = [
   { label: "null-input", value: null },
   { label: "status-shaped", value: statusInput },
 ];
+// Keep every original case and add backend policy facts to both input shapes.
+for (const policy of [
+  { mode: "closed", plugins: 0 }, { mode: "closed", plugins: 2 },
+  { mode: "closed", plugins: 123456 }, { mode: "open", plugins: 0 },
+  { mode: "open", plugins: 2 },
+] as const) inputs.push({ label: `policy-${policy.mode}-${policy.plugins}`, value: { ...snapshot(), policy } });
+inputs.push({ label: "policy-closed-no-attention", value: { ...relaxed, policy: { mode: "closed", plugins: 0 } } });
+for (const mode of ["closed", "open"] as const) inputs.push({ label: `status-policy-${mode}`, value: { ...statusInput, policy: { mode, plugins: 0 } } });
 
 const widths = [120, 60, 40, 20];
 const colors = [true, false];

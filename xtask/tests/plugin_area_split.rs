@@ -16,6 +16,9 @@ fn plugin_decision_and_agent_session_methods_have_their_own_generated_areas() {
     let core = area("plugin-protocol");
     let decision = area("plugin-decision-protocol");
     let session = area("plugin-agent-session-protocol");
+    let install = area("plugin-install-protocol");
+    assert!(install.contains("pub struct PlannerInstallParams") || install.contains("pub enum PlannerInstallParams"));
+    assert!(!core.contains("PlannerInstallParams"));
     assert!(core.contains("pub struct Manifest"));
     assert!(core.contains("pub struct UiRenderParams"));
     assert!(!core.contains("pub struct DecisionDecideParams"));
@@ -29,11 +32,17 @@ fn plugin_decision_and_agent_session_methods_have_their_own_generated_areas() {
         .lines()
         .find(|line| line.starts_with("pub const VERSION: &str ="))
         .expect("entry crate declares the protocol version");
-    for code in [&core, &decision, &session] {
+    for code in [&core, &decision, &session, &install] {
         assert!(
             code.contains(version),
             "every area carries the entry crate's protocol version"
         );
-        assert!(code.lines().count() <= 10_000, "CRATE-3 generated budget");
+        // CRATE-3 counts generated code lines as `cargo xtask loc` does: no blank or comment lines.
+        let lines = code
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with("//"))
+            .count();
+        assert!(lines <= 10_000, "CRATE-3 generated budget: {lines} code lines");
     }
 }

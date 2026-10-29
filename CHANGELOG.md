@@ -6,9 +6,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
+- Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
 ### Changed
 
+- Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
+- Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.5.0 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
+- OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.5.0 adds `notifier.deliver`.
+- Run rules, Ollama and Jev classifiers through the bundled `pacer-classify` plugin. The host retains decision policy and resolves HTTP authorization by reference; disabled classifiers have no built-in implementation fallback.
+- Run Claude Code, Codex, Ark Coding Plan and metered OpenCode usage readers in the bundled `pacer-usage` plugin, preserving rich readings and host pacing policy. Disabled or failing readers report unavailable usage without a built-in fallback; inspect them with `pacer plugin list` and `pacer plugin doctor`.
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 
@@ -24,6 +31,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Plugin protocol 1.5.0 (additive): the `usage`, `classifier`, `notifier`, `endpoint`, `planner` and `policy` extension points; the `fs.write` and `usage.state` capabilities; scoped `capability.fs.*`, `capability.process.*`, `capability.net.http*`, `capability.usage.state.*`, `capability.planner.*`, `capability.tasks.*` and `capability.events.subscribe` methods; chunked results (`$/resultChunk`); and `capability.secrets.check`, which reports only whether a secret reference resolves. `capability.secrets.resolve` keeps its 1.3.0 contract. A manifest that uses any of these sets `host` to `>=1.5.0`. Policy types are generated into the new `pacer-plugin-policy-protocol` crate.
+- Add plugin policy checks for delegation, executor routing and task review, with bounded task observations, event subscriptions, failure modes and policy status across API, CLI, TUI and app surfaces.
+- Expose pure planner integration editing and undo helpers through `@pacer/plugin/install`, including JSONC-preserving edits, managed blocks and hook records.
 - Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
 - Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
 - Add a root task Dispatch trace page with recorded decisions, subtasks, token accounting, candidates and acceptance evidence. Open it from Tasks or the session header.

@@ -8,6 +8,7 @@ import { eventsSince } from "../src/api/events";
 import { readActivity } from "../src/activity/log";
 import { CoreError } from "../src/core/errors";
 import { PluginRegistry } from "../src/plugins/registry";
+import { PLUGIN_PROTOCOL_VERSION } from "../src/plugins/protocol";
 import { pluginLogPath } from "../src/plugins/host";
 import { fakeCtx } from "./helpers";
 
@@ -77,7 +78,7 @@ test("enable needs a grant once, then starts lazily, answers declared capabiliti
   expect(await r.enable(ctx, "fx-good", true)).toEqual({ id: "fx-good", state: "idle" });
   expect(r.list(ctx).find(p => p.id === "fx-good")).toMatchObject({ enabled: true, grant: { version: "1.0.0", capabilities: ["log", "config.get"] }, pid: null });
   const [report] = await r.doctor(live(ctx), "fx-good");
-  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: "1.4.0", plugin: "1.0.0" }, restarts: 0 });
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: PLUGIN_PROTOCOL_VERSION, plugin: PLUGIN_PROTOCOL_VERSION }, restarts: 0 });
   expect(report.pid).toBeGreaterThan(0);
   const end = Date.now() + 2000; while (!readFileSync(pluginLogPath(ctx, "fx-good"), "utf8").includes("ping 1") && Date.now() < end) await Bun.sleep(10);
   expect(readFileSync(pluginLogPath(ctx, "fx-good"), "utf8")).toContain("[stderr] fixture fx-good: ping 1");
@@ -201,4 +202,20 @@ test("ten actions a minute per plugin, then conflict", async () => {
   const { ctx, r } = await uiPlugin();
   for (let i = 0; i < 10; i++) await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, `r${i}`);
   expect(await codeOf(r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "r11"))).toBe("conflict");
+});
+
+test('only bundled peers receive the single host-issued source selector; installed env remains sealed',async()=>{
+  const {spawn}=await import('node:child_process');const {BUNDLED}=await import('../plugins/bundled');
+  const ctx=home();ctx.env.PACER_CORE_ARGV='raw-selector-marker';ctx.env.SECRET='private-env-marker';
+  const captures:Record<string,string|undefined>[]=[];
+  const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,options);}) as typeof spawn;
+  const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-notify')!;
+  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}})});registries.push(r);
+  expect((await r.doctor(live(ctx),'pacer-notify'))[0]?.ok).toBe(true);
+  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-notify',PACER_PLUGIN_PROTOCOL:'1.5.0',PACER_CORE_ARGV:'host-issued-selector',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
+  await r.shutdown();
+  installFixture('good',join(ctx.pacerHome,'plugins'));
+  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed peer used bundled launcher');}});registries.push(installed);
+  await installed.enable(live(ctx),'fx-good',true);expect((await installed.doctor(live(ctx),'fx-good'))[0]?.ok).toBe(true);
+  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:'1.5.0',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
 });

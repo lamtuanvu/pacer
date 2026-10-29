@@ -1,3 +1,4 @@
+import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -33,7 +34,7 @@ test("candidates group signed-in, config, catalog and local providers and mark a
   writeFileSync(join(ctx.home, ".config", "opencode", "opencode.json"), JSON.stringify({provider: {terastor: {name: "TeraStor AI", options: {apiKey: "sk-never-read"}}}}));
   const ollama = (async (url: string) => url.includes(":11434") ? Response.json({data: [{id: "qwen3-coder:30b"}]}) : Promise.reject(Error("refused"))) as unknown as typeof fetch;
   const accounts = {openrouter: {name: "openrouter", kind: "endpoint", source: "opencode", provider: "openrouter"} as AccountCfg};
-  const d = await detectCandidates(ctx, {fetch: ollama, catalog, accounts});
+  const d = await detectCandidates(ctx, {discover: discoveryFromFetch(ollama), catalog, accounts});
   expect(d.candidates.map(c => [c.group, c.provider, c.added])).toEqual([
     ["signed_in", "openrouter", "openrouter"], ["signed_in", "terastor", null],
     ["local", "ollama", null],
@@ -46,7 +47,7 @@ test("candidates group signed-in, config, catalog and local providers and mark a
 
 test("without opencode only local servers are offered", async () => {
   const {ctx, calls} = ctxWith({}, false);
-  const d = await detectCandidates(ctx, {fetch: noServers, catalog: null, accounts: {}});
+  const d = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts: {}});
   expect(d).toMatchObject({opencode: false, catalog: "offline", candidates: []});
   expect(d.notes[0]).toContain("Install OpenCode");
   expect(calls).toEqual([]);

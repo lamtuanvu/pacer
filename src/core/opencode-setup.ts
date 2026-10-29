@@ -8,7 +8,7 @@ import { addRunnerAndRoute, type EndpointDeps } from "./endpoints";
 import { CoreError } from "./errors";
 import { loadCatalog, readCachedCatalog, type Catalog } from "../endpoints/catalog";
 import { configProviders, detectCandidates, opencodeModelIds, signedInProviders, type CandidateGroup, type Detection } from "../endpoints/detect";
-import { discoverModels } from "../endpoints/models";
+import { discoverEndpointModels } from "../plugins/endpoint-adapter";
 import { classify, filterModelIds, idChoice, recommend, toChoice, usableModels, type ModelChoice, type UsageClass } from "../endpoints/recommend";
 import { readEndpointState, writeEndpointState, type EndpointState } from "../endpoints/state";
 import { testEndpoint } from "../endpoints/test-task";
@@ -18,7 +18,7 @@ const NAME = /^[a-z0-9][a-z0-9-]*$/;
 const catalogFor = async (ctx: Ctx, deps: SetupDeps) => deps.catalog !== undefined ? deps.catalog : loadCatalog(ctx, { fetch: deps.fetch as typeof fetch | undefined });
 
 export async function setupCandidates(ctx: Ctx, deps: SetupDeps = {}): Promise<Detection> {
-  return detectCandidates(ctx, { fetch: deps.fetch as typeof fetch | undefined, catalog: await catalogFor(ctx, deps), accounts: loadStrategy(ctx).accounts });
+  return detectCandidates(ctx, { discover: deps.discover, catalog: await catalogFor(ctx, deps), accounts: loadStrategy(ctx).accounts });
 }
 
 export interface SetupModelsResult { pick: ModelChoice | null; rest: ModelChoice[]; filtered: "catalog" | "ids"; usage: UsageClass; note?: string }
@@ -31,7 +31,7 @@ export async function setupModels(ctx: Ctx, input: { provider: string; group: Ca
   }
   let ids: string[];
   if (input.group === "local") {
-    const r = await discoverModels({ baseUrl: input.base_url ?? "", key: null, fetch: deps.fetch, timeoutMs: 3000 });
+    const r = await (deps.discover ?? discoverEndpointModels)(ctx, { baseUrl: input.base_url ?? "", key: null, timeoutMs: 3000 });
     ids = r.listed ? r.models.map(m => m.id) : [];
   } else {
     const listed = await opencodeModelIds(ctx, input.provider);
@@ -75,7 +75,7 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     const change = (doc: StrategyDoc) => { doc.addMappingEntry("accounts", name, account); addRunnerAndRoute(doc, s, id, `${input.provider}/${input.model}`); };
     const preview = new StrategyDoc(readFileSync(strategyPath(ctx), "utf8")); change(preview);
     validateStrategy(Bun.YAML.parse(preview.toString()), strategyPath(ctx));
-    edit(change);
+    await edit(change);
     writeEndpointState(ctx, name, { state: "not_tested" });
     const state: EndpointState = input.test !== false ? await testEndpoint(ctx, name, deps) : readEndpointState(ctx, name);
     const updated = loadStrategy(ctx);

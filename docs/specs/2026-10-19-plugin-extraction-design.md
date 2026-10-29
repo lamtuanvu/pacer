@@ -14,7 +14,7 @@ section below is one sub-project with its own implementation plan and PR. Nothin
 | Order | Usage, classifier, notifier, endpoint vendor, planner integration, policy, host runner, direct executor, Orca executor, surfaces, distribution. |
 | Orca | Not redesigned. The Orca executor is extracted as it is; the Orca panel stays a client. |
 
-## Protocol additions (1.1.0, additive under P14)
+## Protocol additions (additive under P14; landed together as plugin protocol 1.5.0)
 
 ### Streaming calls
 
@@ -129,5 +129,5 @@ Extension point `surface`. A plugin declares `contributes.surface: { prefix, dir
 ## Risks
 
 - Full attempt ownership means the executor plugin and the host share the run-directory format on disk. The contract is versioned (`runDir: 1` in `executor.run` input) and the conformance suite asserts the layout.
-- Process count: usage, classifier, notifier, endpoints, planners, direct executor and Orca executor make up to seven Bun processes when all are active. Sub-project 2 measures start-up and memory and records them in the PR; if the total is unacceptable, sub-project 4 adds a `pacer plugin run --multi` entry that serves several bundled plugins from one process, invisible to the contract.
+- Process count: usage, classifier, notifier, endpoints, planners, direct executor and Orca executor make up to seven Bun processes when all are active. SP02 measured five first `plugin.doctor` calls in separate already-running compiled hosts on macOS arm64/Bun 1.4.2: 97–165 ms (median 112 ms), with live child RSS 59,328–59,904 KiB (median 59,664 KiB). These warm-cache samples were taken under concurrent test load; they measure registry/start/hello/ping latency and point RSS, not cold executable launch, private memory or aggregate plugin overhead. Sub-project 2 measures start-up and memory and records them in the PR; if the total is unacceptable, sub-project 4 adds a `pacer plugin run --multi` entry that serves several bundled plugins from one process, invisible to the contract.
 - The planner integration moves file-editing machinery into the SDK; the undo records must stay byte-compatible with existing install manifests, covered by fixture manifests in `test/fixtures/install/`.

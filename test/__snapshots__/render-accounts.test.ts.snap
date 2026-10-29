@@ -7,6 +7,7 @@ Account byteplus
 - BytePlus: Eligible · Execution permitted
 Account team
 - Codex (team): Eligible · Execution permitted · observed 0s ago · weekly 34% (pace 99%, 1 active-h left) EXPIRING
+policy: open
 Mode: RELAXED - Claude is BEHIND pace or its window resets soon with quota unused. Claude may do small and medium edits itself; still delegate bulk or mechanical work.
 Executor preference: codex#team > opencode#byteplus
 Pace clock: calendar (not enough activity history yet)"
@@ -36,5 +37,5 @@ exports[`account metadata survives the link and appears in the dashboard 1`] = `
  ↓ 2 more
  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
- ⏎ Open in Settings  f repo scope  d delegate  ? help                                                                                     pacer 0.2.3"
+ ⏎ Open in Settings  f repo scope  d delegate  ? help                                                                   policy: unknown · pacer 0.2.3"
 `;

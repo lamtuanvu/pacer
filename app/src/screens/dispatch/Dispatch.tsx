@@ -11,7 +11,7 @@ import { capacity, needsYou, otherReposNeedingYou, plannerMeter, type Scope } fr
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { ago, clock } from "../../../../src/view-model/time";
-import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { attentionStatus, executorLabel, paceStatus, policyDetail, policyWords } from "../../../../src/view-model/words";
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
 import { AgentMark } from "../../ds/AgentMark";
@@ -288,7 +288,7 @@ function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, 
     {!narrow && <RepoFilter snapshot={snapshot} query={query} menu />}
     {!hideNewTask && <Button variant="primary" size="sm" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="Meta+N">New task{!narrow && <> <Kbd>⌘N</Kbd></>}</Button>}
   </div>;
-  const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span></div>;
+  const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span><span className="pc-dispatch__policy muted" title={policyDetail(snapshot.policy)}>{policyWords(snapshot.policy)}</span></div>;
   return narrow ? null
     : <header className="pc-dispatch__header">{title}{controls}</header>;
 }
@@ -360,7 +360,8 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const empty = snapshot.tasks.length === 0 && !(snapshot.attention?.length) && workRows.length === 0 && !workLoading && !workError;
   const liveWork = <LiveDispatch narrow={narrow} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
-    <SetupBanner />
+    {/* The wide header's live line names the policy mode; the narrow layout has no header, so the banner does. */}
+    <SetupBanner showPolicy={narrow} />
     <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
     {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
       {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}

@@ -40,14 +40,20 @@ export interface ProviderCfg {
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 
 export interface PluginGrant { version: string; capabilities: string[]; /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */ surfaces?: string[] }
-export interface PluginsCfg { disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
-export const EMPTY_PLUGINS: PluginsCfg = { disabled: [], installed: {}, config: {} };
+export interface PluginsCfg { policy: { mode: "open" | "closed" }; disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
+export const EMPTY_PLUGINS: PluginsCfg = { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
 
 const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
-  if (raw === undefined) return { disabled: [], installed: {}, config: {} };
-  if (!isObj(raw)) { p.push("plugins must be a mapping"); return { disabled: [], installed: {}, config: {} }; }
+  if (raw === undefined) return { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
+  if (!isObj(raw)) { p.push("plugins must be a mapping"); return { policy: { mode: "open" }, disabled: [], installed: {}, config: {} }; }
+  let mode: "open" | "closed" = "open";
+  if (raw.policy !== undefined) {
+    if (!isObj(raw.policy)) p.push("plugins.policy must be a mapping");
+    else if (raw.policy.mode !== undefined && raw.policy.mode !== "open" && raw.policy.mode !== "closed") p.push("plugins.policy.mode must be open or closed");
+    else mode = raw.policy.mode ?? "open";
+  }
   const disabled: string[] = [];
   if (raw.disabled !== undefined) {
     if (!Array.isArray(raw.disabled)) p.push("plugins.disabled must be a list of plugin ids");
@@ -70,7 +76,7 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
     if (!isObj(raw.config)) p.push("plugins.config must be a mapping of plugin id to settings");
     else for (const [id, c] of Object.entries(raw.config)) { if (!isObj(c)) p.push(`plugins.config.${id} must be a mapping`); else config[id] = c; }
   }
-  return { disabled, installed, config };
+  return { policy: { mode }, disabled, installed, config };
 }
 
 export interface Strategy {
