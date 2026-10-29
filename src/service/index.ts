@@ -89,11 +89,19 @@ Environment=${quote(`PATH=${servicePATH(ctx)}`)}
 Environment=${quote(`PACER_HOME=${ctx.pacerHome}`)}
 ${ctx.env.PACER_PORT ? `Environment=${quote(`PACER_PORT=${ctx.env.PACER_PORT}`)}\n` : ""}Restart=always
 RestartSec=10
+KillMode=process
 StandardOutput=${quote(`append:${join(ctx.pacerHome, "logs/serve.log")}`)}
 StandardError=${quote(`append:${join(ctx.pacerHome, "logs/serve.log")}`)}
 [Install]
 WantedBy=default.target
 `;
+}
+/** Migrate only pacer-managed systemd units so a restart spares detached work. */
+export function currentUnitText(text: string): string {
+  if (!text.includes(MARKER) || /^KillMode=process$/m.test(text)) return text;
+  const cleaned = text.replace(/^KillMode=.*\n/gm, "");
+  if (/^RestartSec=10$/m.test(cleaned)) return cleaned.replace(/^RestartSec=10\n/m, "RestartSec=10\nKillMode=process\n");
+  return cleaned.replace(/^\[Service\]\n/m, "[Service]\nKillMode=process\n");
 }
 export function binaryInFile(text: string, platform: string): string | null {
   if (platform === "darwin") {
@@ -263,7 +271,15 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       if (!mac) await run(system("daemon-reload"));
       const m = readManifest(ctx); delete m.planners.service; writeManifest(ctx, m);
     },
-    async restart() { await run(mac ? ["launchctl", "kickstart", "-k", target] : system("restart", "pacer-serve.service")); },
+    async restart() {
+      if (mac) { await run(["launchctl", "kickstart", "-k", target]); return; }
+      const text = readText(path);
+      if (text !== null) {
+        const next = currentUnitText(text);
+        if (next !== text) { writeInstallFile(path, next); installedCache.delete(path); await run(system("daemon-reload")); }
+      }
+      await run(system("restart", "pacer-serve.service"));
+    },
     async status(timeoutMs = 10000) {
       const deadline = Date.now() + timeoutMs;
       const text = readText(path), binaryPath = text === null ? null : binaryInFile(text, platform);
