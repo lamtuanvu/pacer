@@ -5,9 +5,9 @@ import { repoFs, cachedPath, withTimeout } from "./path-probe";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync, statSync } from "node:fs";
+import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName } from "../link/notification";
@@ -371,16 +371,48 @@ export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): {
   return { path, real, exists: true, symlinkedRoot, ids };
 }
 
-/** True when every directory is still the same real directory that verifiedTaskWorktreeRoot checked. */
-function unchangedDirs(ids: DirId[]): boolean {
-  return ids.every(d => {
-    try { const st = lstatSync(d.path, { bigint: true }); return !st.isSymbolicLink() && st.isDirectory() && st.dev === d.dev && st.ino === d.ino; }
-    catch { return false; }
-  });
+/** True when `path` is still the same real directory as `d`, which verifiedTaskWorktreeRoot checked. */
+function sameDir(path: string, d: DirId): boolean {
+  try { const st = lstatSync(path, { bigint: true }); return !st.isSymbolicLink() && st.isDirectory() && st.dev === d.dev && st.ino === d.ino; }
+  catch { return false; }
 }
 
-/** Test seam: runs after verification and before the forced delete's identity re-check. */
-export const cleanTestHooks: { beforeRecheck?: (real: string) => void } = {};
+/** True when every directory is still the same real directory that verifiedTaskWorktreeRoot checked. */
+function unchangedDirs(ids: DirId[]): boolean {
+  return ids.every(d => sameDir(d.path, d));
+}
+
+/** Name prefix of a task worktree moved aside for deletion, directly inside the worktrees folder. */
+const DELETE_PREFIX = ".pacer-delete-";
+
+/** Renames the verified task directory to a fresh, never-reused name directly in the canonical worktrees root, then
+ *  checks the renamed path is still that directory and the root is unchanged. Returns the renamed path, or null after
+ *  moving it back when its original path is free (a failed check) or leaving it in place (anything else). */
+function moveAside(ids: DirId[], id: string): string | null {
+  const [root, , task] = ids as [DirId, DirId, DirId];
+  const aside = join(root.path, `${DELETE_PREFIX}${id}-${randomBytes(8).toString("hex")}`);
+  try { renameSync(task.path, aside); } catch { return null; }
+  let real: string | null = null;
+  try { real = realpathSync(aside); } catch { /* checked below */ }
+  if (real === aside && sameDir(aside, task) && sameDir(root.path, root)) return aside;
+  // Never overwrite: move it back only when nothing took the original path.
+  try { lstatSync(task.path); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") try { renameSync(aside, task.path); } catch { /* left for the leftover report */ }
+  }
+  return null;
+}
+
+/** Folders moved aside by an earlier forced clean that stopped before deleting them, reported and never deleted. */
+function leftoverDeletes(ctx: Ctx): { id: string; reason: string }[] {
+  const root = taskWorktreesDir(ctx);
+  let names: string[];
+  try { names = readdirSync(root); } catch { return []; }
+  return names.filter(n => n.startsWith(DELETE_PREFIX)).sort()
+    .map(n => ({ id: n, reason: `unfinished forced cleanup; not deleted, remove ${join(root, n)} by hand` }));
+}
+
+/** Test seams: run after verification and before the forced delete's identity re-check, and before its rename. */
+export const cleanTestHooks: { beforeRecheck?: (real: string) => void; beforeRename?: (real: string) => void } = {};
 
 /** True when cleanTaskRuns would still remove something for this task. */
 function hasDisposableRuns(ctx: Ctx, t: TaskRecord): boolean {
@@ -439,8 +471,13 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
         cleanTestHooks.beforeRecheck?.(own.real);
         if (!unchangedDirs(own.ids)) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
         if (!o.dryRun) {
-          // A swap between this re-check and rmSync remains possible in theory: Node has no handle-based recursive delete.
-          rmSync(own.real, { recursive: true, force: true });
+          cleanTestHooks.beforeRename?.(own.real);
+          const aside = moveAside(own.ids, t.id);
+          if (!aside) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
+          // Node has no handle-based recursive delete, so one window remains: the worktrees folder itself being
+          // replaced between moveAside's root re-check and this rmSync. Swapping the repo-tag or task folder no
+          // longer reaches it, because the renamed path sits directly in the canonical root.
+          rmSync(aside, { recursive: true, force: true });
           const failed = pruneRuns(ctx, t);
           if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
         }
@@ -469,6 +506,7 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       removed.push(t.id);
     } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); }
   }
+  kept.push(...leftoverDeletes(ctx));
   if (!o.dryRun) cleanSettledSessions(ctx);
   return { removed, kept };
 }
