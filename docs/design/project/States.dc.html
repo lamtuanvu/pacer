@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App states</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-lane)}
+a{color:var(--link)}a:hover{color:var(--ink)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.frame{width:680px;height:440px;box-sizing:border-box;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface-page)}
+.bar{height:36px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--surface-card)}
+</style>
+</helmet>
+<div style="width: 1440px; box-sizing: border-box; padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 20px; color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px;">
+<header style="display: flex; flex-direction: column; gap: 4px;"><h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">App states · first run, empty, not measured, offline</h1><span class="cap" style="color: var(--ink-secondary);">Each state keeps the normal frame (top bar, activity bar, status bar) and says what happens next, with the one action that gets there.</span></header>
+<div style="display: grid; grid-template-columns: repeat(2, 680px); gap: 32px 40px;">
+
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption><b>First run</b> <span class="cap">· opened before any setup; pacer has looked for agent CLIs on this Mac</span></figcaption>
+<div class="frame">
+<div class="bar"><x-import component-from-global-scope="Pacer.Mark" size="{{n18}}"></x-import><b>pacer</b></div>
+<div style="flex-grow: 1; padding: 28px 32px; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; flex-direction: column; gap: 4px;"><h2 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">Let your planner hand off work</h2><span style="color: var(--ink-secondary);">pacer keeps Claude Code on pace by sending execution to the other agents you already pay for.</span></div>
+<div style="display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px;">
+<sc-for list="{{found}}" as="a" hint-placeholder-count="4"><div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--surface-lane);"><dc-import name="AgentMark" mono="{{a.mono}}" size="20" hint-size="20px,20px"></dc-import><span style="flex-grow: 1;"><b>{{a.name}}</b> <span class="cap">{{a.note}}</span></span><x-import component-from-global-scope="Pacer.Pill" tone="{{a.tone}}">{{a.pill}}</x-import></div></sc-for>
+</div>
+<div style="display: flex; gap: 8px; align-items: center;"><a href="SettingsRouting.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">Set up delegation</a><a href="SettingsAddAgent.dc.html" class="pc-btn pc-btn--secondary pc-btn--sm" style="text-decoration: none; color: var(--ink);">Add another agent</a><span class="cap">About 2 minutes · nothing runs until you finish</span></div>
+</div>
+</div>
+</figure>
+
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption><b>Dispatch, nothing yet</b> <span class="cap">· set up, no tasks delegated</span></figcaption>
+<div class="frame">
+<div class="bar"><x-import component-from-global-scope="Pacer.Mark" size="{{n18}}"></x-import><span style="flex-grow: 1;"></span><span class="cap">Claude Code · Relaxed</span></div>
+<div style="flex-grow: 1; padding: 24px 32px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Dispatch</h2>
+<div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; padding: 24px;">
+<b style="font-size: 16px; line-height: 22px;">No work delegated yet</b>
+<span style="color: var(--ink-secondary); max-width: 420px;">Ask your planner to delegate, or start a task here. Antigravity takes the first capable task; Codex is ahead of pace.</span>
+<div style="display: flex; gap: 8px;"><a href="NewTask.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">New task</a><x-import component-from-global-scope="Pacer.Button" size="sm">Try a sample task</x-import></div>
+</div>
+</div>
+</div>
+</figure>
+
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption><b>Insights, not measured yet</b> <span class="cap">· tasks ran but no token counts are in</span></figcaption>
+<div class="frame">
+<div class="bar"><x-import component-from-global-scope="Pacer.Mark" size="{{n18}}"></x-import></div>
+<div style="flex-grow: 1; padding: 24px 32px; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Insights</h2>
+<x-import component-from-global-scope="Pacer.Card" tone="sunken"><div style="display: flex; flex-direction: column; gap: 6px;"><b style="font-size: 16px; line-height: 22px;">Token counts appear after each attempt finishes</b><span style="color: var(--ink-secondary);">12 attempts are still running or ended without a count. Task counts below are exact; token totals fill in as attempts finish.</span></div></x-import>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden;">
+<div style="padding: 12px 14px; border-right: 1px solid var(--line);"><span class="lbl">Root tasks</span><div style="font-size: 22px; line-height: 26px; font-weight: 650;">42</div></div>
+<div style="padding: 12px 14px; border-right: 1px solid var(--line);"><span class="lbl">Tokens</span><div style="font-size: 22px; line-height: 26px; font-weight: 650; color: var(--ink-muted);">—</div><span class="cap">not measured yet</span></div>
+<div style="padding: 12px 14px;"><span class="lbl">Accepted first try</span><div style="font-size: 22px; line-height: 26px; font-weight: 650;">74%</div></div>
+</div>
+</div>
+</div>
+</figure>
+
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption><b>pacer is not running</b> <span class="cap">· the service stopped or the app lost its connection</span></figcaption>
+<div class="frame">
+<div class="bar"><x-import component-from-global-scope="Pacer.Mark" size="{{n18}}"></x-import></div>
+<div role="alert" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--warn-tint); border-bottom: 1px solid var(--warn-line);"><span aria-hidden="true" style="color: var(--warn-fg); font-weight: 700;">◐</span><span style="flex-grow: 1;"><b>Reconnecting to pacer…</b> <span class="cap">Last update 1 min ago. Running tasks keep going; what you see may be out of date, and actions are paused until pacer is back.</span></span><x-import component-from-global-scope="Pacer.Button" size="sm">Restart pacer</x-import></div>
+<div style="flex-grow: 1; padding: 24px 32px; display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Dispatch</h2>
+<div style="height: 90px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);"></div>
+<div style="height: 140px; border: 1px solid var(--line); border-radius: 12px;"></div>
+</div>
+</div>
+</figure>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      n18: 18,
+      found: [
+        { mono: 'Cl', name: 'Claude Code', note: '2.1.281 · will plan and review', pill: 'Planner', tone: 'info' },
+        { mono: 'Cx', name: 'Codex', note: '0.162.1 · signed in', pill: 'Found', tone: 'good' },
+        { mono: 'Ag', name: 'Antigravity', note: 'signed in as your Google account', pill: 'Found', tone: 'good' },
+        { mono: 'Cu', name: 'Cursor', note: 'not installed', pill: 'How to get it', tone: 'neutral' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

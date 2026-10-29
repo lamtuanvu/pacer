@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tray popover</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-lane)}
+a{color:var(--link)}a:hover{color:var(--ink)}
+.theme-dark{--surface-page:#09090b;--surface-card:#18181b;--surface-lane:#27272a;--line:#3f3f46;--ink:#fafafa;--ink-secondary:#a1a1aa;--ink-muted:#a1a1aa;--ink-on-ink:#18181b;--link:#93c5fd;--good-fg:#86efac;--good-bg:#14532d;--good-fill:#22c55e;--warn-fg:#fcd34d;--warn-bg:#451a03;--warn-fill:#f59e0b;--warn-line:#78350f;--warn-tint:#1c1408;--bad-fg:#fca5a5;--bad-bg:#450a0a;--bad-fill:#ef4444;--bad-line:#7f1d1d;--bad-tint:#1f0a0a;--info-fg:#93c5fd;--info-bg:#172554;--focus:#93c5fd;color-scheme:dark}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.count{display:flex;flex-direction:column;gap:0;padding:6px 8px;border-radius:8px;text-decoration:none;color:var(--ink-secondary)}
+.count:hover{background:var(--surface-lane);color:var(--ink)}
+.row{display:flex;align-items:center;gap:10px;padding:8px 14px;text-decoration:none;color:var(--ink)}
+.row:hover{background:var(--surface-card)}
+.iconbtn{width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:var(--ink-secondary);cursor:pointer}
+.iconbtn:hover{background:var(--surface-lane);color:var(--ink)}
+.menuitem{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer;width:100%;box-sizing:border-box;text-decoration:none}
+.menuitem:hover{background:var(--surface-lane)}
+kbd{font-family:var(--font-mono);font-size:11px;line-height:14px;padding:0 5px;border:1px solid currentColor;border-radius:4px;opacity:.7}
+</style>
+</helmet>
+<div style="width: 1560px; height: 820px; box-sizing: border-box; padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 20px; background: var(--surface-lane); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; font-variant-numeric: tabular-nums;">
+<header style="display: flex; flex-direction: column; gap: 4px;">
+<h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">Menu bar tray · 340 px popover</h1>
+<span class="cap" style="color: var(--ink-secondary);">Opens from the pacer menu bar icon. Same order as Dispatch: the planner's budget, then what needs you, then what is running. Every row opens the app at that item; the footer starts a task.</span>
+</header>
+<div style="display: flex; gap: 40px; align-items: flex-start;">
+<sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+<figure style="margin: 0; width: 340px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px; min-height: 54px;"><b style="font-size: 14px; line-height: 20px;">{{s.name}}</b><span class="cap" style="color: var(--ink-secondary);">{{s.note}}</span></figcaption>
+<div class="{{s.theme}}" style="position: relative; width: 340px; max-height: 560px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-page); color: var(--ink); box-shadow: 0 12px 32px rgba(9,9,11,.18);">
+<main aria-label="pacer tray" style="flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column;">
+
+<section aria-label="Planner budget" style="padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line);">
+<div style="display: flex; align-items: center; gap: 8px;">
+<dc-import name="AgentMark" mono="Cl" size="18" hint-size="18px,18px"></dc-import>
+<b>Claude Code</b><span class="cap">planner</span>
+<span style="flex-grow: 1;"></span>
+<x-import component-from-global-scope="Pacer.Pill" tone="{{s.paceTone}}">{{s.pace}}</x-import>
+<span style="height: 20px; padding: 0 8px; box-sizing: border-box; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--ink-secondary);">{{s.mode}}</span>
+</div>
+<x-import component-from-global-scope="Pacer.UsageMeter" used="{{s.used}}" pace="{{s.pacePct}}" label="Claude weekly usage"></x-import>
+<div style="display: flex; justify-content: space-between; gap: 8px;" class="cap"><span>{{s.used}}% of week used · pace {{s.pacePct}}%</span><span>resets Thu 14:00</span></div>
+</section>
+
+<sc-if value="{{s.paused}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--warn-tint); border-bottom: 1px solid var(--warn-line);">
+<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warn-fg);"><path d="M9 6v12"></path><path d="M15 6v12"></path></svg>
+<span style="flex-grow: 1; min-width: 0;"><b>Delegation paused</b><span class="cap" style="display: block;">New work waits until 13:00 · 2 tasks waiting</span></span>
+<x-import component-from-global-scope="Pacer.Button" size="sm">Resume</x-import>
+</div>
+</sc-if>
+
+<nav aria-label="Task counts" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--line);">
+<sc-for list="{{s.counts}}" as="c" hint-placeholder-count="4"><a class="count" href="{{c.href}}"><span style="font-size: 22px; line-height: 26px; font-weight: 650; color: {{c.fg}};">{{c.n}}</span><span class="cap">{{c.label}}</span></a></sc-for>
+</nav>
+
+<sc-if value="{{s.clear}}" hint-placeholder-val="{{ false }}">
+<section aria-label="Needs you" style="display: flex; align-items: center; gap: 10px; padding: 14px;">
+<span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; background: var(--good-bg); color: var(--good-fg); font-weight: 700;">✓</span>
+<span style="display: flex; flex-direction: column;"><b>Nothing needs you</b><span class="cap">Last review cleared 11:42</span></span>
+</section>
+</sc-if>
+
+<sc-if value="{{s.hasNeeds}}" hint-placeholder-val="{{ true }}">
+<section aria-labelledby="{{s.needsId}}" style="display: flex; flex-direction: column; padding: 8px 0 4px; border-bottom: 1px solid var(--line);">
+<div style="display: flex; align-items: center; padding: 2px 14px 4px;"><h2 id="{{s.needsId}}" class="lbl" style="margin: 0; flex-grow: 1; color: var(--warn-fg);">Needs you</h2><a href="NeedsYou.dc.html" style="font-size: 12px; text-decoration: none;">All {{s.needsCount}} in Needs you</a></div>
+<sc-for list="{{s.needs}}" as="n" hint-placeholder-count="3">
+<div class="row" style="padding-top: 7px; padding-bottom: 7px;">
+<span aria-hidden="true" style="width: 14px; text-align: center; font-weight: 700; color: {{n.fg}}; flex-shrink: 0;">{{n.glyph}}</span>
+<a href="{{n.href}}" style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; text-decoration: none; color: var(--ink);"><span class="ell" style="font-weight: 600;">{{n.title}}</span><span class="cap ell">{{n.repo}} · {{n.why}}</span></a>
+<a href="{{n.href}}" class="pc-btn pc-btn--{{n.variant}} pc-btn--sm" style="text-decoration: none; flex-shrink: 0;">{{n.action}}</a>
+</div>
+</sc-for>
+</section>
+</sc-if>
+
+<sc-if value="{{s.hasRunning}}" hint-placeholder-val="{{ true }}">
+<section aria-labelledby="{{s.runId}}" style="display: flex; flex-direction: column; padding: 8px 0 4px;">
+<div style="display: flex; align-items: center; padding: 2px 14px 4px;"><h2 id="{{s.runId}}" class="lbl" style="margin: 0; flex-grow: 1;">Running</h2><a href="Tasks.dc.html" style="font-size: 12px; text-decoration: none;">All {{s.runningCount}} in Tasks</a></div>
+<sc-for list="{{s.running}}" as="r" hint-placeholder-count="2">
+<a class="row" href="Session.dc.html" style="padding-top: 7px; padding-bottom: 7px;">
+<dc-import name="AgentMark" mono="{{r.mono}}" size="20" hint-size="20px,20px"></dc-import>
+<span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;"><span class="ell" style="font-weight: 600;">{{r.title}}</span><span class="cap ell"><span style="color: var(--info-fg); font-weight: 600;">{{r.phase}}</span> · {{r.time}} · {{r.repo}}</span></span>
+<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted); width: 14px; height: 14px;"><path d="M9 6l6 6-6 6"></path></svg>
+</a>
+</sc-for>
+<sc-if value="{{s.waiting}}" hint-placeholder-val="{{ false }}"><a class="row" href="Tasks.dc.html" style="padding-top: 6px; padding-bottom: 8px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ink-muted);"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg><span class="cap ell" style="flex: 1 1 auto; color: var(--ink-secondary);">{{s.waiting}}</span></a></sc-if>
+</section>
+</sc-if>
+
+<section aria-label="Executors" style="display: flex; align-items: center; gap: 12px; padding: 8px 14px 10px; border-top: 1px solid var(--line);">
+<sc-for list="{{s.execs}}" as="e" hint-placeholder-count="4"><a href="SettingsAgents.dc.html" title="{{e.title}}" style="display: inline-flex; align-items: center; gap: 5px; text-decoration: none; color: var(--ink);"><dc-import name="AgentMark" mono="{{e.mono}}" size="16" hint-size="16px,16px"></dc-import><span style="font-size: 12px; font-weight: 600; color: {{e.fg}};">{{e.value}}</span></a></sc-for>
+<span style="flex-grow: 1;"></span>
+<span class="cap">executors</span>
+</section>
+</main>
+
+<nav aria-label="pacer actions" style="flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); background: var(--surface-card);">
+<a href="NewTask.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">New task <kbd>⌘N</kbd></a>
+<a href="Main.dc.html" class="pc-btn pc-btn--secondary pc-btn--sm" style="text-decoration: none; color: var(--ink);">Open pacer <kbd>⌘O</kbd></a>
+<span style="flex-grow: 1;"></span>
+<button class="iconbtn" type="button" aria-label="{{s.pauseLabel}}" title="{{s.pauseLabel}}"><sc-if value="{{s.paused}}" hint-placeholder-val="{{ false }}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg></sc-if><sc-if value="{{s.notPaused}}" hint-placeholder-val="{{ true }}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12"></path><path d="M15 6v12"></path></svg></sc-if></button>
+<button class="iconbtn" type="button" aria-label="More" aria-expanded="{{s.menu}}" style="background: {{s.moreBg}};"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></button>
+</nav>
+
+<sc-if value="{{s.menu}}" hint-placeholder-val="{{ false }}">
+<nav aria-label="More actions" style="position: absolute; right: 10px; bottom: 56px; width: 236px; padding: 4px; display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-page); box-shadow: 0 8px 24px rgba(9,9,11,.16);">
+<a class="menuitem" href="SettingsRouting.dc.html"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h6"></path><path d="M10 12l6-6h4"></path><path d="M10 12l6 6h4"></path></svg><span style="flex-grow: 1;">Strategy</span><span class="cap">no-agy</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; color: var(--ink-muted);"><path d="M9 6l6 6-6 6"></path></svg></a>
+<label class="menuitem"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"></path><path d="M6.3 7.3a8 8 0 1 0 11.4 0"></path></svg><span style="flex-grow: 1;">Open at login</span><input type="checkbox" role="switch" checked aria-label="Open at login" style="accent-color: var(--ink);"></label>
+<a class="menuitem" href="SettingsOverview.dc.html"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg><span style="flex-grow: 1;">Settings</span><kbd>⌘,</kbd></a>
+<div style="height: 1px; background: var(--line); margin: 4px 6px;"></div>
+<button class="menuitem" type="button"><span style="width: 16px;"></span><span style="flex-grow: 1;">Quit pacer</span><kbd>⌘Q</kbd></button>
+</nav>
+</sc-if>
+</div>
+</figure>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1560,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const warn = 'var(--warn-fg)', bad = 'var(--bad-fg)', ink = 'var(--ink)', muted = 'var(--ink-muted)', good = 'var(--good-fg)';
+    const needs = [
+      { glyph: '◐', fg: warn, title: 'ota: stale plan shown as the current update', repo: 'acme/ota-client', why: 'Codex is waiting for your answer · 38 min', action: 'Answer', variant: 'secondary', href: 'Answer.dc.html' },
+      { glyph: '✕', fg: bad, title: 'runner-forge: GitHub App authentication', repo: 'acme/runner-forge', why: 'Checks failed twice on Codex', action: 'Retry on Antigravity', variant: 'primary', href: 'TaskFailed.dc.html' },
+      { glyph: '●', fg: 'var(--info-fg)', title: 'Browser-validate the web app PWA build', repo: 'acme/web', why: 'Checks passed · ready for review', action: 'Review', variant: 'secondary', href: 'Review.dc.html' }
+    ];
+    const running = [
+      { mono: 'Cx', title: 'Make remote-support access mode opt-out', phase: 'Editing', time: '12m', repo: 'acme/web' }
+    ];
+    const execs = [
+      { mono: 'Cx', value: '81%', fg: warn, title: 'Codex · 81% of week · ahead of pace · skipped for capable work' },
+      { mono: 'Ag', value: '22%', fg: good, title: 'Antigravity · 22% of week · under pace · next capable task goes here' },
+      { mono: 'Lo', value: '—', fg: muted, title: 'Local model · unmetered · on this Mac' },
+      { mono: 'BP', value: '2 off', fg: muted, title: 'Turned off or unable to take work: BytePlus (no subscription), Cursor (reading 113h old)' }
+    ];
+    const counts = (n, r, w, d) => [
+      { n, label: 'needs you', fg: n ? warn : muted, href: 'NeedsYou.dc.html' },
+      { n: r, label: 'running', fg: r ? ink : muted, href: 'Tasks.dc.html' },
+      { n: w, label: 'waiting', fg: w ? ink : muted, href: 'Tasks.dc.html' },
+      { n: d, label: 'done today', fg: d ? ink : muted, href: 'Tasks.dc.html' }
+    ];
+    const base = { theme: '', paceTone: 'good', pace: 'Under pace', mode: 'Relaxed', used: 16, pacePct: 38, paused: false, notPaused: true, pauseLabel: 'Pause delegation for 1 hour', menu: false, moreBg: 'transparent', clear: false, hasNeeds: true, hasRunning: true, needs, running, execs, needsCount: 3, runningCount: 1, waiting: '' };
+    return {
+      states: [
+        { ...base, id: 'busy', name: 'Busy', note: 'Three items that need you, one running, then links into the app. Titles and reasons truncate on one line each; status never wraps.', counts: counts(3, 1, 0, 9) },
+        { ...base, id: 'clear', name: 'All clear', note: 'Nothing needs you: a quiet check replaces the list. Running stays so you can jump into a live session.', counts: counts(0, 1, 0, 12), clear: true, hasNeeds: false, needsCount: 0, running: running.slice(0, 1), runningCount: 1 },
+        { ...base, id: 'paused', name: 'Paused · More menu open', note: 'A paused planner says when work resumes, with Resume in place. More holds the rarely used actions.', counts: counts(1, 0, 2, 9), mode: 'Paused', paused: true, notPaused: false, pauseLabel: 'Resume delegation', menu: true, moreBg: 'var(--surface-lane)', needs: needs.slice(0, 1), needsCount: 1, hasRunning: false, runningCount: 0 },
+        { ...base, id: 'dark', theme: 'theme-dark', name: 'Busy · dark', note: 'Same layout in the dark theme. Same data as Busy.', counts: counts(3, 1, 0, 9) }
+      ].map(x => ({ ...x, needsId: 'needs-' + x.id, runId: 'run-' + x.id }))
+    };
+  }
+}
+</script>
+</body>
+</html>
