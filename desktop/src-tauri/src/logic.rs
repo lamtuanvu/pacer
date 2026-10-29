@@ -82,16 +82,56 @@ pub fn launch_gate(candidate: bool, dismissed: bool) -> LaunchGate {
     if candidate && !dismissed { LaunchGate::Takeover } else { LaunchGate::Version }
 }
 
+/// What the desktop does about unfinished takeover transactions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnfinishedTakeoverNext {
+    /// A recovery job or a running helper owns the transaction.
+    Wait,
+    /// No recovery job is loaded for this transaction, for example because
+    /// the helper was killed before it armed one: run recovery once.
+    Recover(String),
+    /// Recovery cannot finish on its own: the journal is unreadable, or the
+    /// desktop's recovery run left it unfinished.
+    Failed { unreadable: bool },
+}
+
+pub fn unfinished_takeover_next(
+    unfinished: &[pacer_desktop::ota::takeover::journal::UnfinishedTakeover],
+    recovery_loaded: impl Fn(&str) -> bool,
+    attempted: &std::collections::HashSet<String>,
+) -> Option<UnfinishedTakeoverNext> {
+    if unfinished.is_empty() {
+        return None;
+    }
+    if unfinished.iter().any(|tx| !tx.readable) {
+        return Some(UnfinishedTakeoverNext::Failed { unreadable: true });
+    }
+    for tx in unfinished.iter().filter(|tx| !recovery_loaded(&tx.transaction_id)) {
+        if !attempted.contains(&tx.transaction_id) {
+            return Some(UnfinishedTakeoverNext::Recover(tx.transaction_id.clone()));
+        }
+        return Some(UnfinishedTakeoverNext::Failed { unreadable: false });
+    }
+    Some(UnfinishedTakeoverNext::Wait)
+}
+
+/// The public reason shown with a stuck transaction's recovery-failed page.
+pub fn takeover_failure_reason(next: &UnfinishedTakeoverNext) -> Option<&'static str> {
+    matches!(next, UnfinishedTakeoverNext::Failed { unreadable: true }).then_some("journal:unreadable")
+}
+
 /// The bundled page takeover transactions hold before the desktop may install,
 /// start, sign in to or otherwise act on the service. `latest` is the newest
 /// finished transaction and whether its restored outcome was already shown.
 pub fn takeover_gate(
-    pending: bool,
+    unfinished: Option<UnfinishedTakeoverNext>,
     latest: Option<(pacer_desktop::ota::takeover::journal::TakeoverState, bool)>,
 ) -> Option<&'static str> {
     use pacer_desktop::ota::takeover::journal::TakeoverState;
-    if pending {
-        return Some("takeoverProgress");
+    match unfinished {
+        Some(UnfinishedTakeoverNext::Failed { .. }) => return Some("takeoverFailed"),
+        Some(_) => return Some("takeoverProgress"),
+        None => {}
     }
     match latest {
         Some((TakeoverState::RecoveryFailed, _)) => Some("takeoverFailed"),
@@ -99,6 +139,20 @@ pub fn takeover_gate(
         _ => None,
     }
 }
+
+/// The offer's best-effort facts are read again on every pass, also while the
+/// cached inspection is reused; a read that fails shows as unknown.
+pub fn refresh_takeover_work(inspection: &mut Value, version: Option<&str>, tasks: Option<usize>, terminals: Option<usize>) {
+    inspection["currentVersion"] = serde_json::json!(version);
+    inspection["work"] = serde_json::json!({"tasks":tasks,"terminals":terminals});
+}
+
+/// Shown when the service was replaced but the terminal command was not
+/// switched. The error itself goes only to the log.
+pub const TAKEOVER_RELINK_FAILED: (&str, &str) = (
+    "Terminal command not changed",
+    "The app's service is running, but the terminal command still runs another build. To switch it, move ~/.local/bin/pacer aside and reopen pacer, which offers to recreate the command.",
+);
 
 /// What follows a takeover the helper did not commit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -304,12 +358,18 @@ pub fn takeover_page(current: Option<&Url>) -> Option<TakeoverPage> {
 /// Authority of the main window's document. `current` is the last finished
 /// load and is cleared when a new document starts loading, so a document in
 /// flight never inherits the previous page's authority. A takeover token is
-/// issued only to the bundled takeover page, is single use, and is replaced
-/// on every render.
+/// issued only to the bundled takeover page and is single use. It is bound to
+/// the candidate the page shows: re-renders of the same candidate keep it, so
+/// a click during a render is not lost, and a new candidate gets a new token.
 #[derive(Default)]
 pub struct MainPage {
     current: Option<Url>,
-    takeover: Option<(String, TakeoverPage)>,
+    takeover: Option<TakeoverToken>,
+}
+struct TakeoverToken {
+    token: String,
+    page: TakeoverPage,
+    candidate: Option<String>,
 }
 impl MainPage {
     pub fn current(&self) -> Option<&Url> {
@@ -340,32 +400,40 @@ impl MainPage {
         self.current = None;
         self.takeover = None;
     }
-    /// Replaces the takeover token with `token` when the current document is
-    /// a bundled takeover page. Returns the token to inject into that page.
-    pub fn issue_takeover_token(&mut self, token: String) -> Option<String> {
+    /// The token to inject into the current bundled takeover page showing
+    /// `candidate`: the unused token already issued for it, or `fresh`.
+    pub fn issue_takeover_token(&mut self, candidate: Option<&str>, fresh: String) -> Option<String> {
+        let Some(page) = takeover_page(self.current.as_ref()) else {
+            self.takeover = None;
+            return None;
+        };
+        if let Some(issued) = self.takeover.as_ref().filter(|t| t.page == page && t.candidate.as_deref() == candidate) {
+            return Some(issued.token.clone());
+        }
         self.takeover = None;
-        let page = takeover_page(self.current.as_ref())?;
-        if !valid_takeover_token(&token) {
+        if !valid_takeover_token(&fresh) {
             return None;
         }
-        self.takeover = Some((token.clone(), page));
-        Some(token)
+        self.takeover = Some(TakeoverToken { token: fresh.clone(), page, candidate: candidate.map(str::to_owned) });
+        Some(fresh)
     }
     pub fn revoke_takeover_token(&mut self) {
         self.takeover = None;
     }
     /// Consumes the token. Accepts `action` only when the sentinel carries the
-    /// token issued to the current takeover page and that page permits it.
-    pub fn authorize_takeover(&mut self, url: &Url, action: ShellAction) -> bool {
-        let Some((token, page)) = self.takeover.take() else { return false };
+    /// token issued to the current takeover page, that page permits it, and
+    /// the shell still holds the candidate the token was issued for.
+    pub fn authorize_takeover(&mut self, url: &Url, action: ShellAction, candidate: Option<&str>) -> bool {
+        let Some(issued) = self.takeover.take() else { return false };
         let permitted = match action {
-            ShellAction::TakeoverConfirm { .. } => page == TakeoverPage::Offer,
+            ShellAction::TakeoverConfirm { .. } => issued.page == TakeoverPage::Offer,
             ShellAction::TakeoverDismiss => true,
             _ => false,
         };
         permitted
-            && takeover_page(self.current.as_ref()) == Some(page)
-            && takeover_token(url).is_some_and(|presented| presented == token)
+            && takeover_page(self.current.as_ref()) == Some(issued.page)
+            && issued.candidate.as_deref() == candidate
+            && takeover_token(url).is_some_and(|presented| presented == issued.token)
     }
 }
 
@@ -1416,51 +1484,69 @@ mod tests {
         url(&format!("tauri://localhost/action/takeover-dismiss?token={token}"))
     }
     const CONFIRM: ShellAction = ShellAction::TakeoverConfirm { relink: true };
+    const SEEN: Option<&str> = Some("candidate-a");
+    const CHANGED: Option<&str> = Some("candidate-b");
 
     #[test]
     fn takeover_token_is_issued_only_to_the_bundled_takeover_page_and_used_once() {
         let mut page = MainPage::default();
-        assert_eq!(page.issue_takeover_token(TOKEN.into()), None);
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
         page.finished(url("http://127.0.0.1:4317/app/"));
-        assert_eq!(page.issue_takeover_token(TOKEN.into()), None);
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
         page.finished(url("tauri://localhost/index.html?state=starting"));
-        assert_eq!(page.issue_takeover_token(TOKEN.into()), None);
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
         page.finished(url("tauri://localhost/index.html?state=takeover"));
-        assert_eq!(page.issue_takeover_token("short".into()), None);
-        assert_eq!(page.issue_takeover_token(TOKEN.into()).as_deref(), Some(TOKEN));
+        assert_eq!(page.issue_takeover_token(SEEN, "short".into()), None);
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()).as_deref(), Some(TOKEN));
         // A missing or mismatched token is rejected and ends the token.
-        assert!(!page.authorize_takeover(&url("tauri://localhost/action/takeover-confirm?relink=1"), CONFIRM));
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
-        page.issue_takeover_token(TOKEN.into());
-        assert!(!page.authorize_takeover(&confirm(OTHER), CONFIRM));
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
+        assert!(!page.authorize_takeover(&url("tauri://localhost/action/takeover-confirm?relink=1"), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(OTHER), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
         // The issued token is accepted once.
-        page.issue_takeover_token(TOKEN.into());
-        assert!(page.authorize_takeover(&confirm(TOKEN), CONFIRM));
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
-        page.issue_takeover_token(TOKEN.into());
-        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss, SEEN));
     }
 
     #[test]
-    fn rerender_replaces_the_takeover_token() {
+    fn rerender_keeps_the_token_while_the_candidate_is_unchanged() {
+        // A periodic re-render must not void a click carrying the token already on the page.
         let mut page = MainPage::default();
         page.finished(url("tauri://localhost/index.html?state=takeover"));
-        page.issue_takeover_token(TOKEN.into());
-        page.issue_takeover_token(OTHER.into());
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
-        page.issue_takeover_token(OTHER.into());
-        assert!(page.authorize_takeover(&confirm(OTHER), CONFIRM));
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()).as_deref(), Some(TOKEN));
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()).as_deref(), Some(TOKEN));
+        assert!(page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        // Once used, the next render issues a fresh token.
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()).as_deref(), Some(OTHER));
+    }
+
+    #[test]
+    fn a_new_candidate_gets_a_new_token_and_voids_the_old_one() {
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert_eq!(page.issue_takeover_token(CHANGED, OTHER.into()).as_deref(), Some(OTHER));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, CHANGED));
+        // A token bound to the reviewed candidate is refused once the shell holds another one,
+        // even before the page is re-rendered.
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, CHANGED));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, None));
     }
 
     #[test]
     fn restored_page_token_permits_only_continuing() {
         let mut page = MainPage::default();
         page.finished(url("tauri://localhost/index.html?state=takeoverRestored"));
-        page.issue_takeover_token(TOKEN.into());
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
-        page.issue_takeover_token(TOKEN.into());
-        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss, SEEN));
     }
 
     #[test]
@@ -1468,30 +1554,30 @@ mod tests {
         // The bundled offer finished loading and received its token.
         let mut page = MainPage::default();
         page.finished(url("tauri://localhost/index.html?state=takeover"));
-        let token = page.issue_takeover_token(TOKEN.into()).unwrap();
+        let token = page.issue_takeover_token(SEEN, TOKEN.into()).unwrap();
         // The lifecycle then navigates to the unverified service. Its document
         // runs a confirm before its own load finishes, even with a leaked token.
         let service = url("http://127.0.0.1:4317/app/auth?code=x");
         page.navigating(&service);
         assert_eq!(page.current(), None);
-        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM));
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
         page.started();
-        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM));
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
         // After the service page finishes, it cannot obtain a token either.
         page.finished(service);
-        assert_eq!(page.issue_takeover_token(OTHER.into()), None);
-        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM));
-        assert!(!page.authorize_takeover(&dismiss(&token), ShellAction::TakeoverDismiss));
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()), None);
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&dismiss(&token), ShellAction::TakeoverDismiss, SEEN));
     }
 
     #[test]
     fn a_new_document_load_ends_the_takeover_authority() {
         let mut page = MainPage::default();
         page.finished(url("tauri://localhost/index.html?state=takeover"));
-        page.issue_takeover_token(TOKEN.into());
+        page.issue_takeover_token(SEEN, TOKEN.into());
         page.started();
         assert_eq!(page.current(), None);
-        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
         // A fragment change keeps the document but still ends the token.
         page.finished(url("http://127.0.0.1:4317/app/#/tasks"));
         page.navigating(&url("http://127.0.0.1:4317/app/#/settings"));
@@ -2399,6 +2485,20 @@ mod desktop_connection_tests {
     use super::*;
     use pacer_desktop::ota::OtaError;
     #[test]
+    fn each_offer_pass_replaces_the_work_counts_and_version() {
+        let mut inspection = serde_json::json!({"label":"com.pacer.serve","currentVersion":"0.2.3","work":{"tasks":4,"terminals":1}});
+        refresh_takeover_work(&mut inspection, Some("0.2.4"), Some(0), None);
+        assert_eq!(inspection, serde_json::json!({"label":"com.pacer.serve","currentVersion":"0.2.4","work":{"tasks":0,"terminals":null}}));
+    }
+    #[test]
+    fn relink_failure_notification_is_plain_and_names_a_next_step() {
+        let (title, body) = TAKEOVER_RELINK_FAILED;
+        assert_eq!(title, "Terminal command not changed");
+        assert!(body.starts_with("The app's service is running, but the terminal command still runs another build."));
+        assert!(body.contains("reopen pacer"));
+        assert!(!body.contains('{') && !body.contains(':'));
+    }
+    #[test]
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
@@ -2422,27 +2522,52 @@ mod desktop_connection_tests {
         use pacer_desktop::ota::takeover::journal::TakeoverState::*;
         // Pending wins over any older outcome: the helper or recovery job owns the service.
         for latest in [None, Some((Committed, false)), Some((Restored, true)), Some((RecoveryFailed, false))] {
-            assert_eq!(takeover_gate(true, latest), Some("takeoverProgress"));
+            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Wait), latest), Some("takeoverProgress"));
         }
-        assert_eq!(takeover_gate(false, Some((RecoveryFailed, true))), Some("takeoverFailed"));
-        assert_eq!(takeover_gate(false, Some((Restored, false))), Some("takeoverRestored"));
+        assert_eq!(takeover_gate(None, Some((RecoveryFailed, true))), Some("takeoverFailed"));
+        assert_eq!(takeover_gate(None, Some((Restored, false))), Some("takeoverRestored"));
         // A restored outcome is shown once; a commit needs no page.
-        assert_eq!(takeover_gate(false, Some((Restored, true))), None);
-        assert_eq!(takeover_gate(false, Some((Committed, false))), None);
-        assert_eq!(takeover_gate(false, None), None);
+        assert_eq!(takeover_gate(None, Some((Restored, true))), None);
+        assert_eq!(takeover_gate(None, Some((Committed, false))), None);
+        assert_eq!(takeover_gate(None, None), None);
+    }
+    #[test]
+    fn a_stuck_takeover_journal_is_recovered_once_then_reported() {
+        use pacer_desktop::ota::takeover::journal::UnfinishedTakeover;
+        use std::collections::HashSet;
+        let tx = |id: &str, readable: bool| UnfinishedTakeover { transaction_id: id.into(), readable };
+        let none = HashSet::new();
+        assert_eq!(unfinished_takeover_next(&[], |_| false, &none), None);
+        // A loaded recovery job owns the transaction.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| true, &none), Some(UnfinishedTakeoverNext::Wait));
+        // The helper was killed before it armed recovery: run recovery once.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &none), Some(UnfinishedTakeoverNext::Recover("tx-1".into())));
+        let attempted: HashSet<String> = ["tx-1".to_string()].into();
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &attempted), Some(UnfinishedTakeoverNext::Failed { unreadable: false }));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none), Some(UnfinishedTakeoverNext::Recover("tx-2".into())));
+        // A damaged journal cannot be recovered or waited on.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", false)], |_| true, &none), Some(UnfinishedTakeoverNext::Failed { unreadable: true }));
+        // Recovery in flight shows progress; a stuck journal shows the recovery-failed page.
+        use pacer_desktop::ota::takeover::journal::TakeoverState::*;
+        assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Recover("tx-1".into())), None), Some("takeoverProgress"));
+        for unreadable in [true, false] {
+            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Failed { unreadable }), Some((Restored, false))), Some("takeoverFailed"));
+        }
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed { unreadable: true }), Some("journal:unreadable"));
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed { unreadable: false }), None);
     }
     #[test]
     fn a_failed_helper_shows_its_transaction_page_at_once() {
         use pacer_desktop::ota::takeover::journal::TakeoverState::*;
         // A helper that exits after the switch leaves a pending transaction: the
         // in-progress page replaces the offer now, not after the offer's slow hold.
-        let next = takeover_failure_next(takeover_gate(true, None));
+        let next = takeover_failure_next(takeover_gate(Some(UnfinishedTakeoverNext::Wait), None));
         assert_eq!(next, TakeoverFailureNext::Show("takeoverProgress"));
         assert!(!waiting_for_choice(Some("takeoverProgress")));
-        assert_eq!(takeover_failure_next(takeover_gate(false, Some((Restored, false)))), TakeoverFailureNext::Show("takeoverRestored"));
-        assert_eq!(takeover_failure_next(takeover_gate(false, Some((RecoveryFailed, false)))), TakeoverFailureNext::Show("takeoverFailed"));
+        assert_eq!(takeover_failure_next(takeover_gate(None, Some((Restored, false)))), TakeoverFailureNext::Show("takeoverRestored"));
+        assert_eq!(takeover_failure_next(takeover_gate(None, Some((RecoveryFailed, false)))), TakeoverFailureNext::Show("takeoverFailed"));
         // No transaction started, so nothing changed: offer the choice again.
-        assert_eq!(takeover_failure_next(takeover_gate(false, None)), TakeoverFailureNext::Reoffer);
+        assert_eq!(takeover_failure_next(takeover_gate(None, None)), TakeoverFailureNext::Reoffer);
     }
     #[test]
     fn the_takeover_offer_waits_like_the_version_pages() {

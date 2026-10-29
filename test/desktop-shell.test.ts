@@ -14,7 +14,7 @@ function shell(search: string) {
     for (const child of children) if (child.id) elements.set(`#${child.id}`, child);
   };
   const document = {
-    createElement(tag: string) { return { tag, hidden: false, textContent: "", append }; },
+    createElement(tag: string) { return { tag, hidden: false, textContent: "", className: "", append }; },
     querySelector(selector: string) {
       if (!elements.has(selector)) {
         const tag = selector.startsWith("#") ? html.match(new RegExp(`<[^>]+id="${selector.slice(1)}"[^>]*>`))?.[0] || "" : "";
@@ -25,8 +25,9 @@ function shell(search: string) {
           href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "", breaks: 0,
           set innerHTML(_: string) { throw new Error("Shell details must use textContent"); },
           replaceChildren(...nodes: any[]) {
-            element.textContent = nodes.map(node => typeof node === "string" ? node : "").join("");
+            element.textContent = nodes.map(node => typeof node === "string" ? node : node.textContent).join("");
             element.breaks = nodes.filter(node => node?.tag === "wbr").length;
+            element.children = nodes;
           },
           focus() { focused = element; },
           addEventListener(event: string, listener: () => void) { listeners.set(event, listener); },
@@ -38,11 +39,13 @@ function shell(search: string) {
     },
     body: { classList: { add() {} } },
   };
-  const window: any = {};
+  const windowListeners = new Map<string, () => void>();
+  const window: any = { addEventListener(event: string, listener: () => void) { windowListeners.set(event, listener); } };
   runInNewContext(script, { document, window, location, URLSearchParams,
     Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {} });
   return { element: document.querySelector, render: window.renderShell, takeover: window.renderTakeover, location,
-    focused: () => focused,
+    focused: () => focused, windowEvent: (event: string) => windowListeners.get(event)?.(),
+    wait(ms: number) { now += ms; },
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
 
@@ -77,6 +80,17 @@ test("takeover details are literal, fully readable and use one spelling for unkn
   expect(page.element("#takeover-current").textContent).toBe(inspection.currentPath);
   // Paths may break only after each separator.
   expect(page.element("#takeover-current").breaks).toBe(inspection.currentPath.split("/").length - 1);
+  // Each segment stays whole, so a path never breaks at a hyphen inside a name.
+  const segments = page.element("#takeover-current").children.filter((node: any) => node.tag === "span");
+  expect(segments.map((node: any) => node.textContent)).toEqual(inspection.currentPath.split("/").filter(Boolean));
+  expect(segments.every((node: any) => node.className === "path-part")).toBe(true);
+  // A service label breaks only after a dot, never inside its hash.
+  const label = "com.pacer.live.83f409bc51037fedfe821ca66eec969d.service";
+  page.takeover({ inspection: { ...inspection, label }, progress: null, token: TOKEN });
+  expect(page.element("#takeover-label").textContent).toBe(label);
+  expect(page.element("#takeover-label").breaks).toBe(4);
+  expect(page.element("#takeover-label").children.filter((node: any) => node.tag === "span").map((node: any) => node.textContent))
+    .toEqual(["com.", "pacer.", "live.", "83f409bc51037fedfe821ca66eec969d.", "service"]);
   expect(page.element("#takeover-replacement").textContent).toBe(inspection.replacementPath);
   expect(page.element("#takeover-home").textContent).toBe(inspection.dataHome);
   expect(page.element("#takeover-version").textContent).toBe("0.2.4");
@@ -108,6 +122,7 @@ test("takeover actions are buttons that navigate only with the injected single-u
   expect(page.element("#takeover-actions").hidden).toBe(false);
   expect(page.element("#takeover-relink").checked).toBe(false);
   page.element("#takeover-relink").checked = true;
+  page.wait(1000);
   page.element("#takeover-confirm").dispatch("click");
   expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=1&token=${TOKEN}`);
   // The token is used once, focus moves to the status and the choice is locked.
@@ -120,6 +135,36 @@ test("takeover actions are buttons that navigate only with the injected single-u
   page.takeover({ inspection, progress: null, token: TOKEN });
   page.element("#takeover-dismiss").dispatch("click");
   expect(page.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
+});
+
+test("takeover confirm ignores clicks for a second after the offer appears or regains focus", () => {
+  const page = shell("?state=takeover");
+  const before = page.location.href;
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.wait(999);
+  page.element("#takeover-confirm").dispatch("click");
+  // Ignored, not consumed: the actions and token stay.
+  expect(page.location.href).toBe(before);
+  expect(page.element("#takeover-actions").hidden).toBe(false);
+  // A periodic re-render with the same token keeps the page armed.
+  page.wait(1);
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.windowEvent("focus");
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(before);
+  page.wait(1000);
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=0&token=${TOKEN}`);
+  // A new candidate brings a new token and a new delay.
+  const next = shell("?state=takeover");
+  next.takeover({ inspection, progress: null, token: TOKEN });
+  next.wait(1000);
+  next.takeover({ inspection, progress: null, token: TOKEN.replace("0", "f") });
+  next.element("#takeover-confirm").dispatch("click");
+  expect(next.location.href).toBe("tauri://localhost/index.html?state=takeover");
+  // Not now is never delayed.
+  next.element("#takeover-dismiss").dispatch("click");
+  expect(next.location.href).toContain("takeover-dismiss");
 });
 
 test("takeover progress is plain copy, keeps focus and re-enables the offer only after an error", () => {
@@ -168,8 +213,11 @@ test("takeover outcomes explain reasons in plain copy and never show codes or up
   const restored = shell("?state=takeoverRestored");
   restored.render({ page: "takeoverRestored", error: "verify:unavailable" });
   expect(restored.element("#takeover-restored-actions").hidden).toBe(true);
+  // The note describes the button, so it appears only with it.
+  expect(restored.element("#takeover-continue-note").hidden).toBe(true);
   restored.takeover({ inspection: null, progress: null, token: TOKEN });
   expect(restored.element("#takeover-restored-actions").hidden).toBe(false);
+  expect(restored.element("#takeover-continue-note").hidden).toBe(false);
   expect(html).toContain("Continuing hides this offer for this build of the current service.");
   restored.element("#takeover-continue").dispatch("click");
   expect(restored.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
@@ -182,6 +230,12 @@ test("takeover outcomes explain reasons in plain copy and never show codes or up
   expect(failed.element("#message").textContent).not.toMatch(/update|internal|restore-registration/i);
   expect(failed.element("#report-issue").hidden).toBe(false);
   expect(shell("?state=takeoverFailed&compact=1").element("#message").textContent).toContain("github.com/lamtuanvu/pacer/issues");
+  // A record pacer cannot read is kept as evidence and never claimed as a failed restore.
+  const unreadable = shell("?state=takeoverFailed");
+  unreadable.render({ page: "takeoverFailed", error: "journal:unreadable" });
+  expect(unreadable.element("h1").textContent).toBe("Service replacement needs attention");
+  expect(unreadable.element("#message").textContent).toBe("pacer couldn't read its record of a service replacement, so it can't tell which service is set up. pacer kept that record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.");
+  expect(unreadable.element("#report-issue").hidden).toBe(false);
 
   const progress = shell("?state=takeoverProgress");
   expect(progress.element("h1").textContent).toBe("Replacing the pacer service");
@@ -198,10 +252,36 @@ test("takeover warning is body text with warning tokens and a text label", () =>
   expect(css).toMatch(/\.button:focus-visible \{ outline: 2px solid var\(--focus\)/);
 });
 
-test("takeover paths and labels wrap instead of clipping", () => {
+test("takeover paths and labels break only at separators and never clip", () => {
   const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
-  // A label such as com.pacer.live.<hex>.service has no separator to break at.
-  expect(css).toMatch(/\.path--wrap \{ white-space: normal; overflow-wrap: anywhere; overflow-x: visible; \}/);
+  // Segments never break inside; a segment wider than the column scrolls instead (UI-11).
+  expect(css).toMatch(/\.path--wrap \{ white-space: normal; overflow-x: auto; \}/);
+  expect(css).toMatch(/\.path-part \{ white-space: nowrap; \}/);
+  expect(css).not.toMatch(/overflow-wrap: anywhere; overflow-x/);
+});
+
+test("takeover detail labels align with their values", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  // The grid reset must win over the stacked list margins, by specificity and order.
+  const reset = css.indexOf(".install-details.install-details--grid dt, .install-details.install-details--grid dd { margin: 0; }");
+  expect(reset).toBeGreaterThan(-1);
+  expect(reset).toBeGreaterThan(css.indexOf(".install-details dt {"));
+  expect(reset).toBeGreaterThan(css.indexOf(".install-details dd {"));
+});
+
+test("takeover counts sit under the warning, above the pinned choice", () => {
+  const section = html.slice(html.indexOf('<section id="takeover"'), html.indexOf('<section id="takeover-restored"'));
+  const order = ["callout-warn", 'id="takeover-tasks"', 'id="takeover-terminals"', 'id="takeover-current"', 'class="takeover-choice"'].map(text => section.indexOf(text));
+  expect(order.every(index => index > -1)).toBe(true);
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
+});
+
+test("takeover disabled choice and progress focus are visible with shell tokens", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.consent-row input:disabled::before \{[^}]*var\(--line\)[^}]*\}/);
+  expect(css).toMatch(/\.consent-row input:checked:disabled::before \{[^}]*var\(--ink-muted\)[^}]*\}/);
+  expect(css).toMatch(/\.consent-row input:disabled \+ label \{[^}]*color: var\(--ink-muted\)/);
+  expect(css).toMatch(/#takeover-progress:focus \{ outline: 2px solid var\(--focus\); outline-offset: 2px; \}/);
 });
 
 test("takeover choice stays visible at the default window height", () => {

@@ -49,7 +49,11 @@ pub(crate) trait TakeoverSources {
     fn observe(&self) -> Result<crate::ota::control::ObservedServiceRegistration, OtaError>;
     /// Whether the registered service verifies as a release CLI.
     fn signed(&self) -> Result<(), OtaError>;
-    fn identity(&self, program: &Path, process: &ProcessIdentity) -> Result<LegacyExecutable, OtaError>;
+    fn identity(
+        &self,
+        program: &Path,
+        process: &ProcessIdentity,
+    ) -> Result<LegacyExecutable, OtaError>;
 }
 
 struct NativeSources<'a> {
@@ -60,12 +64,27 @@ struct NativeSources<'a> {
 }
 impl TakeoverSources for NativeSources<'_> {
     fn observe(&self) -> Result<crate::ota::control::ObservedServiceRegistration, OtaError> {
-        crate::ota::control::observe_service_registration(self.user_home, self.home, self.port, self.trust)
+        crate::ota::control::observe_service_registration(
+            self.user_home,
+            self.home,
+            self.port,
+            self.trust,
+        )
     }
     fn signed(&self) -> Result<(), OtaError> {
-        crate::ota::control::inspect_registered_service(self.user_home, self.home, self.port, self.trust).map(|_| ())
+        crate::ota::control::inspect_registered_service(
+            self.user_home,
+            self.home,
+            self.port,
+            self.trust,
+        )
+        .map(|_| ())
     }
-    fn identity(&self, program: &Path, process: &ProcessIdentity) -> Result<LegacyExecutable, OtaError> {
+    fn identity(
+        &self,
+        program: &Path,
+        process: &ProcessIdentity,
+    ) -> Result<LegacyExecutable, OtaError> {
         crate::ota::bootstrap_identity::inspect_legacy_executable(program, process)
     }
 }
@@ -78,7 +97,18 @@ pub fn detect_takeover(
     bundled_cli: &Path,
     trust: &ReleaseTrust,
 ) -> Result<Option<TakeoverCandidate>, OtaError> {
-    detect_with(config_dir, user_home, port, bundled_cli, &NativeSources { user_home, home, port, trust })
+    detect_with(
+        config_dir,
+        user_home,
+        port,
+        bundled_cli,
+        &NativeSources {
+            user_home,
+            home,
+            port,
+            trust,
+        },
+    )
 }
 
 /// Offers a takeover only when every predicate holds; any other failure keeps
@@ -103,7 +133,9 @@ pub(crate) fn detect_with(
         Err(OtaError::Io) => return Err(OtaError::Io),
         Err(_) => return Ok(None),
     };
-    let Ok(user_home) = user_home.canonicalize() else { return Ok(None) };
+    let Ok(user_home) = user_home.canonicalize() else {
+        return Ok(None);
+    };
     let argv = match crate::ota::control::parse_registration(
         &observed.registration,
         &user_home,
@@ -157,10 +189,17 @@ pub(crate) fn detect_with(
 /// registration bytes, loaded PID incarnation and program file. This costs a
 /// plist read and a stat, unlike a full detection, which hashes and verifies
 /// the whole executable.
-pub fn still_current(cached: &TakeoverCandidate, observed: &crate::ota::control::ObservedServiceRegistration) -> bool {
+pub fn still_current(
+    cached: &TakeoverCandidate,
+    observed: &crate::ota::control::ObservedServiceRegistration,
+) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(metadata) = std::fs::symlink_metadata(&cached.canonical_program) else { return false };
-    let nanos = |seconds: i64, nanos: i64| (i128::from(seconds) * 1_000_000_000 + i128::from(nanos)).to_string();
+    let Ok(metadata) = std::fs::symlink_metadata(&cached.canonical_program) else {
+        return false;
+    };
+    let nanos = |seconds: i64, nanos: i64| {
+        (i128::from(seconds) * 1_000_000_000 + i128::from(nanos)).to_string()
+    };
     format!("{:x}", sha2::Sha256::digest(&observed.registration)) == cached.registration_sha256
         && observed.process == cached.process
         && observed.label == cached.label
@@ -190,8 +229,12 @@ mod tests {
             device: metadata.dev().to_string(),
             inode: metadata.ino().to_string(),
             size: metadata.size(),
-            modified_ns: (i128::from(metadata.mtime()) * 1_000_000_000 + i128::from(metadata.mtime_nsec())).to_string(),
-            changed_ns: (i128::from(metadata.ctime()) * 1_000_000_000 + i128::from(metadata.ctime_nsec())).to_string(),
+            modified_ns: (i128::from(metadata.mtime()) * 1_000_000_000
+                + i128::from(metadata.mtime_nsec()))
+            .to_string(),
+            changed_ns: (i128::from(metadata.ctime()) * 1_000_000_000
+                + i128::from(metadata.ctime_nsec()))
+            .to_string(),
             ..identity()
         };
         let observed = sources.observed.clone().unwrap();
@@ -222,31 +265,72 @@ mod tests {
         let home = root.join(".pacer");
         let bundled = root.join("pacer.app/Contents/Resources/pacer");
         let program = root.join(".local/bin/pacer");
-        for path in [&config, &home, &bundled.parent().unwrap().to_path_buf(), &program.parent().unwrap().to_path_buf()] {
+        for path in [
+            &config,
+            &home,
+            &bundled.parent().unwrap().to_path_buf(),
+            &program.parent().unwrap().to_path_buf(),
+        ] {
             std::fs::create_dir_all(path).unwrap();
         }
         std::fs::write(&bundled, b"bundled").unwrap();
         std::fs::write(&program, b"other build").unwrap();
-        std::fs::write(config.join("consent.json"), r#"{"at":"today","keep":false,"path":false}"#).unwrap();
-        Fixture { _dir: dir, root, config, bundled, program, home }
+        std::fs::write(
+            config.join("consent.json"),
+            r#"{"at":"today","keep":false,"path":false}"#,
+        )
+        .unwrap();
+        Fixture {
+            _dir: dir,
+            root,
+            config,
+            bundled,
+            program,
+            home,
+        }
     }
     fn registration(f: &Fixture, program: &Path) -> Vec<u8> {
         let mut bytes = Vec::new();
         plist::Value::Dictionary(plist::Dictionary::from_iter([
-            ("Label".to_string(), plist::Value::String("com.pacer.serve".into())),
-            ("ProgramArguments".to_string(), plist::Value::Array(vec![
-                plist::Value::String(program.to_string_lossy().into_owned()),
-                plist::Value::String("serve".into()),
-            ])),
-            ("EnvironmentVariables".to_string(), plist::Value::Dictionary(plist::Dictionary::from_iter([
-                ("HOME".to_string(), plist::Value::String(f.root.to_string_lossy().into_owned())),
-                ("PACER_HOME".to_string(), plist::Value::String(f.home.to_string_lossy().into_owned())),
-            ]))),
-        ])).to_writer_xml(&mut bytes).unwrap();
+            (
+                "Label".to_string(),
+                plist::Value::String("com.pacer.serve".into()),
+            ),
+            (
+                "ProgramArguments".to_string(),
+                plist::Value::Array(vec![
+                    plist::Value::String(program.to_string_lossy().into_owned()),
+                    plist::Value::String("serve".into()),
+                ]),
+            ),
+            (
+                "EnvironmentVariables".to_string(),
+                plist::Value::Dictionary(plist::Dictionary::from_iter([
+                    (
+                        "HOME".to_string(),
+                        plist::Value::String(f.root.to_string_lossy().into_owned()),
+                    ),
+                    (
+                        "PACER_HOME".to_string(),
+                        plist::Value::String(f.home.to_string_lossy().into_owned()),
+                    ),
+                ])),
+            ),
+        ]))
+        .to_writer_xml(&mut bytes)
+        .unwrap();
         bytes
     }
     fn identity() -> LegacyExecutable {
-        LegacyExecutable { device: "1".into(), inode: "1".into(), size: 1, modified_ns: "1".into(), changed_ns: "1".into(), sha256: "a".repeat(64), cdhash: "b".repeat(40) }
+        LegacyExecutable {
+            device: "1".into(),
+            inode: "1".into(),
+            size: 1,
+            modified_ns: "1".into(),
+            changed_ns: "1".into(),
+            sha256: "a".repeat(64),
+            cdhash: "b".repeat(40),
+        }
     }
     struct Fake {
         observed: Result<ObservedServiceRegistration, OtaError>,
@@ -254,17 +338,29 @@ mod tests {
         identity: Result<LegacyExecutable, OtaError>,
     }
     impl TakeoverSources for Fake {
-        fn observe(&self) -> Result<ObservedServiceRegistration, OtaError> { self.observed.clone() }
-        fn signed(&self) -> Result<(), OtaError> { self.signed }
-        fn identity(&self, _: &Path, _: &ProcessIdentity) -> Result<LegacyExecutable, OtaError> { self.identity.clone() }
+        fn observe(&self) -> Result<ObservedServiceRegistration, OtaError> {
+            self.observed.clone()
+        }
+        fn signed(&self) -> Result<(), OtaError> {
+            self.signed
+        }
+        fn identity(&self, _: &Path, _: &ProcessIdentity) -> Result<LegacyExecutable, OtaError> {
+            self.identity.clone()
+        }
     }
     fn running(f: &Fixture, program: &Path) -> Fake {
         Fake {
             observed: Ok(ObservedServiceRegistration {
                 home: f.home.clone(),
                 port: 4317,
-                process: ProcessIdentity { pid: 7, boot_id: "boot".into(), birth: "birth".into() },
-                executable: program.canonicalize().unwrap_or_else(|_| program.to_owned()),
+                process: ProcessIdentity {
+                    pid: 7,
+                    boot_id: "boot".into(),
+                    birth: "birth".into(),
+                },
+                executable: program
+                    .canonicalize()
+                    .unwrap_or_else(|_| program.to_owned()),
                 registration: registration(f, program),
                 label: "com.pacer.serve".into(),
             }),
@@ -284,7 +380,10 @@ mod tests {
         assert_eq!(candidate.canonical_program, f.program);
         assert_eq!(candidate.identity, identity());
         assert_eq!(candidate.home, f.home);
-        assert_eq!(candidate.registration_sha256, format!("{:x}", sha2::Sha256::digest(registration(&f, &f.program))));
+        assert_eq!(
+            candidate.registration_sha256,
+            format!("{:x}", sha2::Sha256::digest(registration(&f, &f.program)))
+        );
     }
 
     #[test]
@@ -322,30 +421,75 @@ mod tests {
     fn registration_identity_and_signature_failures_are_not_offered() {
         let f = fixture();
         for error in [OtaError::Identity, OtaError::Invalid, OtaError::Unavailable] {
-            let sources = Fake { observed: Err(error), ..running(&f, &f.program) };
+            let sources = Fake {
+                observed: Err(error),
+                ..running(&f, &f.program)
+            };
             assert_eq!(detect(&f, &sources), Ok(None));
         }
         // A verified release service, or one that cannot be checked, is not a takeover.
         for signed in [Ok(()), Err(OtaError::Unavailable), Err(OtaError::Invalid)] {
-            assert_eq!(detect(&f, &Fake { signed, ..running(&f, &f.program) }), Ok(None));
+            assert_eq!(
+                detect(
+                    &f,
+                    &Fake {
+                        signed,
+                        ..running(&f, &f.program)
+                    }
+                ),
+                Ok(None)
+            );
         }
         // An executable whose identity cannot be pinned (for example multiply linked).
-        assert_eq!(detect(&f, &Fake { identity: Err(OtaError::Identity), ..running(&f, &f.program) }), Ok(None));
+        assert_eq!(
+            detect(
+                &f,
+                &Fake {
+                    identity: Err(OtaError::Identity),
+                    ..running(&f, &f.program)
+                }
+            ),
+            Ok(None)
+        );
         // A foreign data home or an extra plist key fails registration parsing.
         let mut foreign = running(&f, &f.program);
-        if let Ok(observed) = &mut foreign.observed { observed.home = f.root.join("other"); }
+        if let Ok(observed) = &mut foreign.observed {
+            observed.home = f.root.join("other");
+        }
         assert_eq!(detect(&f, &foreign), Ok(None));
         let mut extra = running(&f, &f.program);
         if let Ok(observed) = &mut extra.observed {
-            let text = String::from_utf8(observed.registration.clone()).unwrap()
-                .replace("<key>Label</key>", "<key>Sockets</key><string>x</string><key>Label</key>");
+            let text = String::from_utf8(observed.registration.clone())
+                .unwrap()
+                .replace(
+                    "<key>Label</key>",
+                    "<key>Sockets</key><string>x</string><key>Label</key>",
+                );
             observed.registration = text.into_bytes();
         }
         assert_eq!(detect(&f, &extra), Ok(None));
         // A missing program is not offered; I/O failures are reported for a retry.
         assert_eq!(detect(&f, &running(&f, &f.root.join("missing"))), Ok(None));
-        assert_eq!(detect(&f, &Fake { observed: Err(OtaError::Io), ..running(&f, &f.program) }), Err(OtaError::Io));
-        assert_eq!(detect(&f, &Fake { signed: Err(OtaError::Io), ..running(&f, &f.program) }), Err(OtaError::Io));
+        assert_eq!(
+            detect(
+                &f,
+                &Fake {
+                    observed: Err(OtaError::Io),
+                    ..running(&f, &f.program)
+                }
+            ),
+            Err(OtaError::Io)
+        );
+        assert_eq!(
+            detect(
+                &f,
+                &Fake {
+                    signed: Err(OtaError::Io),
+                    ..running(&f, &f.program)
+                }
+            ),
+            Err(OtaError::Io)
+        );
     }
 
     #[test]

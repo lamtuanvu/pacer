@@ -27,7 +27,7 @@ Detection is read-only. It runs on every ordinary launch before the live-service
 
 1. The app's `consent.json` parses strictly with `keep: false`. A missing, malformed or `keep: true` record keeps today's behavior.
 2. `observe_service_registration` succeeds: fixed label, allowed plist keys, `argv` of `<absolute path> serve`, `HOME`, `PACER_HOME` and port matching this desktop, user-owned regular plist that is not group- or world-writable, loaded job whose PID runs the registered program.
-3. The program path canonicalizes to something other than the bundled CLI.
+3. The registered program is a regular file, not a symlink, and is not the bundled CLI. A symlinked program is never offered, even one that points at another build; the desktop keeps today's behavior for it.
 4. `inspect_registered_service` fails with an identity error.
 5. `inspect_legacy_executable` captures the running program's file identity (device, inode, size, timestamps, SHA-256, cdhash bound to the PID).
 

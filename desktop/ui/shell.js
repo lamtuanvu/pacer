@@ -52,6 +52,8 @@ const restoredReasons = {
   verify: "The app's service didn't start correctly, so pacer put your current service back.",
   interrupted: 'The replacement was interrupted, so pacer put your current service back.',
 };
+// A transaction record pacer cannot read is kept as evidence; it may not have failed a restore.
+const unreadableTakeover = "pacer couldn't read its record of a service replacement, so it can't tell which service is set up. pacer kept that record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.";
 function restoredMessage(reason) {
   return restoredReasons[String(reason || '').split(':')[0]] || pages.takeoverRestored[1];
 }
@@ -120,7 +122,8 @@ function renderShell(detail) {
   const copy = detail.page === 'foreign' && detail.port ? 'foreignPort' : detail.page;
   const [title, pageMessage] = pages[copy] || ['Starting pacer…', ''];
   const message = compact && compactMessages[detail.page] ? compactMessages[detail.page]
-    : detail.page === 'takeoverRestored' ? restoredMessage(detail.error) : pageMessage;
+    : detail.page === 'takeoverRestored' ? restoredMessage(detail.error)
+    : detail.page === 'takeoverFailed' && detail.error === 'journal:unreadable' ? unreadableTakeover : pageMessage;
   document.querySelector('h1').textContent = permission ? '' : title;
   const target = String(detail.path || '').split('/').filter(Boolean).pop() || 'your external drive';
   const status = document.querySelector('#message');
@@ -135,22 +138,44 @@ function renderShell(detail) {
   // Starting and update progress pages spin; permission and error pages ask for something.
   document.querySelector('#spinner').hidden = permission || (Boolean(pages[detail.page]) && !progress.includes(detail.page));
 }
-// Paths break only after a separator, so both executables stay fully readable.
+// Paths and labels break only at their separators; each segment stays whole,
+// so a hyphen or hash inside a name never splits it.
+function segment(text) {
+  const part = document.createElement('span');
+  part.className = 'path-part';
+  part.textContent = text;
+  return part;
+}
 function setPath(element, value) {
-  const text = value === null || value === undefined || value === '' ? 'Unknown' : String(value);
   const parts = [];
-  for (const [index, part] of text.split('/').entries()) {
+  for (const [index, part] of known(value).split('/').entries()) {
     if (index > 0) parts.push('/', document.createElement('wbr'));
-    if (part) parts.push(part);
+    if (part) parts.push(segment(part));
+  }
+  element.replaceChildren(...parts);
+}
+function setLabel(element, value) {
+  const names = known(value).split('.');
+  const parts = [];
+  for (const [index, name] of names.entries()) {
+    if (index > 0) parts.push(document.createElement('wbr'));
+    parts.push(segment(index < names.length - 1 ? `${name}.` : name));
   }
   element.replaceChildren(...parts);
 }
 function known(value) {
   return value === null || value === undefined || value === '' ? 'Unknown' : String(value);
 }
-// The native shell injects a fresh single-use token with each render; the
-// actions exist only while it is present and nothing is in progress.
+// The native shell injects a single-use token, kept across re-renders of the
+// same service; the actions exist only while it is present and nothing is in
+// progress. Confirm ignores clicks for a second after a new token arrives or
+// the window regains focus, so a click aimed at something else cannot land on it.
 let takeoverToken = null;
+let confirmReadyAt = 0;
+function holdConfirm() {
+  confirmReadyAt = Date.now() + 1000;
+}
+window.addEventListener('focus', holdConfirm);
 const takeoverActions = document.querySelector('#takeover-actions');
 const takeoverStatusLine = document.querySelector('#takeover-progress');
 const takeoverChoice = document.querySelector('#takeover-relink');
@@ -161,7 +186,7 @@ function takeoverAction(action, parameters) {
   location.href = `tauri://localhost/action/${action}?${parameters ? parameters + '&' : ''}token=${token}`;
 }
 function startTakeover() {
-  if (!takeoverToken) return;
+  if (!takeoverToken || Date.now() < confirmReadyAt) return;
   takeoverActions.hidden = true;
   takeoverChoice.disabled = true;
   takeoverStatusLine.textContent = takeoverStatus.prepared;
@@ -172,11 +197,13 @@ document.querySelector('#takeover-confirm').addEventListener('click', startTakeo
 document.querySelector('#takeover-dismiss').addEventListener('click', () => takeoverAction('takeover-dismiss'));
 document.querySelector('#takeover-continue').addEventListener('click', () => takeoverAction('takeover-dismiss'));
 function renderTakeover(data) {
+  if (data.token && data.token !== takeoverToken) holdConfirm();
   takeoverToken = data.token || null;
   const inspection = data.inspection || {};
-  for (const [id, key] of [['#takeover-current', 'currentPath'], ['#takeover-replacement', 'replacementPath'], ['#takeover-label', 'label'], ['#takeover-home', 'dataHome']]) {
+  for (const [id, key] of [['#takeover-current', 'currentPath'], ['#takeover-replacement', 'replacementPath'], ['#takeover-home', 'dataHome']]) {
     setPath(document.querySelector(id), inspection[key]);
   }
+  setLabel(document.querySelector('#takeover-label'), inspection.label);
   document.querySelector('#takeover-version').textContent = known(inspection.currentVersion);
   document.querySelector('#takeover-port').textContent = known(inspection.port);
   document.querySelector('#takeover-tasks').textContent = known(inspection.work?.tasks);
@@ -191,7 +218,9 @@ function renderTakeover(data) {
     : (state && takeoverStatus[state]) || (state ? 'Replacing the service…' : '');
   // Keep keyboard focus on the page when the focused action disappears.
   if (wasOffered && takeoverActions.hidden) takeoverStatusLine.focus?.();
+  // The note describes the Continue button, so it shows only with it.
   document.querySelector('#takeover-restored-actions').hidden = !takeoverToken;
+  document.querySelector('#takeover-continue-note').hidden = !takeoverToken;
 }
 const compact = query.get('compact') === '1';
 window.renderShell = renderShell;

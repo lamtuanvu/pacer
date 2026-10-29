@@ -47,6 +47,8 @@ async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Resul
 struct Shell {
     takeover: Mutex<Option<TakeoverView>>,
     takeover_progress: Mutex<Option<Value>>,
+    /// Unfinished takeover transactions the desktop already ran recovery for.
+    takeover_recovery_attempted: Mutex<std::collections::HashSet<String>>,
     /// The main window's document authority and its single-use takeover token.
     main_page: Mutex<logic::MainPage>,
     #[cfg(feature = "ota-fixture")]
@@ -83,6 +85,7 @@ impl Default for Shell {
         Self {
             takeover: Mutex::new(None),
             takeover_progress: Mutex::new(None),
+            takeover_recovery_attempted: Mutex::new(Default::default()),
             main_page: Mutex::new(logic::MainPage::default()),
             #[cfg(feature = "ota-fixture")]
             fixture_tray_auth: Mutex::new(None),
@@ -567,8 +570,9 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
     if let Some(action) = logic::shell_action_url(url) {
         if matches!(action, logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss) {
             // Only the token the bundled takeover page received authorizes these.
-            // The token is consumed by any attempt, including a rejected one.
-            if main && app.state::<Shell>().main_page.lock().unwrap().authorize_takeover(url, action) {
+            // The token is consumed by any well-formed attempt, including a rejected one.
+            let candidate = takeover_candidate_key(app);
+            if main && app.state::<Shell>().main_page.lock().unwrap().authorize_takeover(url, action, candidate.as_deref()) {
                 app.state::<Shell>().shell_action.lock().unwrap().get_or_insert(action);
                 app.state::<Shell>().wake.notify_one();
             } else {
@@ -642,8 +646,13 @@ fn render_diagnosis_in(app: &AppHandle, labels: &[&str]) {
         }
     }
 }
-/// Delivers inspection, progress and a fresh single-use action token to the
-/// bundled takeover page only. Inspection data is never available over IPC.
+/// Binds a takeover token to the candidate the page shows: its registration
+/// hash, process incarnation and program identity.
+fn takeover_candidate_key(app: &AppHandle) -> Option<String> {
+    app.state::<Shell>().takeover.lock().unwrap().as_ref().and_then(|view| serde_json::to_string(&view.candidate).ok())
+}
+/// Delivers inspection, progress and a single-use action token to the bundled
+/// takeover page only. Inspection data is never available over IPC.
 fn render_takeover(app: &AppHandle) {
     let shell = app.state::<Shell>();
     let inspection = shell.takeover.lock().unwrap().as_ref().map(|view| view.inspection.clone());
@@ -661,7 +670,8 @@ fn render_takeover(app: &AppHandle) {
         None
     } else {
         let Ok(random) = pacer_desktop::ota::journal::random_id() else { return };
-        let Some(token) = shell.main_page.lock().unwrap().issue_takeover_token(random) else { return };
+        let candidate = takeover_candidate_key(app);
+        let Some(token) = shell.main_page.lock().unwrap().issue_takeover_token(candidate.as_deref(), random) else { return };
         Some(token)
     };
     let payload = serde_json::json!({"inspection":inspection,"progress":progress,"token":token});

@@ -313,21 +313,27 @@ main:has(section:not([hidden])) h1 { font-size: var(--type-display-size); line-h
 .consent-row input::before { content: ''; width: 18px; height: 18px; border: 1px solid var(--ink-secondary); border-radius: var(--radius-sm); background: var(--surface-page); }
 .consent-row input:checked::before { content: '✓'; display: grid; place-items: center; background: var(--ink); border-color: var(--ink); color: var(--ink-on-ink); }
 .consent-row input:disabled { cursor: default; }
-.consent-row input:disabled + label { cursor: default; }
+.consent-row input:disabled::before { border-color: var(--line); background: var(--surface-card); }
+.consent-row input:checked:disabled::before { background: var(--ink-muted); border-color: var(--ink-muted); }
+.consent-row input:disabled + label { cursor: default; color: var(--ink-muted); }
 .consent-row input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 code, pre { font: var(--type-code-size)/var(--type-code-line) var(--font-mono); }
 pre { padding: var(--space-3); background: var(--surface-card); border: 1px solid var(--line); border-radius: var(--radius-md); overflow-x: auto; }
 .path { display: block; overflow-x: auto; white-space: nowrap; }
-/* Long paths prefer the separators the shell marks with <wbr>; names without one still wrap. */
-.path--wrap { white-space: normal; overflow-wrap: anywhere; overflow-x: visible; }
+/* Long paths and labels break only at the separators the shell marks with <wbr>;
+   a single segment wider than the column scrolls instead of breaking. */
+.path--wrap { white-space: normal; overflow-x: auto; }
+.path-part { white-space: nowrap; }
 /* The takeover choice stays in view at the default window height while the details scroll. */
 .takeover-choice { position: sticky; bottom: 0; padding-bottom: var(--space-3); background: var(--surface-page); }
 button.button { font: inherit; font-weight: var(--type-body-strong-weight); cursor: pointer; }
 .button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+#takeover-progress:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 .callout-warn { padding: var(--space-3); border: 1px solid var(--warn-line); border-radius: var(--radius-md); background: var(--warn-bg); color: var(--warn-fg); }
-.install-details--grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-2) var(--space-3); }
-.install-details--grid dt, .install-details--grid dd { margin: 0; }
 .install-details { margin: var(--space-5) 0; }
 .install-details dt { color: var(--ink-secondary); margin-top: var(--space-3); }
 .install-details dd { margin: var(--space-1) 0 0; }
+/* After the stacked rules and more specific, so the grid gap alone spaces the rows. */
+.install-details--grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-2) var(--space-3); }
+.install-details.install-details--grid dt, .install-details.install-details--grid dd { margin: 0; }
 @media (max-width: 480px) { main:has(section:not([hidden])) { padding: var(--space-3); } }

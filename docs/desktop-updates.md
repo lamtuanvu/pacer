@@ -70,19 +70,26 @@ Confirming stops the inspected service job, registers the signed CLI bundled
 with the app and verifies the new service. Settings and task data stay in the
 same home; the original command file stays in place. The optional terminal
 checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
-`~/.local/bin/pacer` to the bundled CLI. If the service changed after you
-reviewed it, nothing is changed.
+`~/.local/bin/pacer` to the bundled CLI. If that step fails after the service
+was replaced, a notification says so; move `~/.local/bin/pacer` aside and reopen
+pacer, which offers to recreate the command. If the service changed after you
+reviewed it, nothing is changed. **Use the app's service** ignores clicks for a
+second after the page appears or the window regains focus.
 
 If startup fails, the original registration and service are restored. A
 separate recovery job finishes the restore even if the helper or the desktop
-stops during the switch. Until the transaction finishes, the desktop shows that
+stops during the switch. If the helper stopped before that job was set up, the
+desktop runs the recovery once itself. Until the transaction finishes, the desktop shows that
 the service is being replaced and does not install, start or sign in to the
 service. It then shows **Kept your current service** with the reason. **Continue
 current service** also hides the offer for that build, like **Not now**. If
 recovery cannot verify the original service, the desktop shows **Service
-replacement needs attention** on every launch. Keep the transaction files under
+replacement needs attention** on every launch. It shows the same page when a
+transaction record can't be read, or when its one recovery run left it
+unfinished. Keep the transaction files under
 `$PACER_HOME/desktop-updates/native/takeover/` and follow the recovery guidance
-below.
+below. Older committed or restored transactions are removed once a newer one
+exists; recovery-failed ones are kept.
 
 ## Updating
 

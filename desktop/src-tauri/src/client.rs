@@ -67,6 +67,80 @@ fn consent_choice(config: &Path) -> (bool, bool) {
     (file.exists(), keep)
 }
 
+/// The helper inherits only stdio and, for a takeover, the channel at fd 3.
+/// Any descriptor a plugin or the webview left inheritable is closed on exec.
+/// Only async-signal-safe calls run between fork and exec.
+#[cfg(target_os = "macos")]
+fn helper_descriptors(command: &mut std::process::Command, channel: Option<std::os::fd::RawFd>) {
+    use std::os::unix::process::CommandExt;
+    unsafe { command.pre_exec(move || {
+        if let Some(channel) = channel {
+            if libc::dup2(channel, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 { return Err(std::io::Error::last_os_error()) }
+        }
+        let first = if channel.is_some() { 4 } else { 3 };
+        let limit = libc::sysconf(libc::_SC_OPEN_MAX);
+        let limit = if limit <= 0 { 65_536 } else { limit.min(1 << 20) as i32 };
+        for fd in first..limit {
+            let flags = libc::fcntl(fd, libc::F_GETFD);
+            if flags >= 0 && flags & libc::FD_CLOEXEC == 0 && libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }); }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TakeoverRecoveryRun {
+    Finished,
+    /// A running helper or recovery job holds the transaction.
+    Busy,
+    Failed(String),
+}
+
+/// Runs the bundled helper's takeover recovery once for a transaction that has
+/// no recovery job. It restores the original service or ends recovery-failed.
+#[cfg(target_os = "macos")]
+async fn recover_takeover(tx: String) -> TakeoverRecoveryRun {
+    let Some(helper) = bundled_binary().and_then(|cli| cli.parent().map(|dir| dir.join("pacer-update-helper"))) else {
+        return TakeoverRecoveryRun::Failed("bundled helper missing".into());
+    };
+    let Ok(home) = pacer_home().canonicalize() else {
+        return TakeoverRecoveryRun::Failed("pacer home unavailable".into());
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut command = std::process::Command::new(helper);
+        command.args(["--ota-recover-takeover", &tx]).env("PACER_HOME", home)
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        helper_descriptors(&mut command, None);
+        let mut process = match command.spawn() {
+            Ok(process) => process,
+            Err(error) => return TakeoverRecoveryRun::Failed(error.to_string()),
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            match process.try_wait() {
+                Ok(Some(status)) => return match status.code() {
+                    Some(0) => TakeoverRecoveryRun::Finished,
+                    Some(75) => TakeoverRecoveryRun::Busy,
+                    _ => TakeoverRecoveryRun::Failed(status.to_string()),
+                },
+                Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
+                Ok(None) => {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    return TakeoverRecoveryRun::Failed("timed out".into());
+                }
+                Err(error) => return TakeoverRecoveryRun::Failed(error.to_string()),
+            }
+        }
+    }).await.unwrap_or_else(|error| TakeoverRecoveryRun::Failed(error.to_string()))
+}
+#[cfg(not(target_os = "macos"))]
+async fn recover_takeover(_tx: String) -> TakeoverRecoveryRun {
+    TakeoverRecoveryRun::Failed("Service takeover is only available on macOS".into())
+}
+
 #[cfg(target_os = "macos")]
 async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, String> {
     use base64::Engine;
@@ -92,28 +166,13 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
     let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
         use std::os::fd::AsRawFd;
         use std::os::unix::net::UnixStream;
-        use std::os::unix::process::CommandExt;
         let helper = bundled.parent().ok_or("Bundled helper directory missing")?.join("pacer-update-helper");
         let (mut parent, child) = UnixStream::pair().map_err(|e| e.to_string())?;
         parent.set_read_timeout(Some(std::time::Duration::from_secs(180))).map_err(|e| e.to_string())?;
         let child_fd = child.as_raw_fd();
         let mut command = std::process::Command::new(helper);
         command.arg("--ota-takeover");
-        // The helper inherits only stdio and the channel at fd 3. Any descriptor a
-        // plugin or the webview left inheritable is closed on exec. Only
-        // async-signal-safe calls run between fork and exec.
-        unsafe { command.pre_exec(move || {
-            if libc::dup2(child_fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 { return Err(std::io::Error::last_os_error()) }
-            let limit = libc::sysconf(libc::_SC_OPEN_MAX);
-            let limit = if limit <= 0 { 65_536 } else { limit.min(1 << 20) as i32 };
-            for fd in 4..limit {
-                let flags = libc::fcntl(fd, libc::F_GETFD);
-                if flags >= 0 && flags & libc::FD_CLOEXEC == 0 && libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-            }
-            Ok(())
-        }); }
+        helper_descriptors(&mut command, Some(child_fd));
         let mut process = command.spawn().map_err(|e| e.to_string())?;
         drop(child);
         pacer_desktop::ota::control::write_frame(&mut parent, &manifest).map_err(|e| e.to_string())?;
@@ -133,9 +192,8 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
             #[cfg(not(feature = "ota-fixture"))]
             {
                 use tauri_plugin_notification::NotificationExt;
-                let _ = app.notification().builder().title("Terminal command not changed")
-                    .body(format!("The app's service is running, but the terminal command still runs the other build: {error}"))
-                    .show();
+                let (title, body) = logic::TAKEOVER_RELINK_FAILED;
+                let _ = app.notification().builder().title(title).body(body).show();
             }
         }
     }
@@ -719,7 +777,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                     && pacer_desktop::ota::control::observe_service_registration(&home, &cli.pacer_home, service_port(), &trust)
                         .is_ok_and(|observed| pacer_desktop::ota::takeover::detect::still_current(&view.candidate, &observed))
                 {
-                    return Some((view, config, true));
+                    return Some((view, config));
                 }
             }
             match pacer_desktop::ota::takeover::detect::detect_takeover(&config, &home, &cli.pacer_home, service_port(), &bundled, &trust) {
@@ -731,19 +789,17 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         "port":candidate.port,
                         "dataHome":candidate.home,
                     });
-                    (crate::TakeoverView { candidate, inspection }, config, false)
+                    (crate::TakeoverView { candidate, inspection }, config)
                 }),
                 Err(error) => { desktop_log!("pacer lifecycle: takeover inspection unavailable: {error}"); None }
             }
         })();
-        if let Some((mut view, config, cached)) = candidate {
-            if !cached {
-                let task_count = tokio::time::timeout(Duration::from_secs(3), count_active_tasks(&session)).await.ok().flatten();
-                let terminal_count = tokio::time::timeout(Duration::from_secs(2), session.op("terminal.list", &serde_json::json!({}))).await.ok().and_then(Result::ok)
-                    .and_then(|value| value.as_array().map(|rows| rows.iter().filter(|row| row["live"] == true).count()));
-                view.inspection["currentVersion"] = serde_json::json!(session.service_version());
-                view.inspection["work"] = serde_json::json!({"tasks":task_count,"terminals":terminal_count});
-            }
+        if let Some((mut view, config)) = candidate {
+            // Identity checks are cached; the work counts are read on every pass.
+            let task_count = tokio::time::timeout(Duration::from_secs(3), count_active_tasks(&session)).await.ok().flatten();
+            let terminal_count = tokio::time::timeout(Duration::from_secs(2), session.op("terminal.list", &serde_json::json!({}))).await.ok().and_then(Result::ok)
+                .and_then(|value| value.as_array().map(|rows| rows.iter().filter(|row| row["live"] == true).count()));
+            logic::refresh_takeover_work(&mut view.inspection, session.service_version(), task_count, terminal_count);
             let dismissed = logic::takeover_dismissed(&config, &view.candidate.identity);
             *app.state::<Shell>().takeover.lock().unwrap() = Some(view);
             // An offer the user is reviewing stays until they choose, even after a
@@ -1318,13 +1374,13 @@ impl FirstRun {
                         result => {
                             if let Err(error) = &result { desktop_log!("pacer lifecycle: service takeover failed: {error}"); }
                             let gate = takeover_gate(app);
-                            match logic::takeover_failure_next(gate.as_ref().map(|(page, _)| *page)) {
+                            match logic::takeover_failure_next(gate.as_ref().map(|hold| hold.page)) {
                                 logic::TakeoverFailureNext::Show(page) => {
                                     // The transaction's journal decides the page: in progress,
                                     // restored or recovery failed. Show it now; the offer's
                                     // slow hold would leave a stale offer up meanwhile.
                                     *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
-                                    show_takeover_outcome(app, page, gate.as_ref().and_then(|(_, latest)| latest.as_ref()));
+                                    show_takeover_outcome(app, page, gate.and_then(|hold| hold.error));
                                 }
                                 logic::TakeoverFailureNext::Reoffer => {
                                     crate::set_takeover_progress(app, serde_json::json!({"state":"error","error":null}));
@@ -1414,23 +1470,58 @@ impl FirstRun {
 
 /// The page unfinished or unacknowledged takeover transactions hold, read
 /// from their journals so the outcome survives a helper crash or a relaunch.
-fn takeover_gate(app: &AppHandle) -> Option<(&'static str, Option<pacer_desktop::ota::takeover::journal::FinishedTakeover>)> {
-    use pacer_desktop::ota::takeover::journal::{status, TakeoverState};
-    let status = status(&pacer_home());
+struct TakeoverHold {
+    page: &'static str,
+    /// A short public reason code, mapped to plain copy by the shell.
+    error: Option<String>,
+    /// An unfinished transaction without a recovery job, to recover once.
+    recover: Option<String>,
+}
+
+fn takeover_gate(app: &AppHandle) -> Option<TakeoverHold> {
+    use pacer_desktop::ota::takeover::journal::{prune, status, TakeoverState};
+    let home = pacer_home();
+    let status = status(&home);
+    #[cfg(target_os = "macos")]
+    let trust = pacer_desktop::ota::trust::ReleaseTrust::configured();
+    // An unanswerable query counts as not loaded: recovery then runs once, and
+    // a job that is in fact running holds the transaction lock, so it waits.
+    let loaded = |tx: &str| -> bool {
+        #[cfg(target_os = "macos")]
+        { trust.as_ref().is_some_and(|trust| pacer_desktop::ota::takeover::platform::recovery_job_loaded(trust, tx).unwrap_or(false)) }
+        #[cfg(not(target_os = "macos"))]
+        { let _ = tx; false }
+    };
+    let attempted = app.state::<Shell>().takeover_recovery_attempted.lock().unwrap().clone();
+    let unfinished = logic::unfinished_takeover_next(&status.unfinished, loaded, &attempted);
+    if unfinished.is_none() {
+        let removed = prune(&home, loaded);
+        if removed > 0 {
+            desktop_log!("pacer lifecycle: removed {removed} finished takeover transaction(s)");
+        }
+    }
     let config = app.path().app_config_dir().ok();
     let latest = status.latest.as_ref().map(|latest| (latest.state, latest.state == TakeoverState::Restored
         && config.as_deref().is_some_and(|config| logic::takeover_acknowledged(config, &latest.transaction_id))));
-    logic::takeover_gate(status.pending, latest).map(|page| (page, status.latest))
+    let page = logic::takeover_gate(unfinished.clone(), latest)?;
+    let error = match &unfinished {
+        Some(next) => logic::takeover_failure_reason(next).map(str::to_owned),
+        None => status.latest.and_then(|latest| latest.error),
+    };
+    let recover = match unfinished {
+        Some(logic::UnfinishedTakeoverNext::Recover(tx)) => Some(tx),
+        _ => None,
+    };
+    Some(TakeoverHold { page, error, recover })
 }
 
-fn show_takeover_outcome(app: &AppHandle, page: &'static str, latest: Option<&pacer_desktop::ota::takeover::journal::FinishedTakeover>) {
+fn show_takeover_outcome(app: &AppHandle, page: &'static str, error: Option<String>) {
     if app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == page) {
         return;
     }
     desktop_log!("pacer lifecycle: holding takeover page {page}; service actions wait for the transaction");
     let mut detail = logic::diagnosis(page, None);
-    // A short public reason code, mapped to plain copy by the shell.
-    detail.error = latest.filter(|_| page != "takeoverProgress").and_then(|latest| latest.error.clone());
+    detail.error = error.filter(|_| page != "takeoverProgress");
     crate::diagnostic_recovery(app, &detail);
 }
 
@@ -1499,10 +1590,19 @@ pub async fn run(app: AppHandle) {
             }
             OnboardingGate::Ready(cli) => cli,
         };
-        if let Some((page, latest)) = takeover_gate(&app) {
+        if let Some(hold) = takeover_gate(&app) {
             // The helper or its recovery job owns the service until the transaction
             // finishes; an outcome page is held until the user continues.
-            show_takeover_outcome(&app, page, latest.as_ref());
+            show_takeover_outcome(&app, hold.page, hold.error);
+            if let Some(tx) = hold.recover {
+                desktop_log!("pacer lifecycle: takeover {tx} has no recovery job; running its recovery once");
+                let outcome = recover_takeover(tx.clone()).await;
+                desktop_log!("pacer lifecycle: takeover {tx} recovery run: {outcome:?}");
+                if outcome != TakeoverRecoveryRun::Busy {
+                    app.state::<Shell>().takeover_recovery_attempted.lock().unwrap().insert(tx);
+                    app.state::<Shell>().wake.notify_one();
+                }
+            }
             lifecycle.ready();
             continue;
         }

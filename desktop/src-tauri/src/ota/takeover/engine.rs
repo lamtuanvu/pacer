@@ -1,6 +1,5 @@
 use super::journal::{
-    StepOutcome, TakeoverAction as Action, TakeoverManifest, TakeoverState as State,
-    TakeoverStore,
+    StepOutcome, TakeoverAction as Action, TakeoverManifest, TakeoverState as State, TakeoverStore,
 };
 use crate::ota::{AwakeStamp, OtaError, VERIFY_TIMEOUT_MS};
 
@@ -98,9 +97,7 @@ fn restore(
             p.restore_registration(m)
         })?;
         effect(store, Action::LaunchOriginal, || p.launch_original(m))?;
-        effect(store, Action::Verify, || {
-            p.verify_original(m, deadline(p)?)
-        })?;
+        effect(store, Action::Verify, || p.verify_original(m, deadline(p)?))?;
         Ok(())
     })();
     let state = match result {
@@ -150,10 +147,14 @@ pub fn execute_with_progress(
             p.switch_registration(m)
         })?;
         effect(store, Action::LaunchManaged, || p.launch_managed(m))?;
-        store.transition(State::Verifying).map_err(journal_failure)?;
+        store
+            .transition(State::Verifying)
+            .map_err(journal_failure)?;
         progress(State::Verifying);
         effect(store, Action::Verify, || p.verify_managed(m, deadline(p)?))?;
-        store.transition(State::Committed).map_err(journal_failure)?;
+        store
+            .transition(State::Committed)
+            .map_err(journal_failure)?;
         progress(State::Committed);
         let _ = p.retire_recovery(m);
         Ok(State::Committed)
@@ -313,7 +314,10 @@ mod tests {
         let fake = Fake::new(Some("redetect"));
         let mut states = vec![];
         // Drift is refused with no effects, and the transaction is finished.
-        assert_eq!(execute_with_progress(&store, &fake, &mut |state| states.push(state)), Ok(State::Restored));
+        assert_eq!(
+            execute_with_progress(&store, &fake, &mut |state| states.push(state)),
+            Ok(State::Restored)
+        );
         let journal = store.journal().unwrap();
         assert!(journal.steps.is_empty());
         assert_eq!(journal.state, State::Restored);
@@ -325,8 +329,16 @@ mod tests {
     fn every_forward_failure_restores_original() {
         for (fail, action, reason) in [
             ("stop", Action::StopOriginal, "stop-original:identity"),
-            ("switch", Action::SwitchRegistration, "switch-registration:identity"),
-            ("launch-managed", Action::LaunchManaged, "launch-managed:identity"),
+            (
+                "switch",
+                Action::SwitchRegistration,
+                "switch-registration:identity",
+            ),
+            (
+                "launch-managed",
+                Action::LaunchManaged,
+                "launch-managed:identity",
+            ),
             ("verify-managed", Action::Verify, "verify:identity"),
         ] {
             let (_temp, store) = fixture();
@@ -360,12 +372,17 @@ mod tests {
     fn restoration_failure_keeps_recovery_state() {
         let (_temp, store) = fixture();
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::ArmRecovery, StepOutcome::Ok)
+            .unwrap();
         let fake = Fake::new(Some("restore"));
         assert_eq!(recover(&store, &fake), Ok(State::RecoveryFailed));
         let journal = store.journal().unwrap();
         assert_eq!(journal.state, State::RecoveryFailed);
-        assert_eq!(journal.error.as_deref(), Some("restore-registration:identity"));
+        assert_eq!(
+            journal.error.as_deref(),
+            Some("restore-registration:identity")
+        );
         assert_eq!(
             journal.steps.last().unwrap().outcome,
             Some(StepOutcome::Failed)
@@ -385,10 +402,14 @@ mod tests {
         let (_temp, store) = fixture();
         let fake = Fake::new(Some("launch-original"));
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::ArmRecovery, StepOutcome::Ok)
+            .unwrap();
         store.transition(State::Stopping).unwrap();
         store.intend(Action::StopOriginal).unwrap();
-        store.complete(&Action::StopOriginal, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::StopOriginal, StepOutcome::Ok)
+            .unwrap();
         store.transition(State::Switched).unwrap();
         assert_eq!(recover(&store, &fake), Ok(State::RecoveryFailed));
         let journal = store.journal().unwrap();
@@ -396,7 +417,12 @@ mod tests {
         // Nothing runs after the refused launch: no verification and no forward step.
         assert_eq!(fake.calls(), ["restore", "launch-original", "retire"]);
         assert_eq!(
-            journal.steps.iter().filter(|s| s.action == Action::LaunchOriginal).map(|s| s.outcome).collect::<Vec<_>>(),
+            journal
+                .steps
+                .iter()
+                .filter(|s| s.action == Action::LaunchOriginal)
+                .map(|s| s.outcome)
+                .collect::<Vec<_>>(),
             [Some(StepOutcome::Failed)]
         );
     }
@@ -404,7 +430,9 @@ mod tests {
     fn interrupted_recovery_records_the_interrupted_step() {
         let (_temp, store) = fixture();
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::ArmRecovery, StepOutcome::Ok)
+            .unwrap();
         store.transition(State::Stopping).unwrap();
         store.intend(Action::StopOriginal).unwrap();
         assert_eq!(recover(&store, &Fake::new(None)), Ok(State::Restored));
@@ -436,7 +464,9 @@ mod tests {
             let (_temp, store) = fixture();
             if state != State::Prepared {
                 store.intend(Action::ArmRecovery).unwrap();
-                store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+                store
+                    .complete(&Action::ArmRecovery, StepOutcome::Ok)
+                    .unwrap();
                 store.transition(State::Stopping).unwrap();
                 if matches!(state, State::Switched | State::Verifying) {
                     store.transition(State::Switched).unwrap();
@@ -478,7 +508,9 @@ mod tests {
             let (temp, store) = fixture();
             if state != State::Prepared {
                 store.intend(Action::ArmRecovery).unwrap();
-                store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+                store
+                    .complete(&Action::ArmRecovery, StepOutcome::Ok)
+                    .unwrap();
                 store.transition(State::Stopping).unwrap();
                 if matches!(state, State::Switched | State::Verifying) {
                     store.transition(State::Switched).unwrap();
@@ -514,7 +546,9 @@ mod tests {
         for action in [Action::StopOriginal, Action::SwitchRegistration] {
             let (_temp, store) = fixture();
             store.intend(Action::ArmRecovery).unwrap();
-            store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+            store
+                .complete(&Action::ArmRecovery, StepOutcome::Ok)
+                .unwrap();
             store.transition(State::Stopping).unwrap();
             if action == Action::SwitchRegistration {
                 store.transition(State::Switched).unwrap();
@@ -530,10 +564,14 @@ mod tests {
     fn restore_crash_midway_restarts_restoration() {
         let (_temp, store) = fixture();
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::ArmRecovery, StepOutcome::Ok)
+            .unwrap();
         store.transition(State::Restoring).unwrap();
         store.intend(Action::RestoreRegistration).unwrap();
-        store.complete(&Action::RestoreRegistration, StepOutcome::Ok).unwrap();
+        store
+            .complete(&Action::RestoreRegistration, StepOutcome::Ok)
+            .unwrap();
         store.intend(Action::LaunchOriginal).unwrap();
         let fake = Fake::new(None);
         assert_eq!(recover(&store, &fake), Ok(State::Restored));

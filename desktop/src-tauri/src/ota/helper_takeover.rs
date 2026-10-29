@@ -81,11 +81,32 @@ pub fn run_takeover(trust: ReleaseTrust) -> Result<(), OtaError> {
     // Only short public reason codes cross the channel; never paths or messages.
     let error = journal.error.or_else(|| {
         outcome.as_ref().err().map(|error| {
-            format!("helper:{}", serde_json::to_value(error).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_else(|| "unknown".into()))
+            format!(
+                "helper:{}",
+                serde_json::to_value(error)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "unknown".into())
+            )
         })
     });
     let _ = control::write_frame(&mut channel, &Progress { state, error });
     outcome.map(|_| ())
+}
+
+/// The recovery job runs the transaction's helper copy. The desktop runs the
+/// app's own bundled helper once for a transaction whose job never loaded.
+/// Either way the process signature is verified before anything happens.
+#[cfg(target_os = "macos")]
+fn recovery_program_allowed(exe: &Path, copy: &Path, m: &TakeoverManifest) -> bool {
+    let bundled = m
+        .bundled_cli
+        .parent()
+        .map(|resources| resources.join("pacer-update-helper"));
+    exe == copy
+        || bundled.is_some_and(|bundled| {
+            exe == bundled || bundled.canonicalize().is_ok_and(|bundled| exe == bundled)
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -96,12 +117,11 @@ pub fn run_recovery(trust: ReleaseTrust, tx: &str) -> Result<(), OtaError> {
         .join("desktop-updates/native/takeover")
         .join(tx)
         .join("pacer-update-helper");
-    if std::env::current_exe()
+    let exe = std::env::current_exe()
         .map_err(|_| OtaError::Identity)?
         .canonicalize()
-        .map_err(|_| OtaError::Identity)?
-        != helper
-    {
+        .map_err(|_| OtaError::Identity)?;
+    if !recovery_program_allowed(&exe, &helper, store.manifest()) {
         return Err(OtaError::Identity);
     }
     let own = native::process_details(unsafe { libc::getpid() } as u32)
@@ -120,6 +140,33 @@ pub fn run_recovery(trust: ReleaseTrust, tx: &str) -> Result<(), OtaError> {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_runs_from_the_transaction_copy_or_the_apps_bundled_helper() {
+        let manifest: TakeoverManifest = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/fixtures/desktop-update/takeover-manifest.json"
+        )))
+        .unwrap();
+        let copy =
+            Path::new("/fixture/home/desktop-updates/native/takeover/tx/pacer-update-helper");
+        let bundled = manifest
+            .bundled_cli
+            .parent()
+            .unwrap()
+            .join("pacer-update-helper");
+        assert!(recovery_program_allowed(copy, copy, &manifest));
+        assert!(recovery_program_allowed(&bundled, copy, &manifest));
+        assert!(!recovery_program_allowed(
+            Path::new("/tmp/pacer-update-helper"),
+            copy,
+            &manifest
+        ));
+        assert!(!recovery_program_allowed(
+            &manifest.bundled_cli,
+            copy,
+            &manifest
+        ));
+    }
     #[test]
     fn parent_pid_and_signature_must_match_desktop_authorization() {
         let mut manifest: TakeoverManifest = serde_json::from_slice(include_bytes!(concat!(
@@ -216,7 +263,10 @@ mod tests {
         let received: TakeoverManifest = control::read_frame(&mut reader).unwrap();
         let home = tempfile::tempdir().unwrap();
         let store = TakeoverStore::create(home.path(), &received).unwrap();
-        assert_eq!(engine::execute(&store, &Reject), Ok(TakeoverState::Restored));
+        assert_eq!(
+            engine::execute(&store, &Reject),
+            Ok(TakeoverState::Restored)
+        );
         let journal = store.journal().unwrap();
         assert!(journal.steps.is_empty());
         assert_eq!(journal.error.as_deref(), Some("redetect:identity"));

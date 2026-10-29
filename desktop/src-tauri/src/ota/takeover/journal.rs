@@ -85,7 +85,10 @@ pub struct TakeoverJournal {
 
 impl TakeoverState {
     pub fn terminal(self) -> bool {
-        matches!(self, Self::Committed | Self::Restored | Self::RecoveryFailed)
+        matches!(
+            self,
+            Self::Committed | Self::Restored | Self::RecoveryFailed
+        )
     }
 }
 
@@ -104,7 +107,50 @@ pub struct TakeoverStatus {
     /// A transaction has made or may have made effects and has not finished.
     /// The helper or its recovery job owns the service until it does.
     pub pending: bool,
+    /// The transactions that make the status pending.
+    pub unfinished: Vec<UnfinishedTakeover>,
     pub latest: Option<FinishedTakeover>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnfinishedTakeover {
+    pub transaction_id: String,
+    /// False when the manifest or journal cannot be read or validated.
+    pub readable: bool,
+}
+
+struct Entry {
+    tx: String,
+    record: Result<(TakeoverManifest, TakeoverJournal), OtaError>,
+    modified: std::time::SystemTime,
+}
+
+fn scan(home: &Path) -> Vec<Entry> {
+    let Ok(home) = home.canonicalize() else {
+        return Vec::new();
+    };
+    let root = home.join("desktop-updates/native/takeover");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let Some(tx) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !valid_id(&tx) {
+            continue;
+        }
+        let modified = std::fs::metadata(root.join(&tx).join(JOURNAL))
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        found.push(Entry {
+            record: read_unlocked(&home, &tx),
+            tx,
+            modified,
+        });
+    }
+    found
 }
 
 /// Reads every takeover transaction under `home` without taking its lock. An
@@ -112,47 +158,103 @@ pub struct TakeoverStatus {
 /// never acts on a service whose ownership it cannot establish.
 pub fn status(home: &Path) -> TakeoverStatus {
     let mut status = TakeoverStatus::default();
-    let Ok(home) = home.canonicalize() else { return status };
-    let root = home.join("desktop-updates/native/takeover");
-    let Ok(entries) = std::fs::read_dir(&root) else { return status };
     let mut latest: Option<(std::time::SystemTime, FinishedTakeover)> = None;
-    for entry in entries.flatten() {
-        let Some(tx) = entry.file_name().to_str().map(str::to_owned) else { continue };
-        if !valid_id(&tx) {
-            continue;
-        }
-        let Ok((manifest, journal)) = read_unlocked(&home, &tx) else {
-            status.pending = true;
+    for Entry {
+        tx,
+        record,
+        modified,
+    } in scan(home)
+    {
+        let Ok((manifest, journal)) = record else {
+            status.unfinished.push(UnfinishedTakeover {
+                transaction_id: tx,
+                readable: false,
+            });
             continue;
         };
         if !journal.state.terminal() {
             // Nothing happened and no recovery job exists yet: a helper that
             // stopped before its first effect leaves the service untouched.
             if !(journal.state == TakeoverState::Prepared && journal.steps.is_empty()) {
-                status.pending = true;
+                status.unfinished.push(UnfinishedTakeover {
+                    transaction_id: tx,
+                    readable: true,
+                });
             }
             continue;
         }
-        let modified = std::fs::metadata(root.join(&tx).join(JOURNAL))
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
         if latest.as_ref().is_none_or(|(time, _)| modified > *time) {
-            latest = Some((modified, FinishedTakeover {
-                transaction_id: tx,
-                state: journal.state,
-                error: journal.error,
-                candidate: manifest.candidate,
-            }));
+            latest = Some((
+                modified,
+                FinishedTakeover {
+                    transaction_id: tx,
+                    state: journal.state,
+                    error: journal.error,
+                    candidate: manifest.candidate,
+                },
+            ));
         }
     }
+    status
+        .unfinished
+        .sort_by(|a, b| a.transaction_id.cmp(&b.transaction_id));
+    status.pending = !status.unfinished.is_empty();
     status.latest = latest.map(|(_, finished)| finished);
     status
+}
+
+/// Removes committed and restored transactions older than the newest one,
+/// with their helper copies. Recovery-failed transactions stay as evidence,
+/// and so does any transaction whose recovery job is still loaded. Returns
+/// the number removed.
+pub fn prune(home: &Path, recovery_loaded: impl Fn(&str) -> bool) -> usize {
+    let entries = scan(home);
+    let Some(newest) = entries
+        .iter()
+        .max_by_key(|entry| entry.modified)
+        .map(|entry| entry.tx.clone())
+    else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries {
+        let finished = entry.record.as_ref().is_ok_and(|(_, journal)| {
+            matches!(
+                journal.state,
+                TakeoverState::Committed | TakeoverState::Restored
+            )
+        });
+        if entry.tx == newest || !finished || recovery_loaded(&entry.tx) {
+            continue;
+        }
+        // Hold the transaction lock and re-check the state before removing it.
+        let Ok(store) = TakeoverStore::open(home, &entry.tx) else {
+            continue;
+        };
+        if !store.journal().is_ok_and(|journal| {
+            matches!(
+                journal.state,
+                TakeoverState::Committed | TakeoverState::Restored
+            )
+        }) {
+            continue;
+        }
+        let Ok(path) = TakeoverStore::path(home, &entry.tx) else {
+            continue;
+        };
+        if std::fs::remove_dir_all(&path).is_ok() {
+            removed += 1;
+        }
+        drop(store);
+    }
+    removed
 }
 
 fn read_unlocked(home: &Path, tx: &str) -> Result<(TakeoverManifest, TakeoverJournal), OtaError> {
     let directory = PrivateDir::open(&TakeoverStore::path(home, tx)?)?;
     let bytes = directory.read(MANIFEST, LIMIT)?;
-    let manifest: TakeoverManifest = serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)?;
+    let manifest: TakeoverManifest =
+        serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)?;
     validate_manifest(&manifest)?;
     require(manifest.transaction_id == tx)?;
     let journal: TakeoverJournal =
@@ -582,7 +684,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let store = TakeoverStore::create(temp.path(), &manifest()).unwrap();
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).err(),
+            store
+                .complete(&TakeoverAction::StopOriginal, StepOutcome::Ok)
+                .err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -620,13 +724,18 @@ mod tests {
         assert_eq!(intent.steps.len(), 1);
         assert_eq!(intent.steps[0].completed, None);
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).unwrap().steps[0]
+            store
+                .complete(&TakeoverAction::StopOriginal, StepOutcome::Ok)
+                .unwrap()
+                .steps[0]
                 .completed
                 .is_some(),
             true
         );
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).err(),
+            store
+                .complete(&TakeoverAction::StopOriginal, StepOutcome::Ok)
+                .err(),
             Some(OtaError::Invalid)
         );
         drop(store);
@@ -670,7 +779,9 @@ mod tests {
         let journal = store.mark_uncertain().unwrap();
         assert!(journal.steps[0].uncertain.is_some());
         assert_eq!(
-            store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).err(),
+            store
+                .complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok)
+                .err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -696,7 +807,9 @@ mod tests {
         let journal = store.mark_uncertain().unwrap();
         assert!(journal.steps[0].uncertain.is_some());
         assert_eq!(
-            store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).err(),
+            store
+                .complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok)
+                .err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -759,7 +872,10 @@ mod tests {
             assert_eq!(store.journal().err(), Some(OtaError::Invalid), "{value}");
         };
         let mut missing = valid.clone();
-        missing["steps"][0].as_object_mut().unwrap().remove("outcome");
+        missing["steps"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("outcome");
         reject(&missing);
         let mut unpaired = valid.clone();
         unpaired["steps"][0]["outcome"] = serde_json::Value::Null;
@@ -796,7 +912,10 @@ mod tests {
         );
     }
     fn manifest_with_id(id: &str) -> TakeoverManifest {
-        TakeoverManifest { transaction_id: id.into(), ..manifest() }
+        TakeoverManifest {
+            transaction_id: id.into(),
+            ..manifest()
+        }
     }
     #[test]
     fn launch_status_reports_pending_and_the_latest_finished_transaction() {
@@ -812,10 +931,14 @@ mod tests {
         let pending = status(temp.path());
         assert!(pending.pending);
         assert_eq!(pending.latest, None);
-        store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).unwrap();
+        store
+            .complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok)
+            .unwrap();
         store.transition(TakeoverState::Stopping).unwrap();
         assert!(status(temp.path()).pending);
-        store.transition_with(TakeoverState::Restoring, Some("stop-original:identity")).unwrap();
+        store
+            .transition_with(TakeoverState::Restoring, Some("stop-original:identity"))
+            .unwrap();
         assert!(status(temp.path()).pending);
         store.transition(TakeoverState::Restored).unwrap();
         let finished = status(temp.path());
@@ -831,17 +954,122 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let older = TakeoverStore::create(temp.path(), &manifest_with_id("tx-older")).unwrap();
         older.intend(TakeoverAction::ArmRecovery).unwrap();
-        older.complete(&TakeoverAction::ArmRecovery, StepOutcome::Failed).unwrap();
-        older.transition_with(TakeoverState::Restoring, Some("arm-recovery:io")).unwrap();
-        older.transition_with(TakeoverState::RecoveryFailed, Some("restore-registration:identity")).unwrap();
+        older
+            .complete(&TakeoverAction::ArmRecovery, StepOutcome::Failed)
+            .unwrap();
+        older
+            .transition_with(TakeoverState::Restoring, Some("arm-recovery:io"))
+            .unwrap();
+        older
+            .transition_with(
+                TakeoverState::RecoveryFailed,
+                Some("restore-registration:identity"),
+            )
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let newer = TakeoverStore::create(temp.path(), &manifest_with_id("tx-newer")).unwrap();
-        newer.transition_with(TakeoverState::Restored, Some("redetect:identity")).unwrap();
+        newer
+            .transition_with(TakeoverState::Restored, Some("redetect:identity"))
+            .unwrap();
         let latest = status(temp.path()).latest.unwrap();
-        assert_eq!((latest.transaction_id.as_str(), latest.state), ("tx-newer", TakeoverState::Restored));
-        let path = TakeoverStore::path(temp.path(), "tx-older").unwrap().join(JOURNAL);
+        assert_eq!(
+            (latest.transaction_id.as_str(), latest.state),
+            ("tx-newer", TakeoverState::Restored)
+        );
+        let path = TakeoverStore::path(temp.path(), "tx-older")
+            .unwrap()
+            .join(JOURNAL);
         std::fs::write(&path, b"{").unwrap();
-        assert!(status(temp.path()).pending);
+        let damaged = status(temp.path());
+        assert!(damaged.pending);
+        assert_eq!(
+            damaged.unfinished,
+            vec![UnfinishedTakeover {
+                transaction_id: "tx-older".into(),
+                readable: false
+            }]
+        );
+    }
+    #[test]
+    fn launch_status_lists_each_unfinished_transaction() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = TakeoverStore::create(temp.path(), &manifest_with_id("tx-armed")).unwrap();
+        // The helper recorded its intent to arm recovery and was killed before the job loaded.
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        drop(store);
+        assert_eq!(
+            status(temp.path()).unfinished,
+            vec![UnfinishedTakeover {
+                transaction_id: "tx-armed".into(),
+                readable: true
+            }]
+        );
+    }
+    #[test]
+    fn pruning_keeps_the_newest_transaction_and_recovery_failed_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let make = |id: &str, end: TakeoverState| {
+            let store = TakeoverStore::create(home, &manifest_with_id(id)).unwrap();
+            store.intend(TakeoverAction::ArmRecovery).unwrap();
+            store
+                .complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok)
+                .unwrap();
+            if end == TakeoverState::Committed {
+                store.transition(TakeoverState::Stopping).unwrap();
+                store.transition(TakeoverState::Switched).unwrap();
+                store.transition(TakeoverState::Verifying).unwrap();
+                store.transition(TakeoverState::Committed).unwrap();
+            } else {
+                store
+                    .transition_with(TakeoverState::Restoring, Some("verify:unavailable"))
+                    .unwrap();
+                store
+                    .transition_with(
+                        end,
+                        (end == TakeoverState::RecoveryFailed)
+                            .then_some("restore-registration:identity"),
+                    )
+                    .unwrap();
+            }
+            // The armed helper copy is removed with its transaction.
+            std::fs::write(
+                TakeoverStore::path(home, id)
+                    .unwrap()
+                    .join("pacer-update-helper"),
+                b"helper",
+            )
+            .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        make("tx-committed", TakeoverState::Committed);
+        make("tx-failed", TakeoverState::RecoveryFailed);
+        make("tx-restored", TakeoverState::Restored);
+        make("tx-loaded", TakeoverState::Restored);
+        let pending = TakeoverStore::create(home, &manifest_with_id("tx-pending")).unwrap();
+        pending.intend(TakeoverAction::ArmRecovery).unwrap();
+        drop(pending);
+        make("tx-newest", TakeoverState::Restored);
+        let removed = prune(home, |tx| tx == "tx-loaded");
+        assert_eq!(removed, 2);
+        for (id, kept) in [
+            ("tx-committed", false),
+            ("tx-restored", false),
+            ("tx-failed", true),
+            ("tx-loaded", true),
+            ("tx-pending", true),
+            ("tx-newest", true),
+        ] {
+            assert_eq!(
+                TakeoverStore::path(home, id).unwrap().exists(),
+                kept,
+                "{id}"
+            );
+        }
+        assert_eq!(status(home).latest.unwrap().transaction_id, "tx-newest");
+        // Once its recovery job is retired, the older transaction goes too.
+        assert_eq!(prune(home, |_| false), 1);
+        assert_eq!(prune(home, |_| false), 0);
     }
     #[test]
     fn state_graph_rejects_illegal_edges() {

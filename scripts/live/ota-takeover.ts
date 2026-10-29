@@ -11,6 +11,7 @@ import { healthy, loadSession, record } from "./core";
 import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
+import { blankCapture } from "./capture-content";
 import { attachFixtureTakeover, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -46,10 +47,13 @@ async function desktopControls(pid: number) {
     const { elements } = await controls();
     return elements.flatMap(element => [element.name, element.value ?? ""]).filter(Boolean);
   }
-  async function capture(path: string) {
+  async function frame() {
     const window_id = await window();
     const result = await nativeCommand({ command: "capture", pid, start_identity: identity!.start_identity, window_id });
-    writeFileSync(path, Buffer.from(result.png, "base64"), { flag: "wx", mode: 0o600 });
+    return Buffer.from(result.png, "base64");
+  }
+  async function capture(path: string) {
+    writeFileSync(path, await frame(), { flag: "wx", mode: 0o600 });
   }
   async function click(name: string) {
     const { window_id, elements } = await controls();
@@ -58,7 +62,7 @@ async function desktopControls(pid: number) {
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
   }
-  return { controls, click, key, texts, capture };
+  return { controls, click, key, texts, frame, capture };
 }
 
 type Controls = Awaited<ReturnType<typeof desktopControls>>;
@@ -175,8 +179,14 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
         : hasText(seen, "Updates") && !hasText(seen, "Use the app's service");
       return ready ? seen : null;
     }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`);
-    await sleep(500);
-    await capture(ui, name, `Settings → Updates ${takeover ? "before replacement" : "after replacement"} (${name.includes("dark") ? "dark" : "light"})`);
+    // The service page can report its text before WebKit paints it; wait for a
+    // rendered frame and fail rather than record a blank one as evidence.
+    const rendered = await waitFor(async () => {
+      const bytes = await ui.frame();
+      return blankCapture(bytes) ? null : bytes;
+    }, 30000, `Settings capture ${name} stayed blank`);
+    writeFileSync(evidence(name), rendered, { flag: "wx", mode: 0o600 });
+    record(session, { kind: "capture", behavior: `OTA ${scenario} Settings → Updates ${takeover ? "before replacement" : "after replacement"} (${name.includes("dark") ? "dark" : "light"})`, surface: "native desktop", path: evidence(name), text: "rendered frame (not blank)" });
     if (!takeover && (hasText(texts, "replaced by another build") || hasText(texts, "Review service replacement"))) throw Error("Settings still reports a replaced service after commit");
     return texts;
   }

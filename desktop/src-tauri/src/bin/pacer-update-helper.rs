@@ -69,7 +69,7 @@ fn main() {
 }
 
 #[cfg(any(target_os = "macos", test))]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum NativeMode {
     Pipe,
     RuntimeTest,
@@ -77,6 +77,20 @@ enum NativeMode {
     AdoptionRecovery(String, String),
     Takeover,
     TakeoverRecovery(String),
+}
+
+/// A takeover recovery that found its transaction locked by a running helper
+/// or recovery job changed nothing; the desktop waits and may run it again.
+#[cfg(any(target_os = "macos", test))]
+const BUSY_EXIT: i32 = 75;
+
+#[cfg(any(target_os = "macos", test))]
+fn native_exit_code(mode: &NativeMode, result: &Result<(), pacer_desktop::ota::OtaError>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(pacer_desktop::ota::OtaError::Busy) if matches!(mode, NativeMode::TakeoverRecovery(_)) => BUSY_EXIT,
+        Err(_) => 1,
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -101,6 +115,15 @@ fn native_mode(arguments: &[String]) -> Result<NativeMode, pacer_desktop::ota::O
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn busy_takeover_recovery_exits_with_a_temporary_failure() {
+        use pacer_desktop::ota::OtaError;
+        let recovery = NativeMode::TakeoverRecovery("tx".into());
+        assert_eq!(native_exit_code(&recovery, &Ok(())), 0);
+        assert_eq!(native_exit_code(&recovery, &Err(OtaError::Busy)), BUSY_EXIT);
+        assert_eq!(native_exit_code(&recovery, &Err(OtaError::Identity)), 1);
+        assert_eq!(native_exit_code(&NativeMode::Takeover, &Err(OtaError::Busy)), 1);
+    }
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| (*v).into()).collect()
     }
@@ -252,6 +275,7 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                 }
                 let handle = handle.clone();
                 std::thread::spawn(move || {
+                    let exit_mode = mode.clone();
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let runtime = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -284,7 +308,7 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                     if let Err(error) = &result {
                         eprintln!("{error}");
                     }
-                    handle.exit(if result.is_ok() { 0 } else { 1 });
+                    handle.exit(native_exit_code(&exit_mode, &result));
                 });
             }
         }

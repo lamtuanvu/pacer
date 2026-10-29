@@ -48,8 +48,12 @@ and only while its cached page is that bundled page. Its actions are sentinels:
 `takeover-confirm?relink=0|1&token=<token>` and `takeover-dismiss?token=<token>`.
 The restored page (`?state=takeoverRestored`) gets a token for `takeover-dismiss`
 only. Rust accepts a sentinel only when its token equals the one issued to the
-current bundled page. A token is 32 random bytes in hex. It is consumed by any
-attempt, replaced on every render, and void as soon as any main-window navigation
-or page load starts, so a service page loading after the bundled page can never
-use it. A service page can only ask for the bundled page through `takeover_open`;
+current bundled page and the shell still holds the service candidate the token
+was issued for. A token is 32 random bytes in hex. It is consumed by any
+well-formed attempt, kept across re-renders while the inspected candidate
+(registration hash, process identity and program identity) is unchanged,
+replaced when the candidate changes, and void as soon as any main-window
+navigation or page load starts, so a service page loading after the bundled page
+can never use it. The page ignores **Use the app's service** for one second
+after a new token arrives or the window regains focus. A service page can only ask for the bundled page through `takeover_open`;
 there is no service-page sentinel for it.

@@ -16,6 +16,33 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn recovery_label(trust: &ReleaseTrust, tx: &str) -> String {
+    if let Some(policy) = trust.fixture_policy() {
+        // The lease reserves exactly one recovery label.
+        policy.recovery_label.clone()
+    } else {
+        format!("com.pacer.takeover-recovery.{tx}")
+    }
+}
+
+/// Whether launchd has the recovery job for transaction `tx` loaded. A
+/// fixture lease shares one recovery label, so the job must also name `tx`.
+pub fn recovery_job_loaded(trust: &ReleaseTrust, tx: &str) -> Result<bool, OtaError> {
+    Ok(platform::copy_user_job(&recovery_label(trust, tx))?
+        .is_some_and(|job| recovery_job_serves(&job, tx)))
+}
+
+fn recovery_job_serves(job: &plist::Value, tx: &str) -> bool {
+    job.as_dictionary()
+        .and_then(|job| job.get("ProgramArguments"))
+        .and_then(plist::Value::as_array)
+        .is_some_and(|arguments| {
+            arguments.len() == 3
+                && arguments[1].as_string() == Some("--ota-recover-takeover")
+                && arguments[2].as_string() == Some(tx)
+        })
+}
+
 pub struct NativeTakeoverPlatform {
     trust: ReleaseTrust,
     user_home: PathBuf,
@@ -176,12 +203,7 @@ impl NativeTakeoverPlatform {
         })
     }
     fn recovery_label(&self, m: &TakeoverManifest) -> String {
-        if let Some(policy) = self.trust.fixture_policy() {
-            // The lease reserves exactly one recovery label.
-            policy.recovery_label.clone()
-        } else {
-            format!("com.pacer.takeover-recovery.{}", m.transaction_id)
-        }
+        recovery_label(&self.trust, &m.transaction_id)
     }
     fn recovery_path(&self, m: &TakeoverManifest) -> PathBuf {
         let label = self.recovery_label(m);
@@ -667,6 +689,39 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
 #[cfg(test)]
 mod restore_tests {
     use super::*;
+    #[test]
+    fn a_loaded_recovery_job_counts_only_for_its_own_transaction() {
+        let job = |arguments: &[&str]| {
+            let mut dictionary = plist::Dictionary::new();
+            dictionary.insert(
+                "ProgramArguments".into(),
+                plist::Value::Array(
+                    arguments
+                        .iter()
+                        .map(|v| plist::Value::String((*v).into()))
+                        .collect(),
+                ),
+            );
+            plist::Value::Dictionary(dictionary)
+        };
+        let helper = "/fixture/home/desktop-updates/native/takeover/tx-1/pacer-update-helper";
+        assert!(recovery_job_serves(
+            &job(&[helper, "--ota-recover-takeover", "tx-1"]),
+            "tx-1"
+        ));
+        assert!(!recovery_job_serves(
+            &job(&[helper, "--ota-recover-takeover", "tx-2"]),
+            "tx-1"
+        ));
+        assert!(!recovery_job_serves(
+            &job(&[helper, "--ota-recover", "tx-1"]),
+            "tx-1"
+        ));
+        assert!(!recovery_job_serves(
+            &plist::Value::Dictionary(plist::Dictionary::new()),
+            "tx-1"
+        ));
+    }
 
     #[test]
     fn prepare_refuses_every_kind_of_authorization_drift() {
@@ -679,13 +734,22 @@ mod restore_tests {
             .decode(&m.original_registration_b64)
             .unwrap();
         let same = m.candidate.clone();
-        assert_eq!(authorization_matches(&m, Some(&same), Some(&original), &original, false), Ok(()));
+        assert_eq!(
+            authorization_matches(&m, Some(&same), Some(&original), &original, false),
+            Ok(())
+        );
         // Detection no longer holds at all.
-        assert_eq!(authorization_matches(&m, None, Some(&original), &original, false), Err(OtaError::Identity));
+        assert_eq!(
+            authorization_matches(&m, None, Some(&original), &original, false),
+            Err(OtaError::Identity)
+        );
         // Plist bytes changed.
         let mut changed = original.clone();
         changed.push(b'\n');
-        assert_eq!(authorization_matches(&m, Some(&same), Some(&changed), &original, false), Err(OtaError::Identity));
+        assert_eq!(
+            authorization_matches(&m, Some(&same), Some(&changed), &original, false),
+            Err(OtaError::Identity)
+        );
         let mut plist = same.clone();
         plist.registration_sha256 = "0".repeat(64);
         // The loaded PID, its incarnation, or the program's identity changed.
@@ -700,10 +764,16 @@ mod restore_tests {
         let mut inode = same.clone();
         inode.identity.inode.push('9');
         for drift in [plist, pid, incarnation, content, code, inode] {
-            assert_eq!(authorization_matches(&m, Some(&drift), Some(&original), &original, false), Err(OtaError::Identity));
+            assert_eq!(
+                authorization_matches(&m, Some(&drift), Some(&original), &original, false),
+                Err(OtaError::Identity)
+            );
         }
         // A disabled override is refused.
-        assert_eq!(authorization_matches(&m, Some(&same), Some(&original), &original, true), Err(OtaError::Identity));
+        assert_eq!(
+            authorization_matches(&m, Some(&same), Some(&original), &original, true),
+            Err(OtaError::Identity)
+        );
     }
 
     #[test]
