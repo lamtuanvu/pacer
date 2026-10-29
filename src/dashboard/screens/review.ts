@@ -10,6 +10,7 @@ import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, li
 import type { Act, Item } from "../state";
 import { blank, defined, empty, GAP, MARK, time, wrapLines, serviceAct } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
+import { managedSkipRows } from "./work";
 import {workRows} from "./work";
 import { threadActs, threadMessages, threadRows } from "./thread";
 
@@ -136,6 +137,7 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   rows.push(...wrapLines([],concise?summary:"Execution ended. Inspect checks and changes.",width,{}).map(line=>({line})));
   rows.push({line:statusSpans(theme,taskOutcome(d))});
   rows.push(...wrapLines([],d.reviewRequest ? `Review requested: ${d.reviewRequest.note}` : "",width,{}).map(line=>({line})));
+  rows.push(...managedSkipRows(d,width));
   rows.push(blank(),{line:heading(theme,"Delivery")},{line:[span("Integration not recorded",{fg:"muted"})]});
 
   // Done when

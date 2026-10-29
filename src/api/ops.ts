@@ -90,7 +90,10 @@ export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
   appAuthenticated?: boolean;
-  /** In-process callers only (CLI, MCP): the messaging participant when no planner session is detected. Never set from a request. */
+  /**
+   * In-process callers (CLI, MCP): the messaging participant when no planner session is detected. Never taken from
+   * request fields; the HTTP service sets `human` only for a bearer request that also presents a valid app session.
+   */
   participant?: string;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;

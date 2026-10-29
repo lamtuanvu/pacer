@@ -1,5 +1,6 @@
 import {expect,test} from "bun:test";
-import {workRows} from "../src/dashboard/screens/work";
+import {managedSkipRows,workRows} from "../src/dashboard/screens/work";
+import {managedSkipWords} from "../src/view-model/words";
 import {reviewDetail,reviewItem} from "../src/dashboard/screens/review";
 import type {AttentionItem} from "../src/attention/types";
 import {PLAIN_THEME} from "../src/dashboard/theme";
@@ -23,6 +24,18 @@ test("TUI work section says when the task can coordinate sub-agents",()=>{
  const text=(d:TaskDetail)=>workRows({theme:PLAIN_THEME} as ScreenCtx,d,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
  expect(text(detail)).toContain("This task can coordinate sub-agents.");
  expect(text({...detail,work:{...detail.work!,allowDelegation:false}})).not.toContain("coordinate");
+});
+test("TUI Details say in plain words why a user-started task cannot coordinate sub-agents",()=>{
+ const text=(d:TaskDetail)=>managedSkipRows(d,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
+ const detail={id:"t",state:"running",managedSkip:{reason:"unverified"}} as TaskDetail;
+ expect(text(detail)).toBe("Can't coordinate sub-agents here: pacer has not confirmed it can block sub-agents for its executors yet.");
+ expect(text({...detail,work:{rootId:"t",parentId:null,depth:0}})).toBe("");
+ expect(text({id:"t",state:"running"} as TaskDetail)).toBe("");
+ const failed={id:"t",state:"failed",managedSkip:{reason:"refused"},summary:"x"} as TaskDetail;
+ const review=reviewDetail({theme:PLAIN_THEME,now:0,supports:()=>true,s:{tasks:[]},data:{details:new Map()},state:{selected:{}}} as unknown as ScreenCtx,{taskId:"t",title:"T",kind:"failed"} as AttentionItem,{value:failed},100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
+ expect(review).toContain(managedSkipWords("refused"));
+ for(const reason of ["interactive","unsupported","unverified","unavailable","refused","raw_code"])expect(managedSkipWords(reason)).toMatch(/^Can't coordinate sub-agents here: [a-z]/);
+ expect(managedSkipWords("raw_code")).toBe(managedSkipWords("unavailable"));
 });
 test("TUI hides managed retry when service says work cannot restart",()=>{
  const ctx={supports:()=>true} as unknown as ScreenCtx,a={taskId:"root",title:"Blocked work",kind:"review"} as AttentionItem;

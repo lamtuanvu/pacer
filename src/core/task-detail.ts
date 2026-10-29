@@ -31,6 +31,8 @@ export interface RetryOption { id: string; state: ExecutorRow["state"]; reason: 
 export interface TaskDetail extends ApiTask {
   /** `userStarted`: a root a person started, which keeps the usual task controls; its children use the Work tab. */
   work?: {rootId:string;parentId:string|null;depth:number;allowDelegation?:boolean;userStarted?:boolean};
+  /** Why a task a person started cannot coordinate sub-agents; copy comes from `managedSkipWords`. */
+  managedSkip?: {reason:string};
   brief: Brief;
   attempts: (Attempt & { log: string })[];
   /** Token roll-up for this task, with the split per agent. */
@@ -154,6 +156,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   return {
     ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation,...(userStartedRoot(ctx,task)?{userStarted:true}:{})}} : {}),
     ...(policyError ? { policyError } : {}),
+    ...(task.managedSkip && !work ? { managedSkip: { reason: task.managedSkip.reason } } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
     acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },

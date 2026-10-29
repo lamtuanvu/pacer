@@ -30,11 +30,22 @@ async function asTTY<T>(fn: () => Promise<T>): Promise<T> {
   try { return await fn(); } finally { stdin.isTTY = before; cliDeps.spawnRunner = spawn; }
 }
 
+/** Managed by default needs an executor that can run strict work: certify claude-code for this repository. */
+async function certify(ctx: Ctx, repo: string, s = loadStrategy(ctx)) {
+  const binary = join(ctx.home, "claude-bin"); writeFileSync(binary, "claude");
+  ctx.which = name => name === "claude" ? binary : null;
+  const previousRun = ctx.run;
+  ctx.run = (argv, timeout, options) => argv[0] === binary ? Promise.resolve({ code: 0, stdout: "2.1.281 (Claude Code)", stderr: "" }) : previousRun(argv, timeout, options);
+  const target = await resolveEnforcementTarget(ctx, s, "claude-code", (await resolvePolicyRepoInput(ctx, repo)).path);
+  await certifyExecutor(ctx, target, async () => ({ attempted: true, blocked: true, childStarted: false, entries: ["Agent", "Task"] }));
+}
+
 const cliDelegate = (ctx: Ctx, repo: string, ...flags: string[]) =>
   asTTY(() => main(["delegate", "--goal", "do it", "--repo", repo, "--json", ...flags], ctx)).then(r => { expect(r.code).toBe(0); return JSON.parse(r.out) as TaskRecord; });
 
 test("a CLI delegate from a TTY human registers strict managed work that can delegate", async () => {
   const { ctx, repo } = setup();
+  await certify(ctx, repo);
   const t = await cliDelegate(ctx, repo);
   expect(t.origin).toBe("human");
   expect(getWork(ctx, t.id)).toMatchObject({ parentId: null, depth: 0, options: { allowDelegation: true, delegationEnforcement: "strict" } });
@@ -49,6 +60,7 @@ test("--no-grant keeps a human task unmanaged", async () => {
 
 test("grant:false on task.delegate opts out; an app delegate is managed by default", async () => {
   const { ctx, repo } = setup();
+  await certify(ctx, repo);
   const deps = { appAuthenticated: true, client: "app", spawnRunner: () => 1 };
   const managed = await callOp(ctx, "task.delegate", { goal: "a", repo }, deps) as { task_id: string };
   const plain = await callOp(ctx, "task.delegate", { goal: "b", repo, grant: false }, deps) as { task_id: string };
@@ -86,6 +98,7 @@ test("config grants.user_started_tasks off registers no work", async () => {
 
 test("a retry keeps the original's choice", async () => {
   const { ctx, repo } = setup();
+  await certify(ctx, repo);
   const plain = delegate(ctx, { brief: { goal: "a", repo }, origin: "human", grant: false }, () => 1);
   const managed = delegate(ctx, { brief: { goal: "b", repo }, origin: "human" }, () => 1);
   expect(getWork(ctx, delegate(ctx, { brief: { goal: "a", repo }, origin: "human", retryOf: plain.id }, () => 1).id)).toBeNull();
@@ -111,6 +124,7 @@ const ok = (ctx: Ctx, cfg: { id: string; model?: string | null }) => ({ exec: { 
 
 test("a managed user task can dispatch.child with its grant during its run, and a message resumes it", async () => {
   const { ctx, repo } = setup("", true);
+  await certify(ctx, repo);
   const t = await cliDelegate(ctx, repo);
   const children: string[] = [];
   await strictRun(ctx, t.id, async (runCtx, cfg) => {

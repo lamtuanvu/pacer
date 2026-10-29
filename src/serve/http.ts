@@ -233,7 +233,12 @@ export function startServer(
         return upgradeTerminal(req, server, getCtx(), terminalRoute[1]!);
       }
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant}, tailMs, status, snapshot: () => readCache.get() });
+        // The local TUI holds the bearer token and proves the human with an app session it exchanged for
+        // (X-Pacer-Session). A bearer alone stays the non-privileged `external:local`, and only identity changes:
+        // terminals and settings keep bearer behavior.
+        const session = req.headers.get("x-pacer-session") ?? "";
+        const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }

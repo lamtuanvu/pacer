@@ -35,8 +35,9 @@ export function localHuman(ctx: Ctx, isTTY = !!process.stdin.isTTY): "human" | u
 /**
  * The caller's participant id. Never taken from request fields.
  * Executor identity comes from PACER_ROLE and PACER_TASK_ID (an accepted exception, see ADR 0011).
- * An unknown local caller is the non-privileged `external:local`; `human` needs app authentication
- * or an explicit `participant: "human"` from the local human path ({@link localHuman}).
+ * An unknown local caller is the non-privileged `external:local`; `human` needs app authentication,
+ * an explicit `participant: "human"` from the local human path ({@link localHuman}), or, over HTTP,
+ * the TUI's bearer request with an app session it exchanged for (see src/serve/http.ts).
  */
 export function callerParticipant(ctx: Ctx, deps: { appAuthenticated?: boolean; participant?: string } = {}): { id: string; grant: WorkNode | null } {
   const token = ctx.env.PACER_WORK_GRANT;

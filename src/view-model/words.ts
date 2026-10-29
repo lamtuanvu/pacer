@@ -162,6 +162,16 @@ export const localTaskHostWords = "Local Mac";
 /** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
 /** Plain copy for a managed task whose grant lets it start and message its own sub-agents. */
 export const COORDINATES = "This task can coordinate sub-agents.";
+/** Why a task a person started runs without coordinating sub-agents (`TaskRecord.managedSkip.reason`). */
+const managedSkipReasons: Record<string, string> = {
+  interactive: "its executor runs in an interactive session, where pacer cannot block sub-agents.",
+  unsupported: "its executors cannot have their own sub-agents blocked yet.",
+  unverified: "pacer has not confirmed it can block sub-agents for its executors yet.",
+  unavailable: "no executor that pacer can check for sub-agent control is available.",
+  refused: "pacer could not confirm sub-agent control when the task started, so it runs on its own.",
+};
+export const managedSkipWords = (reason: string): string =>
+  `Can't coordinate sub-agents here: ${Object.hasOwn(managedSkipReasons, reason) ? managedSkipReasons[reason] : managedSkipReasons.unavailable}`;
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";

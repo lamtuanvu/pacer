@@ -91,3 +91,10 @@ test("active task summaries never claim that execution ended", () => {
   expect(html).toContain(state === "running" ? "Execution is in progress" : "Waiting to start");
  }
 });
+
+test("a task a person started that runs unmanaged says why it cannot coordinate sub-agents", () => {
+ const html=renderToString(<TaskResultView compact task={{...task,managedSkip:{reason:"unsupported"}}}/>);
+ expect(html).toContain("Can't coordinate sub-agents here: its executors cannot have their own sub-agents blocked yet.");
+ expect(html).not.toContain("unsupported");
+ expect(renderToString(<TaskResultView compact task={task}/>)).not.toContain("coordinate sub-agents here");
+});
