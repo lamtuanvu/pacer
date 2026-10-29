@@ -28,6 +28,7 @@ const pages = {
 // The tray popover has no room for the decision; it points to the window.
 const compactMessages = {
   takeover: 'Open the pacer window to review replacing the service.',
+  takeoverProgress: 'pacer is replacing the service. Open the pacer window for details.',
   takeoverRestored: 'Open the pacer window to continue.',
 };
 // Takeover progress and outcomes arrive as states and short reason codes;
@@ -54,6 +55,8 @@ const restoredReasons = {
 };
 // A transaction record pacer cannot read is kept as evidence; it may not have failed a restore.
 const unreadableTakeover = "pacer couldn't read its record of a service replacement, so it can't tell which service is set up. pacer kept that record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.";
+// An unfinished record this app didn't start in this boot; the desktop leaves it alone.
+const foreignTakeover = "pacer found an unfinished service replacement that this app didn't start since your Mac last started up, so it won't change the service on its own. pacer kept the record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.";
 function restoredMessage(reason) {
   return restoredReasons[String(reason || '').split(':')[0]] || pages.takeoverRestored[1];
 }
@@ -123,7 +126,8 @@ function renderShell(detail) {
   const [title, pageMessage] = pages[copy] || ['Starting pacer…', ''];
   const message = compact && compactMessages[detail.page] ? compactMessages[detail.page]
     : detail.page === 'takeoverRestored' ? restoredMessage(detail.error)
-    : detail.page === 'takeoverFailed' && detail.error === 'journal:unreadable' ? unreadableTakeover : pageMessage;
+    : detail.page === 'takeoverFailed' && detail.error === 'journal:unreadable' ? unreadableTakeover
+    : detail.page === 'takeoverFailed' && detail.error === 'journal:foreign' ? foreignTakeover : pageMessage;
   document.querySelector('h1').textContent = permission ? '' : title;
   const target = String(detail.path || '').split('/').filter(Boolean).pop() || 'your external drive';
   const status = document.querySelector('#message');
@@ -170,10 +174,16 @@ function known(value) {
 // same service; the actions exist only while it is present and nothing is in
 // progress. Confirm ignores clicks for a second after a new token arrives or
 // the window regains focus, so a click aimed at something else cannot land on it.
+// The hold shows as aria-disabled; the button stays focusable and keeps its name.
 let takeoverToken = null;
 let confirmReadyAt = 0;
+let confirmTimer = null;
+const takeoverConfirm = document.querySelector('#takeover-confirm');
 function holdConfirm() {
   confirmReadyAt = Date.now() + 1000;
+  takeoverConfirm.setAttribute('aria-disabled', 'true');
+  clearTimeout(confirmTimer);
+  confirmTimer = setTimeout(() => takeoverConfirm.removeAttribute('aria-disabled'), 1000);
 }
 window.addEventListener('focus', holdConfirm);
 const takeoverActions = document.querySelector('#takeover-actions');
@@ -193,7 +203,7 @@ function startTakeover() {
   takeoverStatusLine.focus?.();
   takeoverAction('takeover-confirm', `relink=${takeoverChoice.checked ? '1' : '0'}`);
 }
-document.querySelector('#takeover-confirm').addEventListener('click', startTakeover);
+takeoverConfirm.addEventListener('click', startTakeover);
 document.querySelector('#takeover-dismiss').addEventListener('click', () => takeoverAction('takeover-dismiss'));
 document.querySelector('#takeover-continue').addEventListener('click', () => takeoverAction('takeover-dismiss'));
 function renderTakeover(data) {

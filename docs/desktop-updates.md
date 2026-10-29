@@ -73,23 +73,27 @@ checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
 `~/.local/bin/pacer` to the bundled CLI. If that step fails after the service
 was replaced, a notification says so; move `~/.local/bin/pacer` aside and reopen
 pacer, which offers to recreate the command. If the service changed after you
-reviewed it, nothing is changed. **Use the app's service** ignores clicks for a
-second after the page appears or the window regains focus.
+reviewed it, nothing is changed. **Use the app's service** is shown as
+unavailable, and ignores clicks, for a second after the page appears or the
+window regains focus.
 
 If startup fails, the original registration and service are restored. A
 separate recovery job finishes the restore even if the helper or the desktop
 stops during the switch. If the helper stopped before that job was set up, the
-desktop runs the recovery once itself. Until the transaction finishes, the desktop shows that
+desktop runs the recovery itself, once per desktop launch, but only when this
+app started the transaction since the Mac last started up. Until the
+transaction finishes, the desktop shows that
 the service is being replaced and does not install, start or sign in to the
 service. It then shows **Kept your current service** with the reason. **Continue
 current service** also hides the offer for that build, like **Not now**. If
 recovery cannot verify the original service, the desktop shows **Service
 replacement needs attention** on every launch. It shows the same page when a
-transaction record can't be read, or when its one recovery run left it
-unfinished. Keep the transaction files under
+transaction record can't be read, when the recovery run in this launch left it
+unfinished, or when another app copy or an earlier startup of the Mac began it.
+Keep the transaction files under
 `$PACER_HOME/desktop-updates/native/takeover/` and follow the recovery guidance
-below. Older committed or restored transactions are removed once a newer one
-exists; recovery-failed ones are kept.
+below. Older committed, restored or never-started transactions are removed once
+a newer one exists; recovery-failed and unreadable ones are kept.
 
 ## Updating
 

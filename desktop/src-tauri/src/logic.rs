@@ -90,34 +90,85 @@ pub enum UnfinishedTakeoverNext {
     /// No recovery job is loaded for this transaction, for example because
     /// the helper was killed before it armed one: run recovery once.
     Recover(String),
-    /// Recovery cannot finish on its own: the journal is unreadable, or the
-    /// desktop's recovery run left it unfinished.
-    Failed { unreadable: bool },
+    /// Recovery cannot finish on its own.
+    Failed(StuckTakeover),
 }
 
+/// Why an unfinished transaction needs attention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StuckTakeover {
+    /// This desktop's recovery run left it unfinished.
+    Unrecovered,
+    /// Its manifest or journal cannot be read or validated.
+    Unreadable,
+    /// Another app copy or an earlier boot started it, so this desktop does not
+    /// run its recovery.
+    NotThisApp,
+}
+
+/// `started_here` says whether a transaction's recorded origin is this
+/// running app in this boot (see [`started_by_this_app`]).
 pub fn unfinished_takeover_next(
     unfinished: &[pacer_desktop::ota::takeover::journal::UnfinishedTakeover],
     recovery_loaded: impl Fn(&str) -> bool,
     attempted: &std::collections::HashSet<String>,
+    started_here: impl Fn(&pacer_desktop::ota::takeover::journal::TakeoverOrigin) -> bool,
 ) -> Option<UnfinishedTakeoverNext> {
     if unfinished.is_empty() {
         return None;
     }
     if unfinished.iter().any(|tx| !tx.readable) {
-        return Some(UnfinishedTakeoverNext::Failed { unreadable: true });
+        return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable));
     }
-    for tx in unfinished.iter().filter(|tx| !recovery_loaded(&tx.transaction_id)) {
-        if !attempted.contains(&tx.transaction_id) {
-            return Some(UnfinishedTakeoverNext::Recover(tx.transaction_id.clone()));
+    if let Some(tx) = unfinished.iter().find(|tx| !recovery_loaded(&tx.transaction_id)) {
+        if !tx.origin.as_ref().is_some_and(&started_here) {
+            return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp));
         }
-        return Some(UnfinishedTakeoverNext::Failed { unreadable: false });
+        if attempted.contains(&tx.transaction_id) {
+            return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered));
+        }
+        return Some(UnfinishedTakeoverNext::Recover(tx.transaction_id.clone()));
     }
     Some(UnfinishedTakeoverNext::Wait)
 }
 
+/// Whether a transaction was authorized from this running app bundle (its
+/// bundled CLI, compared after resolving both paths) during the current boot.
+/// Anything unknown is not this app.
+pub fn started_by_this_app(
+    recorded: &pacer_desktop::ota::takeover::journal::TakeoverOrigin,
+    app_cli: Option<&Path>,
+    boot_id: Option<&str>,
+) -> bool {
+    let (Some(app_cli), Some(boot_id)) = (app_cli, boot_id) else {
+        return false;
+    };
+    match (recorded.bundled_cli.canonicalize(), app_cli.canonicalize()) {
+        (Ok(recorded_cli), Ok(app_cli)) => recorded_cli == app_cli && recorded.boot_id == boot_id,
+        _ => false,
+    }
+}
+
+/// An unanswerable recovery-job query (`None`: no release trust; `Err`:
+/// launchd failed) counts as not loaded for recovery: a job that is in fact
+/// running holds the transaction lock, so recovery waits for it.
+pub fn recovery_job_loaded_for_recovery<E>(query: Option<Result<bool, E>>) -> bool {
+    matches!(query, Some(Ok(true)))
+}
+
+/// For pruning the same query counts as loaded, so a job's program (the
+/// transaction's helper copy) is never deleted while the job may exist.
+pub fn recovery_job_loaded_for_pruning<E>(query: Option<Result<bool, E>>) -> bool {
+    !matches!(query, Some(Ok(false)))
+}
+
 /// The public reason shown with a stuck transaction's recovery-failed page.
 pub fn takeover_failure_reason(next: &UnfinishedTakeoverNext) -> Option<&'static str> {
-    matches!(next, UnfinishedTakeoverNext::Failed { unreadable: true }).then_some("journal:unreadable")
+    match next {
+        UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable) => Some("journal:unreadable"),
+        UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp) => Some("journal:foreign"),
+        _ => None,
+    }
 }
 
 /// The bundled page takeover transactions hold before the desktop may install,
@@ -2533,28 +2584,75 @@ mod desktop_connection_tests {
     }
     #[test]
     fn a_stuck_takeover_journal_is_recovered_once_then_reported() {
-        use pacer_desktop::ota::takeover::journal::UnfinishedTakeover;
+        use pacer_desktop::ota::takeover::journal::{TakeoverOrigin, UnfinishedTakeover};
         use std::collections::HashSet;
-        let tx = |id: &str, readable: bool| UnfinishedTakeover { transaction_id: id.into(), readable };
+        let tx = |id: &str, readable: bool| UnfinishedTakeover {
+            transaction_id: id.into(),
+            readable,
+            origin: readable.then(|| TakeoverOrigin { bundled_cli: format!("/app-{id}/pacer").into(), boot_id: "boot".into() }),
+        };
+        let ours = |_: &TakeoverOrigin| true;
         let none = HashSet::new();
-        assert_eq!(unfinished_takeover_next(&[], |_| false, &none), None);
+        assert_eq!(unfinished_takeover_next(&[], |_| false, &none, ours), None);
         // A loaded recovery job owns the transaction.
-        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| true, &none), Some(UnfinishedTakeoverNext::Wait));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| true, &none, ours), Some(UnfinishedTakeoverNext::Wait));
         // The helper was killed before it armed recovery: run recovery once.
-        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &none), Some(UnfinishedTakeoverNext::Recover("tx-1".into())));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &none, ours), Some(UnfinishedTakeoverNext::Recover("tx-1".into())));
         let attempted: HashSet<String> = ["tx-1".to_string()].into();
-        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &attempted), Some(UnfinishedTakeoverNext::Failed { unreadable: false }));
-        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none), Some(UnfinishedTakeoverNext::Recover("tx-2".into())));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &attempted, ours), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered)));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none, ours), Some(UnfinishedTakeoverNext::Recover("tx-2".into())));
+        // A transaction another app copy or an earlier boot started is never recovered by this desktop.
+        let foreign = |origin: &TakeoverOrigin| origin.bundled_cli != std::path::Path::new("/app-tx-2/pacer");
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none, foreign), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp)));
+        // Its own recovery job may still finish it.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-2", true)], |_| true, &none, foreign), Some(UnfinishedTakeoverNext::Wait));
         // A damaged journal cannot be recovered or waited on.
-        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", false)], |_| true, &none), Some(UnfinishedTakeoverNext::Failed { unreadable: true }));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", false)], |_| true, &none, ours), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable)));
         // Recovery in flight shows progress; a stuck journal shows the recovery-failed page.
         use pacer_desktop::ota::takeover::journal::TakeoverState::*;
         assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Recover("tx-1".into())), None), Some("takeoverProgress"));
-        for unreadable in [true, false] {
-            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Failed { unreadable }), Some((Restored, false))), Some("takeoverFailed"));
+        for stuck in [StuckTakeover::Unrecovered, StuckTakeover::Unreadable, StuckTakeover::NotThisApp] {
+            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Failed(stuck)), Some((Restored, false))), Some("takeoverFailed"));
         }
-        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed { unreadable: true }), Some("journal:unreadable"));
-        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed { unreadable: false }), None);
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable)), Some("journal:unreadable"));
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp)), Some("journal:foreign"));
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered)), None);
+    }
+    #[test]
+    fn only_this_app_bundle_in_this_boot_recovers_a_stuck_takeover() {
+        use pacer_desktop::ota::takeover::journal::TakeoverOrigin;
+        let temp = tempfile::tempdir().unwrap();
+        let cli = temp.path().join("pacer.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, b"cli").unwrap();
+        let other = temp.path().join("other.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(&other, b"cli").unwrap();
+        let recorded = TakeoverOrigin { bundled_cli: cli.clone(), boot_id: "boot-a".into() };
+        assert!(started_by_this_app(&recorded, Some(&cli), Some("boot-a")));
+        // The same file through a non-canonical path is the same app.
+        let dotted = temp.path().join("pacer.app/Contents/../Contents/Resources/pacer");
+        assert!(started_by_this_app(&TakeoverOrigin { bundled_cli: dotted, ..recorded.clone() }, Some(&cli), Some("boot-a")));
+        // Another app copy, an earlier boot, or an unknown app or boot is not this app.
+        assert!(!started_by_this_app(&recorded, Some(&other), Some("boot-a")));
+        assert!(!started_by_this_app(&recorded, Some(&cli), Some("boot-b")));
+        assert!(!started_by_this_app(&recorded, None, Some("boot-a")));
+        assert!(!started_by_this_app(&recorded, Some(&cli), None));
+        assert!(!started_by_this_app(&TakeoverOrigin { bundled_cli: temp.path().join("gone/pacer"), ..recorded.clone() }, Some(&cli), Some("boot-a")));
+    }
+    #[test]
+    fn an_unanswerable_recovery_job_query_never_lets_pruning_remove_its_helper() {
+        let failed: Option<Result<bool, ()>> = Some(Err(()));
+        // Recovery treats an unknown job as absent; the transaction lock serializes a running one.
+        assert!(!recovery_job_loaded_for_recovery(failed));
+        assert!(!recovery_job_loaded_for_recovery::<()>(None));
+        // Pruning treats it as loaded, so a job's program is never deleted.
+        assert!(recovery_job_loaded_for_pruning(failed));
+        assert!(recovery_job_loaded_for_pruning::<()>(None));
+        for answer in [true, false] {
+            assert_eq!(recovery_job_loaded_for_recovery(Some(Ok::<_, ()>(answer))), answer);
+            assert_eq!(recovery_job_loaded_for_pruning(Some(Ok::<_, ()>(answer))), answer);
+        }
     }
     #[test]
     fn a_failed_helper_shows_its_transaction_page_at_once() {

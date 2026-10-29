@@ -54,6 +54,6 @@ well-formed attempt, kept across re-renders while the inspected candidate
 (registration hash, process identity and program identity) is unchanged,
 replaced when the candidate changes, and void as soon as any main-window
 navigation or page load starts, so a service page loading after the bundled page
-can never use it. The page ignores **Use the app's service** for one second
-after a new token arrives or the window regains focus. A service page can only ask for the bundled page through `takeover_open`;
+can never use it. The page marks **Use the app's service** `aria-disabled` and
+ignores it for one second after a new token arrives or the window regains focus. A service page can only ask for the bundled page through `takeover_open`;
 there is no service-page sentinel for it.

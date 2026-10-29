@@ -117,6 +117,16 @@ pub struct UnfinishedTakeover {
     pub transaction_id: String,
     /// False when the manifest or journal cannot be read or validated.
     pub readable: bool,
+    /// Where a readable transaction was started.
+    pub origin: Option<TakeoverOrigin>,
+}
+
+/// The app bundle and boot a transaction was authorized from, as recorded in
+/// its manifest. The desktop runs recovery itself only for its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TakeoverOrigin {
+    pub bundled_cli: PathBuf,
+    pub boot_id: String,
 }
 
 struct Entry {
@@ -169,6 +179,7 @@ pub fn status(home: &Path) -> TakeoverStatus {
             status.unfinished.push(UnfinishedTakeover {
                 transaction_id: tx,
                 readable: false,
+                origin: None,
             });
             continue;
         };
@@ -179,6 +190,10 @@ pub fn status(home: &Path) -> TakeoverStatus {
                 status.unfinished.push(UnfinishedTakeover {
                     transaction_id: tx,
                     readable: true,
+                    origin: Some(TakeoverOrigin {
+                        bundled_cli: manifest.bundled_cli.clone(),
+                        boot_id: manifest.authorized_at.boot_id.clone(),
+                    }),
                 });
             }
             continue;
@@ -203,10 +218,20 @@ pub fn status(home: &Path) -> TakeoverStatus {
     status
 }
 
-/// Removes committed and restored transactions older than the newest one,
-/// with their helper copies. Recovery-failed transactions stay as evidence,
-/// and so does any transaction whose recovery job is still loaded. Returns
-/// the number removed.
+/// Whether a transaction can be removed once a newer one exists: it finished
+/// with the original or the app's service in place, or it never took a step.
+fn prunable(journal: &TakeoverJournal) -> bool {
+    matches!(
+        journal.state,
+        TakeoverState::Committed | TakeoverState::Restored
+    ) || (journal.state == TakeoverState::Prepared && journal.steps.is_empty())
+}
+
+/// Removes committed, restored and never-started transactions older than the
+/// newest one, with their helper copies. Recovery-failed and unreadable
+/// transactions stay as evidence, and so does any transaction whose recovery
+/// job is loaded (or cannot be ruled out) or whose helper holds its lock.
+/// Returns the number removed.
 pub fn prune(home: &Path, recovery_loaded: impl Fn(&str) -> bool) -> usize {
     let entries = scan(home);
     let Some(newest) = entries
@@ -218,12 +243,10 @@ pub fn prune(home: &Path, recovery_loaded: impl Fn(&str) -> bool) -> usize {
     };
     let mut removed = 0;
     for entry in entries {
-        let finished = entry.record.as_ref().is_ok_and(|(_, journal)| {
-            matches!(
-                journal.state,
-                TakeoverState::Committed | TakeoverState::Restored
-            )
-        });
+        let finished = entry
+            .record
+            .as_ref()
+            .is_ok_and(|(_, journal)| prunable(journal));
         if entry.tx == newest || !finished || recovery_loaded(&entry.tx) {
             continue;
         }
@@ -231,12 +254,7 @@ pub fn prune(home: &Path, recovery_loaded: impl Fn(&str) -> bool) -> usize {
         let Ok(store) = TakeoverStore::open(home, &entry.tx) else {
             continue;
         };
-        if !store.journal().is_ok_and(|journal| {
-            matches!(
-                journal.state,
-                TakeoverState::Committed | TakeoverState::Restored
-            )
-        }) {
+        if !store.journal().is_ok_and(|journal| prunable(&journal)) {
             continue;
         }
         let Ok(path) = TakeoverStore::path(home, &entry.tx) else {
@@ -986,7 +1004,8 @@ mod tests {
             damaged.unfinished,
             vec![UnfinishedTakeover {
                 transaction_id: "tx-older".into(),
-                readable: false
+                readable: false,
+                origin: None,
             }]
         );
     }
@@ -1001,9 +1020,30 @@ mod tests {
             status(temp.path()).unfinished,
             vec![UnfinishedTakeover {
                 transaction_id: "tx-armed".into(),
-                readable: true
+                readable: true,
+                // The desktop recovers it only if this app started it in this boot.
+                origin: Some(TakeoverOrigin {
+                    bundled_cli: manifest().bundled_cli,
+                    boot_id: manifest().authorized_at.boot_id,
+                }),
             }]
         );
+    }
+    #[test]
+    fn pruning_never_removes_the_newest_transaction_even_if_it_never_started() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        drop(TakeoverStore::create(home, &manifest_with_id("tx-unstarted")).unwrap());
+        assert_eq!(prune(home, |_| false), 0);
+        // A running helper holds the lock of a newer never-started transaction.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let running = TakeoverStore::create(home, &manifest_with_id("tx-running")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        drop(TakeoverStore::create(home, &manifest_with_id("tx-newest")).unwrap());
+        assert_eq!(prune(home, |_| false), 1);
+        assert!(TakeoverStore::path(home, "tx-running").unwrap().exists());
+        assert!(!TakeoverStore::path(home, "tx-unstarted").unwrap().exists());
+        drop(running);
     }
     #[test]
     fn pruning_keeps_the_newest_transaction_and_recovery_failed_evidence() {
@@ -1049,15 +1089,29 @@ mod tests {
         let pending = TakeoverStore::create(home, &manifest_with_id("tx-pending")).unwrap();
         pending.intend(TakeoverAction::ArmRecovery).unwrap();
         drop(pending);
+        // A helper that stopped before its first step made no effects.
+        drop(TakeoverStore::create(home, &manifest_with_id("tx-unstarted")).unwrap());
+        // An unreadable transaction is evidence too.
+        drop(TakeoverStore::create(home, &manifest_with_id("tx-damaged")).unwrap());
+        std::fs::write(
+            TakeoverStore::path(home, "tx-damaged")
+                .unwrap()
+                .join(JOURNAL),
+            b"{",
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
         make("tx-newest", TakeoverState::Restored);
         let removed = prune(home, |tx| tx == "tx-loaded");
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 3);
         for (id, kept) in [
             ("tx-committed", false),
             ("tx-restored", false),
+            ("tx-unstarted", false),
             ("tx-failed", true),
             ("tx-loaded", true),
             ("tx-pending", true),
+            ("tx-damaged", true),
             ("tx-newest", true),
         ] {
             assert_eq!(

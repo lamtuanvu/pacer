@@ -11,7 +11,7 @@ import { healthy, loadSession, record } from "./core";
 import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
-import { blankCapture } from "./capture-content";
+import { captureProblem } from "./capture-content";
 import { attachFixtureTakeover, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -22,6 +22,13 @@ async function shell(state: ReturnType<typeof readOtaRecord>, args: string[]): P
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   if (status !== 0) throw Error(`${args[0]} failed (${status}): ${stderr.slice(0, 500)}`);
   return stdout + stderr;
+}
+
+type ControlElement = { ref: string; role: string; name: string; value?: string; actions: string[]; focused?: boolean; disabled?: boolean };
+
+/** The named clickable control, once it is present and not disabled (including aria-disabled). */
+export function readyControl(elements: ControlElement[], name: string): ControlElement | null {
+  return elements.find(element => element.name === name && element.actions.includes("click") && !element.disabled && !["heading", "static text"].includes(element.role.toLowerCase())) ?? null;
 }
 
 async function desktopControls(pid: number) {
@@ -36,7 +43,7 @@ async function desktopControls(pid: number) {
   async function controls() {
     const window_id = await window();
     const result = await nativeCommand({ command: "inspect", pid, start_identity: identity!.start_identity, window_id });
-    return { window_id, elements: result.elements as Array<{ref: string; role: string; name: string; value?: string; actions: string[]; focused?: boolean; disabled?: boolean}> };
+    return { window_id, elements: result.elements as ControlElement[] };
   }
   async function key(key: string) {
     const window_id = await window();
@@ -52,14 +59,29 @@ async function desktopControls(pid: number) {
     const result = await nativeCommand({ command: "capture", pid, start_identity: identity!.start_identity, window_id });
     return Buffer.from(result.png, "base64");
   }
-  async function capture(path: string) {
-    writeFileSync(path, await frame(), { flag: "wx", mode: 0o600 });
+  /** Writes a frame once it shows a rendered page in the expected theme; fails rather than record a blank one. */
+  async function capture(path: string, theme: "light" | "dark", timeout = 15000) {
+    let problem = "";
+    const bytes = await waitFor(async () => {
+      const bytes = await frame();
+      problem = captureProblem(bytes, theme) ?? "";
+      return problem ? null : bytes;
+    }, timeout, "Capture did not show a rendered page").catch(error => { throw Error(`${String(error)}: ${problem}`); });
+    writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
   }
   async function click(name: string) {
-    const { window_id, elements } = await controls();
-    const item = elements.find(element => element.name === name && element.actions.includes("click") && !["heading", "static text"].includes(element.role.toLowerCase()));
-    if (!item) throw Error(`Desktop control ${name} absent: ${elements.map(e => e.name).filter(Boolean).slice(0, 30).join(", ")}`);
+    const window_id = await window();
+    // Activating the window can start the page's confirm hold, so wait until
+    // the control is enabled again after activation before clicking it.
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    await sleep(300);
+    let last: ControlElement[] = [];
+    const item = await waitFor(async () => {
+      last = (await controls()).elements;
+      return readyControl(last, name);
+    }, 5000, `Desktop control ${name} absent or disabled`).catch(() => {
+      throw Error(`Desktop control ${name} absent or disabled: ${last.map(e => `${e.name}${e.disabled ? " (disabled)" : ""}`).filter(Boolean).slice(0, 30).join(", ")}`);
+    });
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
   }
   return { controls, click, key, texts, frame, capture };
@@ -128,10 +150,11 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const theme = (["takeover", "takeover-dismiss", "takeover-crash"] as string[]).includes(scenario) ? "light" : "dark";
   const evidence = (name: string) => join(session.root, "evidence", name);
   const observed: Record<string, unknown> = { scenario, theme, originalPid: null, originalRegistration: null };
+  const themeOf = (name: string) => name.includes("dark") ? "dark" as const : "light" as const;
   async function capture(ui: Controls, name: string, text: string) {
     try {
-      await ui.capture(evidence(name));
-      record(session, { kind: "capture", behavior: `OTA ${scenario} ${text}`, surface: "native desktop", path: evidence(name), text });
+      await ui.capture(evidence(name), themeOf(name));
+      record(session, { kind: "capture", behavior: `OTA ${scenario} ${text}`, surface: "native desktop", path: evidence(name), text: `${text}; rendered ${themeOf(name)} page (not blank)` });
     } catch (error) {
       record(session, { kind: "note", behavior: `OTA ${scenario} capture ${name}`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
     }
@@ -180,13 +203,9 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
       return ready ? seen : null;
     }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`);
     // The service page can report its text before WebKit paints it; wait for a
-    // rendered frame and fail rather than record a blank one as evidence.
-    const rendered = await waitFor(async () => {
-      const bytes = await ui.frame();
-      return blankCapture(bytes) ? null : bytes;
-    }, 30000, `Settings capture ${name} stayed blank`);
-    writeFileSync(evidence(name), rendered, { flag: "wx", mode: 0o600 });
-    record(session, { kind: "capture", behavior: `OTA ${scenario} Settings → Updates ${takeover ? "before replacement" : "after replacement"} (${name.includes("dark") ? "dark" : "light"})`, surface: "native desktop", path: evidence(name), text: "rendered frame (not blank)" });
+    // rendered frame in the expected theme and fail rather than record a blank one.
+    await ui.capture(evidence(name), themeOf(name), 30000).catch(error => { throw Error(`Settings capture ${name}: ${String(error)}`); });
+    record(session, { kind: "capture", behavior: `OTA ${scenario} Settings → Updates ${takeover ? "before replacement" : "after replacement"} (${themeOf(name)})`, surface: "native desktop", path: evidence(name), text: `rendered ${themeOf(name)} page (not blank, page area below the title bar)` });
     if (!takeover && (hasText(texts, "replaced by another build") || hasText(texts, "Review service replacement"))) throw Error("Settings still reports a replaced service after commit");
     return texts;
   }

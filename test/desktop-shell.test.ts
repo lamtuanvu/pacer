@@ -7,7 +7,8 @@ const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), 
 function shell(search: string) {
   const elements = new Map<string, any>();
   const timers: (() => void)[] = [];
-  let now = 0;
+  const timeouts = new Map<number, { at: number; fn: () => void }>();
+  let now = 0, nextTimeout = 1;
   let focused: any = null;
   const location = { search, href: `tauri://localhost/index.html${search}` };
   const append = (...children: any[]) => {
@@ -22,7 +23,10 @@ function shell(search: string) {
         const element: any = {
           append, tag: tag.match(/^<(\w+)/)?.[1] || "",
           hidden: /\bhidden\b/.test(tag), checked: /\bchecked\b/.test(tag), disabled: /\bdisabled\b/.test(tag),
-          href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "", breaks: 0,
+          href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "", breaks: 0, attributes: new Map<string, string>(),
+          setAttribute(name: string, value: string) { element.attributes.set(name, value); },
+          removeAttribute(name: string) { element.attributes.delete(name); },
+          getAttribute(name: string) { return element.attributes.get(name) ?? null; },
           set innerHTML(_: string) { throw new Error("Shell details must use textContent"); },
           replaceChildren(...nodes: any[]) {
             element.textContent = nodes.map(node => typeof node === "string" ? node : node.textContent).join("");
@@ -42,10 +46,15 @@ function shell(search: string) {
   const windowListeners = new Map<string, () => void>();
   const window: any = { addEventListener(event: string, listener: () => void) { windowListeners.set(event, listener); } };
   runInNewContext(script, { document, window, location, URLSearchParams,
-    Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {} });
+    Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {},
+    setTimeout: (fn: () => void, ms: number) => { timeouts.set(nextTimeout, { at: now + ms, fn }); return nextTimeout++; },
+    clearTimeout: (id: number) => timeouts.delete(id) });
   return { element: document.querySelector, render: window.renderShell, takeover: window.renderTakeover, location,
     focused: () => focused, windowEvent: (event: string) => windowListeners.get(event)?.(),
-    wait(ms: number) { now += ms; },
+    wait(ms: number) {
+      now += ms;
+      for (const [id, timeout] of [...timeouts]) if (timeout.at <= now) { timeouts.delete(id); timeout.fn(); }
+    },
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
 
@@ -72,6 +81,10 @@ test("takeover offer has its own heading, no spinner and a tray pointer", () => 
   const tray = shell("?state=takeover&compact=1");
   expect(tray.element("#takeover").hidden).toBe(true);
   expect(tray.element("#message").textContent).toBe("Open the pacer window to review replacing the service.");
+  // The tray has its own short progress status, not the window's "continues on its own" copy.
+  const progress = shell("?state=takeoverProgress&compact=1").element("#message").textContent;
+  expect(progress).toBe("pacer is replacing the service. Open the pacer window for details.");
+  expect(progress).not.toContain("This window");
 });
 
 test("takeover details are literal, fully readable and use one spelling for unknown values", () => {
@@ -141,18 +154,28 @@ test("takeover confirm ignores clicks for a second after the offer appears or re
   const page = shell("?state=takeover");
   const before = page.location.href;
   page.takeover({ inspection, progress: null, token: TOKEN });
+  // During the hold the button says it is unavailable, stays focusable and keeps its name.
+  const confirm = page.element("#takeover-confirm");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  expect(confirm.disabled).toBe(false);
   page.wait(999);
-  page.element("#takeover-confirm").dispatch("click");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  confirm.dispatch("click");
   // Ignored, not consumed: the actions and token stay.
   expect(page.location.href).toBe(before);
   expect(page.element("#takeover-actions").hidden).toBe(false);
   // A periodic re-render with the same token keeps the page armed.
   page.wait(1);
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
   page.takeover({ inspection, progress: null, token: TOKEN });
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
+  // Regaining focus shows the hold again until it ends.
   page.windowEvent("focus");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
   page.element("#takeover-confirm").dispatch("click");
   expect(page.location.href).toBe(before);
   page.wait(1000);
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
   page.element("#takeover-confirm").dispatch("click");
   expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=0&token=${TOKEN}`);
   // A new candidate brings a new token and a new delay.
@@ -236,6 +259,13 @@ test("takeover outcomes explain reasons in plain copy and never show codes or up
   expect(unreadable.element("h1").textContent).toBe("Service replacement needs attention");
   expect(unreadable.element("#message").textContent).toBe("pacer couldn't read its record of a service replacement, so it can't tell which service is set up. pacer kept that record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.");
   expect(unreadable.element("#report-issue").hidden).toBe(false);
+  // An unfinished record from another app copy or before a restart is left alone, not recovered.
+  const foreign = shell("?state=takeoverFailed");
+  foreign.render({ page: "takeoverFailed", error: "journal:foreign" });
+  expect(foreign.element("h1").textContent).toBe("Service replacement needs attention");
+  expect(foreign.element("#message").textContent).toBe("pacer found an unfinished service replacement that this app didn't start since your Mac last started up, so it won't change the service on its own. pacer kept the record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.");
+  expect(foreign.element("#message").textContent).not.toMatch(/journal|foreign|boot/i);
+  expect(foreign.element("#report-issue").hidden).toBe(false);
 
   const progress = shell("?state=takeoverProgress");
   expect(progress.element("h1").textContent).toBe("Replacing the pacer service");
@@ -274,6 +304,11 @@ test("takeover counts sit under the warning, above the pinned choice", () => {
   const order = ["callout-warn", 'id="takeover-tasks"', 'id="takeover-terminals"', 'id="takeover-current"', 'class="takeover-choice"'].map(text => section.indexOf(text));
   expect(order.every(index => index > -1)).toBe(true);
   expect([...order].sort((a, b) => a - b)).toEqual(order);
+});
+
+test("a held confirm button looks unavailable with the app's disabled style", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.button\[aria-disabled="true"\], \.button\.primary\[aria-disabled="true"\]:hover \{ opacity: 0\.5; cursor: not-allowed; \}/);
 });
 
 test("takeover disabled choice and progress focus are visible with shell tokens", () => {

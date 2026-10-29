@@ -328,6 +328,8 @@ pre { padding: var(--space-3); background: var(--surface-card); border: 1px soli
 .takeover-choice { position: sticky; bottom: 0; padding-bottom: var(--space-3); background: var(--surface-page); }
 button.button { font: inherit; font-weight: var(--type-body-strong-weight); cursor: pointer; }
 .button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Same treatment as the app's .pc-btn[aria-disabled=true]. */
+.button[aria-disabled="true"], .button.primary[aria-disabled="true"]:hover { opacity: 0.5; cursor: not-allowed; }
 #takeover-progress:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 .callout-warn { padding: var(--space-3); border: 1px solid var(--warn-line); border-radius: var(--radius-md); background: var(--warn-bg); color: var(--warn-fg); }
 .install-details { margin: var(--space-5) 0; }

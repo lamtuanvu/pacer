@@ -1484,18 +1484,28 @@ fn takeover_gate(app: &AppHandle) -> Option<TakeoverHold> {
     let status = status(&home);
     #[cfg(target_os = "macos")]
     let trust = pacer_desktop::ota::trust::ReleaseTrust::configured();
-    // An unanswerable query counts as not loaded: recovery then runs once, and
-    // a job that is in fact running holds the transaction lock, so it waits.
-    let loaded = |tx: &str| -> bool {
+    // `None` when no release trust is configured, so no job can be asked about.
+    let query = |tx: &str| -> Option<Result<bool, pacer_desktop::ota::OtaError>> {
         #[cfg(target_os = "macos")]
-        { trust.as_ref().is_some_and(|trust| pacer_desktop::ota::takeover::platform::recovery_job_loaded(trust, tx).unwrap_or(false)) }
+        { trust.as_ref().map(|trust| pacer_desktop::ota::takeover::platform::recovery_job_loaded(trust, tx)) }
         #[cfg(not(target_os = "macos"))]
-        { let _ = tx; false }
+        { let _ = tx; Some(Ok(false)) }
     };
     let attempted = app.state::<Shell>().takeover_recovery_attempted.lock().unwrap().clone();
-    let unfinished = logic::unfinished_takeover_next(&status.unfinished, loaded, &attempted);
+    // The desktop recovers only transactions this app bundle started in this boot.
+    let app_cli = bundled_binary();
+    #[cfg(target_os = "macos")]
+    let boot_id = pacer_desktop::ota::native::awake_now().ok().map(|now| now.boot_id);
+    #[cfg(not(target_os = "macos"))]
+    let boot_id: Option<String> = None;
+    let unfinished = logic::unfinished_takeover_next(
+        &status.unfinished,
+        |tx| logic::recovery_job_loaded_for_recovery(query(tx)),
+        &attempted,
+        |origin| logic::started_by_this_app(origin, app_cli.as_deref(), boot_id.as_deref()),
+    );
     if unfinished.is_none() {
-        let removed = prune(&home, loaded);
+        let removed = prune(&home, |tx| logic::recovery_job_loaded_for_pruning(query(tx)));
         if removed > 0 {
             desktop_log!("pacer lifecycle: removed {removed} finished takeover transaction(s)");
         }
