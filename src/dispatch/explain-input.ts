@@ -9,5 +9,8 @@ export const explainInputSchema = z.object({
   repo: z.string().min(1).max(4096), goal: z.string().min(1).max(20000), kind: name.optional(), executor: z.string().min(1).max(128).optional(),
   model: name.optional(), requirements: requirementsSchema.default({}), preferences: preferencesSchema.default({ models: [], strengths: [] }),
   delegationEnforcement: z.enum(["strict", "cooperative"]).optional(), difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  // Most callers preview task.delegate; dispatch.submit/child callers opt into dispatch.
+  via: z.enum(["dispatch", "delegate"]).default("delegate"),
+  interactionMode: z.enum(["delegated", "conversation"]).optional(), allowDelegation: z.boolean().optional(),
   strategyDraft: draftSchema.optional(),
 }).strict();

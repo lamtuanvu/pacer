@@ -2161,6 +2161,24 @@
             "complex"
           ]
         },
+        "via": {
+          "default": "delegate",
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "delegate"
+          ]
+        },
+        "interactionMode": {
+          "type": "string",
+          "enum": [
+            "delegated",
+            "conversation"
+          ]
+        },
+        "allowDelegation": {
+          "type": "boolean"
+        },
         "strategyDraft": {
           "type": "object",
           "properties": {
@@ -2202,7 +2220,8 @@
         "repo",
         "goal",
         "requirements",
-        "preferences"
+        "preferences",
+        "via"
       ],
       "additionalProperties": false
     },

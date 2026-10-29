@@ -418,7 +418,7 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     const params={repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}};
     try{
       if(explain){
-        const next=await api.call<RouteExplanation>("dispatch.explain",{...params,...(draft?.from&&useDraft?{strategyDraft:draft}:{})});
+        const next=await api.call<RouteExplanation>("dispatch.explain",{via:"dispatch",...params,...(draft?.from&&useDraft?{strategyDraft:draft}:{})});
         if(id===request.current){setExplained(next);setAnnouncement(explainHeadline(next,{executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:next.outcome}));}
       }else{
         const next=await api.call<DispatchPreview>("dispatch.preview",params);

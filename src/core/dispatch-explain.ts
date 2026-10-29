@@ -16,6 +16,7 @@ import { CoreError } from "./errors";
 import { previewDispatch, type DispatchDependencies, type ReadOnlyDispatch } from "./dispatch";
 import { isExecutorSession } from "../install/role";
 import type { Ctx } from "../types";
+import { explainRankedDispatch } from "./dispatch-explain-ranked";
 
 export { explainInputSchema };
 export type ExplainInput = z.input<typeof explainInputSchema>;
@@ -29,6 +30,7 @@ export type PlannerCost =
 export interface PlannerWindow { account: string; usedPct: number; pacePct: number | null; mode: string }
 export interface RouteExplanation {
   schemaVersion: 1; revision: string; at: number; observedAt: number | null;
+  mode: "ranked" | "ladder";
   outcome: "select" | "queue" | "fail" | "override";
   kind: { value: string | null; source: "given" | "detected" | "unknown" };
   strategy: { name: string; draft: boolean; source: "project" | "strategy" | "built-in" };
@@ -59,8 +61,8 @@ function rankedRunners(preview: DispatchPreview): Candidate[] {
 }
 
 /**
- * Read-only "where would this go" explanation. It runs `previewDispatch` in its read-only form, so the
- * decision uses the same ranking, candidate and ladder code the dispatcher uses; nothing is started,
+ * Read-only "where would this go" explanation. Unmanaged work uses executor ranking; managed work
+ * runs `previewDispatch` in its read-only form with the dispatcher's candidate and ladder code. Nothing is started,
  * reserved, probed, refreshed or written.
  */
 export async function explainDispatch(ctx: Ctx, input: unknown, deps: Pick<DispatchDependencies, "strategy" | "status" | "adapters" | "engine"> = {}): Promise<RouteExplanation> {
@@ -81,11 +83,12 @@ export async function explainDispatch(ctx: Ctx, input: unknown, deps: Pick<Dispa
   const kind: RouteExplanation["kind"] = p.kind !== undefined ? { value: p.kind, source: "given" } : await detectKind(p.goal).then(v => v ? { value: v, source: "detected" as const } : { value: null, source: "unknown" as const });
   const store = openReadOnlyStore(ctx);
   try {
+    if (p.via === "delegate") return await explainRankedDispatch(ctx, strategy, p, kind, requested, store, deps);
     const ro: ReadOnlyDispatch = { store, exclusions: [], uncertainty: [] };
     const preview = await previewDispatch(ctx, {
       repo: p.repo, goal: p.goal.slice(0, 8000), ...(kind.value ? { kind: kind.value } : {}), requirements: p.requirements, preferences: p.preferences,
       ...(p.model ? { model: p.model } : {}), ...(p.delegationEnforcement ? { delegationEnforcement: p.delegationEnforcement } : {}),
-    }, { ...deps, strategy, readOnly: ro, difficulty: p.difficulty ?? "standard" });
+    }, { ...deps, strategy, readOnly: ro, difficulty: p.difficulty ?? "standard", includePlanner: !!p.allowDelegation });
     return build(ctx, strategy, p, kind, requested, preview, ro, !!p.strategyDraft);
   } finally { store.close(); }
 }
@@ -190,9 +193,9 @@ function build(ctx: Ctx, strategy: Strategy, p: z.output<typeof explainInputSche
   const candidates = preview.request.candidates.map(({ burn: _b, ...c }) => c);
   const revision = decisionHash({ task: preview.request.task, candidates, strategyHash: preview.request.strategyHash, observations: stripped,
     exclusions: ro.exclusions.map(e => [e.runner, e.reason.code, e.reason.facts]), paused: pause?.until ?? null, requested });
-  const source = draft ? "strategy" : strategy.dispatch ? "strategy" : "built-in";
+  const source = strategy.dispatch ? "strategy" : "built-in";
   return {
-    schemaVersion: 1, revision, at: Math.floor(ctx.now), observedAt: observed.length ? Math.min(...observed) : null, outcome, kind,
+    schemaVersion: 1, mode: "ladder", revision, at: Math.floor(ctx.now), observedAt: observed.length ? Math.min(...observed) : null, outcome, kind,
     strategy: { name: strategy.name, draft, source },
     engine: { ...preview.engine, ...(fallback ? { fallback } : {}) },
     chosen, step, reasons, fallbacks, planner, uncertainty,
