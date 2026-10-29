@@ -22,6 +22,8 @@ import {Tray} from '../app/src/tray/Tray';
 import {createApi} from '../app/src/data/api';
 import {createTrayIpc} from '../app/src/tray/ipc';
 import {pluginRegistry,shutdownPlugins} from '../src/plugins';
+import {createActionRunner} from '../app/src/data/actions';
+const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
 const homes:ReturnType<typeof fakeCtx>[]=[];
 afterEach(async()=>{for(const ctx of homes.splice(0))await shutdownPlugins(ctx);});
 for(const mode of ['open','closed'] as const) test(`metadata snapshot and terminal/tray displays expose ${mode} with zero policy starts`,()=>{
@@ -50,15 +52,38 @@ test('old snapshots show unknown policy instead of implying a failure mode',()=>
 
 for(const mode of ['open','closed'] as const) test(`web setup, Dispatch home and banner expose ${mode} policy metadata with count available`,()=>{
  const policy={mode,plugins:2},words=mode==='open'?'policy: open':'policy: closed (2 plugins)';
+ const caption=mode==='open'?'policy: open · 2 enabled plugins · a failing plugin is ignored':'policy: closed (2 plugins) · a failing plugin blocks the action';
  const checklist={checkedAt:1,complete:true,ready:false,policy,items:[{id:'first',title:'First delegation',status:'pending' as const,required:false}]};
  const api=createApi(),query={repo:null,scope:null};
  const setup=renderToString(<TaskContext.Provider value={{api,state:initialState()}}><SetupView checklist={checklist} query={query}/></TaskContext.Provider>);
- expect(setup).toContain(words);expect(setup).toContain('2 enabled policy plugins');
+ expect(setup).toContain(words);
+ // The Dispatch page names the policy, so the banner above it does not repeat it (UI-15).
  const banner=renderToString(<SetupContext.Provider value={{checklist,refresh(){},setRunning(){}}}><SetupBanner/></SetupContext.Provider>);
- expect(banner).toContain(words);
- // The Dispatch home (#443) replaced Overview; its live line names the policy mode.
- const overview=renderToString(<DispatchView snapshot={{...emptySnapshot(),policy}} query={query} now={100} runner={{} as never}/>);
- expect(overview).toContain(words);expect(overview).toContain('2 enabled policy plugins');
+ expect(banner).toContain('Finish setting up pacer');expect(banner).not.toContain('policy:');
+ // The Dispatch home (#443) replaced Overview; its live line names the policy mode and what it does as visible text.
+ const overview=renderToString(<SetupContext.Provider value={{checklist,refresh(){},setRunning(){}}}><DispatchView snapshot={{...emptySnapshot(),policy}} query={query} now={100} runner={{} as never}/></SetupContext.Provider>);
+ expect(overview).toContain(caption);expect(overview.match(/policy:/g)).toHaveLength(1);
+ for(const html of [setup,overview])expect(html).not.toMatch(/title="[^"]*policy/);
+});
+// PR #494 live run: narrow Dispatch showed no policy mode outside the one setup state that shows the banner.
+const SETUP_STATES={ready:{complete:true,ready:true,items:[]},optional:{complete:true,ready:false,items:[{id:'first',title:'First delegation',status:'pending' as const,required:false}]},incomplete:{complete:false,ready:false,items:[{id:'service',title:'Service',status:'pending' as const,required:true}]}};
+for(const [state,setup] of Object.entries(SETUP_STATES)) for(const mode of ['open','closed'] as const) test(`narrow Dispatch shows the ${mode} policy once with setup ${state}`,()=>{
+ const policy={mode,plugins:2},checklist={checkedAt:1,policy,...setup};
+ for(const [label,extra] of [['empty',{}],['first run',{firstRun:<p>Start here</p>}],['working',{}]] as const){
+  const snapshot=label==='working'?{...structuredClone(uiSnapshot),policy} as ClientSnapshot:{...emptySnapshot(),policy};
+  const html=renderToString(<SetupContext.Provider value={{checklist,refresh(){},setRunning(){}}}><DispatchView snapshot={snapshot} query={{repo:null,scope:'repo:github.com/acme/api'}} now={100} runner={runner} {...extra}/></SetupContext.Provider>);
+  expect(html).not.toContain('<h1>');
+  expect(html).toContain(`<span class="pc-dispatch__policy muted">${mode==='open'?'policy: open · 2 enabled plugins · a failing plugin is ignored':'policy: closed (2 plugins) · a failing plugin blocks the action'}</span>`);
+  expect(html.match(/policy:/g)).toHaveLength(1);
+ }
+});
+test('tray policy caption sits inside the padded planner section with visible detail',()=>{
+ const snapshot={...structuredClone(uiSnapshot),policy:{mode:'closed' as const,plugins:2}} as ClientSnapshot;
+ const html=renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})}/>);
+ const start=html.search(/<section[^>]*class="tray-planner"/),planner=html.slice(start,html.indexOf('</section>',start));
+ expect(start).toBeGreaterThanOrEqual(0);
+ expect(planner).toContain('<div class="tray-policy">policy: closed (2 plugins) · a failing plugin blocks the action</div>');
+ expect(html.match(/policy:/g)).toHaveLength(1);expect(html).not.toMatch(/title="[^"]*policy/);
 });
 test('polled snapshot keeps enabled policy count current without starting the installed plugin',()=>{
  const ctx=fakeCtx();homes.push(ctx);let starts=0;
@@ -103,6 +128,24 @@ for(const unicode of [true,false]) test(`minimum TUI footer keeps closed0 and co
  const snapshot={...structuredClone(uiSnapshot),policy:{mode:'closed' as const,plugins:0}} as ClientSnapshot;
  const frame=renderDashboard(snapshot,60,30,100,{theme:{depth:'truecolor',appearance:'dark',unicode,motion:false,plain:false},update:'failed'});
  const footer=frame.split('\n').at(-1)!.replace(/\x1b\[[0-9;]*m/g,'');
- expect(footer).toContain('Run checks');expect(footer).toContain('? help');expect(footer).toContain('policy: closed (0 plugins)');
+ expect(footer).toContain('Run checks');expect(footer).toContain('x dismiss');expect(footer).toContain('? help');expect(footer).toContain('policy:closed/0');
  expect(footer).not.toContain('…');expect(footer.length).toBeLessThanOrEqual(60);
+});
+// PR #494 live run: the policy token displaced 'd delegate' at 120 and 'x dismiss' / '. actions' at 80.
+const KEY_HINTS:Record<number,string[]>={120:['Run checks','x dismiss','. actions (3)','f repo scope','d delegate','? help'],80:['Run checks','x dismiss','. actions (3)','? help'],60:['Run checks','x dismiss','? help']};
+for(const width of [120,80,60]) for(const update of [undefined,'available','disabled','current'] as const) for(const policy of [{mode:'open' as const,plugins:0},{mode:'closed' as const,plugins:2},{mode:'closed' as const,plugins:123456}]) test(`TUI footer keeps existing key hints ahead of ${policy.mode}/${policy.plugins} policy at ${width} columns with ${update??'no update'}`,()=>{
+ const snapshot={...structuredClone(uiSnapshot),policy} as ClientSnapshot;
+ const footer=renderDashboard(snapshot,width,30,100,{noColor:true,update,version:'0.12.0'}).split('\n').at(-1)!;
+ for(const hint of KEY_HINTS[width]!)expect(footer).toContain(hint);
+ expect(footer).not.toContain('…');expect(footer.length).toBeLessThanOrEqual(width);
+ // The policy token shows whole or shortened, never cut.
+ if(footer.includes('policy'))expect(footer).toMatch(/policy: (open|closed \(\d+ plugins\))|policy:(open|closed)\/\d+/);
+});
+test('TUI footer shows the policy token wherever it fits beside the key hints',()=>{
+ const snapshot={...structuredClone(uiSnapshot),policy:{mode:'closed' as const,plugins:2}} as ClientSnapshot;
+ const footer=(width:number,update?:'disabled')=>renderDashboard(snapshot,width,30,100,{noColor:true,update,version:'0.12.0'}).split('\n').at(-1)!;
+ expect(footer(160,'disabled')).toContain('policy: closed (2 plugins) · pacer 0.12.0 · update checks off');
+ expect(footer(120)).toContain('policy: closed (2 plugins) · pacer 0.12.0');
+ expect(footer(120,'disabled')).toContain('policy:closed/2 · update checks off');
+ expect(footer(80)).toContain('policy:closed/2');
 });

@@ -163,7 +163,14 @@ export function policyWords(policy?: PolicySummary): string {
   if (!policy) return "policy: unknown";
   return policy.mode === "closed" ? `policy: closed (${policy.plugins} ${policy.plugins === 1 ? "plugin" : "plugins"})` : "policy: open";
 }
-export const policyDetail = (policy?: PolicySummary): string => policy ? `${policyWords(policy)} · ${policy.plugins} enabled policy ${policy.plugins === 1 ? "plugin" : "plugins"}` : policyWords(policy);
+/** What the mode does, without repeating the plugin count the closed words already carry (UI-15). */
+export function policyDetail(policy?: PolicySummary): string {
+  if (!policy) return "not reported by this service";
+  if (policy.mode === "closed") return "a failing plugin blocks the action";
+  return `${policy.plugins} enabled ${policy.plugins === 1 ? "plugin" : "plugins"} · a failing plugin is ignored`;
+}
+/** Visible app caption: the mode and its detail as text, not a hover-only title. */
+export const policyCaption = (policy?: PolicySummary): string => `${policyWords(policy)} · ${policyDetail(policy)}`;
 
 /** Width-constrained terminals: slash separates the mode from the enabled plugin count. */
 export function compactPolicyWords(policy?: PolicySummary): string {

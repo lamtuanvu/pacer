@@ -204,17 +204,24 @@ function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, scr
   const version = span(`pacer ${input.version}`, { fg: "muted" });
   const separator = span(` ${glyph(theme, "·")} `, { fg: "muted" });
   const join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
-  // Policy and the primary action/help are always reserved before secondary metadata.
-  const minimumLeft = lineWidth(join([...groups.slice(0, 1), help]));
-  const rightOptions: Line[] = known ? [
-    [policy, separator, version, separator, span(known[0], known[1])],
-    [policy, separator, span(known[0], known[1])],
-    [policy], [compactPolicy],
-  ] : [[policy, separator, version], [policy], [compactPolicy]];
-  const right = rightOptions.find(line => lineWidth(line) + minimumLeft + 2 <= width) ?? [compactPolicy];
-  const room = width - lineWidth(right) - 2;
-  // Drop whole secondary hints; never let version/update text displace primary/help.
-  while (groups.length > 1 && lineWidth(join([...groups, help])) > room) groups.splice(groups.length - 1, 1);
+  // Narrow terminals keep one item: the version, unless there is something to notice.
+  const plain: Line = !known ? [version]
+    : width >= 100 ? [version, separator, span(known[0], known[1])]
+    : input.update === "current" ? [version] : [span(known[0], known[1])];
+  // Drop whole hints from the end, never the first (the primary) or "? help", so no key is shown cut in half.
+  const kept = (right: Line) => {
+    const room = width - lineWidth(right) - 2;
+    let n = groups.length;
+    while (n > 1 && lineWidth(join([...groups.slice(0, n), help])) > room) n--;
+    return n;
+  };
+  // Key hints outrank the policy token: it shows, shortened if need be, only where it costs no hint.
+  // To make room for it the version gives way first, then an update notice.
+  const shown = kept(plain), notice: Line = known && input.update !== "current" ? [span(known[0], known[1])] : [];
+  const options: Line[] = [[policy, separator, ...plain], [compactPolicy, separator, ...plain],
+    ...(notice.length ? [[policy, separator, ...notice], [compactPolicy, separator, ...notice]] : []), [policy], [compactPolicy]];
+  const right = options.find(line => kept(line) >= shown) ?? plain;
+  groups.splice(kept(right));
   return ends(join([...groups, help]), right, width, theme);
 }
 
