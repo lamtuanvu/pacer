@@ -58,9 +58,9 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
 2. **Session protocol.**
    - The negotiating parties are the **client** (web app, CLI or remote viewer) and the **host**. The service only relays (`src/serve/session-ws.ts`).
    - The client's `hello` keeps `v: 1`, because hosts reject any other value (`src/session/viewers.ts:72`). It gains optional `versions: [min, max]` and `pacer`.
-   - A host replies with its own range **only when** the client sent `versions`. The reply is a field on its first state frame, not a new frame type, because older web apps throw on unknown frames (`app/src/term/client.ts:58`). No reply means v1.
+   - A host replies with its own range **only when** the client sent `versions`. The reply is a field on its first `control` frame, not a new frame type, because older web apps throw on unknown frames (`app/src/term/client.ts:58`). No reply means v1.
    - A host never sends a new frame type to a client that didn't advertise support for it.
-   - Each host writes `session.host` in its run directory, `{pacer, versions}`, owner-only. The service reads it to show versions and **Reopen to update** without connecting.
+   - Each host writes `session.version` in its run directory, `{pacer, versions}`, owner-only, with write-then-rename. The existing `session.host` file keeps its current values (`builtin`, `none` or the remote session mode), which older runners compare exactly. The service reads `session.version` to show versions and **Reopen to update** without connecting. A host without that file is v1.
 3. **Fixture tests.** For every release in the support window, CI reads recorded run directories, task records and socket transcripts. It also attaches the old web app, the old CLI and the old remote viewer to a new host.
 
 ## Runner handover
@@ -73,38 +73,40 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
 | Direct backend, interactive (agent in a session host), with a recorded `t.run` | Hands over. The host is untouched. |
 | Conversation-mode run | Hands over. The replacement resumes the conversation branch of `progressPoller`. |
 | Run driving a takeover (`run.takeover`) | Finishes on its old runner |
-| Remote-host run | Hands over on the local side only. The remote process is untouched. |
+| Remote-host run | Hands over on the local side only. The remote process is untouched. Remote viewers attached through the old runner reconnect to the replacement, as they do after a runner crash today. |
 | Orca backend | Finishes on its old runner. It has no recorded `t.run`, so the sweep would mark it failed. |
 | Pre-run phase (no run directory yet) or between attempts | Not eligible yet. Eligible once its run is recorded. |
 
 ### Protocol
 
-- **Advertising.** A runner is *eligible* only while it is inside `supervise` for a live attempt with a persisted `t.run`. It publishes this in the task record (`t.handover = {protocol: 1, pacer}`) and clears it whenever it leaves that state. The PID always comes from the store (`t.runnerPid`), never from a run-directory file that an executor could write.
+- **Advertising.** A runner is *eligible* only while it is inside `supervise` for a live attempt with a persisted `t.run`. It publishes this in the task record as `t.handover = {protocol: 1, pacer, pid, startedAt, executable}`, the identity of the process that wrote it, and clears it whenever it leaves that state. The identity comes from the runner itself and is stored in the task store, never in a run-directory file an executor could write.
+- **Trigger.** Handover runs only when the upgrade path that restarted the service asks for it. For CLI and service paths, that is the path itself, after the new service's health check. Part C triggers it on the native commit. A service that merely starts, after a crash or reboot, never triggers handover.
 - **Signalling.**
-  1. After a new service passes its health check, it lists running tasks with `t.handover.protocol` it supports and an older `pacer` version.
-  2. It checks that the live process matches `t.runnerPid`'s start time and pacer executable, right before signalling. On Linux it uses a pidfd where available.
+  1. When triggered, it lists running tasks with `t.handover.protocol` it supports and an older `pacer` version.
+  2. It signals only when `t.handover.pid` equals `t.runnerPid` and the live process matches the recorded start time and executable, checked right before signalling. On Linux it uses a pidfd where available. A marker left behind by another process, for example after a rollback to a pre-feature version, never matches, so a runner without a handler is never signalled.
   3. It sends `SIGUSR2`.
 - **Commit point.** In its `SIGUSR2` handler, the runner checks it is still eligible. If not, it ignores the signal and the service reports "kept on old runner". If it is eligible, it takes the task lock at the next poll boundary and, inside the lock:
-  1. calls `finishWorkSync` for its `task` and per-attempt `operation` leases. The run stays covered by its `session` lease and run directory evidence (`src/supervisor/run.ts:36,60`), so no admission gap opens;
-  2. sets `t.handover.state = "handed-over"`;
-  3. leaves `t.run` intact.
+  1. re-checks eligibility: the task is still `running`, `t.run` is unchanged, and no stop was requested. If any of these fails, it abandons the handover and keeps supervising;
+  2. calls `finishWorkSync` for its `task` and per-attempt `operation` leases. The run stays covered by its `session` lease and run directory evidence (`src/supervisor/run.ts:36,60`), so no admission gap opens;
+  3. sets `t.handover.state = "handed-over"`;
+  4. leaves `t.run` intact.
 
   It **does not** call `releaseDispatch`, `revokeWorkGrants`, `revokeEnforcementTokens` or `drainQueue`. It then releases the lock and calls `process.exit(0)` without recording an attempt outcome. Any failure before the lock is taken leaves the runner supervising as before.
-- **Replacing.** The sweep sees a dead runner with `t.handover.state = "handed-over"` and a live run. It starts a new-version runner straight away (no 60-second throttle), using a fresh `task` lease as today. The handover state lets the new runner's resume path skip three steps:
-  - **re-certification and enforcement token issue:** the attempt was certified at launch, and its token stays valid (the fingerprint includes the pacer version, `src/exec/enforcement.ts:101`, so re-checking would requeue the live run);
+- **Replacing.** The sweep sees a dead runner with `t.handover.state = "handed-over"` and a live run. It starts a new-version runner straight away, using a fresh `task` lease as today. It skips the 60-second throttle once per handover. If that replacement fails to start, the normal throttle applies, so a broken new binary cannot leak a lease every sweep. The handover state lets the new runner's resume path skip three steps:
+  - **re-certification and enforcement token issue:** the attempt was certified at launch, and its token stays valid (the fingerprint includes the pacer version, `src/exec/enforcement.ts:101`, so re-checking would requeue the live run). The guard-failure marker check that runs alongside token issue still runs;
   - **work-grant issue:** the attempt's existing grant stays valid;
   - **the requeue branch:** `t.run` is never deleted while its run is alive.
 
   Once it is supervising, the new runner clears `t.handover`.
 - **Supervision state.**
-  - `progressPoller` dedupes "needs input" and "idle" alerts on the persisted `waitKey`, so a replacement doesn't repeat them.
-  - `taskStop` during a handover stops the live run: it does not record "stopped before an executor ran".
+  - `waitKey`, which is a random in-memory value today, becomes a stored field on the attempt (`run.waitKey`). `progressPoller` reads and writes it, so a replacement doesn't repeat "needs input" and "idle" alerts.
+  - `taskStop` during the handover gap stops the live run and records the task as `stopped` with the run's evidence. The replacement runner sees the stop and records the attempt outcome; if none starts within 60 seconds, the sweep records it. It never records "stopped before an executor ran".
   - Worst-case gap without a supervising runner: one sweep interval (5 s) plus runner start-up.
 - **Rollback.** A runner from an older version that sees `t.handover` ignores it. The field is additive. An older sweep treats a handed-over task as a dead runner with a live run and resumes it with the old side effects, which is today's crash-recovery behaviour. This is no worse than today.
 
 ## Service supervisor settings
 
-- **Linux.** The generated unit gains `KillMode=process`. `pacer update`, `update.apply` and `service install`/`restart` compare the installed unit with the generated one. If they differ, the path rewrites the unit and runs `systemctl --user daemon-reload` before restarting. `pacer service uninstall` stops runners and session hosts it can identify before removing the unit, because `KillMode=process` no longer cleans them up.
+- **Linux.** The generated unit gains `KillMode=process`. `pacer update`, `update.apply` and `service install`/`restart` compare the installed unit with the generated one. If they differ, the path rewrites the unit and runs `systemctl --user daemon-reload` before restarting. `pacer service uninstall`, on both platforms, lists running tasks and sessions and asks before removing the service. With `--stop-work` it stops each runner and session host it can identify from the task store and run directories, because `KillMode=process` no longer cleans them up on Linux.
 - **macOS.** Runners and session hosts start in their own sessions, so `kickstart -k` (restart) and bootout/bootstrap (install) should not signal them. Live validation is the acceptance condition. If either path does signal them, the failure is recorded and the design is revisited. No plist change is made in advance.
 
 ## Upgrade paths and callers
@@ -113,7 +115,7 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
 
 1. They read active work before restarting.
 2. After the restart and a passed health check, the new service runs the handover.
-3. They report "Updated to v<version>. N tasks and M sessions kept running; K stayed on the previous runner." The CLI prints this. For `update.apply` it is the operation result, which the web app shows.
+3. They report "Updated to v<version>. N tasks and M sessions kept running; K stayed on the previous runner." The new service returns these counts from the handover call. The path waits up to 60 seconds for runners to hand over and counts the rest as kept on the previous runner. The CLI prints this. For `update.apply` it is the operation result, which the web app shows.
 
 **Callers.** Delegated tasks may not upgrade or reinstall the service. This prevents an accidental self-upgrade. It is not an authorization boundary against a same-user agent, which can read the operator token.
 - **Server:** `assertCallerCanInvoke` refuses `update.apply`, `service.install` and `desktop.update.*` mutations from work-grant (`pwg_`) callers. These operations are owner-only on the SEC-13 peer allow-list.

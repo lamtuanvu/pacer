@@ -35,7 +35,7 @@ Fixture builds use `dev.pacer.desktop.fixture`. The fixture app and the user's a
     - `src/commands/open.ts`. Here `open -b` must target the fixture app from a fixture service, never the user's app.
   - **Live harness:** `scripts/live/ota-build.ts`, which today *requires* the release identifier, plus `ota-native.ts`, `ota-takeover.ts` and `ota-paired-proof.ts`.
 
-  Release scripts (`scripts/release/*`) keep the literal.
+  Release scripts (`scripts/release/*`) keep the literal, except `scripts/release/desktop-feed-fixture.ts`, which writes fixture feeds and uses the fixture identifier.
 - **Release builds** never accept the fixture identifier. Tests on the production configuration assert this for the Rust desktop, the Rust front door and the TypeScript checks.
 - **Config.** The fixture's application-support folder moves to `~/Library/Application Support/dev.pacer.desktop.fixture`, inside the fixture home. The user's real `consent.json` is never touched.
 - **Harness.** The harness no longer refuses to launch while the real app is running.
