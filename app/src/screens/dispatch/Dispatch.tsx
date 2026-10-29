@@ -1,3 +1,4 @@
+import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
 import styles from "./dispatch.css" with { type: "text" };
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -449,9 +450,9 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const work = useDispatchWork(scope.repo);
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
+  return <><LazyWorkPanels query={query} /><DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
     period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workError={work.error} onWorkReload={work.reload}
-    shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} />;
+    shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} /></>;
 }
 
 export { NeedsYouPage } from "../needs-you/NeedsYou";

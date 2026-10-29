@@ -23,13 +23,14 @@ const outline = (html: string) => [...html.matchAll(/<(div|header|nav|main|foote
 
 test("layout_renders_same_landmarks", () => {
   const html = withService("#/");
-  // The frame keeps today's region order and classes when there is no side panel and no dock.
+  // Dispatch mounts its Scope and Inspector around the work area; the dock stays closed.
   expect(outline(html).filter(item => !item.startsWith("section") && !item.startsWith("nav.pc-") || item.startsWith("nav.pc-rail"))).toEqual([
     "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-body", "nav.pc-rail",
-    "div.pc-work", "div.pc-live-region", "main.pc-main pc-main--canvas#main-content", "footer.pc-statusbar",
+    "aside.pc-side-panel pc-side-panel--left pc-scope-panel", "div.pc-work", "div.pc-live-region", "main.pc-main pc-main--canvas#main-content", "aside.pc-side-panel pc-side-panel--right", "footer.pc-statusbar",
   ]);
   expect(html).toContain('<div aria-live="polite" role="status" class="pc-live-region"></div><main id="main-content" tabindex="-1" class="pc-main pc-main--canvas">');
-  expect(html).not.toContain("<aside");
+  expect(html).toContain('aria-label="Scope"');
+  expect(html).toContain('aria-label="Inspector"');
   expect(html).not.toContain("pc-dock");
   expect(html).not.toContain("pc-app--with-dock");
   // The only frame addition is the status-bar dock control, closed by default.

@@ -21,7 +21,7 @@ const terminals: any[] = [];
 if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `11111111-1111-4111-8111-${String(Date.now()).slice(-12).padStart(12, "0")}` });
 const api = { async call(op: string, params?: unknown) {
   if (op === "task.list" || op === "dispatch.list") return { tasks: [], next: null };
-  if (op === "task.get") return {};
+  if (op === "task.get") { const task = state.snapshot.tasks.find((task: any) => task.id === (params as { id: string }).id); return { ...task, repo: task?.repo ?? fixture.tasks[0]!.repo, routing: null, tokens: null }; }
   if (op === "terminal.list") return [...terminals];
   if (op === "terminal.create") { const id = `00000000-0000-4000-8000-${String(terminals.length + 1).padStart(12, "0")}`; terminals.push({ id, kind: "shell", title: "Shell", cwd: "/workspace", createdAt: 1, rev: 1, live: true, exit: null, cols: 80, rows: 24, attach: { ws: `/v3/terminals/${id}/session` } }); return terminals.at(-1); }
   if (op === "account.list") return [];
