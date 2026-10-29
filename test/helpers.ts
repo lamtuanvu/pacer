@@ -1,4 +1,5 @@
 import { chmodSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { markTestTmp } from "./tmp-sweep";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
@@ -10,6 +11,7 @@ let runRoot: string | null = null;
 function testRunRoot(): string {
   if (runRoot) return runRoot;
   const root = mkdtempSync(join(tmpdir(), "pacer-test-"));
+  markTestTmp(root);
   runRoot = root;
   return root;
 }

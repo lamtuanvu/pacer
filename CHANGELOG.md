@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- `pacer clean` no longer stops with `ENOENT` when a settled task's repository was deleted; it keeps that task with `repository no longer exists` and cleans the rest.
+
 ## [0.12.0] - 2026-10-29
 
 ### Fixed

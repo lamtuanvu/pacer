@@ -135,6 +135,8 @@ Task attempts save their final diff and file statistics in the run directory. Re
 terminal tasks that have been reviewed, dismissed or resolved. Only tasks run
 in a new worktree under pacer's worktrees directory are eligible. Dirty worktrees
 are kept with `uncommitted changes; use --force` unless `--force` is given.
+A task whose repository no longer exists is kept with `repository no longer exists`
+and the rest are still cleaned.
 `--dry-run` reports what would be removed without changing files. Cleanup deletes
 disposable run files while retaining saved review diffs, and always keeps branches. Text output
 lists removed or kept task IDs and reasons, or `nothing to clean`; exit status is 0.

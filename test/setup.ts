@@ -2,6 +2,7 @@ import { afterAll } from "bun:test";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
+import { markTestTmp, sweepTestTmp } from "./tmp-sweep";
 import { cleanupTestTmp } from "./helpers";
 import { setMachineReaders } from "../src/engine/machine";
 
@@ -30,7 +31,9 @@ const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
 const toolchainHome = process.env.HOME ?? userInfo().homedir;
 process.env.CARGO_HOME ??= join(toolchainHome, ".cargo");
 process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
+sweepTestTmp();
 const isolatedHome = mkdtempSync(join(tmpdir(), "pacer-test-home-"));
+markTestTmp(isolatedHome);
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 delete process.env.PACER_ROLE;
@@ -42,10 +45,16 @@ process.env.PACER_LOGIN_ENV = "off";
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.
-afterAll(() => {
+function cleanup(): void {
   cleanupTestTmp();
   if (!process.env.PACER_KEEP_TEST_TMP) rmSync(isolatedHome, { recursive: true, force: true });
-}, { timeout: 60_000 });
+}
+afterAll(cleanup, { timeout: 60_000 });
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]] as const) {
+  process.once(signal, () => {
+    try { cleanup(); } finally { process.exit(code); }
+  });
+}
 
 // Scheduling must not depend on the host's real memory pressure or load. Tests that
 // exercise the machine guard inject their own readers.

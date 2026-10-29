@@ -1,6 +1,6 @@
 import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
@@ -8,8 +8,8 @@ import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
-async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
-  const ctx = fakeCtx({ run: realRun }), repo = gitRepo();
+async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}, ctx = fakeCtx({ run: realRun })) {
+  const repo = gitRepo();
   const t = createTask(ctx, { brief: { goal: "g", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const info = await gitInfo(realRun, repo); if ("error" in info) throw new Error(info.error);
   const w = await createTaskWorktree(ctx, info, t.id, "main"); if ("error" in w) throw new Error(w.error);
@@ -116,4 +116,21 @@ test("clean keeps an Orca worktree whose ownership name changed", async () => {
   expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "Orca worktree ownership could not be verified"}]);
   expect(removed).toBe(false);
   expect(existsSync(w.path)).toBe(true);
+});
+
+test("clean keeps missing repositories and continues cleaning other tasks", async () => {
+  const { ctx, t, w, repo } = await finished();
+  const other = await finished({}, ctx);
+  const record = readTask(ctx, other.t.id)!;
+  const host = createTask(ctx, { brief: { goal: "host", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, host.id, x => { x.state = "done"; x.review = record.review; x.run = { ...record.run!, host: "missing-host" }; });
+  rmSync(repo, { recursive: true });
+  const result = await tasks.clean(ctx);
+  expect(result.removed).toEqual([other.t.id]);
+  expect(result.kept).toEqual(expect.arrayContaining([
+    { id: t.id, reason: "repository no longer exists" },
+    { id: host.id, reason: "repository no longer exists" },
+  ]));
+  expect(existsSync(w.path)).toBe(true);
+  expect(existsSync(other.w.path)).toBe(false);
 });

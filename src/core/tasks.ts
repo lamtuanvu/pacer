@@ -355,7 +355,13 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       continue;
     }
     if (t.run?.mode !== "new") continue;
-    const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
+    let top: string;
+    try { top = await withTimeout(() => repoFs.realpath(t.brief.repo)); }
+    catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      kept.push({ id: t.id, reason: "repository no longer exists" });
+      continue;
+    }
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
     if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
     const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
