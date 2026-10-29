@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
+import { LOCAL_LOAD_LIMIT_ERROR, LOCAL_MAX_TASKS_ERROR, LOCAL_MEMORY_PRESSURE_LIMIT_ERROR, MEMORY_PRESSURE_LIMITS, localLoadLimitProblem, localMaxTasksProblem } from "./execution";
 import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
 import { parseHosts, type HostCfg } from "./hosts";
 import { validateRemoteRunner, allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
@@ -257,8 +258,10 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     });
   }
 
-  const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
-  if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
+  const exec = isObj(raw.execution) ? raw.execution : {};
+  if (localMaxTasksProblem(exec.local_max_tasks)) p.push(LOCAL_MAX_TASKS_ERROR);
+  if (exec.local_memory_pressure_limit != null && !(MEMORY_PRESSURE_LIMITS as readonly unknown[]).includes(exec.local_memory_pressure_limit)) p.push(LOCAL_MEMORY_PRESSURE_LIMIT_ERROR);
+  if (localLoadLimitProblem(exec.local_load_limit)) p.push(LOCAL_LOAD_LIMIT_ERROR);
   const launchMode = isObj(raw.execution) ? raw.execution.launch_mode : undefined;
   if (launchMode !== undefined && launchMode !== "interactive" && launchMode !== "headless") p.push("execution.launch_mode must be interactive or headless");
   const taskRetentionDays = raw.task_retention_days ?? 14;

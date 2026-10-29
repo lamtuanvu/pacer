@@ -15,17 +15,20 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-import { LAUNCH_MODES, validateExecution } from '../config/execution';
+import { LAUNCH_MODES, MEMORY_PRESSURE_LIMITS, validateExecution } from '../config/execution';
+import { machineGuardState } from '../engine/machine';
+import { slotUse } from '../engine/slots';
+import { listTasksWhere } from '../tasks/store';
 
 const pendingEdits = new Set<string>();
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.launch_mode','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.local_memory_pressure_limit','execution.local_load_limit','execution.launch_mode','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 'unlimited','execution.local_memory_pressure_limit':validateExecution(s.execution).localMemoryPressureLimit ?? 'critical','execution.local_load_limit':validateExecution(s.execution).localLoadLimit ?? 'off','execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
@@ -37,8 +40,16 @@ function parseValue(key:ConfigKey, value:string): unknown {
   }
   if(key==='terminal.app' && !['Terminal','iTerm','Ghostty'].includes(value)) throw Error('terminal.app must be Terminal, iTerm or Ghostty');
   if(key==='execution.local_max_tasks') {
+    if(value==='unlimited') return value;
     const n = Number(value);
-    if(!/^\d+$/.test(value) || !Number.isInteger(n) || n < 1 || n > 16) throw new CoreError('invalid_input', 'execution.local_max_tasks must be an integer from 1 to 16');
+    if(!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n < 1) throw new CoreError('invalid_input', 'execution.local_max_tasks must be a whole number of at least 1, or unlimited');
+    return n;
+  }
+  if(key==='execution.local_memory_pressure_limit' && !(MEMORY_PRESSURE_LIMITS as readonly string[]).includes(value)) throw new CoreError('invalid_input', 'execution.local_memory_pressure_limit must be critical, warning or off');
+  if(key==='execution.local_load_limit') {
+    if(value==='off') return value;
+    const n = Number(value);
+    if(!/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(n) || n <= 0) throw new CoreError('invalid_input', 'execution.local_load_limit must be a positive number (load per CPU core) or off');
     return n;
   }
   if(key==='execution.launch_mode' && !(LAUNCH_MODES as readonly string[]).includes(value)) throw new CoreError('invalid_input', 'execution.launch_mode must be interactive or headless');
@@ -68,6 +79,8 @@ export function get(ctx: Ctx) {
       terminalChoices: process.platform === 'darwin'
         ? [{value:'auto',label:'Automatic'},{value:'terminal-app',label:'Terminal'},{value:'iterm',label:'iTerm'},{value:'ghostty',label:'Ghostty'}]
         : [{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'},{value:'wezterm',label:'WezTerm'},{value:'kitty',label:'Kitty'},{value:'alacritty',label:'Alacritty'},{value:'gnome-terminal',label:'GNOME Terminal'},{value:'x-terminal-emulator',label:'System terminal'}],
+      // What the local machine guard sees now; Settings re-reads it while open.
+      machine: {used: slotUse(listTasksWhere(ctx, {states: ['running']})).local, ...machineGuardState(validateExecution(s.execution))},
       planners: PLANNERS.flatMap(agent => plannerAccounts(ctx, s, agent).map(a => formatRunnerId({agent, account: a.name, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}))),
     };
   } catch (e) { throw toCoreError(e); }

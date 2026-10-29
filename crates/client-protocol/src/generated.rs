@@ -3895,6 +3895,8 @@ impl ::std::default::Default for ConfigGetParams {
 ///      "enum": [
 ///        "task_retention_days",
 ///        "execution.local_max_tasks",
+///        "execution.local_memory_pressure_limit",
+///        "execution.local_load_limit",
 ///        "execution.launch_mode",
 ///        "planner",
 ///        "pacing.order",
@@ -4012,6 +4014,8 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///  "enum": [
 ///    "task_retention_days",
 ///    "execution.local_max_tasks",
+///    "execution.local_memory_pressure_limit",
+///    "execution.local_load_limit",
 ///    "execution.launch_mode",
 ///    "planner",
 ///    "pacing.order",
@@ -4045,6 +4049,10 @@ pub enum ConfigSetParamsKey {
     TaskRetentionDays,
     #[serde(rename = "execution.local_max_tasks")]
     ExecutionLocalMaxTasks,
+    #[serde(rename = "execution.local_memory_pressure_limit")]
+    ExecutionLocalMemoryPressureLimit,
+    #[serde(rename = "execution.local_load_limit")]
+    ExecutionLocalLoadLimit,
     #[serde(rename = "execution.launch_mode")]
     ExecutionLaunchMode,
     #[serde(rename = "planner")]
@@ -4080,6 +4088,10 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
         match *self {
             Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
+            Self::ExecutionLocalMemoryPressureLimit => {
+                f.write_str("execution.local_memory_pressure_limit")
+            }
+            Self::ExecutionLocalLoadLimit => f.write_str("execution.local_load_limit"),
             Self::ExecutionLaunchMode => f.write_str("execution.launch_mode"),
             Self::Planner => f.write_str("planner"),
             Self::PacingOrder => f.write_str("pacing.order"),
@@ -4101,6 +4113,8 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
         match value {
             "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
+            "execution.local_memory_pressure_limit" => Ok(Self::ExecutionLocalMemoryPressureLimit),
+            "execution.local_load_limit" => Ok(Self::ExecutionLocalLoadLimit),
             "execution.launch_mode" => Ok(Self::ExecutionLaunchMode),
             "planner" => Ok(Self::Planner),
             "pacing.order" => Ok(Self::PacingOrder),

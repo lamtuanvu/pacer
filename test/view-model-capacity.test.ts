@@ -24,9 +24,9 @@ test("queue copy identifies each capacity limit and tolerates older snapshots", 
 test("host queue metadata and executor-first precedence match scheduling", () => {
  const {s}=capacityFixture();s.runners['codex@devbox']!.maxTasks=4;
  const use={byExecutor:{'codex@devbox':2},byHost:{devbox:3},local:0};
- expect(queueCapacity(s,'codex@devbox',use)).toEqual({limit:'host',capacity:{used:3,max:3}});
+ expect(queueCapacity(s,'codex@devbox',use)).toEqual({reason:'no_slot',limit:'host',capacity:{used:3,max:3}});
  use.byExecutor['codex@devbox']=4;
- expect(queueCapacity(s,'codex@devbox',use)).toEqual({limit:'executor',capacity:{used:4,max:4}});
+ expect(queueCapacity(s,'codex@devbox',use)).toEqual({reason:'no_slot',limit:'executor',capacity:{used:4,max:4}});
  expect(queueCapacity(s,'codex',{byExecutor:{},byHost:{},local:0})).toBeUndefined();
 });
 
@@ -46,4 +46,16 @@ test('executor usage follows the account/planner verdict independently of readin
   snapshot.accounts = [{name:executor.account,agent:executor.agent,source:'default',usedPct:37,pacePct:20,window:'week',resetsAt:null,verdict:'AHEAD',signedIn:true,executors:['other'],spendUsdWeek:null,capUsdWeek:null}];
   expect(executorPace({...executor,id:'other'},snapshot)).toEqual(paceStatus('ahead'));
   expect(executorPace({...executor,id:'unknown',account:'missing'},snapshot)).toEqual(paceStatus('unknown'));
+});
+test("machine-guard waits read in plain words", () => {
+ const wait=(queue:object)=>queueWait({state:'queued',queue:{since:1,position:1,...queue}} as ClientTask,{...snapshot,machine:{used:3,max:null}});
+ expect(wait({reason:'machine_memory_pressure',limit:'machine',machine:{memoryPressure:'critical',memoryPressureLimit:'critical'}})).toBe('Waiting: memory pressure critical');
+ expect(wait({reason:'machine_memory_pressure',limit:'machine',machine:{memoryPressure:'warning',memoryPressureLimit:'warning'}})).toBe('Waiting: memory pressure warning');
+ expect(wait({reason:'machine_load',limit:'machine',machine:{loadPerCore:4.92,loadLimit:3}})).toBe('Waiting: load 4.9/core over limit 3');
+ // Older or partial records still read sensibly.
+ expect(wait({reason:'machine_load'})).toBe('Waiting: this machine is under heavy load');
+ expect(wait({reason:'machine_memory_pressure'})).toBe('Waiting: memory pressure high');
+ // No fixed machine cap: a machine no_slot wait without capacity falls back to generic copy.
+ expect(wait({reason:'no_slot',limit:'machine'})).toBe('Waiting for parallel task capacity');
+ expect(capacityNote({...snapshot.executors![0]!,limitedBy:'machine'} as ExecutorRow,{...snapshot,machine:{used:0,max:null}})).toBe('Limited by this machine');
 });

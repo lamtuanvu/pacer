@@ -121,7 +121,34 @@ Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `p
 
 ## Capacity, pause and executor settings
 
-`execution.local_max_tasks` limits all local executors together (1–16, default 2).
+Local tasks have no fixed cap by default. New local tasks start until this machine gets worse,
+then wait; running tasks are never stopped, paused or throttled. Remote hosts keep their own `max_tasks`.
+
+```yaml
+execution:
+  local_max_tasks: unlimited          # default; a whole number >= 1 sets a hard cap
+  local_memory_pressure_limit: critical  # critical (default), warning or off
+  local_load_limit: off               # default; or a 1-minute load average per CPU core, e.g. 3
+```
+
+- `execution.local_max_tasks` is an optional hard cap shared by all local executors. Unset or
+  `unlimited` means no fixed cap. A whole number of at least 1 caps local tasks; there is no upper
+  ceiling, and existing numeric values keep their cap.
+- `execution.local_memory_pressure_limit` holds new local tasks while macOS memory pressure
+  (`sysctl kern.memorystatus_vm_pressure_level`) is at or above the level: `critical` (default) or
+  `warning`. `off` ignores memory pressure. On other systems, or when the reading fails, the guard
+  stays open and Settings reports the signal as unavailable.
+- `execution.local_load_limit` holds new local tasks while the 1-minute load average divided by the
+  number of CPU cores is over the limit. It is `off` by default.
+
+pacer samples memory pressure and load at most every 5 seconds. The service re-checks held tasks every
+5 seconds, so they start once pressure or load eases even if no task finishes. The guard gates only fresh
+starts: a running task that retries on another executor is not held. Executor rows report hard caps only;
+the snapshot `machine` row and `config.get`'s `machine` field report the guard state.
+Change these with `pacer config set` (for example `pacer config set execution.local_max_tasks unlimited`)
+or in **Settings → This machine**, which also shows the current memory pressure, load per core and
+running count.
+
 `execution.launch_mode` sets how delegated tasks start: `interactive` (the default) or
 `headless`. A runner's own `session:` setting overrides it. Change it with
 `pacer config set execution.launch_mode headless` or in
@@ -134,6 +161,9 @@ or host limit reduces an executor’s capacity and which limit holds a queued ta
 host's `max_tasks` remotely). A full executor is skipped; tasks wait in the queue
 when their candidates are full. Queue rows report `reason`, `since` and `position`; capacity waits also report
 `limit` (`executor`, `machine` or `host`) and the last checked `capacity` (`used`, `max`).
+A full hard cap uses reason `no_slot`. A machine guard uses `machine_memory_pressure` or
+`machine_load` with `limit: machine`, a `detail` such as `load 4.9/core over limit 3`, and the observed
+values in `machine` (`memoryPressure`, `memoryPressureLimit`, `loadPerCore`, `loadLimit`).
 The pump, runner exits and API reads drain eligible queued work.
 
 `runners.<id>.enabled: false` disables an executor without removing its settings.

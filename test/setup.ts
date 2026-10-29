@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
 import { cleanupTestTmp } from "./helpers";
+import { setMachineReaders } from "../src/engine/machine";
 
 // Tests must never touch the real ~/.pacer or agent configs. HOME and PACER_HOME point
 // at a throwaway folder for the whole run, so a test that forgets to isolate itself (or
@@ -38,3 +39,7 @@ afterAll(() => {
   cleanupTestTmp();
   if (!process.env.PACER_KEEP_TEST_TMP) rmSync(isolatedHome, { recursive: true, force: true });
 }, { timeout: 60_000 });
+
+// Scheduling must not depend on the host's real memory pressure or load. Tests that
+// exercise the machine guard inject their own readers.
+setMachineReaders({pressure: () => 1, load: () => ({avg1: 0, cores: 1})});

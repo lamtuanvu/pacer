@@ -17,7 +17,7 @@ import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
 import { StatusPill } from "../ds/StatusPill";
 import { StatusGlyph } from "../ds/StatusGlyph";
-import { executorPace, executorEligibility } from "../../../src/view-model/capacity";
+import { executorPace, executorEligibility, machineWaitWords } from "../../../src/view-model/capacity";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
 import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
@@ -91,6 +91,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
   const nextExecutor = next?.executor ? agentInfo(runnerAgent(next.executor)).name : "executor";
+  const machineWait = next?.queue ? machineWaitWords(next.queue)?.replace(/^Waiting: /, "") : undefined;
   const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
   return <DensityProvider value="compact"><main className="tray" ref={root} aria-label="pacer tray" aria-busy={busy}>
     <header className="tray-planner">
@@ -129,7 +130,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         </ListRowLink>)}
         {model.active.length > 3 && <TextAction className="tray-more" href={appHref("/sessions")} onClick={navigate("/sessions")}>+{model.active.length - 3} more in the app</TextAction>}
       </section>}
-      {model.waiting > 0 && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></TextAction>}
+      {model.waiting > 0 && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/sessions?filter=waiting")} onClick={navigate("/sessions?filter=waiting")}><span aria-hidden="true">⏳</span><span className="tray-grow tray-ellipsis">{snapshot?.pause ? `${model.waiting} waiting · delegation paused${snapshot.pause.until !== null ? ` for ${Math.max(0, Math.ceil((snapshot.pause.until - snapshot.at) / 60))} min` : ""}` : machineWait ? `${model.waiting} waiting · ${machineWait} · next: ${shortTitle(next!)}` : `${model.waiting} waiting for parallel tasks on ${nextExecutor} · next: ${shortTitle(next!)}`}</span><span aria-hidden="true">›</span></TextAction>}
       <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
         const value = executorValue(executor);
         const readiness = executorEligibility(executor, snapshot.at);

@@ -9,6 +9,7 @@ import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
+import { machineNow } from '../app/src/screens/settings/General';
 import { SettingsGeneral, AddExecutor, RemoteHosts, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
@@ -188,6 +189,19 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  expect(html).not.toContain('>Slots<');
  const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
+});
+test('This machine shows the guard state now and no limit by default',()=>{
+ const machine={used:3,max:null,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
+ const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(html).toContain('Now: memory pressure critical · load 4.9 per core · 3 running · new tasks wait: memory pressure critical');
+ expect(html).toContain('No limit');
+ expect(html).toContain('Hold new tasks at memory pressure');
+ expect(html).toContain('Load limit per CPU core');
+ const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
+ expect(unavailable).toContain('Now: memory pressure unavailable · 0 running of 4');
+ expect(machineNow(undefined)).toBeNull();
+ expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}})).toContain('No limit');
+ expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:3}}})).toContain('3 parallel');
 });
 test('board pages render their headline and other editors retain shell titles', () => {
  expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');

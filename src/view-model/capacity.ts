@@ -7,14 +7,29 @@ export function capacityNote(executor: ExecutorRow, snapshot: ClientSnapshot): s
   if (!executor.limitedBy) return null;
   const cap = executor.limitedBy === "machine" ? snapshot.machine?.max : snapshot.hosts?.find(h => h.alias === executor.host)?.maxTasks;
   const place = executor.limitedBy === "machine" ? "this machine" : executor.host ?? "this host";
-  return cap === undefined ? `Limited by ${place}` : `Limited to ${cap} by ${place}`;
+  return cap === undefined || cap === null ? `Limited by ${place}` : `Limited to ${cap} by ${place}`;
+}
+
+const formatLoad = (n: number) => String(Math.round(n * 10) / 10);
+
+/** Plain words for a machine-guard wait, from what the guard observed. */
+export function machineWaitWords(queue: NonNullable<ClientTask["queue"]>): string | null {
+  if (queue.reason === "machine_memory_pressure") return `Waiting: memory pressure ${queue.machine?.memoryPressure ?? "high"}`;
+  if (queue.reason === "machine_load") {
+    const load = queue.machine?.loadPerCore, limit = queue.machine?.loadLimit;
+    return load !== undefined && limit !== undefined ? `Waiting: load ${formatLoad(load)}/core over limit ${formatLoad(limit)}` : "Waiting: this machine is under heavy load";
+  }
+  return null;
 }
 
 export function queueWait(task: ClientTask, snapshot: ClientSnapshot): string {
   const queue = task.queue;
+  const machine = queue ? machineWaitWords(queue) : null;
+  if (machine) return machine;
   if (queue?.reason !== "no_slot") return queue?.reason === "paused" ? "Waiting: delegation is paused" : "Queued";
   const place = queue.limit === "machine" ? "this machine" : queue.limit === "host" ? task.host ?? "this host" : "this executor";
-  const cap = queue.capacity ?? (queue.limit === "machine" ? snapshot.machine : undefined);
+  const machineCap = snapshot.machine?.max != null ? {used: snapshot.machine.used, max: snapshot.machine.max} : undefined;
+  const cap = queue.capacity ?? (queue.limit === "machine" ? machineCap : undefined);
   return queue.limit && cap ? `Waiting: ${place} is running ${cap.used} of ${cap.max}` : "Waiting for parallel task capacity";
 }
 

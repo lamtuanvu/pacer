@@ -41,7 +41,7 @@ import {
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import type { ExecutorRow } from "../../../../src/api/read-model/types";
+import type { ExecutorRow, MachineCapacity } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
@@ -171,7 +171,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${value("pacing.planner_reserve")}% planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${value("pacing.fill_threshold")}%` : ""].filter(Boolean).join(" · "), page: "planner" });
-  if (snapshot?.machine) tiles.push({ label: "Machines", value: `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
+  if (snapshot?.machine) tiles.push({ label: "Machines", value: snapshot.machine.max == null ? "No limit" : `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
   return <div className="pc-settings-board pc-settings-board--overview">
     <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
@@ -581,34 +581,135 @@ export function AccountsSection({ initialData }: { initialData?: Account[] }) {
     </Section>
   );
 }
+type MachineDraft = { cap: "unlimited" | "limit"; max: string; pressure: string; load: "off" | "limit"; loadLimit: string };
+const MACHINE_KEYS = { max: "execution.local_max_tasks", pressure: "execution.local_memory_pressure_limit", load: "execution.local_load_limit" } as const;
+function machineDraft(config: ConfigData | undefined): MachineDraft {
+  const max = config?.keys[MACHINE_KEYS.max]?.value, load = config?.keys[MACHINE_KEYS.load]?.value;
+  return {
+    cap: typeof max === "number" ? "limit" : "unlimited", max: typeof max === "number" ? String(max) : "",
+    pressure: String(config?.keys[MACHINE_KEYS.pressure]?.value ?? "critical"),
+    load: typeof load === "number" ? "limit" : "off", loadLimit: typeof load === "number" ? String(load) : "",
+  };
+}
+/** The config.set values a draft stands for; only keys that differ from the saved draft are written. */
+function machineChanges(base: MachineDraft, draft: MachineDraft): { key: string; value: string | number }[] {
+  const cap = (d: MachineDraft) => d.cap === "unlimited" ? "unlimited" : Number(d.max);
+  const load = (d: MachineDraft) => d.load === "off" ? "off" : Number(d.loadLimit);
+  return [
+    ...(cap(draft) !== cap(base) ? [{ key: MACHINE_KEYS.max, value: cap(draft) }] : []),
+    ...(draft.pressure !== base.pressure ? [{ key: MACHINE_KEYS.pressure, value: draft.pressure }] : []),
+    ...(load(draft) !== load(base) ? [{ key: MACHINE_KEYS.load, value: load(draft) }] : []),
+  ];
+}
+const PRESSURE_WORDS: Record<string, string> = { normal: "normal", warning: "warning", critical: "critical" };
+/** What the machine guard sees now, in plain words. */
+export function machineNow(machine: MachineCapacity | undefined): string | null {
+  if (!machine) return null;
+  const pressure = machine.memoryPressure === undefined ? null : machine.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${PRESSURE_WORDS[machine.memoryPressure]}`;
+  const load = machine.loadPerCore == null ? null : `load ${Math.round(machine.loadPerCore * 10) / 10} per core`;
+  const running = `${machine.used} running${machine.max != null ? ` of ${machine.max}` : ""}`;
+  const waits = machine.open === false && machine.detail ? `new tasks wait: ${machine.detail}` : null;
+  return [pressure, load, running, waits].filter(Boolean).join(" · ");
+}
 export function MachineSection({ initialData, query: routeQuery = { repo: null, scope: null } }: { initialData?: ConfigData; query?: RouteQuery }) {
   const query = useResource("config.get", {}, initialData),
-    action = useOperation(query.reload);
-  const saved = String(query.data?.keys["execution.local_max_tasks"]?.value ?? 2);
+    action = useOperation(query.reload),
+    { state, api } = useTaskContext();
+  const saved = machineDraft(query.data), savedKey = JSON.stringify(saved);
   const [base, setBase] = useState(saved), [draft, setDraft] = useState(saved);
-  const dirty = draft !== base;
-  const error = /^\d+$/.test(draft) && Number(draft) >= 1 && Number(draft) <= 16 ? undefined : "Enter a whole number from 1 to 16.";
-  // Follow the saved value only while the user has no unsaved edit.
-  useEffect(() => { if (!dirty) { setBase(saved); setDraft(saved); } }, [saved]);
+  const changes = machineChanges(base, draft), dirty = changes.length > 0;
+  const capError = draft.cap === "limit" && !(/^\d+$/.test(draft.max) && Number(draft.max) >= 1) ? "Enter a whole number of at least 1." : undefined;
+  const loadError = draft.load === "limit" && !(/^\d+(\.\d+)?$/.test(draft.loadLimit) && Number(draft.loadLimit) > 0) ? "Enter a load per core greater than 0, such as 3." : undefined;
+  // Follow the saved values only while the user has no unsaved edit.
+  useEffect(() => { if (!dirty) { setBase(saved); setDraft(saved); } }, [savedKey]);
+  const edit = (patch: Partial<MachineDraft>) => setDraft(d => ({ ...d, ...patch }));
+  const save = async () => {
+    let next = base;
+    for (const change of changes) {
+      if (!(await action.run("config.set", change))) break;
+      next = change.key === MACHINE_KEYS.max ? { ...next, cap: draft.cap, max: draft.max }
+        : change.key === MACHINE_KEYS.pressure ? { ...next, pressure: draft.pressure }
+        : { ...next, load: draft.load, loadLimit: draft.loadLimit };
+      setBase(next);
+    }
+  };
+  // Pressure and load change without any setting changing: re-read the guard state while open.
+  // A failed poll keeps the last reading rather than replacing the form with an error.
+  const [live, setLive] = useState<ConfigData["machine"]>();
+  useEffect(() => {
+    let active = true;
+    const poll = () => void api.call<ConfigData>("config.get", {}).then(r => { if (active) setLive(r.machine); }, () => {});
+    const timer = setInterval(poll, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [api]);
+  const now = machineNow(state.snapshot?.machine && { ...state.snapshot.machine, ...query.data?.machine, ...live });
   const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
   const { selectedTerminal, terminalChoices } = terminalPreference(query.data);
   return (
     <Section id="machine" title="This machine" actions={<TextAction href={withQuery("#/settings/hosts", routeQuery)}>Remote hosts</TextAction>}>
       <ResourceState resource={query}>
+        {now && <p className="u3-muted" role="status">Now: {now}</p>}
         <Field
           label="Parallel tasks on this machine"
-          help="Shared by all executors that run on this machine."
-          error={error}
+          help="Shared by all executors that run on this machine. Without a limit, new tasks start until the machine is under memory pressure or over the load limit. Running tasks are never stopped."
+          error={capError}
         >
-          <TextInput
-            type="number"
-            min="1"
-            max="16"
-            step="1"
-            required
-            value={draft}
-            onInput={(e) => setDraft(e.currentTarget.value)}
+          <div className="u3-actions">
+            <Segment
+              label="Parallel task limit"
+              value={draft.cap}
+              options={[{ value: "unlimited", label: "No limit" }, { value: "limit", label: "Limit to N" }]}
+              disabled={action.busy}
+              onChange={(cap) => edit({ cap: cap as MachineDraft["cap"], max: cap === "limit" && !draft.max ? "4" : draft.max })}
+            />
+            {draft.cap === "limit" && (
+              <TextInput
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={draft.max}
+                onInput={(e) => edit({ max: e.currentTarget.value })}
+              />
+            )}
+          </div>
+        </Field>
+        <Field
+          label="Hold new tasks at memory pressure"
+          help="macOS memory pressure. New local tasks wait while pressure is at or above this level. Off ignores memory pressure."
+        >
+          <ChoicePicker
+            aria-label="Hold new tasks at memory pressure"
+            value={draft.pressure}
+            options={[{ value: "critical", label: "Critical" }, { value: "warning", label: "Warning" }, { value: "off", label: "Off" }]}
+            disabled={action.busy}
+            onValueChange={(pressure) => edit({ pressure })}
           />
+        </Field>
+        <Field
+          label="Load limit per CPU core"
+          help="1-minute load average divided by CPU cores. New local tasks wait while load is over the limit."
+          error={loadError}
+        >
+          <div className="u3-actions">
+            <Segment
+              label="Load limit"
+              value={draft.load}
+              options={[{ value: "off", label: "Off" }, { value: "limit", label: "Limit" }]}
+              disabled={action.busy}
+              onChange={(load) => edit({ load: load as MachineDraft["load"], loadLimit: load === "limit" && !draft.loadLimit ? "3" : draft.loadLimit })}
+            />
+            {draft.load === "limit" && (
+              <TextInput
+                type="number"
+                min="0.1"
+                step="0.1"
+                required
+                value={draft.loadLimit}
+                onInput={(e) => edit({ loadLimit: e.currentTarget.value })}
+              />
+            )}
+          </div>
         </Field>
         <div className="u3-save-bar">
           <span>{dirty ? "Unsaved changes" : "All changes saved"}</span>
@@ -619,14 +720,8 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             <Button
               variant="primary"
               busy={action.busy}
-              disabled={!dirty || action.busy || !!error}
-              onClick={() =>
-                void action.run(
-                  "config.set",
-                  { key: "execution.local_max_tasks", value: Number(draft) },
-                  () => setBase(draft),
-                )
-              }
+              disabled={!dirty || action.busy || !!capError || !!loadError}
+              onClick={() => void save()}
             >
               Save changes
             </Button>
