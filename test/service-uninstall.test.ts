@@ -111,6 +111,7 @@ test("waiting interactive lanes count as work and stop with --stop-work", async 
   const r = await serviceCli(["uninstall", "--stop-work", "--yes"], ctx, d);
   expect(r.out).toContain("stopped 1 of 1");
   expect(readTask(ctx, t.id)?.state).toBe("stopped");
+  expect(readTask(ctx, t.id)?.live).toBeUndefined();
 });
 
 test("a terminal child file cannot point at the operator process", () => {

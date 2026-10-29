@@ -101,6 +101,9 @@ export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
     const stopped = taskStop(ctx, t.id, { signal: false });
     if (t.state === "needs_input") await settleLiveReleases();
     if (!stopped) { report.skipped.push({ id: t.id, reason: "the task was no longer available" }); continue; }
+    if (t.state === "needs_input" && readTask(ctx, t.id)?.live) {
+      report.skipped.push({ id: t.id, reason: "its live worker release is pending" }); continue;
+    }
     report.stopped.push(t.id);
   }
   for (const terminal of await listTerminals(ctx)) {

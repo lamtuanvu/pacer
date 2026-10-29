@@ -36,6 +36,15 @@ export function privateFixtureBytes(path: string, limit: number): Buffer {
     return bytes;
   } finally { closeSync(fd); }
 }
+export function realAppEvidencePair(root: string, resuming: boolean): { before: string; after: string } {
+  const evidence = join(root, "evidence");
+  if (!resuming) return { before: join(evidence, "real-app-before.json"), after: join(evidence, "real-app-after.json") };
+  for (let n = 1; n < 10000; n++) {
+    const before = join(evidence, `real-app-before.resume-${n}.json`), after = join(evidence, `real-app-after.resume-${n}.json`);
+    if (!existsSync(before) && !existsSync(after)) return { before, after };
+  }
+  throw Error("No free real-app resume evidence pair");
+}
 export async function runManagedExercise(id: string, scenario: string, options: OtaOptions = {}): Promise<void> {
   if (!(MANAGED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("UNVERIFIED: this fixed scenario has no native exercise driver");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
@@ -46,8 +55,8 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
   // The installed app may keep running beside the fixture; prove it is untouched at the end.
   const realApp = snapshotRealApp(enumerateNativeProcesses());
-  const realAppEvidence = (name: string) => join(session.root, "evidence", name);
-  writeFileSync(realAppEvidence("real-app-before.json"), JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  const realAppEvidence = realAppEvidencePair(session.root, resuming);
+  writeFileSync(realAppEvidence.before, JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   const before = await inspectFixtureJobs(state);
   if (resuming) {
     if (before.desktops.length || before.jobs[1].loaded || before.jobs[1].state !== "reserved") throw Error("Startup has unexpected native participants");
@@ -216,7 +225,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
     const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
-    writeFileSync(realAppEvidence("real-app-after.json"), JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    writeFileSync(realAppEvidence.after, JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     assertRealAppUnchanged(realApp, realAppAfter);
     record(session, { kind: "note", behavior: `OTA ${scenario} installed app untouched`, surface: "native desktop", verdict: realApp.processes.length && !realAppAfter.processes.length ? "UNVERIFIED" : "PASS", text: realAppNote(realApp, realAppAfter) });
     state = readOtaRecord(id, options);
@@ -226,7 +235,14 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "FAIL", text: error instanceof Error ? error.message : "Native exercise failed; resources and evidence retained." });
     throw error;
   } finally {
-    if (!existsSync(realAppEvidence("real-app-after.json"))) writeFileSync(realAppEvidence("real-app-after.json"), JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
-    clearInterval(journalTrace); if (journalTraceFd !== undefined) closeSync(journalTraceFd); unsubscribe(); client.close();
+    clearInterval(journalTrace);
+    try { if (journalTraceFd !== undefined) closeSync(journalTraceFd); }
+    finally { try { unsubscribe(); } finally { client.close(); } }
+    if (!existsSync(realAppEvidence.after)) try {
+      writeFileSync(realAppEvidence.after, JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      try { record(session, { kind: "note", behavior: `OTA ${scenario} installed app after-snapshot`, surface: "native desktop", verdict: "UNVERIFIED", text: error instanceof Error ? error.message : "Real-app after-snapshot failed" }); }
+      catch { /* Keep the exercise's original error when even the note cannot be written. */ }
+    }
   }
 }

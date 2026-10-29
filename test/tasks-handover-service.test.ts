@@ -88,3 +88,17 @@ test("running work carries versions and counts only, never paths", async () => {
   expect(runningWorkLines(work)).toEqual(["running work: 2 tasks, 0 sessions", `  task ${old.id} on runner 0.10.0 (older)`]);
   expect(upgradeSummary("Restarted on v1.2.3.", { tasks: 1, sessions: 1, keptOnPreviousRunner: 0 })).toBe("Restarted on v1.2.3. 1 task and 1 session kept running; 0 stayed on the previous runner.");
 });
+
+test("upgrade summary counts a waiting lane with an owned live worker", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const lane = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: "codex", timeoutS: 600 });
+  updateTask(ctx, lane.id, x => {
+    x.state = "needs_input";
+    x.question = { text: "Continue?", at: ctx.now };
+    x.live = { backend: "missing", worker: "w", terminal: "term", executor: "codex", agent: "codex", since: ctx.now };
+    x.runnerPacer = "0.10.0";
+  });
+  const report = await triggerHandover(ctx, { waitMs: 0 });
+  expect(report).toMatchObject({ tasks: 1, sessions: 0, handedOver: 0, keptOnPreviousRunner: 1 });
+  expect(report.summary).toBe(`Updated to v${V}. 1 task and 0 sessions kept running; 1 stayed on the previous runner.`);
+});

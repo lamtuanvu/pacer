@@ -1,8 +1,8 @@
 // test/live-upgrade.test.ts
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fixturePlist, guardPacerArgs, upgradePolicy, upgradeRoot, writeFeed } from "../scripts/live/upgrade";
+import { fixturePlist, guardPacerArgs, stageUpgradeRuntime, upgradePolicy, upgradeRoot, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
 import { hostTarget, assetFile, sha256Hex } from "../src/update/manifest";
@@ -10,6 +10,19 @@ import { tmpDir } from "./helpers";
 
 const session = (extra: Partial<Session> = {}): Session => ({ id: "upgrade-test", root: join(liveRoot, "upgrade-test"), port: 49111, pid: 1, innerPort: 49112, createdAt: "2026-10-29T00:00:00Z", stopped: true, ...extra });
 const nonce = "0123456789abcdef0123456789abcdef";
+
+test("each upgrade build stages its CLI and native shim beside one another", () => {
+  const root = tmpDir(), shim = join(root, "libpacer-native.dylib");
+  writeFileSync(shim, "shim");
+  for (const name of ["prefeature", "baseline", "candidate"]) {
+    const source = join(root, `${name}-source`), staged = join(root, name);
+    writeFileSync(source, name);
+    stageUpgradeRuntime(staged, source, shim);
+    expect(readFileSync(join(staged, "pacer"), "utf8")).toBe(name);
+    expect(readFileSync(join(staged, "libpacer-native.dylib"), "utf8")).toBe("shim");
+    expect(existsSync(join(staged, "pacer-core"))).toBe(false);
+  }
+});
 
 test("the harness needs an unseeded, stopped macOS sandbox", () => {
   expect(upgradeRoot(session(), "darwin")).toBe(join(liveRoot, "upgrade-test", "upgrade"));

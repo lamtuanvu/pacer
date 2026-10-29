@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import { compileCommand } from "../release/build";
+import { buildNativeShim } from "../release/desktop";
 import { assetFile, hostTarget, sha256Hex } from "../../src/update/manifest";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
 import { processIdentity } from "../../src/update/desktop/process-identity";
+import { FIXTURE_IDENTIFIERS, RELEASE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 import { LABEL, plist } from "../../src/service";
 import { makeCtx } from "../../src/ctx";
 import { atomicWrite, checkout, liveRoot, record, validId, type Session } from "./core";
@@ -17,7 +19,7 @@ export const UPGRADE_BUILDS = {
   candidate: { version: "0.13.1", ref: null },
 } as const;
 export type UpgradeBuild = keyof typeof UPGRADE_BUILDS;
-interface UpgradeRecord { schema: 1; policy: NativeFixture; builds: Record<UpgradeBuild, { path: string; sha256: string }>; installed: boolean }
+interface UpgradeRecord { schema: 1; policy: NativeFixture; builds: Record<UpgradeBuild, { path: string; shim: string; sha256: string }>; installed: boolean }
 
 /** Upgrade fixtures replace the sandbox service, so the sandbox must be unseeded (real agents) and stopped. */
 export function upgradeRoot(session: Session, platform: string = process.platform): string {
@@ -71,6 +73,16 @@ const uid = () => process.getuid!();
 const readRecord = (root: string): UpgradeRecord => JSON.parse(readFileSync(join(root, "record.json"), "utf8"));
 const writeRecord = (root: string, value: UpgradeRecord) => atomicWrite(join(root, "record.json"), JSON.stringify(value, null, 2));
 const binary = (root: string) => join(root, "bin", "pacer");
+const nativeShim = (root: string) => join(root, "bin", "libpacer-native.dylib");
+
+/** Standalone fixture CLIs load their native shim from the CLI's own directory. */
+export function stageUpgradeRuntime(directory: string, executable: string, shim: string): void {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  copyFileSync(executable, join(directory, "pacer"));
+  copyFileSync(shim, join(directory, "libpacer-native.dylib"));
+  chmodSync(join(directory, "pacer"), 0o755);
+  chmodSync(join(directory, "libpacer-native.dylib"), 0o755);
+}
 
 async function exec(session: Session, argv: string[], cwd: string, env: Record<string, string | undefined>, check = true) {
   const child = Bun.spawn(argv, { cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -135,9 +147,14 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
     }
     const outfile = join(root, "build", `${name}-${version}`);
     await exec(session, [...compileCommand({ root: source, target, version, outfile }), "--define", `PACER_BUILD_OTA_FIXTURE=${JSON.stringify(JSON.stringify(policy))}`], source, buildEnv);
+    const shim = join(root, "build", `${name}-${version}-libpacer-native.dylib`);
+    await buildNativeShim(checkout, shim, target.arch === "arm64" ? "aarch64" : "x86_64");
+    const identifiers = name === "prefeature" ? RELEASE_IDENTIFIERS : FIXTURE_IDENTIFIERS;
+    await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.cli, outfile], source, buildEnv);
+    await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.nativeShim, shim], source, buildEnv);
     const bytes = readFileSync(outfile);
     writeFeed(join(root, "feed"), version, bytes);
-    builds[name] = { path: outfile, sha256: sha256Hex(bytes) };
+    builds[name] = { path: outfile, shim, sha256: sha256Hex(bytes) };
   }
   writeRecord(root, { schema: 1, policy, builds, installed: false });
   record(session, { kind: "note", text: `Upgrade fixtures: ${(Object.keys(builds) as UpgradeBuild[]).map(n => `${n} ${UPGRADE_BUILDS[n].version} sha256 ${builds[n].sha256}`).join("; ")}; label ${policy.serviceLabel}` });
@@ -146,7 +163,7 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
 export async function startUpgradeService(session: Session, build: UpgradeBuild): Promise<void> {
   const root = upgradeRoot(session), r = readRecord(root);
   if (r.installed) throw Error("A fixture service is already registered; run live upgrade cleanup first");
-  copyFileSync(r.builds[build].path, binary(root)); chmodSync(binary(root), 0o755);
+  stageUpgradeRuntime(join(root, "bin"), r.builds[build].path, r.builds[build].shim);
   writeFileSync(join(r.policy.root, "registrations", `${r.policy.serviceLabel}.plist`), fixturePlist(r.policy, binary(root)), { mode: 0o600 });
   await launchctl(session, r, "bootstrap");
   writeRecord(root, { ...r, installed: true });
@@ -172,6 +189,8 @@ export async function upgradeInstall(session: Session) {
 export async function kickstartUpgradeService(session: Session): Promise<void> {
   const root = upgradeRoot(session), r = readRecord(root);
   if (!r.installed) throw Error("No fixture service is registered");
+  // The pre-feature binary needs its old shim until update exits; the newly installed CLI needs its own signed shim.
+  copyFileSync(r.builds[installedBuild(root, r)].shim, nativeShim(root));
   const before = await servicePid(r.policy.port);
   await launchctl(session, r, "kickstart");
   record(session, { kind: "note", text: `Fixture service restarted (pid ${before} -> ${await waitForPid(r.policy.port, before)})` });

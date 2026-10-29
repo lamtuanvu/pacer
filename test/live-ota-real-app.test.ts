@@ -1,13 +1,28 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpDir } from "./helpers";
 import { REAL_APP_EXECUTABLE, assertRealAppUnchanged, realAppNote, realConsentPath, snapshotRealApp } from "../scripts/live/ota-real-app";
+import { realAppEvidencePair } from "../scripts/live/ota-exercise";
 
 const app = (pid: number, birth = `${pid}:0`) => ({ process: { pid, bootId: "boot", birth }, uid: 501, parentPid: 1, name: "pacer", executable: REAL_APP_EXECUTABLE });
 
 test("the installed app's consent path uses the release identifier under the given home", () => {
   expect(realConsentPath("/home/user")).toBe("/home/user/Library/Application Support/dev.pacer.desktop/consent.json");
+});
+
+test("a resumed exercise keeps the first real-app snapshots and chooses a new pair", () => {
+  const root = tmpDir(), evidence = join(root, "evidence");
+  mkdirSync(evidence);
+  const first = realAppEvidencePair(root, false);
+  writeFileSync(first.before, "first before");
+  writeFileSync(first.after, "first after");
+  const resume = realAppEvidencePair(root, true);
+  expect(resume.before).toBe(join(evidence, "real-app-before.resume-1.json"));
+  expect(resume.after).toBe(join(evidence, "real-app-after.resume-1.json"));
+  writeFileSync(resume.before, "second before");
+  expect(realAppEvidencePair(root, true).before).toBe(join(evidence, "real-app-before.resume-2.json"));
+  expect(readFileSync(first.before, "utf8")).toBe("first before");
 });
 
 test("fixture exercises prove the installed app's processes and consent were left alone", () => {
@@ -42,5 +57,8 @@ test("fixture exercises prove the installed app's processes and consent were lef
   writeFileSync(join(dirname(consent), "cli-choice.json"), "changing choice");
   writeFileSync(join(dirname(consent), "takeover-acknowledged.json"), "changing acknowledgement");
   writeFileSync(join(dirname(consent), "takeover-dismissed.json"), "changing dismissal");
-  expect(Object.keys(snapshotRealApp([], home, null).configFiles)).toEqual(["consent.json", "other.json"]);
+  expect(Object.keys(snapshotRealApp([], home, null).configFiles)).toEqual(["cli-choice.json", "consent.json", "other.json", "takeover-acknowledged.json", "takeover-dismissed.json"]);
+  mkdirSync(join(dirname(consent), "nested"));
+  writeFileSync(join(dirname(consent), "nested/.window-state.json"), "nested state");
+  expect(snapshotRealApp([], home, null).configFiles["nested/.window-state.json"]).toMatch(/^[a-f0-9]{64}$/);
 });
