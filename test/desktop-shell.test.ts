@@ -58,7 +58,7 @@ function shell(search: string) {
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
 
-const TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const TOKEN = "0123456789abcdef".repeat(4); // fixture value, not a credential
 const inspection = {
   currentPath: "/tmp/pacer-fixture/a-rather-long-checkout-directory/.local/bin/pacer",
   currentVersion: "0.2.4", replacementPath: "/Applications/pacer.app/Contents/Resources/pacer",
