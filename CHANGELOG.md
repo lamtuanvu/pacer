@@ -63,6 +63,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Make `dispatch.explain` choose by the additive `via` entry point: `delegate` (the default) explains executor ranking, while `dispatch` explains the managed ladder even without a dispatch block. CLI route previews pass `delegate` and support `--via dispatch`; ranking reports ignored model inputs, follows conversation planner eligibility and identifies strategy/project policy sources. Both paths remain read-only.
 - Restore the Tasks list’s work-area scroll position when returning from a task with Back, including when list layout is delayed.
 - The Tasks tree refreshes work rows when a task starts, settles or appears, so a running work tree's token total includes each subtask as it finishes instead of waiting for a reload. The `--seed ui` live sandbox now includes a running work tree with measured subtask tokens.
 
