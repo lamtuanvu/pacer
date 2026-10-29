@@ -7,8 +7,8 @@ import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { closeSync, existsSync, openSync, readSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { join, normalize } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName } from "../link/notification";
 import { loadStrategy } from "../config/strategy";
@@ -338,6 +338,41 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 
+const NOT_OWN_WORKTREE = "worktree path is not this task's worktree; not deleted";
+
+/** This task's own worktree root, <worktrees>/<repo-tag>/<task-id>, or why the recorded path is not it.
+ *  `real` is the same directory under the canonical worktrees root; no component may be a symlink. */
+export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean } | { invalid: string } {
+  const root = taskWorktreesDir(ctx);
+  if (!wt.startsWith(root + "/")) return { invalid: NOT_OWN_WORKTREE };
+  const parts = wt.slice(root.length + 1).split("/");
+  if (parts.length < 2 || parts.some(p => p === "" || p === "." || p === "..") || parts[1] !== t.id || normalize(wt) !== wt) return { invalid: NOT_OWN_WORKTREE };
+  const [tag, id] = parts as [string, string], path = join(root, tag, id);
+  let canonical: string;
+  try { canonical = realpathSync(root); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return { path, real: path, exists: false }; throw e; }
+  const tagDir = join(canonical, tag), real = join(tagDir, id);
+  for (const dir of [tagDir, real]) {
+    let st: ReturnType<typeof lstatSync>;
+    try { st = lstatSync(dir); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false }; throw e; }
+    if (st.isSymbolicLink() || !st.isDirectory() || realpathSync(dir) !== dir) return { invalid: NOT_OWN_WORKTREE };
+  }
+  return { path, real, exists: true };
+}
+
+/** True when cleanTaskRuns would still remove something for this task. */
+function hasDisposableRuns(ctx: Ctx, t: TaskRecord): boolean {
+  const root = join(ctx.pacerHome, "runs", t.id);
+  if (!existsSync(root)) return false;
+  return readdirSync(root, { withFileTypes: true }).some(e => !e.isDirectory() || !existsSync(join(root, e.name, "diff.json"))
+    || readdirSync(join(root, e.name)).some(name => name !== "diff.json"));
+}
+
+/** Prunes run files after the worktree is gone; a failure keeps the task so the next clean retries it. */
+function pruneRuns(ctx: Ctx, t: TaskRecord): string | null {
+  try { cleanTaskRuns(ctx, t); return null; }
+  catch (e) { return `worktree deleted; run files could not be pruned: ${e instanceof Error ? e.message : String(e)}`; }
+}
+
 /** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
@@ -360,13 +395,27 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       const top = await withTimeout(() => repoFs.realpath(t.brief.repo)).catch(error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return null; throw error; });
       if (top === null && t.run.host) { kept.push({ id: t.id, reason: "source repository is missing; remote cleanup needs it" }); continue; }
       const wt = t.run.host ? taskWorktreePath(ctx, top!, t.id) : t.run.workdir;
-      if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
-      const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
+      if (!(wt + "/").startsWith(root)) continue;
+      const own = verifiedTaskWorktreeRoot(ctx, t, wt);
+      if ("invalid" in own) { kept.push({ id: t.id, reason: own.invalid }); continue; }
+      if (!t.run.host && !own.exists) {
+        // The worktree is already gone, possibly by an earlier clean whose run-file pruning failed: retry that.
+        if (!hasDisposableRuns(ctx, t)) continue;
+        const failed = o.dryRun ? null : pruneRuns(ctx, t);
+        if (failed) kept.push({ id: t.id, reason: failed }); else removed.push(t.id);
+        continue;
+      }
+      if (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; })) continue;
+      const path = own.path;
       if (shared(t, wt)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
       if (top === null) {
-        // Without the repository git cannot check or remove the worktree; --force deletes the directory.
+        // Without the repository git cannot check or remove the worktree; --force deletes only this task's verified directory.
         if (!o.force) { kept.push({ id: t.id, reason: "source repository is missing; use --force to delete the worktree" }); continue; }
-        if (!o.dryRun) { rmSync(path, { recursive: true, force: true }); cleanTaskRuns(ctx, t); }
+        if (!o.dryRun) {
+          rmSync(own.real, { recursive: true, force: true });
+          const failed = pruneRuns(ctx, t);
+          if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
+        }
         removed.push(t.id); continue;
       }
       if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
@@ -387,7 +436,8 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
         const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
         if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
       }
-      cleanTaskRuns(ctx, t);
+      const failed = pruneRuns(ctx, t);
+      if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
       removed.push(t.id);
     } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); }
   }

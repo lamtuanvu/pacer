@@ -1,10 +1,10 @@
 import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
-import { createTaskWorktree } from "../src/supervisor/worktree";
+import { createTaskWorktree, taskWorktreesDir } from "../src/supervisor/worktree";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
@@ -161,13 +161,79 @@ test("clean --force deletes the worktree of a deleted repository; --dry-run chan
   expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
 });
 
-test("clean skips a task whose repository and worktree are both gone", async () => {
+test("clean prunes leftover run files of a task whose repository and worktree are both gone, then skips it", async () => {
   const ctx = fakeCtx({ run: realRun });
   const gone = await finishedIn(ctx);
   rmSync(gone.repo, { recursive: true, force: true });
   rmSync(gone.w.path, { recursive: true, force: true });
+  expect(await tasks.clean(ctx, { dryRun: true })).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+  expect(await tasks.clean(ctx)).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(false);
   expect(await tasks.clean(ctx)).toEqual({ removed: [], kept: [] });
   expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
+});
+
+test("clean skips a task whose worktree is gone and has no run files", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  rmSync(gone.w.path, { recursive: true, force: true });
+  rmSync(dirname(gone.rd), { recursive: true, force: true });
+  expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [] });
+});
+
+test("clean --force reports a deleted worktree whose run files could not be pruned, and a rerun prunes them", async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true });
+  chmodSync(gone.rd, 0o500);
+  try {
+    const r = await tasks.clean(ctx, { force: true });
+    expect(r.removed).toEqual([]);
+    expect(r.kept).toHaveLength(1);
+    expect(r.kept[0]!.reason).toStartWith("worktree deleted; run files could not be pruned: ");
+    expect(existsSync(gone.w.path)).toBe(false);
+    expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+  } finally { chmodSync(gone.rd, 0o700); }
+  expect(await tasks.clean(ctx, { dryRun: true })).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+  expect(await tasks.clean(ctx)).toEqual({ removed: [gone.t.id], kept: [] });
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(false);
+  expect(await tasks.clean(ctx)).toEqual({ removed: [], kept: [] });
+});
+
+const NOT_OWN = "worktree path is not this task's worktree; not deleted";
+
+/** A forced clean of a deleted repository whose saved workdir is not the task's own worktree deletes nothing. */
+async function adversarial(name: string, workdir: (o: { root: string; tag: string; id: string; outside: string; sibling: string }) => string) {
+  for (const dryRun of [true, false]) test(`clean --force${dryRun ? " --dry-run" : ""} deletes nothing for a ${name} workdir`, async () => {
+    const ctx = fakeCtx({ run: realRun });
+    const gone = await finishedIn(ctx);
+    rmSync(gone.repo, { recursive: true, force: true });
+    const root = taskWorktreesDir(ctx), tagDir = dirname(gone.w.path), tag = tagDir.slice(root.length + 1);
+    const sibling = join(tagDir, "t-20260101-000000-0000"), outside = join(ctx.pacerHome, "outside");
+    mkdirSync(join(sibling), { recursive: true }); mkdirSync(join(outside, gone.t.id), { recursive: true });
+    const sentinels = [join(root, "s"), join(tagDir, "s"), join(sibling, "s"), join(outside, "s"), join(outside, gone.t.id, "s"), join(gone.w.path, "s")];
+    for (const s of sentinels) writeFileSync(s, "keep");
+    const wd = workdir({ root, tag, id: gone.t.id, outside, sibling });
+    updateTask(ctx, gone.t.id, x => { x.worktree = wd; x.run!.workdir = wd; });
+    expect(await tasks.clean(ctx, { force: true, dryRun })).toEqual({ removed: [], kept: [{ id: gone.t.id, reason: NOT_OWN }] });
+    for (const s of sentinels) expect(existsSync(s)).toBe(true);
+    expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+  });
+}
+
+adversarial("root", o => o.root);
+adversarial("root with a trailing slash", o => o.root + "/");
+adversarial("repo-tag-only", o => join(o.root, o.tag));
+adversarial("sibling task's", o => o.sibling);
+adversarial("'..' traversal inside the root", o => `${o.root}/${o.tag}/../${o.tag}/${o.id}`);
+adversarial("'..' traversal escaping the root", o => `${o.root}/../outside/${o.id}`);
+adversarial("symlinked repo-tag", o => {
+  const tag = `${o.tag}-link`; symlinkSync(o.outside, join(o.root, tag)); return join(o.root, tag, o.id);
+});
+adversarial("symlinked task directory", o => {
+  const tag = `${o.tag}-x`; mkdirSync(join(o.root, tag)); symlinkSync(join(o.outside, o.id), join(o.root, tag, o.id)); return join(o.root, tag, o.id);
 });
 
 test("clean keeps a remote task whose local repository was deleted", async () => {

@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- `pacer clean` no longer stops at a settled task whose source repository was deleted. That task is kept with "source repository is missing; use --force to delete the worktree"; `--force` deletes its worktree directory under the pacer worktrees folder, and remote tasks are kept because remote cleanup needs the local repository. Any other per-task error is now reported as kept and the remaining tasks are still cleaned.
+- `pacer clean` no longer stops at a settled task whose source repository was deleted. That task is kept with "source repository is missing; use --force to delete the worktree". With `--force`, clean deletes only that task's own worktree directory (`<worktrees>/<repo-tag>/<task-id>`, with no symlinked or out-of-place path components). A saved worktree path that fails this check is kept as "worktree path is not this task's worktree; not deleted". Remote tasks are kept because remote cleanup needs the local repository. Other per-task errors are reported as kept and the remaining tasks are still cleaned. When a worktree is removed but its run files cannot be pruned, the task is kept as "worktree deleted; run files could not be pruned: …", and the next clean retries the pruning.
 
 ## [0.12.0] - 2026-10-29
 
