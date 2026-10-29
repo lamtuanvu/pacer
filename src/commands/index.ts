@@ -12,9 +12,10 @@ import { COMMANDS as SERVICE } from "./service";
 import { COMMANDS as OPEN } from "./open";
 import { COMMANDS as PLUGINS } from "./plugins";
 import { COMMANDS as SESSIONS } from "./session";
+import { COMMANDS as MACHINE } from "./machine";
 import type { Command } from "./types";
 
-export const EXTRA_COMMANDS: Command[] = [...DISPATCH, ...ATTACHMENTS, ...PLAN2B, ...PLAN3, ...PLAN4, ...PLAN5, ...PLAN6, ...PLAN7, ...SERVICE, ...OPEN, ...DESKTOP_UPDATE, ...PLUGINS, ...SESSIONS, { name: "watch", usage: WATCH_USAGE, run: watchCommand }];
+export const EXTRA_COMMANDS: Command[] = [...DISPATCH, ...ATTACHMENTS, ...PLAN2B, ...PLAN3, ...PLAN4, ...PLAN5, ...PLAN6, ...PLAN7, ...SERVICE, ...OPEN, ...DESKTOP_UPDATE, ...PLUGINS, ...SESSIONS, ...MACHINE, { name: "watch", usage: WATCH_USAGE, run: watchCommand }];
 
 export function findCommand(name: string): Command | undefined {
   return EXTRA_COMMANDS.find((c) => c.name === name);
