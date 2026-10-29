@@ -410,3 +410,12 @@ Missing or capped traces remain inconclusive. Do not reset requests, leases or
 native resources to obtain a new trace. Synthetic loopback forwarding/refusal
 checks validate these diagnostics only; native update/tray/retirement acceptance
 remains UNVERIFIED until independently exercised.
+
+Native accessibility inspection binds the selected visible CG window to a unique
+AXWindow with the exact owned PID, matching title and global rectangle (at most
+one point of rounding per coordinate or dimension). Missing, mismatched or
+ambiguous accessibility identity fails closed. Cyclic or aliased AX nodes are
+detected with CFEqual and mark the observation truncated. Native action failures
+report `not_delivered` only before a platform mutation is attempted; later errors
+report `unknown` and must not be retried implicitly. This classification does not
+prove that the intended effect completed.
