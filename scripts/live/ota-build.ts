@@ -292,6 +292,15 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       }
       renameSync(app, state.sources[index].path);
     }
+    // The takeover models a local source install: these CLIs have neither OTA
+    // authority nor the compiled fixture policy. Keep both immutable in the
+    // build lease; the second supplies a distinct identity for dismissal.
+    for (const [index, version] of versions.entries()) {
+      const output = join(build, index === 0 ? "baseline" : "candidate", "takeover-pacer");
+      await run(compileCommand({ root: join(build, index === 0 ? "baseline" : "candidate", "source"), outfile: output, version, target }), checkout);
+      await run(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", "dev.pacer.cli", output]);
+      await run(["/usr/bin/codesign", "--verify", "--strict", output]);
+    }
     const archivePath = join(build, desktopAssetName("0.2.4", arch));
     await run(["/usr/bin/tar", "--format", "ustar", "-czf", archivePath, "-C", dirname(state.sources[1].path), "pacer.app"]);
     await run([process.execPath, cli, "signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", "0.2.4", archivePath], checkout, true);

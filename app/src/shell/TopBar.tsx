@@ -55,7 +55,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
   const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
-  return <header className="pc-topbar" data-tauri-drag-region>
+  return <header className="pc-topbar" aria-label={showActions ? heading?.title ?? title : undefined} data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
     {showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}

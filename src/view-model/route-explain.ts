@@ -12,6 +12,9 @@ const when = (value: unknown, now: number) => (typeof value === "number" ? clock
 
 /** Plain copy for each `dispatch.explain` reason code (UI-12). Codes this client does not know get generic copy, never the raw code. */
 const copy: Record<string, (facts: Reason["facts"], labels: ExplainLabels) => string> = {
+  rank_match: () => "It ranked first among the executors that can take this kind of work.",
+  no_executor_ranked: () => "No executor can take this work right now.",
+  ranked_inputs_ignored: () => "Requirements, preferences and a chosen model apply only to dispatched work, so they were not used here.",
   step_match: (f, l) => `It matched the ${l.step(String(f.stepId))} step${f.kind ? ` for ${f.kind} tasks` : ""}.`,
   capacity_comfortable: f => `${num(f.headroomPct)}% of its budget window is free, enough to run comfortably.`,
   capacity_usable: f => `${num(f.headroomPct)}% of its budget window is free: usable, but not comfortable.`,
@@ -87,6 +90,7 @@ export function plannerCopy(planner: RouteExplanation["planner"], labels: Explai
 export type ReasonSeverity = "good" | "neutral" | "soft" | "hard";
 /** Severity follows the condition, not its fail/info outcome: a busy executor can recover. */
 const severity: Record<ReasonCode, ReasonSeverity> = {
+  rank_match: "good", no_executor_ranked: "soft", ranked_inputs_ignored: "neutral",
   step_match: "good", capacity_comfortable: "good", capacity_usable: "soft", capacity_unknown: "soft", override: "neutral",
   planner_account: "neutral", runner_disabled: "hard", not_configured: "hard", blocked_by_user: "hard",
   quota_exhausted: "hard", not_installed: "hard", signed_out: "hard", unavailable: "hard", ineligible: "hard",

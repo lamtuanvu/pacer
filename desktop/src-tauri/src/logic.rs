@@ -2,6 +2,227 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TakeoverDismissal {
+    schema: u32,
+    sha256: String,
+    cdhash: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TakeoverAcknowledgement {
+    schema: u32,
+    transaction_id: String,
+}
+
+/// Reads a small private record without following a symlink at its name.
+fn read_private_record(config: &Path, name: &str) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(config.join(name))
+        .ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() || metadata.len() > 1024 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(1025).read_to_end(&mut bytes).ok()?;
+    (bytes.len() <= 1024).then_some(bytes)
+}
+
+fn write_private_record(config: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::io::Write;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(config).map_err(|e| e.to_string())?;
+    let temp = config.join(format!(".{name}-{}-{}.tmp", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp).map_err(|e| e.to_string())?;
+    let result = (|| -> std::io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, config.join(name))?;
+        std::fs::File::open(config)?.sync_all()
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(temp); }
+    result.map_err(|e| e.to_string())
+}
+
+pub fn takeover_dismissed(config: &Path, identity: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable) -> bool {
+    let Some(bytes) = read_private_record(config, "takeover-dismissed.json") else { return false };
+    let Ok(record) = serde_json::from_slice::<TakeoverDismissal>(&bytes) else { return false };
+    record.schema == 1 && record.sha256 == identity.sha256 && record.cdhash == identity.cdhash
+}
+
+pub fn dismiss_takeover(config: &Path, identity: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable) -> Result<(), String> {
+    let bytes = serde_json::to_vec(&TakeoverDismissal { schema: 1, sha256: identity.sha256.clone(), cdhash: identity.cdhash.clone() }).map_err(|e| e.to_string())?;
+    write_private_record(config, "takeover-dismissed.json", &bytes)
+}
+
+/// Whether the user already saw the restored outcome of this transaction.
+pub fn takeover_acknowledged(config: &Path, transaction_id: &str) -> bool {
+    read_private_record(config, "takeover-acknowledged.json")
+        .and_then(|bytes| serde_json::from_slice::<TakeoverAcknowledgement>(&bytes).ok())
+        .is_some_and(|record| record.schema == 1 && record.transaction_id == transaction_id)
+}
+
+pub fn acknowledge_takeover(config: &Path, transaction_id: &str) -> Result<(), String> {
+    let bytes = serde_json::to_vec(&TakeoverAcknowledgement { schema: 1, transaction_id: transaction_id.into() }).map_err(|e| e.to_string())?;
+    write_private_record(config, "takeover-acknowledged.json", &bytes)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchGate { Takeover, Version }
+/// Detection runs before the version gate, because a takeover build commonly
+/// reports another version; only a dismissal lets the version gate decide.
+pub fn launch_gate(candidate: bool, dismissed: bool) -> LaunchGate {
+    if candidate && !dismissed { LaunchGate::Takeover } else { LaunchGate::Version }
+}
+
+/// What the desktop does about unfinished takeover transactions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnfinishedTakeoverNext {
+    /// A recovery job or a running helper owns the transaction.
+    Wait,
+    /// No recovery job is loaded for this transaction, for example because
+    /// the helper was killed before it armed one: run recovery once.
+    Recover(String),
+    /// Recovery cannot finish on its own.
+    Failed(StuckTakeover),
+}
+
+/// Why an unfinished transaction needs attention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StuckTakeover {
+    /// This desktop's recovery run left it unfinished.
+    Unrecovered,
+    /// Its manifest or journal cannot be read or validated.
+    Unreadable,
+    /// Another app copy or an earlier boot started it, so this desktop does not
+    /// run its recovery.
+    NotThisApp,
+}
+
+/// `started_here` says whether a transaction's recorded origin is this
+/// running app in this boot (see [`started_by_this_app`]).
+pub fn unfinished_takeover_next(
+    unfinished: &[pacer_desktop::ota::takeover::journal::UnfinishedTakeover],
+    recovery_loaded: impl Fn(&str) -> bool,
+    attempted: &std::collections::HashSet<String>,
+    started_here: impl Fn(&pacer_desktop::ota::takeover::journal::TakeoverOrigin) -> bool,
+) -> Option<UnfinishedTakeoverNext> {
+    if unfinished.is_empty() {
+        return None;
+    }
+    if unfinished.iter().any(|tx| !tx.readable) {
+        return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable));
+    }
+    if let Some(tx) = unfinished.iter().find(|tx| !recovery_loaded(&tx.transaction_id)) {
+        if !tx.origin.as_ref().is_some_and(&started_here) {
+            return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp));
+        }
+        if attempted.contains(&tx.transaction_id) {
+            return Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered));
+        }
+        return Some(UnfinishedTakeoverNext::Recover(tx.transaction_id.clone()));
+    }
+    Some(UnfinishedTakeoverNext::Wait)
+}
+
+/// Whether a transaction was authorized from this running app bundle (its
+/// bundled CLI, compared after resolving both paths) during the current boot.
+/// Anything unknown is not this app.
+pub fn started_by_this_app(
+    recorded: &pacer_desktop::ota::takeover::journal::TakeoverOrigin,
+    app_cli: Option<&Path>,
+    boot_id: Option<&str>,
+) -> bool {
+    let (Some(app_cli), Some(boot_id)) = (app_cli, boot_id) else {
+        return false;
+    };
+    match (recorded.bundled_cli.canonicalize(), app_cli.canonicalize()) {
+        (Ok(recorded_cli), Ok(app_cli)) => recorded_cli == app_cli && recorded.boot_id == boot_id,
+        _ => false,
+    }
+}
+
+/// An unanswerable recovery-job query (`None`: no release trust; `Err`:
+/// launchd failed) counts as not loaded for recovery: a job that is in fact
+/// running holds the transaction lock, so recovery waits for it.
+pub fn recovery_job_loaded_for_recovery<E>(query: Option<Result<bool, E>>) -> bool {
+    matches!(query, Some(Ok(true)))
+}
+
+/// For pruning the same query counts as loaded, so a job's program (the
+/// transaction's helper copy) is never deleted while the job may exist.
+pub fn recovery_job_loaded_for_pruning<E>(query: Option<Result<bool, E>>) -> bool {
+    !matches!(query, Some(Ok(false)))
+}
+
+/// The public reason shown with a stuck transaction's recovery-failed page.
+pub fn takeover_failure_reason(next: &UnfinishedTakeoverNext) -> Option<&'static str> {
+    match next {
+        UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable) => Some("journal:unreadable"),
+        UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp) => Some("journal:foreign"),
+        _ => None,
+    }
+}
+
+/// The bundled page takeover transactions hold before the desktop may install,
+/// start, sign in to or otherwise act on the service. `latest` is the newest
+/// finished transaction and whether its restored outcome was already shown.
+pub fn takeover_gate(
+    unfinished: Option<UnfinishedTakeoverNext>,
+    latest: Option<(pacer_desktop::ota::takeover::journal::TakeoverState, bool)>,
+) -> Option<&'static str> {
+    use pacer_desktop::ota::takeover::journal::TakeoverState;
+    match unfinished {
+        Some(UnfinishedTakeoverNext::Failed { .. }) => return Some("takeoverFailed"),
+        Some(_) => return Some("takeoverProgress"),
+        None => {}
+    }
+    match latest {
+        Some((TakeoverState::RecoveryFailed, _)) => Some("takeoverFailed"),
+        Some((TakeoverState::Restored, false)) => Some("takeoverRestored"),
+        _ => None,
+    }
+}
+
+/// The offer's best-effort facts are read again on every pass, also while the
+/// cached inspection is reused; a read that fails shows as unknown.
+pub fn refresh_takeover_work(inspection: &mut Value, version: Option<&str>, tasks: Option<usize>, terminals: Option<usize>) {
+    inspection["currentVersion"] = serde_json::json!(version);
+    inspection["work"] = serde_json::json!({"tasks":tasks,"terminals":terminals});
+}
+
+/// Shown when the service was replaced but the terminal command was not
+/// switched. The error itself goes only to the log.
+pub const TAKEOVER_RELINK_FAILED: (&str, &str) = (
+    "Terminal command not changed",
+    "The app's service is running, but the terminal command still runs another build. To switch it, move ~/.local/bin/pacer aside and reopen pacer, which offers to recreate the command.",
+);
+
+/// What follows a takeover the helper did not commit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TakeoverFailureNext {
+    /// A transaction started: show its journal's page now.
+    Show(&'static str),
+    /// Nothing changed: offer the choice again with an error.
+    Reoffer,
+}
+
+pub fn takeover_failure_next(gate: Option<&'static str>) -> TakeoverFailureNext {
+    gate.map_or(TakeoverFailureNext::Reoffer, TakeoverFailureNext::Show)
+}
+
+/// Pages that wait for the user's choice; the lifecycle reconnects slowly there.
+pub fn waiting_for_choice(page: Option<&str>) -> bool {
+    matches!(page, Some("outdatedService" | "unverifiedService" | "takeover" | "takeoverRestored" | "takeoverFailed"))
+}
+
 pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> Option<&'static str> {
     if bundled_cli || external_cli {
         None
@@ -164,6 +385,120 @@ pub enum ShellAction {
     Relink,
     Download,
     ContinueOldService,
+    TakeoverDismiss,
+    TakeoverConfirm { relink: bool },
+}
+
+/// A takeover token is 32 random bytes in lowercase hex.
+fn valid_takeover_token(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The token a takeover sentinel carries; its format is checked by `shell_action_url`.
+pub fn takeover_token(url: &Url) -> Option<String> {
+    url.query_pairs().find(|(key, _)| key == "token").map(|(_, value)| value.into_owned())
+}
+
+/// The bundled pages that may carry a takeover token, and what each permits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TakeoverPage {
+    /// The offer: confirm or dismiss.
+    Offer,
+    /// The restored outcome: continue with the current service only.
+    Restored,
+}
+
+pub fn takeover_page(current: Option<&Url>) -> Option<TakeoverPage> {
+    if !bundled_shell(current) {
+        return None;
+    }
+    match current?.query() {
+        Some("state=takeover") => Some(TakeoverPage::Offer),
+        Some("state=takeoverRestored") => Some(TakeoverPage::Restored),
+        _ => None,
+    }
+}
+
+/// Authority of the main window's document. `current` is the last finished
+/// load and is cleared when a new document starts loading, so a document in
+/// flight never inherits the previous page's authority. A takeover token is
+/// issued only to the bundled takeover page and is single use. It is bound to
+/// the candidate the page shows: re-renders of the same candidate keep it, so
+/// a click during a render is not lost, and a new candidate gets a new token.
+#[derive(Default)]
+pub struct MainPage {
+    current: Option<Url>,
+    takeover: Option<TakeoverToken>,
+}
+struct TakeoverToken {
+    token: String,
+    page: TakeoverPage,
+    candidate: Option<String>,
+}
+impl MainPage {
+    pub fn current(&self) -> Option<&Url> {
+        self.current.as_ref()
+    }
+    /// A finished load of `url` becomes the current document.
+    pub fn finished(&mut self, url: Url) {
+        self.current = Some(url);
+        self.takeover = None;
+    }
+    /// An allowed main-frame navigation to `url`. Any navigation ends the
+    /// takeover token; only a same-document fragment change keeps `current`.
+    pub fn navigating(&mut self, url: &Url) {
+        self.takeover = None;
+        let same_document = self.current.as_ref().is_some_and(|current| {
+            let mut a = current.clone();
+            let mut b = url.clone();
+            a.set_fragment(None);
+            b.set_fragment(None);
+            a == b
+        });
+        if !same_document {
+            self.current = None;
+        }
+    }
+    /// A new document started loading.
+    pub fn started(&mut self) {
+        self.current = None;
+        self.takeover = None;
+    }
+    /// The token to inject into the current bundled takeover page showing
+    /// `candidate`: the unused token already issued for it, or `fresh`.
+    pub fn issue_takeover_token(&mut self, candidate: Option<&str>, fresh: String) -> Option<String> {
+        let Some(page) = takeover_page(self.current.as_ref()) else {
+            self.takeover = None;
+            return None;
+        };
+        if let Some(issued) = self.takeover.as_ref().filter(|t| t.page == page && t.candidate.as_deref() == candidate) {
+            return Some(issued.token.clone());
+        }
+        self.takeover = None;
+        if !valid_takeover_token(&fresh) {
+            return None;
+        }
+        self.takeover = Some(TakeoverToken { token: fresh.clone(), page, candidate: candidate.map(str::to_owned) });
+        Some(fresh)
+    }
+    pub fn revoke_takeover_token(&mut self) {
+        self.takeover = None;
+    }
+    /// Consumes the token. Accepts `action` only when the sentinel carries the
+    /// token issued to the current takeover page, that page permits it, and
+    /// the shell still holds the candidate the token was issued for.
+    pub fn authorize_takeover(&mut self, url: &Url, action: ShellAction, candidate: Option<&str>) -> bool {
+        let Some(issued) = self.takeover.take() else { return false };
+        let permitted = match action {
+            ShellAction::TakeoverConfirm { .. } => issued.page == TakeoverPage::Offer,
+            ShellAction::TakeoverDismiss => true,
+            _ => false,
+        };
+        permitted
+            && takeover_page(self.current.as_ref()) == Some(issued.page)
+            && issued.candidate.as_deref() == candidate
+            && takeover_token(url).is_some_and(|presented| presented == issued.token)
+    }
 }
 
 pub fn onboarding_back(url: &Url, current: Option<&Url>) -> bool {
@@ -184,6 +519,19 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
         return match url.query() {
             Some("path=0") => Some(ShellAction::Consent { path: false }),
             Some("path=1") => Some(ShellAction::Consent { path: true }),
+            _ => None,
+        };
+    }
+    if matches!(url.path(), "/action/takeover-confirm" | "/action/takeover-dismiss") {
+        let query = url.query()?;
+        let (rest, token) = query.rsplit_once("token=")?;
+        if !valid_takeover_token(token) {
+            return None;
+        }
+        return match (url.path(), rest) {
+            ("/action/takeover-confirm", "relink=0&") => Some(ShellAction::TakeoverConfirm { relink: false }),
+            ("/action/takeover-confirm", "relink=1&") => Some(ShellAction::TakeoverConfirm { relink: true }),
+            ("/action/takeover-dismiss", "") => Some(ShellAction::TakeoverDismiss),
             _ => None,
         };
     }
@@ -718,7 +1066,7 @@ pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option
 }
 
 pub fn tray_height(height: f64) -> Option<f64> {
-    height.is_finite().then(|| height.clamp(120., 520.))
+    height.is_finite().then(|| height.clamp(120., 560.))
 }
 
 pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
@@ -841,8 +1189,16 @@ pub fn local_origin(url: &Url) -> Option<String> {
     .then(|| url.origin().ascii_serialization())
 }
 
+pub fn remembered_route(route: &str) -> String {
+    let path = route.split('?').next().unwrap_or("").trim_start_matches('#');
+    format!("#{}", if path.is_empty() { "/" } else { path })
+}
+
 pub fn route(raw: &str) -> Option<String> {
     let value = raw.strip_prefix('#').unwrap_or(raw);
+    if value.contains(['%', '\\', '#', '?']) || value.contains("..") {
+        return None;
+    }
     let value = if value.starts_with("pacer://") {
         let url = Url::parse(value).ok()?;
         if !url.username().is_empty()
@@ -857,7 +1213,7 @@ pub fn route(raw: &str) -> Option<String> {
     } else {
         value.to_owned()
     };
-    if !value.starts_with('/') || value.starts_with("//") || value.contains(['?', '#', '\\']) {
+    if !value.starts_with('/') || value.starts_with("//") || value.contains(['#', '\\']) {
         return None;
     }
     if value == "/" || value == "/overview" {
@@ -867,7 +1223,8 @@ pub fn route(raw: &str) -> Option<String> {
         return Some("#/needs-you".into());
     }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
-    if !matches!(parts[0], "review" | "sessions" | "settings" | "tasks")
+    if !matches!(parts[0], "review" | "sessions" | "settings" | "needs-you" | "tasks")
+        || (parts[0] == "needs-you" && parts.len() != 1)
         || parts.len() > 3
         || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
         || parts.iter().any(|p| {
@@ -962,6 +1319,19 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tray_route_contract() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../../../test/fixtures/tray-routes.json")).unwrap();
+        for raw in cases["allowed"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), Some(format!("#{raw}")), "{raw}");
+        }
+        for raw in cases["rejected"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), None, "{raw}");
+        }
+    }
+
     #[test]
     fn recovery_truth_table() {
         for app in [false, true] {
@@ -1212,6 +1582,118 @@ mod tests {
         ), Navigation::Block);
     }
 
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const OTHER: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    fn url(value: &str) -> Url {
+        Url::parse(value).unwrap()
+    }
+    fn confirm(token: &str) -> Url {
+        url(&format!("tauri://localhost/action/takeover-confirm?relink=1&token={token}"))
+    }
+    fn dismiss(token: &str) -> Url {
+        url(&format!("tauri://localhost/action/takeover-dismiss?token={token}"))
+    }
+    const CONFIRM: ShellAction = ShellAction::TakeoverConfirm { relink: true };
+    const SEEN: Option<&str> = Some("candidate-a");
+    const CHANGED: Option<&str> = Some("candidate-b");
+
+    #[test]
+    fn takeover_token_is_issued_only_to_the_bundled_takeover_page_and_used_once() {
+        let mut page = MainPage::default();
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
+        page.finished(url("http://127.0.0.1:4317/app/"));
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
+        page.finished(url("tauri://localhost/index.html?state=starting"));
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()), None);
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        assert_eq!(page.issue_takeover_token(SEEN, "short".into()), None);
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()).as_deref(), Some(TOKEN));
+        // A missing or mismatched token is rejected and ends the token.
+        assert!(!page.authorize_takeover(&url("tauri://localhost/action/takeover-confirm?relink=1"), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(OTHER), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        // The issued token is accepted once.
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss, SEEN));
+    }
+
+    #[test]
+    fn rerender_keeps_the_token_while_the_candidate_is_unchanged() {
+        // A periodic re-render must not void a click carrying the token already on the page.
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        assert_eq!(page.issue_takeover_token(SEEN, TOKEN.into()).as_deref(), Some(TOKEN));
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()).as_deref(), Some(TOKEN));
+        assert!(page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        // Once used, the next render issues a fresh token.
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()).as_deref(), Some(OTHER));
+    }
+
+    #[test]
+    fn a_new_candidate_gets_a_new_token_and_voids_the_old_one() {
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert_eq!(page.issue_takeover_token(CHANGED, OTHER.into()).as_deref(), Some(OTHER));
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, CHANGED));
+        // A token bound to the reviewed candidate is refused once the shell holds another one,
+        // even before the page is re-rendered.
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, CHANGED));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, None));
+    }
+
+    #[test]
+    fn restored_page_token_permits_only_continuing() {
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeoverRestored"));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss, SEEN));
+    }
+
+    #[test]
+    fn service_navigation_after_the_takeover_page_cannot_confirm() {
+        // The bundled offer finished loading and received its token.
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        let token = page.issue_takeover_token(SEEN, TOKEN.into()).unwrap();
+        // The lifecycle then navigates to the unverified service. Its document
+        // runs a confirm before its own load finishes, even with a leaked token.
+        let service = url("http://127.0.0.1:4317/app/auth?code=x");
+        page.navigating(&service);
+        assert_eq!(page.current(), None);
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
+        page.started();
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
+        // After the service page finishes, it cannot obtain a token either.
+        page.finished(service);
+        assert_eq!(page.issue_takeover_token(SEEN, OTHER.into()), None);
+        assert!(!page.authorize_takeover(&confirm(&token), CONFIRM, SEEN));
+        assert!(!page.authorize_takeover(&dismiss(&token), ShellAction::TakeoverDismiss, SEEN));
+    }
+
+    #[test]
+    fn a_new_document_load_ends_the_takeover_authority() {
+        let mut page = MainPage::default();
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        page.started();
+        assert_eq!(page.current(), None);
+        assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
+        // A fragment change keeps the document but still ends the token.
+        page.finished(url("http://127.0.0.1:4317/app/#/tasks"));
+        page.navigating(&url("http://127.0.0.1:4317/app/#/settings"));
+        assert!(page.current().is_some());
+    }
+
     #[test]
     fn shell_actions_accept_only_exact_local_sentinels() {
         use ShellAction::*;
@@ -1224,6 +1706,9 @@ mod tests {
             ("relink", Relink),
             ("download", Download),
             ("continue-old-service", ContinueOldService),
+            (&*format!("takeover-dismiss?token={TOKEN}"), TakeoverDismiss),
+            (&*format!("takeover-confirm?relink=0&token={TOKEN}"), TakeoverConfirm { relink: false }),
+            (&*format!("takeover-confirm?relink=1&token={TOKEN}"), TakeoverConfirm { relink: true }),
         ] {
             assert_eq!(
                 shell_action_url(
@@ -1239,6 +1724,16 @@ mod tests {
             "tauri://localhost/action/consent",
             "tauri://localhost/action/consent?path=1&path=0",
             "tauri://localhost/action/consent?path=1&extra=1",
+            "tauri://localhost/action/takeover-confirm",
+            "tauri://localhost/action/takeover-confirm?relink=0",
+            "tauri://localhost/action/takeover-confirm?relink=2",
+            "tauri://localhost/action/takeover-confirm?relink=1&extra=1",
+            "tauri://localhost/action/takeover-dismiss",
+            "tauri://localhost/action/takeover-open",
+            "tauri://localhost/action/takeover-dismiss?token=abc",
+            "tauri://localhost/action/takeover-dismiss?token=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "tauri://localhost/action/takeover-confirm?token=0000000000000000000000000000000000000000000000000000000000000000&relink=1",
+            "tauri://localhost/action/takeover-confirm?relink=1&token=0000000000000000000000000000000000000000000000000000000000000000&token=0000000000000000000000000000000000000000000000000000000000000000",
             "tauri://localhost/action/unknown",
             "tauri://localhost/action/begin?extra=1",
             "tauri://localhost/action/begin#fragment",
@@ -1479,8 +1974,8 @@ mod tests {
             (0., 120.),
             (120., 120.),
             (271.5, 271.5),
-            (520., 520.),
-            (9999., 520.),
+            (560., 560.),
+            (9999., 560.),
         ] {
             assert_eq!(tray_height(height), Some(expected));
         }
@@ -1511,6 +2006,15 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn remembered_routes_drop_one_shot_queries() {
+        assert_eq!(remembered_route("#/?new=task"), "#/");
+        assert_eq!(remembered_route("#/tasks?filter=done"), "#/tasks");
+        assert_eq!(remembered_route("#/tasks/t-1"), "#/tasks/t-1");
+        assert_eq!(remembered_route("#?new=task"), "#/");
+        assert_eq!(remembered_route(""), "#/");
+    }
+
     #[test]
     fn tray_routes_use_the_shared_route_validator() {
         for raw in [
@@ -2085,13 +2589,15 @@ pub fn desktop_update_connection(
     configured: bool,
     alive: bool,
     error: Option<pacer_desktop::ota::OtaError>,
+    takeover: bool,
+    supports_takeover: bool,
 ) -> serde_json::Value {
     let (state, reason) = if !configured {
         ("unsupported", None)
     } else if alive {
         ("available", None)
     } else if let Some(error) = error {
-        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { "service-identity" } else { "connection" }))
+        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { if takeover && supports_takeover { "service-takeover" } else { "service-identity" } } else { "connection" }))
     } else {
         ("connecting", None)
     };
@@ -2103,14 +2609,178 @@ mod desktop_connection_tests {
     use super::*;
     use pacer_desktop::ota::OtaError;
     #[test]
+    fn each_offer_pass_replaces_the_work_counts_and_version() {
+        let mut inspection = serde_json::json!({"label":"com.pacer.serve","currentVersion":"0.2.3","work":{"tasks":4,"terminals":1}});
+        refresh_takeover_work(&mut inspection, Some("0.2.4"), Some(0), None);
+        assert_eq!(inspection, serde_json::json!({"label":"com.pacer.serve","currentVersion":"0.2.4","work":{"tasks":0,"terminals":null}}));
+    }
+    #[test]
+    fn relink_failure_notification_is_plain_and_names_a_next_step() {
+        let (title, body) = TAKEOVER_RELINK_FAILED;
+        assert_eq!(title, "Terminal command not changed");
+        assert!(body.starts_with("The app's service is running, but the terminal command still runs another build."));
+        assert!(body.contains("reopen pacer"));
+        assert!(!body.contains('{') && !body.contains(':'));
+    }
+    #[test]
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity)), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io)), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, true)["reason"], "service-takeover");
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, false)["reason"], "service-identity");
     }
     #[test]
     fn live_authority_and_build_support_are_distinct_from_pending_connection() {
-        assert_eq!(desktop_update_connection(false, false, None)["state"], "unsupported");
-        assert_eq!(desktop_update_connection(true, false, None)["state"], "connecting");
-        assert_eq!(desktop_update_connection(true, true, Some(OtaError::Identity)), serde_json::json!({"state":"available","reason":null}));
+        assert_eq!(desktop_update_connection(false, false, None, true, true)["state"], "unsupported");
+        assert_eq!(desktop_update_connection(true, false, None, true, true)["state"], "connecting");
+        assert_eq!(desktop_update_connection(true, true, Some(OtaError::Identity), true, true), serde_json::json!({"state":"available","reason":null}));
+    }
+    #[test]
+    fn takeover_precedes_version_gate_unless_dismissed() {
+        assert_eq!(launch_gate(true, false), LaunchGate::Takeover);
+        assert_eq!(launch_gate(true, true), LaunchGate::Version);
+        assert_eq!(launch_gate(false, false), LaunchGate::Version);
+    }
+    #[test]
+    fn an_unfinished_takeover_blocks_service_actions_and_outcomes_are_held() {
+        use pacer_desktop::ota::takeover::journal::TakeoverState::*;
+        // Pending wins over any older outcome: the helper or recovery job owns the service.
+        for latest in [None, Some((Committed, false)), Some((Restored, true)), Some((RecoveryFailed, false))] {
+            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Wait), latest), Some("takeoverProgress"));
+        }
+        assert_eq!(takeover_gate(None, Some((RecoveryFailed, true))), Some("takeoverFailed"));
+        assert_eq!(takeover_gate(None, Some((Restored, false))), Some("takeoverRestored"));
+        // A restored outcome is shown once; a commit needs no page.
+        assert_eq!(takeover_gate(None, Some((Restored, true))), None);
+        assert_eq!(takeover_gate(None, Some((Committed, false))), None);
+        assert_eq!(takeover_gate(None, None), None);
+    }
+    #[test]
+    fn a_stuck_takeover_journal_is_recovered_once_then_reported() {
+        use pacer_desktop::ota::takeover::journal::{TakeoverOrigin, UnfinishedTakeover};
+        use std::collections::HashSet;
+        let tx = |id: &str, readable: bool| UnfinishedTakeover {
+            transaction_id: id.into(),
+            readable,
+            origin: readable.then(|| TakeoverOrigin { bundled_cli: format!("/app-{id}/pacer").into(), boot_id: "boot".into() }),
+        };
+        let ours = |_: &TakeoverOrigin| true;
+        let none = HashSet::new();
+        assert_eq!(unfinished_takeover_next(&[], |_| false, &none, ours), None);
+        // A loaded recovery job owns the transaction.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| true, &none, ours), Some(UnfinishedTakeoverNext::Wait));
+        // The helper was killed before it armed recovery: run recovery once.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &none, ours), Some(UnfinishedTakeoverNext::Recover("tx-1".into())));
+        let attempted: HashSet<String> = ["tx-1".to_string()].into();
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true)], |_| false, &attempted, ours), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered)));
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none, ours), Some(UnfinishedTakeoverNext::Recover("tx-2".into())));
+        // A transaction another app copy or an earlier boot started is never recovered by this desktop.
+        let foreign = |origin: &TakeoverOrigin| origin.bundled_cli != std::path::Path::new("/app-tx-2/pacer");
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", true)], |id| id == "tx-1", &none, foreign), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp)));
+        // Its own recovery job may still finish it.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-2", true)], |_| true, &none, foreign), Some(UnfinishedTakeoverNext::Wait));
+        // A damaged journal cannot be recovered or waited on.
+        assert_eq!(unfinished_takeover_next(&[tx("tx-1", true), tx("tx-2", false)], |_| true, &none, ours), Some(UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable)));
+        // Recovery in flight shows progress; a stuck journal shows the recovery-failed page.
+        use pacer_desktop::ota::takeover::journal::TakeoverState::*;
+        assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Recover("tx-1".into())), None), Some("takeoverProgress"));
+        for stuck in [StuckTakeover::Unrecovered, StuckTakeover::Unreadable, StuckTakeover::NotThisApp] {
+            assert_eq!(takeover_gate(Some(UnfinishedTakeoverNext::Failed(stuck)), Some((Restored, false))), Some("takeoverFailed"));
+        }
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::Unreadable)), Some("journal:unreadable"));
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::NotThisApp)), Some("journal:foreign"));
+        assert_eq!(takeover_failure_reason(&UnfinishedTakeoverNext::Failed(StuckTakeover::Unrecovered)), None);
+    }
+    #[test]
+    fn only_this_app_bundle_in_this_boot_recovers_a_stuck_takeover() {
+        use pacer_desktop::ota::takeover::journal::TakeoverOrigin;
+        let temp = tempfile::tempdir().unwrap();
+        let cli = temp.path().join("pacer.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, b"cli").unwrap();
+        let other = temp.path().join("other.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(&other, b"cli").unwrap();
+        let recorded = TakeoverOrigin { bundled_cli: cli.clone(), boot_id: "boot-a".into() };
+        assert!(started_by_this_app(&recorded, Some(&cli), Some("boot-a")));
+        // The same file through a non-canonical path is the same app.
+        let dotted = temp.path().join("pacer.app/Contents/../Contents/Resources/pacer");
+        assert!(started_by_this_app(&TakeoverOrigin { bundled_cli: dotted, ..recorded.clone() }, Some(&cli), Some("boot-a")));
+        // Another app copy, an earlier boot, or an unknown app or boot is not this app.
+        assert!(!started_by_this_app(&recorded, Some(&other), Some("boot-a")));
+        assert!(!started_by_this_app(&recorded, Some(&cli), Some("boot-b")));
+        assert!(!started_by_this_app(&recorded, None, Some("boot-a")));
+        assert!(!started_by_this_app(&recorded, Some(&cli), None));
+        assert!(!started_by_this_app(&TakeoverOrigin { bundled_cli: temp.path().join("gone/pacer"), ..recorded.clone() }, Some(&cli), Some("boot-a")));
+    }
+    #[test]
+    fn an_unanswerable_recovery_job_query_never_lets_pruning_remove_its_helper() {
+        let failed: Option<Result<bool, ()>> = Some(Err(()));
+        // Recovery treats an unknown job as absent; the transaction lock serializes a running one.
+        assert!(!recovery_job_loaded_for_recovery(failed));
+        assert!(!recovery_job_loaded_for_recovery::<()>(None));
+        // Pruning treats it as loaded, so a job's program is never deleted.
+        assert!(recovery_job_loaded_for_pruning(failed));
+        assert!(recovery_job_loaded_for_pruning::<()>(None));
+        for answer in [true, false] {
+            assert_eq!(recovery_job_loaded_for_recovery(Some(Ok::<_, ()>(answer))), answer);
+            assert_eq!(recovery_job_loaded_for_pruning(Some(Ok::<_, ()>(answer))), answer);
+        }
+    }
+    #[test]
+    fn a_failed_helper_shows_its_transaction_page_at_once() {
+        use pacer_desktop::ota::takeover::journal::TakeoverState::*;
+        // A helper that exits after the switch leaves a pending transaction: the
+        // in-progress page replaces the offer now, not after the offer's slow hold.
+        let next = takeover_failure_next(takeover_gate(Some(UnfinishedTakeoverNext::Wait), None));
+        assert_eq!(next, TakeoverFailureNext::Show("takeoverProgress"));
+        assert!(!waiting_for_choice(Some("takeoverProgress")));
+        assert_eq!(takeover_failure_next(takeover_gate(None, Some((Restored, false)))), TakeoverFailureNext::Show("takeoverRestored"));
+        assert_eq!(takeover_failure_next(takeover_gate(None, Some((RecoveryFailed, false)))), TakeoverFailureNext::Show("takeoverFailed"));
+        // No transaction started, so nothing changed: offer the choice again.
+        assert_eq!(takeover_failure_next(takeover_gate(None, None)), TakeoverFailureNext::Reoffer);
+    }
+    #[test]
+    fn the_takeover_offer_waits_like_the_version_pages() {
+        for page in ["takeover", "takeoverRestored", "takeoverFailed", "outdatedService", "unverifiedService"] {
+            assert!(waiting_for_choice(Some(page)), "{page}");
+            assert_eq!(connection_retry_delay(std::time::Duration::from_secs(1), waiting_for_choice(Some(page))), std::time::Duration::from_secs(30));
+        }
+        for page in [None, Some("starting"), Some("takeoverProgress"), Some("stuck")] {
+            assert!(!waiting_for_choice(page), "{page:?}");
+        }
+    }
+    #[test]
+    fn restored_outcome_acknowledgement_is_per_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!takeover_acknowledged(dir.path(), "tx-one"));
+        acknowledge_takeover(dir.path(), "tx-one").unwrap();
+        assert!(takeover_acknowledged(dir.path(), "tx-one"));
+        assert!(!takeover_acknowledged(dir.path(), "tx-two"));
+    }
+    #[test]
+    fn dismissal_is_strict_and_bound_to_both_hashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut identity = pacer_desktop::ota::bootstrap_identity::LegacyExecutable { device: "1".into(), inode: "2".into(), size: 3, modified_ns: "4".into(), changed_ns: "5".into(), sha256: "a".repeat(64), cdhash: "b".repeat(40) };
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        dismiss_takeover(dir.path(), &identity).unwrap();
+        assert!(takeover_dismissed(dir.path(), &identity));
+        identity.cdhash = "c".repeat(40);
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        identity.cdhash = "b".repeat(40);
+        identity.sha256 = "c".repeat(64);
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        std::fs::write(dir.path().join("takeover-dismissed.json"), format!(r#"{{"schema":1,"sha256":"{}","cdhash":"{}","extra":1}}"#, identity.sha256, identity.cdhash)).unwrap();
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        // A symlink at the record's name is never followed, even to a valid record.
+        let elsewhere = tempfile::tempdir().unwrap();
+        dismiss_takeover(elsewhere.path(), &identity).unwrap();
+        std::fs::remove_file(dir.path().join("takeover-dismissed.json")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.path().join("takeover-dismissed.json"), dir.path().join("takeover-dismissed.json")).unwrap();
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        // Nor is a directory or another non-regular file.
+        std::fs::remove_file(dir.path().join("takeover-dismissed.json")).unwrap();
+        std::fs::create_dir(dir.path().join("takeover-dismissed.json")).unwrap();
+        assert!(!takeover_dismissed(dir.path(), &identity));
     }
 }

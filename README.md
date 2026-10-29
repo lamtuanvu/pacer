@@ -48,6 +48,10 @@ The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
 CLI can repair a missing or mismatched companion from its verified own-version
 release; an incomplete desktop app must be replaced as a complete app.
 
+Copying a source build into `~/.local/bin/pacer` replaces the desktop app's
+terminal command. Use a sandboxed `PACER_HOME` and a separate `PACER_PORT` for
+development builds.
+
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See
 [installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates
@@ -184,6 +188,8 @@ The app is served locally by the daemon and signs you in through a one-time link
 Use `pacer open sessions` to open a screen, `pacer open --print` to print the sign-in
 link, or `pacer open --logout` to sign out all browser sessions. See the
 [app guide](docs/app.md) for screens, security and troubleshooting.
+
+Agents settings lists executors in priority order. Use an executor's More actions button to edit Priority and Parallel tasks, then save the page draft; Takes work saves immediately. Narrow settings containers show labelled cards with all actions visible. The Add agent wizard wraps its steps above the form when space is limited and keeps your draft if you leave. Machines cards and rows adapt to their available width.
 
 ## Uninstall
 

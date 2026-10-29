@@ -2919,7 +2919,7 @@ Params JSON Schema:
 
 ### `dispatch.explain`
 
-Explain, read-only, which executor a request would go to: the ladder step, the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.
+Explain, read-only, which executor a request would go to: task.delegate ranking (via: delegate, the default) or dispatch.submit/child ladder (via: dispatch), the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.
 
 Params JSON Schema:
 
@@ -3025,6 +3025,24 @@ Params JSON Schema:
         "complex"
       ]
     },
+    "via": {
+      "default": "delegate",
+      "type": "string",
+      "enum": [
+        "dispatch",
+        "delegate"
+      ]
+    },
+    "interactionMode": {
+      "type": "string",
+      "enum": [
+        "delegated",
+        "conversation"
+      ]
+    },
+    "allowDelegation": {
+      "type": "boolean"
+    },
     "strategyDraft": {
       "type": "object",
       "properties": {
@@ -3066,7 +3084,8 @@ Params JSON Schema:
     "repo",
     "goal",
     "requirements",
-    "preferences"
+    "preferences",
+    "via"
   ],
   "additionalProperties": false,
   "$defs": {
