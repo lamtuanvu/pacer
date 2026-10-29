@@ -115,10 +115,10 @@ export function Conversation({
   return (<>
     <article className="pc-conversation" aria-label="Interactive conversation">
       {dialogs.dialog}
-      <FrameSlot name="title">{slots?.title(!active && !!task.conversation?.agentSessionId && (narrowTitle
+      <div className="pc-session-resume">{slots?.title(!active && !!task.conversation?.agentSessionId && (narrowTitle
         ? <IconButton size="sm" icon="retry" aria-label="Resume conversation" title="Resume conversation" disabled={busy} onClick={() => void resume()} />
-        : <Button size="sm" disabled={busy} onClick={() => void resume()}>Resume conversation</Button>))}</FrameSlot>
-      <FrameSlot name="actions">{active && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session" aria-label="End session" title="End session (asks to confirm)"
+        : <Button size="sm" disabled={busy} onClick={() => void resume()}>Resume conversation</Button>))}</div>
+      <FrameSlot name="actions">{!slots && active && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session" aria-label="End session" title="End session (asks to confirm)"
         busy={busy} disabled={busy} onClick={() => void end()} />}</FrameSlot>
       <div className="pc-conversation-body">
         {task.state === "failed" && task.summary && (

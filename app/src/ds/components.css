@@ -934,3 +934,12 @@ a.pc-btn{text-decoration:none}
 .pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
 .pc-segmented--insights [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
 @media(max-width:560px),(pointer:coarse){.pc-segmented--insights .pc-btn{min-height:var(--control-touch)}}
+
+/* The documented slim meter stacks its track and optional caption. */
+.pc-usage--slim{display:flex;flex-direction:column;align-items:stretch;width:100%}
+.pc-meter--slim{width:100%;height:var(--size-6)}
+.pc-usage--slim .pc-usage__text{white-space:normal}
+
+/* Board header actions share a 26px control without changing compact form density. */
+.pc-btn.pc-btn--bar{height:var(--size-26);min-height:var(--size-26);padding:0 var(--space-2\.5);border-radius:var(--radius-sm);font-size:var(--type-caption-size)}
+@media(pointer:coarse){.pc-btn.pc-btn--bar{height:var(--control-touch);min-height:var(--control-touch)}}

@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Align the live session with the Session and ViewerDesktop boards: a separate session header, compact Sessions tree with dispatch parent links and a centered status pill, workspace and live usage details, acceptance checks, diff links and file preview tabs.
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.

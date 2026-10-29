@@ -125,8 +125,8 @@ test('filter_buckets_follow_attention_then_activity_then_outcome', () => {
 test('navigator_lists_every_root_in_one_labelled_tree', () => {
   const html = renderToString(<TaskNavigator selectedId="t-3" nodes={[root(), leaf('t-8', { active: false, state: { tone: 'good', live: false, label: 'Completed' } })]} />);
   expect(html).toContain('<strong>Sessions</strong>');
-  expect(html).toContain('aria-label="Sessions"');
-  expect(html.match(/<article/g)).toHaveLength(2);
+  expect(html).toContain('aria-label="Task navigator"');
+  expect(html.match(/class="pc-session-node-group"/g)).toHaveLength(4);
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
 });
 
