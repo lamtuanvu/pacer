@@ -3,7 +3,7 @@ import { DensityContext, DensityProvider } from '../ds/Density';
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
-import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
@@ -19,6 +19,7 @@ import { CommandTrigger } from "./CommandTrigger";
 import { StrategyQuickAccessPopup } from "./StrategyQuickAccess";
 import { useNotifications } from "../data/notification-context";
 import { useNavigation } from "../navigation";
+import { OfflineNotice } from "./OfflineNotice";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { commands, keys } from "../keys/instance";
@@ -118,6 +119,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
+  // The UI has its own API client, separate from the store's snapshot transport.
+  useLayoutEffect(() => { api?.setConnected?.(state.connected); }, [api, state.connected]);
   const planner = state.snapshot?.planner, mode = state.snapshot?.mode?.mode;
   const pacing = planner && mode ? `Settings · ${agentInfo(planner.agent).name} is in ${modeWords(mode)} mode` : "Settings";
   // The active saved setup is read (an existing operation) when the menu opens, so its row can say which one is on.
@@ -131,14 +134,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     if (!api || !state.snapshot) return;
     const fail = (error: unknown) => notifications?.notify({ key: "dispatch-command", tone: "error", title: "Could not change dispatching", message: error instanceof Error ? error.message : undefined });
     const offs = [
-      ...(ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
+      ...(state.connected && ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
         ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
         : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
-      ...(ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
+      ...(state.connected && ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
       commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
     ];
     return () => offs.forEach(off => off());
-  }, [api, paused, ops, !state.snapshot, notifications, activeSetup, pacing]);
+  }, [api, paused, ops, !state.snapshot, state.connected, notifications, activeSetup, pacing]);
   const searchable = route.name !== "setup" && route.name !== "loading";
   useEffect(() => {
     if (!searchable) return;
@@ -157,7 +160,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   // Dispatcher and the legacy Assistant screen still rely on the shell for their h1.
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={narrow && route.name === "dispatch" || route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
       ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
@@ -170,7 +173,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     activity={<Rail route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings || tasks}
     right={details}
-    live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
+    live={!state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
     mainClass={`pc-main${!loading && !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}

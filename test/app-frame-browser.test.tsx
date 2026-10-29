@@ -486,7 +486,7 @@ browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
 }, 30_000);
 
 for (const setupOpen of [0, 1]) {
-  browserTest(`bottom navigation has at most eight nonoverlapping touch targets with setupOpen=${setupOpen}`, async () => {
+  browserTest(`bottom navigation has five nonoverlapping board touch targets with setupOpen=${setupOpen}`, async () => {
     const built = await frame(setupOpen);
     const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
     try {
@@ -498,14 +498,17 @@ for (const setupOpen of [0, 1]) {
         const box = node.getBoundingClientRect();
         return { label: node.getAttribute("aria-label"), left: box.left, right: box.right, width: box.width, height: box.height };
       }));
-      expect(targets).toHaveLength(setupOpen ? 8 : 7);
+      expect(targets).toHaveLength(5);
       expect(targets.some(t => t.label === "Dispatch")).toBe(true);
       expect(targets.some(t => t.label === "Insights")).toBe(true);
-      expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(setupOpen === 1);
-      expect(targets.some(t => t.label === "Dispatcher")).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(false);
+      expect(targets.some(t => t.label === "Dispatcher")).toBe(false);
+      expect(targets.some(t => t.label === "Tasks")).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Needs you"))).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Settings"))).toBe(true);
       for (const [i, target] of targets.entries()) {
         expect(target.width).toBeGreaterThanOrEqual(44);
-        expect(target.height).toBe(44);
+        expect(target.height).toBe(56);
         expect(target.right).toBeLessThanOrEqual(375);
         if (i > 0) expect(target.left).toBeGreaterThanOrEqual(targets[i - 1]!.right);
       }
@@ -513,3 +516,25 @@ for (const setupOpen of [0, 1]) {
     } finally { await browser.close(); }
   }, 30_000);
 }
+
+ browserTest("terminal dock service controls disable offline and recover without changing landmarks", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "#/dispatch");
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Terminal panel", exact: true });
+    await panel.waitFor();
+    const controls = [panel.getByRole("button", { name: "New terminal", exact: true }), panel.getByRole("button", { name: "New terminal in…", exact: true })];
+    for (const connected of [false, true]) {
+      await page.evaluate(value => window.dispatchEvent(new CustomEvent("fixture-connection", { detail: value })), connected);
+      await page.waitForFunction(value => !!document.querySelector(".connection-bar") === !value, connected);
+      for (const control of controls) {
+        expect(await control.isDisabled()).toBe(!connected);
+        if (!connected) expect(await control.locator("xpath=ancestor::fieldset").getAttribute("title")).toBe("pacer is offline");
+      }
+      expect(await panel.count()).toBe(1);
+    }
+  } finally { await browser.close(); }
+}, 30_000);

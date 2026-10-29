@@ -10,9 +10,10 @@ export function reportSessionEnded(): void {
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
 const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close"]);
-export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
+export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call"> & { setConnected?: (connected: boolean) => void };
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());
+  let connected = true;
   let version: 2 | 3 | undefined;
   let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
@@ -49,10 +50,13 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     return negotiation;
   }
   return {
+    setConnected(value) { connected = value; },
     hello: async () => { if (!version) return select(); const hello = validateHello(await request<Hello>(`/v${version}/hello`)); return version === 2 ? legacyHello(hello) : hello; },
     snapshot: async () => { if (!version) await select(); return request<Awaited<ReturnType<ApiClient["snapshot"]>>>(`/v${version}/snapshot`); },
     call: async <T>(op: string, params: unknown = {}): Promise<T> => {
+      if (!connected) throw new ApiError("offline", "pacer is offline");
       if (!version) await select();
+      if (!connected) throw new ApiError("offline", "pacer is offline");
       if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
       const prepared=terminalRequests.prepare(op,params);
       params=prepared.params;

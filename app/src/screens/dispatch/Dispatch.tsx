@@ -1,6 +1,6 @@
 import styles from "./dispatch.css" with { type: "text" };
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { explainRepo, explanationApplies, kpiTiles, needsYouCards, nextFromExplanation, queueReason, periodHeading, periodRange, PERIODS, plannerBudget, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
@@ -33,8 +33,11 @@ import { activeRepo, NarrowContext, useNarrow } from "../../shell/narrow";
 import { ActionButton } from "../ActionButton";
 import { useOverviewPage } from "../overview-page";
 import { repoChoices, RepoFilter } from "../RepoFilter";
+import type { AgentDetection } from "../../../../src/install/detection";
+import type { SetupChecklist } from "../../../../src/setup/checklist";
+import { SetupContext } from "../setup/context";
 import { SetupBanner } from "../setup/SetupBanner";
-import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
+import { ErrorMessage, useAction, useQuery, useTaskContext } from "../task-shared";
 
 const styledDocuments = new WeakSet<Document>();
 function useDispatchStyles() {
@@ -62,7 +65,7 @@ function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean,
 }
 
 /** A compact Needs you card: glyph, title, one caption line and one action. Status words stay readable beside the glyph. */
-function AttentionCard({ card, snapshot, runner, now, query, actions }: { card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
+function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = false }: { narrow?: boolean; card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
   const item = card.kind === "task" ? card.items[0]! : card.item, bad = (card.kind === "task" ? card.node.attention : card.level) === "bad";
   const status = attentionStatus(item, snapshot.tasks), title = card.kind === "task" ? card.node.title : item.title;
   // The board's caption: the service's detail, then when it was raised.
@@ -72,6 +75,7 @@ function AttentionCard({ card, snapshot, runner, now, query, actions }: { card: 
     label: item.kind === "question" ? "Answer" : item.kind === "failed" ? "Inspect failures" : "Review",
     href: item.kind === "question" ? `#/needs-you?answer=${encodeURIComponent(item.taskId)}` : `#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "failed" ? "failure" : "review"}`,
   } : null;
+  if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
     <ListRow className={`pc-attn-card${actions === 1 && item.kind === "review" ? " pc-attn-card--review" : ""}`} outlined tone={bad ? "bad" : actions === 1 && item.kind === "review" ? undefined : "warn"}
       leading={<StatusGlyph status={actions === 1 && item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} />}
@@ -97,7 +101,7 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
       <span className="grow" />{standalone ? otherRepos : all}
     </div>
     {cards.length > 0 && <ul className="pc-dispatch-cards pc-dispatch-cards--flush" aria-label="Needs you, most urgent first">
-      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} actions={standalone ? 2 : 1} />)}
+      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} narrow={narrow && !standalone} actions={standalone ? 2 : 1} />)}
     </ul>}
     {!cards.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks", query)}>View Tasks</TextAction>} />}
 
@@ -105,11 +109,14 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
 }
 
 /** Active work and recent decisions in the board's seven-column dispatch ledger. */
-function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, workError, onWorkReload }: { snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery; workRows: WorkRow[]; workLoading?: boolean; workError?: unknown; onWorkReload?: () => void }) {
+function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, workError, onWorkReload, narrow = false }: { narrow?: boolean; snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery; workRows: WorkRow[]; workLoading?: boolean; workError?: unknown; onWorkReload?: () => void }) {
   const nodes = scopedTaskTree(snapshot, scope, { now, extra: workTasks(workRows) });
   // A missing parent never turns a known subtask into a Dispatch row.
   const subtasks = new Set(workRows.filter(row => row.parentId).map(row => row.id));
   const visible = nodes.filter(node => !subtasks.has(node.id)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, 6);
+  if (narrow) return <section className="pc-narrow-running" aria-labelledby="running-title"><SectionHeading variant="headline" id="running-title">Running</SectionHeading>
+    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : nodes.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label} · {node.repo}</span></span></ListRowLink>)}
+  </section>;
   const c = counts(snapshot);
   const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && nodes.some(n => n.id === t.id)).length;
   const runningNow = (scope.repo === null ? c?.running : c?.byRepo[scope.repo]?.running) ?? byState("running"), queued = byState("queued");
@@ -269,7 +276,7 @@ export function useTick(from: number): number {
 }
 
 /** The page title with its live line, then the period, repos and the primary New task. New task opens Delegate until the New task composer lands. */
-function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
+function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now, hideNewTask = false }: { hideNewTask?: boolean; snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
   const age = useTick(now);
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
   // The page line carries the update age, as on the board; the top bar drops its own on Dispatch (UI-15). No snapshot time, no age.
@@ -278,12 +285,51 @@ function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, 
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl variant="board" label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
     {!narrow && <RepoFilter snapshot={snapshot} query={query} menu />}
-    <Button variant="primary" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>
+    {!hideNewTask && <Button variant="primary" size="sm" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>}
   </div>;
   const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span></div>;
-  // Phones keep the scope toggle on its own row; the controls follow on the next.
-  return narrow ? <>{title}<RepoFilter snapshot={snapshot} query={query} narrow />{controls}</>
+  return narrow ? null
     : <header className="pc-dispatch__header">{title}{controls}</header>;
+}
+
+/** First run requires known missing integration and no configured executors. */
+export function isFirstRun(snapshot: ClientSnapshot, checklist?: SetupChecklist): boolean {
+  return !snapshot.executors?.some(executor => executor.rank !== "planner") && (checklist ? checklist.items.some(item => item.id === "connect" && item.status !== "done") : !snapshot.planner);
+}
+export function FirstRun({ detections, planner, query, error, retry }: { detections?: AgentDetection[]; planner?: string; query: RouteQuery; error?: unknown; retry?: () => void }) {
+  return <section className="pc-first-run" aria-labelledby="first-run-title">
+    <div><h2 id="first-run-title">Let your planner hand off work</h2><p>pacer keeps {planner ? agentInfo(planner).name : "your planner"} on pace by sending execution to the other agents you already pay for.</p></div>
+    {error ? <div><ErrorMessage error={error} /><Button size="sm" onClick={retry}>Check again</Button></div> : !detections ? <LoadingState label="Looking for agent CLIs…" /> : <ul className="pc-first-run__agents">{detections.map(agent => <li key={agent.agent}>
+      <AgentMark agent={agent.agent} size={20} labelled={false} /><span className="grow"><b>{agentInfo(agent.agent).name}</b> <span className="pc-dispatch-caption">{agent.version ?? (agent.found ? "CLI detected" : "not installed")}{agent.agent === planner ? " · will plan and review" : ""}</span></span>
+      {agent.agent === planner ? <Pill tone="info">Planner</Pill> : agent.found ? <Pill tone="good">Found</Pill> : <TextAction href={withQuery(`#/settings/add-executor`, query)} title={agent.install_hint}><Pill tone="neutral">How to get it</Pill></TextAction>}
+    </li>)}</ul>}
+    <div className="pc-first-run__actions"><ButtonLink size="sm" variant="primary" href={withQuery("#/settings/dispatcher", query)}>Set up delegation</ButtonLink><ButtonLink size="sm" href={withQuery("#/settings/add-executor", query)}>Add another agent</ButtonLink><span className="pc-dispatch-caption">About 2 minutes · nothing runs until you finish</span></div>
+  </section>;
+}
+export function EmptyDispatch({ query, sampleTask }: { query: RouteQuery; sampleTask?: ComponentChildren }) {
+  return <section className="pc-empty-dispatch" aria-label="No work delegated yet"><strong>No work delegated yet</strong><span>Ask your planner to delegate, or start a task here.</span><div className="pc-first-run__actions"><ButtonLink size="sm" variant="primary" href={withQuery("#/tasks/new", query)}>New task</ButtonLink>{sampleTask}</div></section>;
+}
+export function SampleTask({ query }: { query: RouteQuery }) {
+  const action = useAction();
+  const { state } = useTaskContext();
+  return <><Button size="sm" disabled={!state.connected} title={!state.connected ? "pacer is offline" : undefined} busy={action.busy} onClick={() => void action.run<{ task_id: string }>("onboarding.try", {}, result => { location.hash = withQuery(`#/tasks/${encodeURIComponent(result.task_id)}`, query); })}>Try a sample task</Button><ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}</>;
+}
+function FirstRunData({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
+  const { state } = useTaskContext();
+  const supported = state.features.ops.has("agent.detect");
+  const detection = useQuery<AgentDetection[]>(supported ? "agent.detect" : "version.get", {});
+  return supported ? <FirstRun detections={detection.data} planner={snapshot.planner?.agent} query={query} error={detection.error} retry={detection.reload} /> : <FirstRun detections={[]} planner={snapshot.planner?.agent} query={query} />;
+}
+
+function NarrowPlanner({ snapshot, now, routing, shortWindowPct }: { snapshot: ClientSnapshot; now: number; routing: RoutingPreview | null; shortWindowPct: number | null }) {
+  const p = plannerMeter(snapshot), budget = plannerBudget(snapshot, now, shortWindowPct);
+  const next = routing?.explain ? nextFromExplanation(routing.explain)?.next : routing?.data?.ranked?.[0]?.id;
+  return <section className="pc-narrow-planner" aria-label="Planner budget">
+    {p ? <><div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong className="grow">{agentInfo(p.agent).name}</strong><StatusPill status={budget?.meter && !budget.meter.live ? { tone: "neutral", glyph: "◷", label: "Historical usage" } : { ...paceStatus(p.verdict), label: p.verdict === "behind" ? "Under pace" : p.verdict === "ahead" ? "Ahead of pace" : plannerPace(p.verdict).label }} /></div>
+      {budget?.meter && <UsageMeter used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? paceStatus(p.verdict).tone : "neutral"} size="bar" text="none" now={now} />}
+      <span className="pc-dispatch-caption">{budget?.caption ?? "Planner usage is not measured yet"}</span></> : <span>Choose a planner in Dispatcher settings.</span>}
+    <span className="pc-dispatch-caption">{next ? <>Next capable task goes to <b>{executorLabel(next)}</b></> : routing?.loading ? "Checking routing…" : "No agent can take new work now."}</span>
+  </section>;
 }
 
 export interface DispatchProps {
@@ -298,24 +344,25 @@ export interface DispatchProps {
   connected?: boolean;
   /** The planner account's 5-hour window, when its reading reports one. */
   shortWindowPct?: number | null;
+  firstRun?: ComponentChildren; sampleTask?: ComponentChildren;
 }
 const dispatchScope = (query: RouteQuery, narrow: boolean): Scope => ({ repo: narrow ? activeRepo(query) : query.repo || null });
 const NO_INSIGHTS: InsightsState = { supported: false, loading: false };
 /** The Dispatch home in the board's order: planner budget and next task, the period's figures, tokens and Needs you, then live work. Phones lead with Needs you and live work. */
-export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workError, onWorkReload }: DispatchProps) {
+export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workError, onWorkReload, firstRun, sampleTask }: DispatchProps) {
   useDispatchStyles();
   const narrow = useNarrow(query);
   const scope = dispatchScope(query, narrow);
   const plannerAndNext = <PlannerAndNext snapshot={snapshot} now={now} routing={routing} query={query} shortWindowPct={shortWindowPct} />;
   const glance = <Glance period={period} insights={insights} />, share = <TokenShare summary={insights.current} planner={snapshot.planner?.agent ?? null} />;
   const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />;
-  const liveWork = <LiveDispatch workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
+  const empty = snapshot.tasks.length === 0 && !(snapshot.attention?.length) && workRows.length === 0 && !workLoading && !workError;
+  const liveWork = <LiveDispatch narrow={narrow} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    <DispatchHeader snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
-    {narrow ? <>
-      {/* Phones lead with what needs action; the figures and budgets follow. */}
-      {needs}{liveWork}{plannerAndNext}<AgentUsage snapshot={snapshot} query={query} />{glance}{share}
+    <DispatchHeader hideNewTask={!!firstRun || empty} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
+    {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
+      {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}
     </> : <>
       {plannerAndNext}
       {glance}
@@ -328,7 +375,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
 function useAttentionKeys(query: RouteQuery) {
   const { state } = useTaskContext();
   const runner = useActions();
-  const current = useRef({ snapshot: state.snapshot, query }); current.current = { snapshot: state.snapshot, query };
+  const current = useRef({ snapshot: state.snapshot, query, connected: state.connected }); current.current = { snapshot: state.snapshot, query, connected: state.connected };
   useEffect(() => keys.register({ keys: "/", label: "Focus the repo filter", scope: "dispatch", run: () => document.querySelector<HTMLButtonElement>("#repo-filter button")?.focus() }), []);
   useEffect(() => {
     const rows = () => [...document.querySelectorAll<HTMLElement>("[data-attention-id]")];
@@ -338,7 +385,7 @@ function useAttentionKeys(query: RouteQuery) {
       j: () => move(1), k: () => move(-1),
       Enter: () => { const active = document.activeElement as HTMLElement; (["BUTTON", "A"].includes(active?.tagName) ? active : active?.closest("[data-attention-id]")?.querySelector<HTMLElement>(".pc-list-row__actions button, .pc-list-row__actions a"))?.click(); },
       v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/tasks/${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
-      x: () => { const item = selected(); if (item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
+      x: () => { const item = selected(); if (current.current.connected && item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "dispatch", run: actions[key] ?? (() => {
       const { snapshot, query } = current.current;
@@ -434,6 +481,7 @@ function useDispatchWork(repo: string | null) {
 
 export function DispatchHome({ query }: { query: RouteQuery }) {
   const { state } = useTaskContext();
+  const { checklist } = useContext(SetupContext);
   const runner = useActions();
   useAttentionKeys(query);
   const [period, setPeriod] = useState<Period>("7d");
@@ -450,6 +498,8 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
   return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
+    sampleTask={state.features.ops.has("onboarding.try") && checklist?.complete && state.snapshot.executors?.some(e => e.rank !== "planner" && e.enabled && e.state === "ready") ? <SampleTask query={query} /> : undefined}
+    firstRun={isFirstRun(state.snapshot, checklist) ? <FirstRunData snapshot={state.snapshot} query={query} /> : undefined}
     period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workError={work.error} onWorkReload={work.reload}
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} />;
 }

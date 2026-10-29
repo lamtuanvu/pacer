@@ -89,3 +89,8 @@ progress.pc-insights__c0,progress.pc-insights__c1,progress.pc-insights__c2,progr
 .pc-insights__agents .pc-insights__share{display:flex}
 .pc-insights__agents .pc-insights__share progress{width:0;min-width:0}
 @media(max-width:480px){.pc-insights__days li:nth-child(odd){visibility:hidden}}
+
+.pc-insights__unmeasured{display:flex;flex-direction:column;gap:var(--space-1\.5);color:var(--ink-secondary)}
+.pc-insights__unmeasured>strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-display-weight);color:var(--ink)}
+
+.pc-insights__kpi--unmeasured>strong{color:var(--ink-muted)}
