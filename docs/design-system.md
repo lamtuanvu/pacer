@@ -16,7 +16,7 @@ Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit colo
 
 All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal (Comfortable) 32px and touch 44px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
 
-Comfortable (`normal`) is the default for new installs and existing installs with no saved density choice, including dialogs outside the shell. An explicit saved Comfortable or Compact choice is preserved. Shared page-header, toolbar and card action buttons use DS `sm`: 32px in Comfortable and 28px in Compact. All variants and button links share one density rule; Settings action buttons inherit the app preference. Comfortable single-line inputs keep 13px body text at 32px height; Compact inputs use 12px caption text at 28px. Settings fields retain their shared 32px form density. Icon and segmented controls retain their board geometry on desktop.
+Comfortable (`normal`) is the default for new installs and existing installs with no saved density choice, including dialogs outside the shell. An explicit saved Comfortable or Compact choice is preserved. Shared page-header, toolbar and card action buttons use DS `sm`: 32px in Comfortable and 28px in Compact. All variants and button links share one density rule; Settings action buttons inherit the app preference. Comfortable single-line inputs keep 13px body text at 32px height; Compact inputs use 12px caption text at 28px. Settings fields, icons and segmented controls follow the selected desktop density.
 
 `NarrowContext`, owned by DS and reexported by shell for compatibility, selects 44px touch targets for narrow/repository-scoped views. At viewport widths up to 560px or with coarse pointers, DS supplies 44px control targets, including filter chips and tabs, even for dialogs mounted outside shell context. The tray keeps its independent `sm` 32px action size at popover widths, using its own compact token. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
 
@@ -609,3 +609,12 @@ read-only layout measurements; the open launcher clamps below that header.
 Neither channel accepts user input or changes the closed launcher's spacing.
 
 Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.
+
+The app's device-local `pacer.density` preference defaults to Comfortable
+(`normal`). The shell sets `html[data-density="normal"|"compact"]` and supplies
+DensityContext; shared small buttons, icon buttons, single-line inputs, pickers
+and recurring rows use the matching 32px or 28px control token. Settings share
+the selected geometry. Rows use 8px/12px padding in Comfortable and 6px/8px in
+Compact. Touch targets and the compact tray retain their scoped geometry.
+Preferences apply immediately and persist in origin-local storage, without a
+service configuration write. Theme uses the same device-local storage scope.

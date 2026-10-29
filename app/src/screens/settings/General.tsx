@@ -1,3 +1,4 @@
+import { applyDensity, savedDensity, DENSITY_KEY } from "../../density";
 import {SettingsPath} from "./PathText";
 import { useDiagnosticsStatus } from "../../data/diagnostics-status";
 import { displayPath } from "./presentation";
@@ -442,10 +443,7 @@ function NotificationsSection({
   );
 }
 function AppearanceSection() {
-  const [density, setDensity] = useState(() => {
-    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
-    catch { return "normal"; }
-  });
+  const [density, setDensity] = useState(savedDensity);
   const [theme, setTheme] = useState(() => {
       try {
         const saved = localStorage.getItem("pacer.theme");
@@ -462,7 +460,7 @@ function AppearanceSection() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   useEffect(() => {
-    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"); } catch { /* device storage unavailable */ } };
+    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(savedDensity()); } catch { /* device storage unavailable */ } };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
@@ -493,9 +491,11 @@ function AppearanceSection() {
       </SettingRow>
       <SettingRow variant="board" label="Density" description="Comfortable uses 32px controls. Compact fits more rows on screen with 28px controls.">
         <Segment variant="board" label="Density" value={density} options={[{ value: "compact", label: "Compact" }, { value: "normal", label: "Comfortable" }]} onChange={value => {
-          setDensity(value);
+          const choice = value === "compact" ? "compact" : "normal";
+          setDensity(choice);
+          applyDensity(choice);
           window.dispatchEvent(new CustomEvent("pacer:density", { detail: value }));
-          try { localStorage.setItem("pacer.density", value); setMessage("Saved on this device."); }
+          try { localStorage.setItem(DENSITY_KEY, value); setMessage("Saved on this device."); }
           catch { setMessage("Applied for this session. Device storage is unavailable."); }
         }}/>
       </SettingRow>
