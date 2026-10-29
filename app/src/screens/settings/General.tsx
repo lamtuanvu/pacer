@@ -630,6 +630,12 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             onValueChange={(choice) => void action.run("config.set", {key:"execution.launch_mode",value:choice})}
           />
         </Field>
+        <TaskBackendField
+          value={query.data?.keys["execution.backend"]?.value}
+          source={query.data?.keys["execution.backend"]?.source}
+          disabled={action.busy}
+          run={action.run}
+        />
         <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
           <ChoicePicker
             aria-label="Preferred terminal"
@@ -642,6 +648,31 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
       </ResourceState>
       <Feedback action={action} />
     </Section>
+  );
+}
+const BACKEND_CHOICES = [
+  { value: "direct", label: "Direct" },
+  { value: "orca", label: "Orca" },
+];
+export function TaskBackendField({ value, source, disabled, run }: {
+  value: unknown;
+  source?: string;
+  disabled?: boolean;
+  run: (op: string, params: unknown) => unknown;
+}) {
+  return (
+    <Field
+      label="Task backend"
+      help={<>Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}
+    >
+      <ChoicePicker
+        aria-label="Task backend"
+        value={value === "orca" ? "orca" : "direct"}
+        options={BACKEND_CHOICES}
+        disabled={disabled}
+        onValueChange={(choice) => void run("config.set", { key: "execution.backend", value: choice })}
+      />
+    </Field>
   );
 }
 function NotificationsSection({
