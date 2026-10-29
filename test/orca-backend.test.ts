@@ -32,7 +32,7 @@ const listing = (state: {agent: boolean; shell: boolean}) => (a: string[]) => {
   ], totalCount: 3, truncated: false});
 };
 
-function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: Partial<OrcaBackendDeps> = {}) {
+function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: Partial<OrcaBackendDeps> = {}, fallthrough: Route[] = []) {
   const state = {agent: false, shell: true};
   const routes: Route[] = [
     [["git", "-C", repo, "rev-parse", "--verify"], raw("a".repeat(40))],
@@ -66,7 +66,7 @@ function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: 
     [O("orchestration", "worker-release"), envelope({dispatchId: dispatch, state: "retained", processAction: "none"})],
     [O("orchestration", "worker-stop"), envelope({dispatchId: dispatch, state: "stopped", processAction: "none"})],
   ];
-  const f = fakeRun([...over, ...routes]);
+  const f = fakeRun([...over, ...routes, ...fallthrough]);
   const ctx = fakeCtx({run: f.run});
   const task = createTask(ctx, {brief: {goal: "Fix the bug", repo}, kind: null, requestedExecutor: null, timeoutS: 1});
   let direct = 0;
@@ -1170,5 +1170,74 @@ test("a runner id with an account (codex#work) names its lane worktree the way O
   const create = x.f.calls.find(a => a[1] === "worktree" && a[2] === "create")!;
   expect(arg(create, "--name")).toBe(`pacer-${x.task.id}-codex-work`);
   expect(out.worktree).toBe(`/work/pacer-${x.task.id}-codex-work`);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+});
+
+/** Git in a lane's worktree, routed after the defaults: clean, with `commits` commits beyond its base. */
+const laneGit = (root: () => string, commits: number): Route[] => [
+  [["git", "-C"], (a: string[]) => a[2] !== root() ? raw("", 99)
+    : a[3] === "status" ? raw("") : a[3] === "rev-list" ? raw(`${commits}\n`) : a[3] === "rev-parse" ? raw(`${root()}\n`) : raw("", 99)],
+];
+/** `orca worktree show` that knows a group lane: its own worktree by path or id, and the group parent listing it until removed. */
+function groupLaneShows(ref: {x?: ReturnType<typeof setup>}, state: {lane: boolean}): Route[] {
+  return [
+    [O("worktree", "rm"), (a: string[]) => {if (arg(a, "--worktree") === `id:${ref.x!.wt}`) state.lane = false; return envelope({});}],
+    groupShow(() => state.lane ? [ref.x!.wt] : []), groupClean,
+    [O("worktree", "show"), (a: string[]) => {
+      const sel = arg(a, "--worktree"), x = ref.x!;
+      if (sel === `path:${x.root}` || sel === `id:${x.wt}`) return envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}});
+      return envelope({worktree: {id: `repo-1::${repo}`, path: repo}});
+    }],
+  ];
+}
+
+test("stopping a running interactive lane removes its unused worktree and its now-empty group parent", async () => {
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
+  updateTask(x.ctx, x.task.id, t => {t.interactionMode = "conversation"; t.interactive = true; t.group = "feature-x"; t.state = "stopped";});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, readTask(x.ctx, x.task.id)!);
+  expect(out.report).toContain("stopped by the planner");
+  expect(out.worktree).toBeUndefined();
+  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  const removes = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"));
+  expect(removes).toEqual([`id:${x.wt}`, "id:repo-1::/work/pacer-group-feature-x"]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({});
+  expect(attemptLog(out)).toContain("removed group feature-x parent worktree");
+});
+
+test("stopping a lane that holds work keeps its worktree and group parent for review", async () => {
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 2));
+  updateTask(x.ctx, x.task.id, t => {t.interactionMode = "conversation"; t.interactive = true; t.group = "feature-x"; t.state = "stopped";});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, readTask(x.ctx, x.task.id)!);
+  expect(out.worktree).toBe(x.root);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+  expect(attemptLog(out)).toContain("it holds work");
+});
+
+test("pacer stop on a kept-alive group lane also removes its unused worktree and the empty group parent", async () => {
+  const {main} = await import("../src/cli");
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
+  updateOrcaState(x.ctx, s => { s.groups["repo-1:feature-x"] = {selector: "path:/work/pacer-group-feature-x"}; });
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => {t.interactive = true; t.group = "feature-x";});
+  expect(await main(["stop", asked.id], x.ctx)).toMatchObject({code: 0});
+  expect(workerStops(x)).toBe(1);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  const removes = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"));
+  expect(removes).toEqual([`id:${x.wt}`, "id:repo-1::/work/pacer-group-feature-x"]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({});
+});
+
+test("an idle-expired lane's worker is released but its worktree stays", async () => {
+  const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
+  const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+  const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
+  askedLane(x);
+  await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, [x.backend]);
+  expect(workerStops(x)).toBe(1);
   expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
 });

@@ -1,5 +1,5 @@
 import { beginWorkSync, bindOrcaWorkSync, finishOrcaWorkSync, finishWorkSync } from "../../update/desktop/admission";
-import { resolveWorktreeBase } from "../../supervisor/worktree";
+import { resolveWorktreeBase, worktreeUnchanged } from "../../supervisor/worktree";
 import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -23,7 +23,7 @@ import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
-import { laneWorktreeName } from "./names";
+import { laneWorktreeName, orcaWorktreeName } from "./names";
 import { OrcaClient, type Placement, type TerminalRow, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
 import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, releaseEmptyGroup, type WorkerLookup, worktreeTerminals } from "./cleanup";
 import { ensureCoordinator, ensureGroupWorktree, ensureRepo, gitInfo, realpathSafe } from "./setup";
@@ -231,6 +231,49 @@ export async function liveAgentProblem(c: OrcaClient, live: LiveWorker): Promise
   return null;
 }
 
+/**
+ * A stopped interactive lane gives back what it created in Orca: its new-child worktree, when it holds no work (no
+ * uncommitted changes, no commits beyond its base), and then its `--group` parent once no lane is left under it. A
+ * worktree with work stays for review and `pacer clean`. Returns whether the worktree was removed. Never throws.
+ */
+async function releaseStoppedLane(
+  ctx: Ctx, c: OrcaClient, task: TaskRecord, w: OwnedWorktree | null, log: (line: string) => void, sleep?: (ms: number) => Promise<void>,
+): Promise<boolean> {
+  try {
+    const current = readTask(ctx, task.id);
+    if (!w || current?.state !== "stopped" || current.interactionMode !== "conversation") return false;
+    const unchanged = await worktreeUnchanged(ctx, w.path, current.baseSha ?? current.baseBranch);
+    if (unchanged !== true) {
+      log(`kept the stopped lane's Orca worktree ${w.id}: ${unchanged === false ? "it holds work" : "git could not tell whether it holds work"}; pacer clean removes it after review`);
+      return false;
+    }
+    await discardCreatedWorktree(ctx, c, task.id, w, log, sleep ? { sleep } : {});
+    if (loadOrcaState(ctx).stranded[task.id]?.id === w.id) return false;
+    const sep = w.id.indexOf("::");
+    if (current.group && sep > 0) await releaseEmptyGroup(ctx, c, w.id.slice(0, sep), current.group, log, sleep ? { sleep } : {});
+    taskActivity(ctx, current, "message", `Removed the stopped lane's unused Orca worktree ${w.path}`);
+    return true;
+  } catch (e) {
+    log(`releasing the stopped lane's worktree failed: ${String(e instanceof Error ? e.message : e)}`);
+    return false;
+  }
+}
+
+/** The pacer-created lane worktree a live worker runs in, identified through Orca by its path and lane name. */
+async function liveLaneWorktree(ctx: Ctx, c: OrcaClient, task: TaskRecord, live: LiveWorker): Promise<OwnedWorktree | null> {
+  const recorded = loadOrcaState(ctx).workers[live.worker]?.worktree ?? task.worktree;
+  if (!recorded || realpathSafe(recorded) === realpathSafe(task.brief.repo)) return null;
+  const top = await ctx.run(["git", "-C", recorded, "rev-parse", "--show-toplevel"], 10_000);
+  const path = top.code === 0 ? top.stdout.trim() : "";
+  // An answer moves the worker to a new task, but the worktree keeps the name of the lane that created it.
+  const name = basename(path);
+  if (!path || !LANE_NAME.test(name) || !name.endsWith(`-${orcaWorktreeName(live.executor)}`)) return null;
+  const shown = await c.worktreeShow(path);
+  const id = shown.ok ? shown.result.worktree?.id : undefined;
+  return id ? { id, path, name } : null;
+}
+const LANE_NAME = /^pacer-t-\d{8}-\d{6}-[0-9a-f]{4}-/;
+
 /** Stop a live worker, close its terminal and forget it, as a settled attempt would. */
 async function releaseLive(ctx: Ctx, c: OrcaClient, task: TaskRecord, why: string, log: (line: string) => void = () => {}): Promise<void> {
   const live = task.live;
@@ -241,9 +284,11 @@ async function releaseLive(ctx: Ctx, c: OrcaClient, task: TaskRecord, why: strin
   const closed = await closeCreatedTerminal(c, live.terminal);
   log(`closed pacer terminal ${live.terminal}: ${closed.failure ?? "ok"}`);
   if (!closed.proof) await recordUnclosed(ctx, task.id, live.terminal, log);
+  const lane = readTask(ctx, task.id)?.state === "stopped" ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[live.worker]; }); });
   updateTask(ctx, task.id, t => { if (t.live?.worker === live.worker) delete t.live; });
   taskActivity(ctx, task, "message", `Stopped the live ${live.agent} worker: ${why}`);
+  await releaseStoppedLane(ctx, c, task, lane, log);
 }
 
 /**
@@ -692,6 +737,9 @@ async function runOrcaAttempt(
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
   const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  // A stopped lane's unused worktree (and its empty group parent) goes; the outcome then names no worktree.
+  const removed = !keepAlive && await releaseStoppedLane(ctx, c, task, created, log, deps.sleep);
+  if (removed) m = { ...m, summary: `${m.summary}\nremoved the stopped lane's unused Orca worktree ${created!.path}` };
   const transient = m.summary.includes("transient provider busy after three retries") ? "transient provider busy after three retries" : null;
   const reason = transient ?? launchBroken ?? brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
   const dir = tasksDir(ctx);
@@ -702,7 +750,7 @@ async function runOrcaAttempt(
     exec,
     report: tail([...p.notes, m.summary].join("\n\n"), REPORT_CHARS),
     backend: "orca",
-    ...(worktree ? { worktree } : {}),
+    ...(worktree && !removed ? { worktree } : {}),
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt,
       ...(reason ? { brokenReason: reason } : {}),

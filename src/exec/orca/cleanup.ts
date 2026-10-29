@@ -199,7 +199,10 @@ export async function cleanOrcaTask(ctx: Ctx, t: TaskRecord, o: HostCleanOpts, o
   if ("error" in owned) return { kept: owned.error };
   if (o.dryRun) return { removed: true };
   const failure = await removeOwned(ctx, c, owned.id, path, !!o.force, deps);
-  return failure ? { kept: failure } : { removed: true };
+  if (failure) return { kept: failure };
+  const sep = owned.id.indexOf("::");
+  if (t.group && sep > 0) await releaseEmptyGroup(ctx, c, owned.id.slice(0, sep), t.group, () => {}, deps);
+  return { removed: true };
 }
 
 /** A worker found settled after an uncertain start: show its worktree and outcome on the task, which needs review again. */
