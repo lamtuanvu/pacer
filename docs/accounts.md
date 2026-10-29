@@ -37,6 +37,12 @@ It only selects the agent's config folder. Default accounts have neither `home`
 nor `orca_account`, and pacer does not set account environment variables for
 them. There is at most one default account per native account kind.
 
+Issue import (`issue.import`, `issue.search`) runs `gh` with your own GitHub CLI
+login. `gh` reads its credential store itself; pacer never reads, stores or logs
+the token, and passes `gh` only the environment it needs (`GH_TOKEN` and
+`GITHUB_TOKEN` included, pacer's own tokens and endpoint keys excluded). See
+[Import a GitHub issue](dispatch.md#import-a-github-issue).
+
 ## Link an Orca account
 
 ```sh
@@ -192,7 +198,7 @@ optional detail and last test time (`checked_at`).
 | State | Meaning |
 | --- | --- |
 | Ready (`ready`) | Last test task passed |
-| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen, Overview and tray show it as Not tested, not Ready |
+| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen and tray show it as Not tested, not Ready |
 | Not working (`not_working`) | Test failed; reason is recorded and routing excludes the runner |
 | Key missing (`key_missing`) | Stored key or environment variable is absent; routing excludes the runner |
 | External OpenCode provider (`external`) | Legacy endpoint without a managed connection |
