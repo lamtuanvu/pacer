@@ -264,11 +264,14 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
    expect(row.padding).toBe('12px 0px');
    // The board keeps the label and control side by side at desktop widths.
    expect(row.columns.split(' ')).toHaveLength(2);
+   // The label column is the board's 240px.
+   expect(row.columns.split(' ')[0]).toBe('240px');
    expect(row.gap).toBe('20px');
   }
   expect(await page.locator('.u3-machines-grid').evaluate(el=>getComputedStyle(el).gap)).toBe('20px');
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(72);
-  expect(await page.getByRole('button',{name:'Terminal for sessions',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(220);
+  // The 240px label column leaves 196px of the 456px card body, so the 220px select fits to its column.
+  expect(await page.getByRole('button',{name:'Terminal for sessions',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(196);
   expect(await page.getByRole('heading',{name:'This Mac',exact:true}).evaluate(el=>{const c=getComputedStyle(el);return [c.fontSize,c.lineHeight,c.fontWeight]})).toEqual(['16px','22px','650']);
   expect(await page.getByText('Codex · team may use 3',{exact:true}).count()).toBe(1);
   await page.getByRole('button',{name:'devbox',exact:true}).click();
@@ -416,6 +419,8 @@ browserTest('Agents five columns and More actions remain contained with the asid
       await assertContained(page);
       const edges=await page.locator('.u3-agents-table').evaluate(el=>({right:el.getBoundingClientRect().right,cells:[...el.querySelectorAll('td')].map(cell=>cell.getBoundingClientRect().right)}));
       for(const right of edges.cells) expect(right).toBeLessThanOrEqual(edges.right);
+      // With the aside open at 1440 the table keeps the board's five columns instead of collapsing to cards.
+      if(viewport===1440) expect(await page.locator('thead').evaluate(el=>getComputedStyle(el).display)).not.toBe('none');
       await action.scrollIntoViewIfNeeded();
       expect(await action.isVisible()).toBe(true);
       const bounds=await action.boundingBox();
