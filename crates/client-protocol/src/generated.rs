@@ -13388,6 +13388,9 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///    "acceptance": {
 ///      "type": "string"
 ///    },
+///    "acceptance_pipefail": {
+///      "type": "boolean"
+///    },
 ///    "base": {
 ///      "type": "string",
 ///      "maxLength": 4096,
@@ -13483,6 +13486,8 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 pub struct TaskDelegateParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub acceptance: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub acceptance_pipefail: ::std::option::Option<bool>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub base: ::std::option::Option<TaskDelegateParamsBase>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
