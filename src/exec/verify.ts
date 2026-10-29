@@ -3,10 +3,12 @@ import { execProcess } from "./process";
 
 const TAIL_LINES = 20;
 
-function acceptanceHint(code: number, durationS: number, tail: string): string | undefined {
+function acceptanceHint(code: number, durationS: number, tail: string, pipefail: boolean): string | undefined {
   if (code === 141) {
-    return `acceptance exited 141 (SIGPIPE) after ${durationS}s${tail ? "" : " with no output"}: `
-      + `an earlier stage of a pipeline (e.g. "cmd | grep -q") can be killed once a later stage exits first — only surfaces with pipefail on`;
+    const prefix = `acceptance exited 141 (possibly SIGPIPE) after ${durationS}s${tail ? "" : " with no output"}: `;
+    return prefix + (pipefail
+      ? `with pipefail on, an earlier stage of a pipeline (e.g. "cmd | grep -q") that is killed once a later stage exits first fails the check`
+      : `the final command was killed writing to a pipe or output that closed early`);
   }
   if (code !== 0 && !tail && durationS <= 0.1) {
     return `acceptance exited ${code} after ${durationS}s with no output`;
@@ -57,7 +59,7 @@ export async function verifyRepo(
   const passed = tail.match(/(\d+) pass(ed)?/i)?.[1];
   const failed = tail.match(/(\d+) fail(ed)?/i)?.[1];
   const summary = [passed && `${passed} passed`, failed && `${failed} failed`].filter(Boolean).join(" · ") || undefined;
-  const hint = acceptanceHint(r.code, durationS, tail);
+  const hint = acceptanceHint(r.code, durationS, tail, pipefail);
   return {
     files,
     acceptance: {

@@ -79,7 +79,16 @@ test("a 141 (SIGPIPE) exit under opted-in pipefail gets a hint", async () => {
   const v = await verifyRepo(await gitRepo(), "seq 1 1000000 | head -1", env, undefined, true);
   expect(v.acceptance?.exitCode).toBe(141);
   expect(v.acceptance?.passed).toBe(false);
-  expect(v.acceptance?.hint).toContain("141 (SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("141 (possibly SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("with pipefail on, an earlier stage");
+});
+
+test("a 141 exit without pipefail blames the final command, not an earlier stage", async () => {
+  const v = await verifyRepo(await gitRepo(), "kill -PIPE $$", env);
+  expect(v.acceptance?.exitCode).toBe(141);
+  expect(v.acceptance?.hint).toContain("141 (possibly SIGPIPE)");
+  expect(v.acceptance?.hint).toContain("final command");
+  expect(v.acceptance?.hint).not.toContain("earlier stage");
 });
 
 test("an instant, empty-output failure gets a hint even without pipefail", async () => {
