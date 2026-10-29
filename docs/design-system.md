@@ -109,7 +109,7 @@ Adapted from [slev12397/beautiful-ui](https://github.com/slev12397/beautiful-ui/
 | `components/atoms/Button.tsx` | `ds/Button.tsx`, `components.css` | Shared inline-flex alignment, size/variant matrix, quiet action, disabled and restrained transition states. Extends existing pacer Button; Preact types/refs replace React and cva, native safe default/busy semantics are added, pacer corners/tokens and touch targets replace demo pill dimensions. |
 | `components/atoms/TextRow.tsx` | `ds/Patterns.tsx: TextRow` | Label-left/value-right, optional baseline metadata and tabular numbers. Supports wrapping and tokens rather than Tailwind pixel literals. |
 | Existing Button/TextRow adaptations above | `ds/SearchPicker.tsx`, `ds/CountBadge.tsx` | Repository finder composes the same quiet button and identity-left/count-right grammar. Local Preact search, anchored containment, keyboard dismissal, pressed selection and neutral count badges are pacer extensions; no additional upstream source or dependency is copied. |
-| `components/atoms/SegmentedControl.tsx` | `ds/Patterns.tsx: SegmentedControl` | Controlled options and selected segments within shared framing. Removes animated sliding thumb; filters use correct pressed-button group semantics. Tabs are a separate keyboard-capable API. |
+| `components/atoms/SegmentedControl.tsx` | `ds/Patterns.tsx: SegmentedControl` | Controlled options and selected segments within shared framing. Uses SelectionStrip for the measured sliding indicator; filters retain pressed-button group semantics and Tabs retain tab semantics. |
 | `components/atoms/Switch.tsx` | `ds/Controls.tsx: Switch/Checkbox`, switch CSS | Controlled checked state, rounded track and travelling thumb. Combines existing checkbox styling with a native labelled input, disabled/help/indeterminate/ref support, and reduced-motion/forced-color behavior. |
 | `components/primitives/TaskRows.tsx` | `ds/Patterns.tsx: ListRow/ListRowLink/SelectableRow` | Leading status/identity, flexible clipped title, numeric/status metadata, bounded row and disclosure/action grammar. Removes scripted demonstration status sequence, demo tasks, staggered animation and nested assumptions. Service descriptors decide actual state; sibling actions preserve valid HTML. |
 | `components/primitives/ApprovalCard.tsx` | `ds/Patterns.tsx: ApprovalCard`, Review composition | Closed card, question/content body and separated action/footer framing. Combines with VerdictPanel and native Dialog rather than porting question auto-advance, odometers, GlideMenu or demo state. |
@@ -645,3 +645,37 @@ key isolation. Refreshing regions use `useDelayedBusy` to apply `aria-busy` and
 without animation or transitions, including under reduced motion. Existing
 content and controls remain mounted while the replacement request is pending;
 refresh errors retain data and expose feedback. No new upstream code is used.
+
+### Shared selection motion
+
+`ds/SelectionStrip.tsx` owns `SegmentedControl`, `Tabs` and the geometry used by
+`NavTabs` and `PanelTabs`; `Patterns` retains its public exports. Controlled
+`label`, `value`, `options` and `onChange` keep domain state with callers.
+Options accept disabled states and sibling trailing actions; tabs accept `id`
+for the existing `<id>-<value>-tab/panel` relationship. Page tabs remain anchors.
+ArrowLeft/ArrowRight wrap, Home/End select the endpoints, disabled choices are
+skipped, and exactly one enabled choice participates in sequential focus.
+
+The single indicator measures the selected item's rectangle and offsets;
+ResizeObserver watches the track and every item, including label/font changes.
+The first measurement is instant. Later changes animate transform and width
+with `motion-selection` (160ms ease-out). Segmented tracks retain 3px padding,
+30px items, 38px total height and 8px/6px track/indicator radii; board, insights
+and result colors retain their existing tokens. Touch geometry remains larger.
+Tabs retain their surface's existing compact geometry and underline treatment.
+Tab panel swaps cross-fade for `motion-panel` (120ms), using an inert, accessibility-hidden
+outgoing snapshot in a closed shadow tree with IDs removed. The snapshot keeps
+the surface styles without duplicating live selectors or focusable controls. The panel container
+retains the largest measured height for the duration of the swap, so shorter
+content cannot collapse it while the outgoing content fades. Reduced motion disables both
+indicator and panel animation and swaps content instantly. This is original
+in-repository implementation; no new upstream component or dependency.
+
+Production consumers: Dispatch period; Insights period; result diff layout;
+Dispatcher scope and task-kind rules; Settings mode, pacing policy,
+notifications, theme, density, multiple-account policy and plugin enum fields;
+Settings Executors/Accounts page navigation; Session views and Details/Changes/
+opened-file tabs; file Source/Preview and file side-panel tabs; Tasks filter;
+Needs you kind filter; Inspector Task/Agents/plugin panels; workspace terminals;
+and command search scopes. Surface styles retain only specialized layout and
+sizes; selected decoration and motion belong to SelectionStrip.

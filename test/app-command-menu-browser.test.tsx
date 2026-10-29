@@ -125,8 +125,9 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Files( \d+)?$/), expect.stringMatching(/^Commands \d+$/)]);
   // The Tab hint sits beside the tablist, not inside it.
   await expect(page.locator('[role="tablist"] .pc-command__hint').count()).resolves.toBe(0);
-  // The tabs control the results listbox.
-  await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("combobox").getAttribute("aria-controls"));
+  // Tabs control the named panel; the combobox continues to control its results listbox.
+  await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("tabpanel").getAttribute("id"));
+  await expect(page.getByRole("combobox").getAttribute("aria-controls")).resolves.toBe(await page.getByRole("listbox").getAttribute("id"));
   const pressed = () => page.locator('.pc-command__scope[aria-selected="true"]').textContent();
   await expect(pressed()).resolves.toMatch(/^All/);
   await page.keyboard.press("Tab");

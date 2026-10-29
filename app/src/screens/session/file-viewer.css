@@ -42,7 +42,7 @@
 .pc-file-viewer__row--tabs{gap:var(--space-2)}
 .pc-file-viewer__row--tabs .pc-tabs{gap:var(--space-half);padding:var(--space-half);border:0;border-radius:var(--radius-7);background:var(--surface-lane)}
 .pc-file-viewer__row--tabs .pc-tabs .pc-btn{min-height:var(--size-24);padding:0 var(--space-2\.5);border:0;border-radius:var(--radius-5);color:var(--ink-secondary)}
-.pc-file-viewer__row--tabs .pc-tabs [aria-selected=true]{background:var(--surface-page);color:var(--ink);outline:1px solid var(--line)}
+.pc-file-viewer__row--tabs .pc-selection-indicator{clip-path:none;background:var(--surface-page);border-radius:var(--radius-5);outline:1px solid var(--line)}
 .pc-file-viewer__body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;background:var(--surface-page)}
 .pc-file-viewer__panel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:auto}
 .pc-file-viewer__panel:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
@@ -127,3 +127,5 @@
 .pc-file-viewer--sheet .pc-file-viewer__row--tabs{flex-wrap:wrap}
 .pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-tabs{flex:1 1 100%}
 .pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-tabs .pc-btn{flex:1;justify-content:center}
+
+.pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-selection-item{flex:1}

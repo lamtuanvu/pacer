@@ -260,6 +260,21 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
     if (brandMetric && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.expressions[0]?.type === "Identifier" && value.expressions[0].name === "size"
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") return;
+    // Restoring a pre-swap measurement introduces no authored design dimension.
+    if (path === "app/src/ds/SelectionStrip.tsx" && name === "min-height"
+      && node.type === "AssignmentExpression" && source.slice(node.left.start ?? 0, node.left.end ?? 0) === "parent.style.minHeight"
+      && value.type === "Identifier" && value.name === "minimum"
+      && source.slice(resolveExpression(value).start ?? 0, resolveExpression(value).end ?? 0) === "parent.style.minHeight") return;
+    // SelectionStrip adapts measured item/panel rectangles; no authored visual lengths.
+    if (path === "app/src/ds/SelectionStrip.tsx" && node.type === "AssignmentExpression" && node.left.type === "MemberExpression"
+      && value.type === "TemplateLiteral" && value.expressions.length === 1
+      && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") {
+      const target = source.slice(node.left.start ?? 0, node.left.end ?? 0);
+      const metric = source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0);
+      if ((name === "width" && target === "marker.style.width" && metric === "selected.getBoundingClientRect().width")
+        || (name === "height" && target === "marker.style.height" && metric === "selected.getBoundingClientRect().height")
+        || (name === "min-height" && target === "parent.style.minHeight" && ["Math.max(parent.offsetHeight, panel.offsetHeight, Number(old.dataset.containerHeight))", "parent.offsetHeight"].includes(metric))) return;
+    }
     // Viewer sizing is authoritative PTY/measured geometry, scoped to scale() assignments.
     const terminalScale = path === "app/src/term/term.tsx" && ["width", "height"].includes(name)
       && ancestors.some(parent => parent.type === "VariableDeclarator" && parent.id.type === "Identifier" && parent.id.name === "scale")
