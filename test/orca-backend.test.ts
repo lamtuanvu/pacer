@@ -838,6 +838,16 @@ test("an interactive lane's escalation keeps its worker and terminal alive inste
   expect(readTask(x.ctx, x.task.id)?.live).toMatchObject({backend: "orca", worker: dispatch, terminal, executor: "codex", agent: "codex", incarnation: "inc"});
 });
 
+test("an interactive lane whose worker ownership was not recorded is not kept alive", async () => {
+  const ref: {x?: ReturnType<typeof setup>} = {};
+  // The task loses (or never got) its `live` record before the question arrives, as when registration failed.
+  const x = ref.x = setup([[O("orchestration", "check"), () => { updateTask(ref.x!.ctx, ref.x!.task.id, t => { delete t.live; }); return question; }], [O("orchestration", "reply"), envelope({})]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.interactionMode = "conversation"; t.state = "running";}));
+  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(loadOrcaState(x.ctx).workers).toEqual({});
+});
+
 test("a delegated (non-interactive) lane's escalation still stops its worker, unlike an interactive lane", async () => {
   const x = setup([[O("orchestration", "check"), question], [O("orchestration", "reply"), envelope({})]]);
   const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.state = "running";}));

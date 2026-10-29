@@ -642,7 +642,9 @@ async function runOrcaAttempt(
       });
       log(waitLine(dispatchId, w));
       m = mapWait(w);
-      keepAlive = task.interactionMode === "conversation" && w.kind === "settled" && w.state === "needs_input";
+      // Kept alive only while the task records it as its owner; otherwise stop, release and the reaper could not reach it.
+      keepAlive = task.interactionMode === "conversation" && w.kind === "settled" && w.state === "needs_input"
+        && readTask(ctx, task.id)?.live?.worker === dispatchId;
     }
 
     endedAt = deps.now() / 1000;
