@@ -12,7 +12,8 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string }
+/** `agentIdentity` is the agent Orca sees in the terminal's foreground (`claude`, `codex`), or null for a plain shell. */
+export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
@@ -28,12 +29,12 @@ export interface WorkerStartResult {
 export interface WorkerClosureResult { dispatchId?: string; state?: string; processAction?: string; close?: { handle?: string; ptyKilled?: boolean } }
 export interface WorkerRow { state?: string; stage?: string; worktreeId?: string; agentTerminalHandle?: string; lastError?: string | null }
 export interface WorkerListRow { dispatchId?: string; workerState?: string; agentTerminalHandle?: string; resource?: { terminalHandle?: string } }
-export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean }
+export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean; childWorktreeIds?: string[] }
 export interface OrcaMessage { id: string; type: string; from_handle?: string; subject?: string; body?: string; payload?: string | null }
 export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage[]; timedOut?: boolean; acknowledged?: string | null }
 
 export type Placement =
-  | { kind: "new-child"; repoId: string; baseBranch: string; name: string }
+  | { kind: "new-child"; repoId: string; baseBranch: string; name: string; parentWorktree?: string }
   | { kind: "existing"; selector: string };
 export interface WorkerStartOpts { spec: string; terminal: string; worktree: string; run: string; from: string }
 
@@ -125,8 +126,10 @@ export class OrcaClient {
   }
   terminalWait(handle: string) { return this.call<{ wait?: { satisfied?: boolean; blockedReason?: string | null; status?: string } }>(
     ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "60000"], 65_000); }
-  worktreeCreate(p: Extract<Placement, {kind: "new-child"}>) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
-    ["worktree", "create", "--name", p.name, "--repo", `id:${p.repoId}`, "--base-branch", p.baseBranch, "--setup", "skip"]); }
+  /** `parentWorktree` nests the new worktree under a `--group`'s shared parent; `noParent` creates a top-level one. */
+  worktreeCreate(p: Extract<Placement, {kind: "new-child"}> & { noParent?: boolean }) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
+    ["worktree", "create", "--name", p.name, "--repo", `id:${p.repoId}`, "--base-branch", p.baseBranch, "--setup", "skip",
+      ...(p.parentWorktree ? ["--parent-worktree", p.parentWorktree] : p.noParent ? ["--no-parent"] : [])]); }
   worktreeShow(path: string) { return this.worktreeShowBy(`path:${path}`); }
   worktreeShowBy(selector: string) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", selector]); }
   worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }

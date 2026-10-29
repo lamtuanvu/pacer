@@ -1,10 +1,10 @@
 /** Explicit native fixture builder. No production credential or service-manager path. */
-import { chmodSync, constants, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, constants, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { checkout } from "./core";
-import { finishOtaBuild, otaFixturePolicy, readOtaRecord, reserveOtaBuild, initialLayoutSchema, type InitialLayout } from "./ota";
+import { finishOtaBuild, otaFixturePolicy, readOtaRecord, reserveOtaBuild, initialLayoutSchema, baselineProcessTypeSchema, type InitialLayout, type BaselineProcessType } from "./ota";
 import { compileCommand, frontDoorBuildCommand, frontDoorBuildEnvironment, rustTarget, writeRelease } from "../release/build";
 import { stageDesktopPackage, verifyDesktopExecutable } from "../release/desktop";
 import { desktopAssetName, digest, verifyUpdateSignature, type DesktopArch } from "../release/desktop-feed";
@@ -13,6 +13,8 @@ import { assetFile, companionFile, hostTarget } from "../../src/update/manifest"
 import { parsePlistDictionary } from "../../src/service";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
 import { FIXTURE_IDENTIFIERS, RELEASE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+import { overlayPublishedBaseline } from "./ota-baseline-request-stages";
+import { assertExternalCargoTargetIdentity, validateExternalCargoTarget } from "./ota-external-cargo-target";
 
 export const PUBLISHED_BRIDGE_SOURCE = "9205c94ce0b32efd797e4892e56cdc374de01212";
 const sourceRoots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates", "xtask", ".cargo"]);
@@ -173,6 +175,9 @@ export function fixtureFrontDoorBuild(root: string, targetDir: string, version: 
   const clean = fixtureBuildEnvironment(inherited.HOME ?? "", inherited.PACER_OTA_PUBLIC_KEY ?? "", policy, inherited);
   return { argv: frontDoorBuildCommand(target), env: { ...frontDoorBuildEnvironment({ root, target, version, outfile: "", desktopTrust: { signingCertSha1: policy.signingCertSha1 } }, clean), PACER_BUILD_DESKTOP_FIXTURE: "1", CARGO_TARGET_DIR: targetDir } };
 }
+export function fixturePairedFrontDoorTarget(directory: string, externalTarget?: string): string {
+  return externalTarget ? join(externalTarget, "front-door") : join(directory, "rust-target");
+}
 function stageFixtureSidecars(source: string, release: string, paired: boolean): void {
   const target = hostTarget();
   if (!target || target.os !== "darwin") throw Error("Unsupported fixture sidecar target");
@@ -249,9 +254,14 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
 }
 
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */
-export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc", initialLayout: InitialLayout = "bridge", oldServiceChoice = false): Promise<void> {
+export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc", initialLayout: InitialLayout = "bridge", oldServiceChoice = false, baselineProcessType: BaselineProcessType = "Background", baselineRequestStages = false, cargoTargetDir?: string): Promise<void> {
   initialLayout = initialLayoutSchema.parse(initialLayout);
+  baselineProcessType = baselineProcessTypeSchema.parse(baselineProcessType);
   if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
+  if (baselineProcessType === "Standard" && initialLayout !== "paired") throw Error("Standard baseline requires paired layout");
+  if (oldServiceChoice && baselineProcessType === "Standard" && !baselineRequestStages) throw Error("Fixture Standard old-service choice requires paired Standard request stages");
+  if (baselineRequestStages && (baselineProcessType !== "Standard" || initialLayout !== "paired")) throw Error("Baseline request stages require paired Standard layout");
+  if (cargoTargetDir && !baselineRequestStages) throw Error("External Cargo target requires baseline request stages");
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
   if (signerMode !== "cert") throw Error("Old-bridge to paired native OTA requires --signer cert");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
@@ -261,6 +271,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
   const { loadSession, liveRoot } = await import("./core");
   const session = loadSession(id), root = join(session.root, "ota");
   if (existsSync(root) || realpathSync(session.root) !== session.root || session.seed || session.stopped || !session.innerPort) throw Error("Fixture requires a fresh unseeded live sandbox");
+  const externalTarget = cargoTargetDir ? validateExternalCargoTarget(cargoTargetDir, id, statSync(session.root).dev) : null;
   for (const path of [liveRoot, session.root, join(session.root, "home"), join(session.root, "evidence")]) {
     const stat = lstatSync(path); if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || stat.mode & 0o077 || realpathSync(path) !== path) throw Error("Fixture requires private canonical ownership");
   }
@@ -269,8 +280,10 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
   let environment: Record<string, string | undefined> = { PATH: process.env.PATH, HOME: temporary, CI: "true", COPYFILE_DISABLE: "1" };
   let signer: FixtureSigner | undefined;
   async function run(argv: string[], cwd = checkout, quiet = false, buildEnvironment = environment): Promise<string> {
+    if (externalTarget) assertExternalCargoTargetIdentity(externalTarget);
     const child = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: buildEnvironment });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    if (externalTarget) assertExternalCargoTargetIdentity(externalTarget);
     if (!quiet) process.stderr.write(stderr);
     if (code !== 0) throw Error(`Fixture command failed: ${argv[0]} ${argv[1]} (exit ${code})`);
     return stdout;
@@ -281,13 +294,13 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
     chmodSync(key, 0o600);
     // The certificate pin is compiled into the lease, so its identity must exist before any build.
     signer = signerMode === "cert" ? await createFixtureSigner(temporary, run) : undefined;
-    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey)), {}, signer?.sha1, initialLayout, oldServiceChoice), policy = otaFixturePolicy(state);
-    const build = state.nativeFixture!.buildRoot, home = join(build, "home"), targetDir = join(build, "target"); mkdirSync(home, { mode: 0o700 });
+    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey)), {}, signer?.sha1, initialLayout, oldServiceChoice, baselineProcessType), policy = otaFixturePolicy(state);
+    const build = state.nativeFixture!.buildRoot, home = join(build, "home"), targetDir = externalTarget?.path ?? join(build, "target"); mkdirSync(home, { mode: 0o700 });
     // An optional local Cargo seed avoids recompiling unchanged dependencies.
     // Each build receives an independent copy; Cargo rechecks source/env inputs,
     // and the normal signature + compiled-lease checks still gate every bundle.
     const cache = join(checkout, ".work/cache/desktop-ota-target");
-    if (existsSync(cache)) {
+    if (!externalTarget && existsSync(cache)) {
       for (const path of [join(checkout, ".work"), dirname(cache), cache]) {
         const stat = lstatSync(path);
         if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || stat.mode & 0o077 || realpathSync(path) !== path) throw Error("Fixture Cargo cache must be private and canonical");
@@ -296,6 +309,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
     }
     environment = { ...fixtureBuildEnvironment(home, publicKey, policy), CARGO_TARGET_DIR: targetDir };
     await snapshotPublishedBridge(join(build, "baseline/source"), run);
+    const baselineDiagnostic = overlayPublishedBaseline(join(build, "baseline/source"), baselineRequestStages);
     copyFixtureSource(checkout, join(build, "candidate/source"), "0.2.4");
     const snapshotDigest = (root: string) => {
       const hash = createHash("sha256");
@@ -309,7 +323,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       };
       walk(root); return hash.digest("hex");
     };
-    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, oldServiceChoice: oldServiceChoice ? "continue" : null, baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, oldServiceChoice: oldServiceChoice ? "continue" : null, baselineProcessType, baselineSource: PUBLISHED_BRIDGE_SOURCE, baselineDiagnostic: baselineDiagnostic ? { kind: "bounded-request-stages", moduleSha256: baselineDiagnostic.moduleSha256 } : null, cargoTarget: externalTarget ? { kind: "external-owned", ...externalTarget } : { kind: "lease-local" }, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     const head = Bun.spawnSync(["git", "-C", checkout, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "pipe" });
     if (head.exitCode !== 0) throw Error("Could not identify fixture source HEAD");
     writeFileSync(join(session.root, "evidence/source-head.txt"), head.stdout.toString().trim() + "\n", { mode: 0o600, flag: "wx" });
@@ -322,7 +336,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       const paired = index === 1;
       await run(fixtureCompileCommand(source, join(release, paired ? companionFile(target) : assetFile(target)), version, policy), source);
       if (paired) {
-        const front = fixtureFrontDoorBuild(source, join(directory, "rust-target"), version, policy, environment);
+        const front = fixtureFrontDoorBuild(source, fixturePairedFrontDoorTarget(directory, externalTarget?.path), version, policy, environment);
         await run(front.argv, source, false, front.env);
         copyFileSync(join(front.env.CARGO_TARGET_DIR!, rustTarget(target), "release/pacer"), join(release, assetFile(target)));
         chmodSync(join(release, assetFile(target)), 0o755);

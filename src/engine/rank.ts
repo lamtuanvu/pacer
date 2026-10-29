@@ -193,3 +193,27 @@ export function rankExecutors(
     uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
     ...(!configured ? { reason: "no executor configured" } : {}) };
 }
+
+/**
+ * Passing any explicit `CandidateSelection` into `rankExecutors` takes its `if (selection)` branch,
+ * which sorts by array order alone and skips the `pacing.policy` ordering (priority promotion/
+ * demotion, headroom/fill reordering) entirely — correct for a real project selection, which is a
+ * curated order to respect verbatim, but not for widening a conversation's pool, which must keep
+ * that ordering for every other candidate. So a conversation ranks with no selection override at
+ * all (exactly like a delegated task with no project policy), and only afterward, if its requested
+ * executor was left out of the routing pool entirely (e.g. the planner's own account, excluded by
+ * every routing rule), is that one candidate ranked on its own — a lone selection trivially keeps
+ * its own order — and appended as a last-resort fallback, never disturbing the real sort above it.
+ * The runner and `dispatch.explain` both use this, so the preview matches the run.
+ */
+export function conversationFallback(
+  ranking: ReturnType<typeof rankExecutors>, kind: string | null, s: Strategy,
+  byId: Record<string, ProviderStatus>, requested: string | null,
+): void {
+  if (!requested || ranking.ranked.some(e => e.id === requested) || ranking.excluded.some(e => e.id === requested)) return;
+  const solo = rankExecutors(kind, s, byId, { executors: [requested], order: "configured" }, { includePlanner: true });
+  if (!solo.ranked.length) { ranking.excluded.push(...solo.excluded); return; }
+  const floor = Math.min(1, ...ranking.ranked.map(e => e.score));
+  ranking.ranked.push({ ...solo.ranked[0], score: floor - 1 });
+  if (solo.uncertain?.length) (ranking.uncertain ??= []).push(...solo.uncertain);
+}

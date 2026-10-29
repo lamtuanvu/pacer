@@ -7,7 +7,7 @@ import { launchTaskRunner, spawnRunner, type DelegateInput, type SpawnRunner } f
 import { readTask, listTasksWhere, updateTask } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
 import { loadStrategy, KINDS } from "../config/strategy";
-import { slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
 import { executorsFor } from "../engine/rank";
 import { buildModelInventory } from "../dispatch/inventory";
 import { meetsRequirements } from "../dispatch/candidates";
@@ -63,7 +63,8 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
  const permitted=Object.values(strategy.runners).filter(r=>r.enabled!==false&&route.has(r.id)&&(!input.executor||r.id===input.executor)
   &&(options.allowDelegation||r.agent!==strategy.planner.agent||r.account!==strategy.planner.account)
   &&models.some(m=>m.runner===r.id&&meetsRequirements(m,options.requirements)&&(!options.model||m.binding.kind==="exact"&&m.binding.id===options.model)));
- if(!permitted.some(r=>!slotBlock(strategy,r.id,slotUse(running))))throw new CoreError("not_allowed","Child cannot make progress with the available executor slots and model policy; increase capacity or use another executor");
+ const use=slotUse(listTasksWhere(ctx,{states:SLOT_STATES}));
+ if(!permitted.some(r=>!slotBlock(strategy,r.id,use)))throw new CoreError("not_allowed","Child cannot make progress with the available executor slots and model policy; increase capacity or use another executor");
  return withLockSync(ctx,`work-request-${hash([scope,key])}`,()=>{
   const prior=db.query<{fingerprint:string;task_id:string},[string,string]>("SELECT * FROM work_requests WHERE scope=? AND key=?").get(scope,key);
   if(prior){if(prior.fingerprint!==fingerprint)throw new CoreError("conflict","Idempotency key was used for different child work");return readTask(ctx,prior.task_id)!;}
@@ -177,7 +178,8 @@ export async function answerWork(ctx:Ctx,id:string,input:AnswerWorkInput,spawn:S
 export function stopWork(ctx:Ctx,id:string,expectRev?:number){
  if(ctx.env.PACER_WORK_GRANT)requireWorkScope(ctx,ctx.env.PACER_WORK_GRANT,id);
  const task=readTask(ctx,id);if(!task)throw new CoreError("unknown_task","Unknown work");if(expectRev!==undefined&&task.rev!==expectRev)throw new CoreError("conflict","Task changed");
- const tree=scopedWorkTree(ctx,id);for(const n of tree.nodes)if(n.state!=="archived"&&!(TERMINAL_STATES as readonly string[]).includes(n.state))stopTask(ctx,n.taskId);
+ const tree=scopedWorkTree(ctx,id);// A lane waiting on its question can still own a live worker; stopping the work stops that worker too.
+ for(const n of tree.nodes)if(n.state!=="archived"&&(!(TERMINAL_STATES as readonly string[]).includes(n.state)||n.state==="needs_input"&&readTask(ctx,n.taskId)?.live))stopTask(ctx,n.taskId);
  return readTask(ctx,id)!;
 }
 export async function waitWork(ctx:Ctx,id:string,timeout=600){

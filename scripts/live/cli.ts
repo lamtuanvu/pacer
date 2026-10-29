@@ -11,11 +11,12 @@ import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust]
-                                  start isolated service and disposable repo; ui seeds sample data
+  up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
+                                  start isolated service and disposable repo; ui seeds sample data;
+                                  --real-keychain uses the login Keychain instead of a security stub
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
-  ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service]
+  ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages] [--cargo-target-dir <dir>]
                                   compile isolated signed native fixtures (requires --id);
                                   cert signs with a disposable pinned certificate
   ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
@@ -52,23 +53,25 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--from", "--task", "--terminal"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
   const id = options.get("--id");
-  if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout"].some(key => options.has(key))) throw Error("OTA options require the ota command");
+  if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"].some(key => options.has(key))) throw Error("OTA options require the ota command");
   if (flags.has("--fixture-continue-old-service") && command !== "ota") throw Error("Fixture old-service choice requires OTA build");
+  if (flags.has("--baseline-request-stages") && command !== "ota") throw Error("Baseline request stages require OTA build");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
+  if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain")), null, 2));
     return 0;
   }
   if (command === "status") {
@@ -77,10 +80,11 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "ota") {
-    if (!id || positionals.length !== 1 || forwarded.length || [...flags].some(flag => flag !== "--fixture-continue-old-service")) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
+    if (!id || positionals.length !== 1 || forwarded.length || [...flags].some(flag => !["--fixture-continue-old-service", "--baseline-request-stages"].includes(flag))) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
     const action = positionals[0];
     if (flags.has("--fixture-continue-old-service") && action !== "build") throw Error("Fixture old-service choice requires OTA build");
-    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer", "--initial-layout"] : ["--id"];
+    if (flags.has("--baseline-request-stages") && action !== "build") throw Error("Baseline request stages require OTA build");
+    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
     if (action === "prepare") {
       if (!options.has("--from-app") || !options.has("--to-app")) throw Error("OTA prepare requires --from-app and --to-app");
@@ -94,7 +98,11 @@ export async function main(argv: string[]): Promise<number> {
       const layout = options.get("--initial-layout") ?? "bridge";
       if (layout !== "bridge" && layout !== "paired") throw Error("OTA build --initial-layout must be bridge or paired");
       if (flags.has("--fixture-continue-old-service") && layout !== "paired") throw Error("Fixture old-service choice requires paired layout");
-      await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"));
+      const priority = options.get("--baseline-process-type") ?? "Background";
+      if (priority !== "Background" && priority !== "Standard") throw Error("--baseline-process-type must be Background or Standard");
+      if (priority === "Standard" && layout !== "paired") throw Error("Standard baseline requires paired layout");
+      if (flags.has("--fixture-continue-old-service") && priority === "Standard" && !flags.has("--baseline-request-stages")) throw Error("Fixture Standard old-service choice requires paired Standard request stages");
+      await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"), priority, flags.has("--baseline-request-stages"), options.get("--cargo-target-dir"));
     }
     else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");

@@ -36,9 +36,9 @@ for (const [width, scheme] of [[375, "light"], [375, "dark"], [768, "light"], [1
         const css = getComputedStyle(node);
         return { padding: css.padding, maxWidth: css.maxWidth, width: node.getBoundingClientRect().width };
       });
-      expect(geometry.padding).toBe("28px 40px 48px");
-      expect(geometry.maxWidth).toBe("1240px");
-      expect(geometry.width).toBeLessThanOrEqual(1240);
+      expect(geometry.padding).toBe(width < 768 ? "16px 16px 24px" : "24px 32px 40px");
+      expect(geometry.maxWidth).toBe("none");
+      expect(geometry.width).toBe(width);
       const period = page.getByRole("group", { name: "Period" });
       const segments = await period.getByRole("button").evaluateAll(nodes => nodes.map(node => {
         const range = document.createRange();
@@ -86,7 +86,7 @@ for (const width of [375, 1440]) {
       for (let i = 1; i < labels.length; i++) expect(labels[i]!.left).toBeGreaterThanOrEqual(labels[i - 1]!.right);
       expect(await page.locator(".sr-only table tbody tr").count()).toBe(14);
       const buttons = await page.getByRole("group", { name: "Period" }).getByRole("button").evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().height));
-      expect(buttons.every(h => h === (width === 375 ? 48 : 32))).toBe(true);
+      expect(buttons.every(h => h === (width === 375 ? 44 : 32))).toBe(true);
       const group = await page.getByRole("group", { name: "Period" }).evaluate(n => ({ padding: getComputedStyle(n).padding, radius: getComputedStyle(n).borderRadius }));
       expect(group).toEqual({ padding: "3px", radius: "8px" });
       const matrix = page.locator(".pc-insights__heat");
@@ -99,6 +99,25 @@ for (const width of [375, 1440]) {
         const header = await page.locator(".pc-insights__cardhead--bar").evaluate(n => Array.from(n.children).map(c => c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2));
         expect(header[0]).toBe(header[1]);
       }
+    } finally { await page.close(); }
+  });
+}
+
+for (const [width, height] of [[1440, 900], [1920, 1080]] as const) for (const scheme of ["light", "dark"] as const) {
+  browserTest(`unmeasured insights shows exact attempt count, not zero tokens at ${width} ${scheme}`, async () => {
+    const page = await browser.newPage({ viewport: { width, height }, colorScheme: scheme });
+    try {
+      await page.goto(`${server.url}?unmeasured`);
+      await page.getByText("Token counts appear after each attempt finishes", { exact: true }).waitFor();
+      expect(await page.locator(".pc-insights__unmeasured").textContent()).toContain("12 attempts are still running or ended without a count.");
+      const tile = page.locator(".pc-insights__kpi").filter({ hasText: /^Tokens/ });
+      expect(await tile.locator("strong").textContent()).toBe("—");
+      expect(await tile.textContent()).toContain("not measured yet");
+      const perRoot = page.locator(".pc-insights__kpi").filter({ hasText: /^Per root task/ });
+      expect(await perRoot.count()).toBe(0);
+      expect(await page.locator(".pc-insights__kpi").count()).toBe(3);
+      expect(await page.locator(".pc-insights__unmeasured").evaluate(n => getComputedStyle(n).backgroundColor)).toBe(scheme === "dark" ? "rgb(24, 24, 27)" : "rgb(250, 250, 250)");
+      if (process.env.PACER_DESIGN_EVIDENCE) await page.screenshot({ path: `.work/fixtures/states/insights-${width}-${scheme}.png`, fullPage: true });
     } finally { await page.close(); }
   });
 }

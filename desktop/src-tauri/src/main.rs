@@ -61,6 +61,8 @@ struct Shell {
     navigation: Mutex<pacer_desktop::ota::control::NavigationState>,
     adoption: Mutex<Option<pacer_desktop::ota::control::AdoptionReconnectPlan>>,
     maintenance: AtomicBool,
+    /// Whether the last snapshot showed an update or adoption transaction in flight.
+    update_transaction: AtomicBool,
     /// Whether the tray icon currently carries the red attention dot.
     tray_alert: AtomicBool,
     #[cfg(target_os = "macos")]
@@ -97,6 +99,7 @@ impl Default for Shell {
             navigation: Mutex::new(Default::default()),
             adoption: Mutex::new(None),
             maintenance: AtomicBool::new(false),
+            update_transaction: AtomicBool::new(false),
             tray_alert: AtomicBool::new(false),
             #[cfg(target_os = "macos")]
             relaunch: Mutex::new(None),
@@ -375,6 +378,30 @@ fn tray_open(window: WebviewWindow, app: AppHandle, route: String) -> Result<(),
 fn tray_hide(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     authorized_tray(&window, &app)?;
     window.hide().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn tray_login_item(
+    window: WebviewWindow,
+    app: AppHandle,
+    enabled: Option<bool>,
+) -> Result<bool, String> {
+    authorized_tray(&window, &app)?;
+    #[cfg(feature = "ota-fixture")]
+    {
+        let _ = enabled;
+        Err("Launch at login is unavailable in isolated fixtures".into())
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    {
+        if let Some(enabled) = enabled {
+            launch_at_login(&app, enabled)?;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(enabled) = approvals::launch_at_login_enabled() {
+            return Ok(enabled);
+        }
+        app.autolaunch().is_enabled().map_err(|e| e.to_string())
+    }
 }
 #[tauri::command]
 fn app_quit(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
@@ -876,6 +903,7 @@ fn recovery(app: &AppHandle, state: &str) {
                 paused: false,
                 tooltip: title.into(),
                 alert,
+                transaction: None,
             },
         );
     }
@@ -964,6 +992,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
             .permission("allow-client-control")
             .permission("allow-tray-open")
             .permission("allow-tray-hide")
+            .permission("allow-tray-login-item")
             .permission("allow-app-quit")
             .permission("allow-session-expired"),
         )
@@ -1026,6 +1055,9 @@ fn set_error_dot(app: &AppHandle, error: bool) {
     }
 }
 fn update_tray(app: &AppHandle, model: TrayModel) {
+    if let Some(transaction) = model.transaction {
+        app.state::<Shell>().update_transaction.store(transaction, Ordering::SeqCst);
+    }
     if let Err(e) = render_tray(app, model) {
         desktop_log!("Unable to update pacer tray: {e}");
     }
@@ -1415,6 +1447,7 @@ fn main() {
             tray_resize,
             tray_open,
             tray_hide,
+            tray_login_item,
             app_quit,
             session_expired,
             session_ready,

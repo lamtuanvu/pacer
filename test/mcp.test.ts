@@ -32,7 +32,7 @@ async function connect() {
 test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
-    "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
+    "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_send", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });
@@ -50,6 +50,16 @@ test("task_answer retries a question with text and revision checks", async()=>{
   expect(readTask(ctx,r.structuredContent.retry.id)?.brief.qa).toEqual([{q:"which db?",a:"postgres"}]);
   expect(spawned).toEqual([id,r.structuredContent.retry.id]);
   expect((await call("task_answer",{task_id:id,text:"again"})).isError).toBe(true);
+  await client.close();
+});
+
+test("task_send refuses a lane with no live worker as unavailable", async () => {
+  const { ctx, call, client } = await connect();
+  const id = (await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" })).structuredContent.task_id;
+  updateTask(ctx, id, t => { t.state = "running"; });
+  const r = await call("task_send", { task_id: id, text: "keep going" });
+  expect(r.isError).toBe(true);
+  expect(r.content[0].text).toContain("no live terminal");
   await client.close();
 });
 

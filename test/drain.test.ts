@@ -57,3 +57,13 @@ test("an unpinned task drops its removed executor when draining", async () => {
   await drainQueue(ctx, () => process.pid, queueDeps());
   expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "codex"});
 });
+test("a lane waiting on its question with a live worker keeps its slot, so the queue does not drain into it", async () => {
+  const ctx = fakeCtx(), lane = queueTask(ctx, "lane"), task = waiting(ctx, "waiting", ctx.now);
+  updateTask(ctx, lane.id, t => {
+    t.state = "needs_input"; t.executor = "codex"; t.question = {text: "which?", at: ctx.now}; delete t.queue;
+    t.live = {backend: "orca", worker: "ctx_live", terminal: "term_live", executor: "codex", agent: "codex", since: ctx.now};
+  });
+  expect(await drainQueue(ctx, () => process.pid, queueDeps())).toEqual([]);
+  updateTask(ctx, lane.id, t => { delete t.live; });
+  expect(await drainQueue(ctx, () => process.pid, queueDeps())).toEqual([task.id]);
+});

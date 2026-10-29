@@ -64,27 +64,32 @@ test("brief.pipefail reaches verifyRepo's pipefail argument", async () => {
   expect(calls[0][4]).toBe(true);
 });
 
-test("conversation exit skips delegated acceptance and result review", async () => {
-  const ctx = fakeCtx(), task = newTask(ctx, {acceptance: "must-not-run"});
+// A conversation now takes the same path as a delegated task once it settles: a real diff, an
+// optional acceptance check, and needs_input/review/retry eligibility (interactive lanes design,
+// decision 4), instead of a bare done/failed verdict with no verification.
+test("conversation exit now runs delegated acceptance and becomes eligible for review", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx, {acceptance: "echo ok"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
   const d = deps({codex: outcomeFor("codex", 0)});
-  d.verifyRepo = async () => {throw Error("conversation must not run delegated verification");};
   const result = await runTask(ctx, task.id, d);
   expect(result.state).toBe("done");
   expect(result.conversation).toMatchObject({activity: "ended", endReason: "agent_exit"});
-  expect(result.result?.acceptance).toBeUndefined();
+  expect(result.result?.acceptance).toMatchObject({cmd: "echo ok", passed: true});
   expect(result.review).toBeUndefined();
   expect(result.reviewRequest).toBeUndefined();
 });
 
-test("conversation limit preserves agent identity without fallback", async () => {
+// A conversation's requested executor is tried first, same as a delegated task's requestedExecutor,
+// but on a limit it now falls back to the next ranked candidate instead of being stuck exclusively
+// on the one requested (decision 4: selected or rejected by the same decision engine as any task).
+test("conversation limit falls back to the next ranked executor, preferring the requested one first", async () => {
   const ctx = fakeCtx(), task = newTask(ctx, {requestedExecutor: "codex"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
   const d = deps({codex: outcomeFor("codex", 1, true), cursor: outcomeFor("cursor", 0)});
   const result = await runTask(ctx, task.id, d);
-  expect(d.calls).toEqual(["codex"]);
-  expect(result.state).toBe("limit");
-  expect(result.result?.executor).toBe("codex");
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(result.state).toBe("done");
+  expect(result.result?.executor).toBe("cursor");
 });
 
 test("conversation integration failure includes the repair hint in its task report", async () => {
@@ -101,6 +106,19 @@ test("conversation integration failure includes the repair hint in its task repo
   expect(result.state).toBe("failed");
   expect(result.result?.report).toContain("Preserve your customizations");
   expect(result.result?.report).toContain("pacer install claude-code");
+});
+
+test("conversation ranking still honors pacing.policy priority ordering (EXPIRING promoted ahead of AHEAD)", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx);
+  updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
+  // codex is AHEAD (demoted last by the priority policy) and would run first under a naive static
+  // order; cursor is EXPIRING (promoted first). A conversation with no requested executor and no
+  // project selection must still pick by this ordering, not by configured/static provider order.
+  const d = deps({cursor: outcomeFor("cursor", 0)}, status({codex: {verdict: "AHEAD"}, cursor: {verdict: "EXPIRING"}}));
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual(["cursor"]);
+  expect(result.state).toBe("done");
+  expect(result.result?.executor).toBe("cursor");
 });
 
 test("conversation waits for its unavailable executor instead of switching accounts", async () => {
@@ -556,4 +574,13 @@ test("connected integration is refreshed before a conversation reaches its backe
     return outcomeFor("codex", 0);
   };
   expect((await runTask(ctx, task.id, d)).state).toBe("done");
+});
+
+test("a session.create chat stays on the direct backend; only an interactive lane may run on Orca", async () => {
+  const { needsDirectBackend } = await import("../src/tasks/runner");
+  const base = { interactionMode: "conversation" } as import("../src/tasks/types").TaskRecord;
+  expect(needsDirectBackend(base, false)).toBe(true);
+  expect(needsDirectBackend({ ...base, interactive: true }, false)).toBe(false);
+  expect(needsDirectBackend({ ...base, interactive: true }, true)).toBe(true);
+  expect(needsDirectBackend({} as import("../src/tasks/types").TaskRecord, false)).toBe(false);
 });

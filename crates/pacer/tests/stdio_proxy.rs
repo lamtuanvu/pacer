@@ -5,6 +5,8 @@ use std::{
     os::unix::fs::PermissionsExt,
     process::{Command, Output, Stdio},
 };
+#[path = "support/keychain_stub.rs"]
+mod keychain_stub;
 
 fn exchange(command: Command, input: Vec<u8>) -> Output {
     exchange_with_events(command, input, false)
@@ -49,6 +51,7 @@ fn proxy(core: &[String], home: &std::path::Path) -> Command {
         .args(["api", "--stdio"])
         .env("PACER_CORE_ARGV", serde_json::to_string(core).unwrap())
         .env("PACER_HOME", home)
+        .env("PATH", keychain_stub::keychain_stub_path(home, "bun"))
         .env_remove("PACER_BIN");
     command
 }
@@ -128,7 +131,11 @@ fn forwards_hello_ops_and_events_unchanged() {
     let mut direct = Command::new("bun");
     direct
         .args([&cli, "api", "--stdio"])
-        .env("PACER_HOME", direct_home.path());
+        .env("PACER_HOME", direct_home.path())
+        .env(
+            "PATH",
+            keychain_stub::keychain_stub_path(direct_home.path(), "bun"),
+        );
     let expected = exchange_with_events(direct, input.clone(), true);
     let actual = exchange_with_events(proxy(&["bun".into(), cli], proxy_home.path()), input, true);
     assert!(

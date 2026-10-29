@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Activity bar</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.ab{width:40px;height:40px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;position:relative;text-decoration:none}
+.ab:hover{color:var(--ink);background:var(--surface-lane)}
+.ab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</helmet>
+<nav aria-label="Activity" style="width: 52px; height: 100%; min-height: 600px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border-right: 1px solid var(--line); background: var(--surface-card); font-family: var(--font-sans);">
+<sc-for list="{{top}}" as="i" hint-placeholder-count="5">
+<a class="ab" href="{{i.href}}" aria-label="{{i.label}}" title="{{i.label}}" aria-current="{{i.current}}" style="color: {{i.fg}}; background: {{i.bg}};">
+<svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{i.d}}"></path></svg>
+<sc-if value="{{i.on}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="position: absolute; left: -6px; top: 10px; width: 3px; height: 20px; border-radius: 4px; background: var(--ink);"></span></sc-if>
+<sc-if value="{{i.count}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="position: absolute; right: 3px; top: 3px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 99px; background: var(--bad-fill); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">{{i.count}}</span></sc-if>
+</a>
+</sc-for>
+<span aria-hidden="true" style="width: 24px; height: 1px; background: var(--line); margin: 6px 0;"></span>
+<span style="font-size: 11px; line-height: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-muted);">Plugins</span>
+<a class="ab" href="SettingsPluginPage.dc.html" aria-label="Release checklist (plugin)" title="Release checklist (plugin)" style="color: var(--ink-secondary);"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"></path></svg></a>
+<a class="ab" href="SettingsPlugins.dc.html" aria-label="Add a plugin" title="Add a plugin" style="color: var(--ink-secondary); border: 1px dashed var(--line); box-sizing: border-box;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px;"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></a>
+<span style="flex-grow: 1;"></span>
+<a class="ab" href="SettingsOverview.dc.html" aria-label="Settings, 2 agents need attention" title="Settings" aria-current="{{settings.current}}" style="color: {{settings.fg}}; background: {{settings.bg}};"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg><span aria-hidden="true" style="position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; border-radius: 99px; background: var(--bad-fill); border: 2px solid var(--surface-card);"></span><sc-if value="{{settings.on}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="position: absolute; left: -6px; top: 10px; width: 3px; height: 20px; border-radius: 4px; background: var(--ink);"></span></sc-if></a>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["dispatch","needs","tasks","insights","terminal","settings"],"default":"dispatch"},"$preview":{"width":52,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active ?? 'dispatch';
+    const st = (id) => ({ on: id === active, current: id === active ? 'page' : 'false', fg: id === active ? 'var(--ink)' : 'var(--ink-secondary)', bg: id === active ? 'var(--surface-lane)' : 'transparent' });
+    return {
+      top: [
+        { id: 'dispatch', label: 'Dispatch', href: 'Main.dc.html', d: 'M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10', count: '' },
+        { id: 'needs', label: 'Needs you, 3 items', href: 'NeedsYou.dc.html', d: 'M12 3a6 6 0 0 0-6 6c0 6-3 7-3 7h18s-3-1-3-7a6 6 0 0 0-6-6zM10 20a2 2 0 0 0 4 0', count: '3' },
+        { id: 'tasks', label: 'Tasks', href: 'Tasks.dc.html', d: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2', count: '' },
+        { id: 'insights', label: 'Insights', href: 'Insights.dc.html', d: 'M4 20V10M10 20V4M16 20v-7M22 20H2', count: '' },
+        { id: 'terminal', label: 'Terminal panel (Ctrl+`)', href: 'Shell.dc.html', d: 'M4 5h16v14H4zM7 9l3 3-3 3M13 15h4', count: '' }
+      ].map((i) => ({ ...i, ...st(i.id) })),
+      settings: st('settings')
+    };
+  }
+}
+</script>
+</body>
+</html>

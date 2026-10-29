@@ -114,3 +114,23 @@ test('integration conflicts preserve the reason and instruction to review a fres
  const {d}=deps({call:async()=>{throw new ApiError('conflict','Integration target changed','Review a fresh preview',409);}});
  expect(await createActionRunner(d).run('repair',{label:'Repair',op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'old'}})).toEqual({status:'error',message:'Integration target changed',hint:'Review a fresh preview'});
 });
+
+test('review verdicts refresh shared attention counts before completing', async () => {
+  for (const op of ['task.review', 'dispatch.review']) {
+    const {d, refetches} = deps();
+    const runner = createActionRunner(d);
+    expect(await runner.run(op, {label:'Accept result',op,params:{id:'task',accepted:true}})).toEqual({status:'done'});
+    expect(refetches()).toBe(1);
+  }
+});
+
+test('successful acceptance acknowledges attention before refreshing a delayed service snapshot',async()=>{
+ const recorded:string[]=[];
+ const {d}=deps({reviewAccepted:id=>recorded.push(id),refetch:()=>{expect(recorded).toEqual(['task']);}});
+ const runner=createActionRunner(d);
+ await runner.run('accept',{label:'Accept',op:'task.review',params:{id:'task',verdict:'accept'}});
+ expect(recorded).toEqual(['task']);
+ const failed=createActionRunner({...d,call:async()=>{throw Error('Cannot accept');}});
+ await failed.run('fail',{label:'Accept',op:'task.review',params:{id:'other',verdict:'accept'}});
+ expect(recorded).toEqual(['task']);
+});

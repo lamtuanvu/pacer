@@ -1,5 +1,5 @@
 import { beginWorkSync, bindOrcaWorkSync, finishOrcaWorkSync, finishWorkSync } from "../../update/desktop/admission";
-import { resolveWorktreeBase } from "../../supervisor/worktree";
+import { resolveWorktreeBase, worktreeUnchanged } from "../../supervisor/worktree";
 import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -13,7 +13,8 @@ import { readJson, writeJsonAtomic } from "../../fsutil";
 import { type ExecutionCfg, validateExecution } from "../../config/execution";
 import { type ProviderCfg, loadStrategy } from "../../config/strategy";
 import { readTask, tasksDir, listTasksWhere, updateTask } from "../../tasks/store";
-import { resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
+import { type LiveWorker, resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
+import { taskActivity } from "../../core/tasks";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
 import { type AttemptOutcome, mcpNotApproved, REPORT_CHARS, runAttempt as directAttempt, runDir, tail } from "../direct";
@@ -22,11 +23,12 @@ import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
+import { laneWorktreeName, orcaWorktreeName } from "./names";
 import { OrcaClient, type Placement, type TerminalRow, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
-import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, type WorkerLookup, worktreeTerminals } from "./cleanup";
-import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
-import { updateOrcaState, withLock } from "./state";
-import { type WaitResult, waitForWorker } from "./wait";
+import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, releaseEmptyGroup, type WorkerLookup, worktreeTerminals } from "./cleanup";
+import { ensureCoordinator, ensureGroupWorktree, ensureRepo, gitInfo, realpathSafe } from "./setup";
+import { loadOrcaState, updateOrcaState, withLock } from "./state";
+import { SETTLED_STATES, type WaitResult, waitForWorker } from "./wait";
 
 export interface OrcaBackendDeps {
   loadExecution: (ctx: Ctx) => ExecutionCfg;
@@ -97,11 +99,18 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if (resolved.mode !== "current" && git.dirty) {
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
-  // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
+  // New-child worktree names (laneWorktreeName) also identify executor hook sessions.
+  // A --group lane is still a new-child worktree, nested under the group's shared parent worktree.
+  let parentWorktree: string | undefined;
+  if (!(task.retryOf && task.worktree) && resolved.mode !== "current" && task.group) {
+    const group = await ensureGroupWorktree(ctx, c, repoId, task.group, resolvedBase.sha ?? base);
+    if ("error" in group) return { ok: false, reason: group.error };
+    parentWorktree = group.selector;
+  }
   const placement: Placement = task.retryOf && task.worktree
     ? { kind: "existing", selector: `path:${task.worktree}` }
     : resolved.mode !== "current"
-    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: `pacer-${task.id}-${cfg.id}` }
+    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: laneWorktreeName(task.id, cfg.id), ...(parentWorktree ? { parentWorktree } : {}) }
     : { kind: "existing", selector: `path:${git.top}` };
   return {
     ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,
@@ -112,6 +121,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
 function workerSpec(task: TaskRecord, p: Ready): string {
   const where = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
     : `The current working directory: a new Orca worktree of ${p.top} branched from ${p.base}` +
+      `${p.placement.parentWorktree && task.group ? `, grouped under ${task.group}` : ""}` +
       `${p.sub ? `. Work in its ${p.sub}/ subdirectory` : ""}. Do not edit ${p.top} itself.`;
   const prompt = buildPrompt({ ...task.brief, repo: where }, task.id);
   return prompt;
@@ -199,6 +209,235 @@ function checkedWorktree(p: Ready, w: WorktreeRow | undefined): { id: string; pa
   return { id, path };
 }
 
+export interface LiveAnswerWorker { asked: TaskRecord; live: LiveWorker; worktree: string | null }
+
+/**
+ * Why the lane's agent cannot take input right now, or null when it can: the worker must be unsettled and the terminal
+ * must still report the agent pacer launched. Orca types `--text` into whatever runs in the terminal. The agent is
+ * launched with `exec`, so no shell sits behind it; this check is the second guard, and it fails closed.
+ */
+export async function liveAgentProblem(c: OrcaClient, live: LiveWorker): Promise<string | null> {
+  const show = await c.workerShow(live.worker);
+  if (!show.ok) return `worker-show failed: ${show.error.code}`;
+  const state = show.result.worker?.state;
+  if (!state || SETTLED_STATES.includes(state)) return `the worker is ${state ?? "gone"}`;
+  const shown = await c.terminalShow(live.terminal);
+  if (!shown.ok) return `terminal show failed: ${shown.error.code}`;
+  const row = shown.result.terminal;
+  if (!row || row.handle !== live.terminal) return "the terminal is gone";
+  if (live.incarnation && row.incarnationId && row.incarnationId !== live.incarnation) return "the terminal was restarted";
+  if (row.connected === false || row.writable === false) return "the terminal is not writable";
+  if (row.agentIdentity !== live.agent) return row.agentIdentity ? `${row.agentIdentity}, not ${live.agent}, is in the foreground` : `${live.agent} is not in the foreground (a shell may be)`;
+  return null;
+}
+
+/**
+ * A stopped interactive lane, or a settled one when `settled` is set, gives back what it created in Orca: its new-child
+ * worktree, when it holds no work (no uncommitted changes, no commits beyond its base), and then its `--group` parent
+ * once no lane is left under it. A worktree with work stays for review and `pacer clean`. ADR 0014 §3 lists the callers.
+ * Returns whether the worktree was removed. Never throws.
+ */
+async function releaseStoppedLane(
+  ctx: Ctx, c: OrcaClient, task: TaskRecord, w: OwnedWorktree | null, log: (line: string) => void, sleep?: (ms: number) => Promise<void>, settled = false,
+): Promise<boolean> {
+  try {
+    const current = readTask(ctx, task.id);
+    if (!w || !current || (current.state !== "stopped" && !settled) || current.interactionMode !== "conversation") return false;
+    const unchanged = await worktreeUnchanged(ctx, w.path, current.baseSha ?? current.baseBranch);
+    if (unchanged !== true) {
+      log(`kept the lane's Orca worktree ${w.id}: ${unchanged === false ? "it holds work" : "git could not tell whether it holds work"}; pacer clean removes it after review`);
+      return false;
+    }
+    await discardCreatedWorktree(ctx, c, task.id, w, log, sleep ? { sleep } : {});
+    if (loadOrcaState(ctx).stranded[task.id]?.id === w.id) return false;
+    const sep = w.id.indexOf("::");
+    if (current.group && sep > 0) await releaseEmptyGroup(ctx, c, w.id.slice(0, sep), current.group, log, sleep ? { sleep } : {});
+    // Forget the removed path, so an answer or retry starts fresh instead of reaching for a missing worktree.
+    const gone = (p?: string) => p === w.path || !!p?.startsWith(`${w.path}/`);
+    updateTask(ctx, task.id, t => {
+      if (gone(t.worktree)) delete t.worktree;
+      if (t.result && gone(t.result.worktree)) delete t.result.worktree;
+      t.worktreeReleased = { at: ctx.now, path: w.path };
+    });
+    taskActivity(ctx, current, "message", `Removed the lane's unused Orca worktree ${w.path}`);
+    return true;
+  } catch (e) {
+    log(`releasing the lane's worktree failed: ${String(e instanceof Error ? e.message : e)}`);
+    return false;
+  }
+}
+
+/** The pacer-created lane worktree a live worker runs in, identified through Orca by its path and lane name. */
+async function liveLaneWorktree(ctx: Ctx, c: OrcaClient, task: TaskRecord, live: LiveWorker): Promise<OwnedWorktree | null> {
+  const recorded = loadOrcaState(ctx).workers[live.worker]?.worktree ?? readTask(ctx, task.id)?.worktree ?? task.worktree;
+  if (!recorded || realpathSafe(recorded) === realpathSafe(task.brief.repo)) return null;
+  const top = await ctx.run(["git", "-C", recorded, "rev-parse", "--show-toplevel"], 10_000);
+  const path = top.code === 0 ? top.stdout.trim() : "";
+  // An answer moves the worker to a new task, but the worktree keeps the name of the lane that created it.
+  const name = basename(path);
+  if (!path || !LANE_NAME.test(name) || !name.endsWith(`-${orcaWorktreeName(live.executor)}`)) return null;
+  const shown = await c.worktreeShow(path);
+  const id = shown.ok ? shown.result.worktree?.id : undefined;
+  return id ? { id, path, name } : null;
+}
+const LANE_NAME = /^pacer-t-\d{8}-\d{6}-[0-9a-f]{4}-/;
+
+/** Stop a live worker, close its terminal and forget it, as a settled attempt would. */
+async function releaseLive(ctx: Ctx, c: OrcaClient, task: TaskRecord, why: string, log: (line: string) => void = () => {}): Promise<void> {
+  const live = task.live;
+  if (!live || live.backend !== "orca") return;
+  log(`releasing live orca worker ${live.worker} of ${task.id}: ${why}`);
+  const stopped = await c.workerStop(live.worker);
+  log(`worker-stop: ${stopped.ok ? (stopped.result.state ?? "ok") : stopped.error.code}`);
+  const closed = await closeCreatedTerminal(c, live.terminal);
+  log(`closed pacer terminal ${live.terminal}: ${closed.failure ?? "ok"}`);
+  if (!closed.proof) await recordUnclosed(ctx, task.id, live.terminal, log);
+  const current = readTask(ctx, task.id);
+  // A task still waiting for an answer keeps its worktree, so the answer can start from it.
+  const releaseLane = current?.state === "stopped" || current?.state === "done" || current?.state === "partial" || current?.state === "failed" || current?.state === "limit";
+  const lane = releaseLane ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
+  await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[live.worker]; }); });
+  updateTask(ctx, task.id, t => { if (t.live?.worker === live.worker) delete t.live; });
+  taskActivity(ctx, task, "message", `Stopped the live ${live.agent} worker: ${why}`);
+  await releaseStoppedLane(ctx, c, task, lane, log, undefined, releaseLane);
+}
+
+/**
+ * An interactive lane's escalation (`pacer ask`) leaves its worker and terminal alive and recorded on the task
+ * (`TaskRecord.live`). Answering it reattaches to that process instead of spawning a fresh worker, on every round: the
+ * worker moves to each answering attempt in turn. A worker whose agent is gone, a retry that is not an answer, or an
+ * answer routed to another executor releases the old worker first, so two agents never share one worktree.
+ */
+export async function findLiveAnswerWorker(ctx: Ctx, c: OrcaClient, task: TaskRecord, executor: string): Promise<LiveAnswerWorker | null> {
+  // A plain `pacer delegate --interactive` answer creates a new, retryOf-linked task; a managed
+  // (dispatch.child) answer restarts the same task id in place (src/core/work.ts `restartWork`).
+  const asked = task.retryOf ? readTask(ctx, task.retryOf) : task;
+  if (!asked?.live || asked.live.backend !== "orca") return null;
+  const answering = task.retryOf ? asked.question?.answer !== undefined : task.brief.qa?.length;
+  const problem = asked.interactionMode !== "conversation" ? "not an interactive lane"
+    : !answering ? "a retry is not an answer" : asked.live.executor !== executor ? `the answer runs on ${executor}`
+    : await liveAgentProblem(c, asked.live);
+  if (problem) {
+    await releaseLive(ctx, c, asked, problem).catch(() => { /* the supervision pass retries the release */ });
+    return null;
+  }
+  const worker = loadOrcaState(ctx).workers[asked.live.worker];
+  return { asked, live: asked.live, worktree: worker?.worktree ?? asked.worktree ?? null };
+}
+
+async function reattachOrcaAttempt(
+  deps: OrcaBackendDeps, ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskRecord, reattach: LiveAnswerWorker,
+): Promise<AttemptOutcome | null> {
+  const { live, worktree } = reattach;
+  const { worker: dispatchId, terminal } = live;
+  const git = await gitInfo(ctx.run, task.brief.repo);
+  if ("error" in git) return fallback(deps, ctx, cfg, task, undefined, git.error);
+  const coord = await ensureCoordinator(ctx, c, git.top);
+  if ("error" in coord) return fallback(deps, ctx, cfg, task, undefined, coord.error);
+  const startedAt = deps.now() / 1000;
+  const lines: string[] = [];
+  const log = (line: string) => { lines.push(line); };
+  // The answering attempt takes ownership, so `pacer send` and the next answer find the worker under this task.
+  const owned = { ...live, since: ctx.now };
+  if (reattach.asked.id !== task.id) updateTask(ctx, reattach.asked.id, t => {
+    if (t.live?.worker === dispatchId) delete t.live;
+    t.state = "partial";
+    if (t.result) t.result = { ...t.result, status: "partial", report: `${t.result.report}\nSuperseded by answer task ${task.id}.` };
+    t.dismissed = true;
+    t.settledAt = ctx.now;
+  });
+  updateTask(ctx, task.id, t => {
+    t.live = owned;
+    if (worktree) t.worktree = worktree;
+    t.group = reattach.asked.group;
+    t.baseBranch = reattach.asked.baseBranch;
+    t.baseSha = reattach.asked.baseSha;
+    t.placement = reattach.asked.placement;
+  });
+  await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { if (s.workers[dispatchId]) s.workers[dispatchId].taskId = task.id; }); });
+  const answerText = task.brief.qa?.at(-1)?.a;
+  if (answerText) {
+    // Checked again right before typing: setup above can take seconds, and the agent may have exited meanwhile.
+    const problem = await liveAgentProblem(c, owned);
+    const sent = problem ? null : await c.terminalSend(terminal, answerText);
+    log(problem ? `did not deliver the answer: ${problem}` : `delivered the answer live to ${terminal}: ${sent!.ok ? "ok" : sent!.error.code}`);
+    if (!sent?.ok) {
+      await releaseLive(ctx, c, { ...task, live: owned }, problem ?? `the answer could not be delivered (${sent!.ok ? "" : sent!.error.code})`, log);
+      return null;
+    }
+  } else {
+    log(`reattached to ${dispatchId} with no live answer to deliver`);
+  }
+  const adm = deps.admission;
+  const book = (what: string, f: () => unknown) => { try { f(); } catch (e) { log(`${what} failed: ${String(e instanceof Error ? e.message : e)}`); } };
+  const admission = adm.begin(ctx, { kind: "session", id: task.id, label: `Orca session ${task.id}` });
+  book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal, ...(live.incarnation ? { incarnationId: live.incarnation } : {}) }));
+  const prompt = buildPrompt({ ...task.brief, repo: worktree ? `the existing Orca worktree at ${worktree}` : task.brief.repo }, task.id);
+  const before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  let keepAlive = false;
+  let m: Mapped;
+  let endedAt: number;
+  let tailText = "";
+  try {
+    const waited = await waitForWorker(ctx, c, {
+      taskId: task.id, providerId: cfg.id, prompt, coordinator: coord.coordinator, run: coord.run, dispatchId, terminal,
+      deadlineMs: deps.now() + task.timeoutS * 1000,
+      isStopped: () => readTask(ctx, task.id)?.state === "stopped",
+      sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
+    });
+    log(waitLine(dispatchId, waited));
+    m = mapWait(waited);
+    endedAt = deps.now() / 1000;
+    tailText = m.tail ?? "";
+    if (m.code !== 0 && m.tail === undefined) {
+      const rd = await c.workerRead(dispatchId, 60);
+      tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
+    }
+    keepAlive = waited.kind === "settled" && waited.state === "needs_input";
+    if (keepAlive) log(`keeping orca worker ${dispatchId} alive for another live answer; task is needs_input`);
+    else await settle(c, dispatchId, m.settled, log, receipt => book("admission receipt", () => adm.finishOrca(ctx, admission, receipt)));
+  } catch (e) {
+    try {
+      const receipt = await c.workerStop(dispatchId);
+      log(`worker-stop: ${receipt.ok ? (receipt.result.state ?? "ok") : receipt.error.code}`);
+      book("admission receipt", () => adm.finishOrca(ctx, admission, receipt));
+    } catch (stopError) {
+      log(`worker-stop failed: ${String(stopError)}`);
+    }
+    throw e;
+  } finally {
+    if (keepAlive) {
+      book("live worker", () => updateTask(ctx, task.id, t => { if (t.live?.worker === dispatchId) t.live.since = deps.now() / 1000; }));
+      book("admission release", () => adm.finish(ctx, admission));
+    } else {
+      const closed = await closeCreatedTerminal(c, terminal);
+      log(`closed pacer terminal ${terminal}: ${closed.failure ?? "ok"}`);
+      if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
+      else await recordUnclosed(ctx, task.id, terminal, log);
+      try {
+        await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[dispatchId]; }); });
+      } catch (e) { log(`worker state cleanup failed: ${String(e)}`); }
+      book("live worker", () => updateTask(ctx, task.id, t => { if (t.live?.worker === dispatchId) delete t.live; }));
+    }
+  }
+  const lane = !keepAlive ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
+  const removed = !keepAlive && await releaseStoppedLane(ctx, c, task, lane, log, deps.sleep, m.settled);
+  const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
+  const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  const reason = brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
+  const dir = tasksDir(ctx);
+  mkdirSync(dir, { recursive: true });
+  const logFile = join(dir, `${task.id}.${cfg.id}.log`);
+  await Bun.write(logFile, `${lines.join("\n")}\n--- summary\n${m.summary}\n--- worker output (tail)\n${tailText}\n`);
+  return {
+    exec, report: tail(m.summary, REPORT_CHARS), backend: "orca", ...(!removed && worktree ? { worktree } : {}),
+    attempt: {
+      executor: cfg.id, model: cfg.model, startedAt, endedAt, ...(reason ? { brokenReason: reason } : {}),
+      exitCode: m.code, timedOut: m.timedOut, limitHit: !reason && detectLimit(cfg.id, exec), log: logFile,
+    },
+  };
+}
+
 async function runOrcaAttempt(
   deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void,
 ): Promise<AttemptOutcome> {
@@ -211,6 +450,9 @@ async function runOrcaAttempt(
   // A work grant is a secret: it cannot go in a visible Orca terminal command, so delegating work runs directly.
   if (ctx.env.PACER_WORK_GRANT) return fallback(deps, ctx, cfg, task, onSpawn, "the task allows delegation, and its work grant cannot be placed in a visible Orca terminal command");
   const c = new OrcaClient(ctx.run, ctx.env);
+  const reattach = await findLiveAnswerWorker(ctx, c, task, cfg.id);
+  const reattached = reattach && await reattachOrcaAttempt(deps, ctx, c, cfg, task, reattach);
+  if (reattached) return reattached;
   let p: Prepared;
   try {
     p = await prepare(ctx, c, cfg, task, ex);
@@ -270,7 +512,12 @@ async function runOrcaAttempt(
     if (unproven.length) throw Error(`orca worktree initial terminal ${unproven.join(", ")} could not be verified closed`);
   };
   const worktreeId = () => selector ? selector.slice("id:".length) : undefined;
-  const discard = async () => { if (created) await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep }); };
+  // A fallback leaves nothing in Orca: the lane's worktree, then its group parent once no other lane uses it.
+  const discard = async () => {
+    if (!created) return;
+    await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep });
+    if (task.group && p.placement.kind === "new-child") await releaseEmptyGroup(ctx, c, p.placement.repoId, task.group, log, { sleep: deps.sleep });
+  };
   try {
     const kind = p.placement.kind === "new-child" ? "create" : "show";
     const placement = p.placement.kind === "new-child"
@@ -299,7 +546,10 @@ async function runOrcaAttempt(
       throw Error("account environment contains values that cannot be placed in a visible Orca terminal command");
     }
     // CLAUDE_CODE_SANDBOXED makes Claude treat the folder as trusted without writing its configuration.
-    const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
+    const agentRunDir = `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`;
+    const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, `PACER_HOME=${ctx.pacerHome}`,
+      `PACER_RUN_DIR=${agentRunDir}`, `PACER_TRANSCRIPT_REPORT=${join(agentRunDir, "transcript-report.md")}`,
+      ...(ctx.env.PACER_PORT ? [`PACER_PORT=${ctx.env.PACER_PORT}`] : []), ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
     // As in a direct launch, a default account uses the folder the user's login profile sets. Orca's shell environment
     // is not the service's, so without a profile folder a default account must not inherit another account's home.
     const agent = p.agent === "claude" ? "claude-code" : "codex", home = p.agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
@@ -322,10 +572,15 @@ async function runOrcaAttempt(
     }
     // The direct interactive launch for this runner and worktree, with its per-run settings file (bypass-permissions
     // acknowledgement, MCP answers). pacer's PTY session hooks stay out: Orca supervises this terminal.
-    const launch = prepareInteractive(agent, `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`,
+    const launch = prepareInteractive(agent, agentRunDir,
       {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false, ...(mcp ? {mcp} : {})}).argv;
-    const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
-    const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
+    // `exec` replaces the terminal's login shell with the agent: when the agent exits the terminal ends, so no shell is
+    // ever left behind it to receive text typed for the agent (`task.send`, a live answer).
+    const command = shellCommand(["exec", "env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
+    const shown = shellCommand(["exec", "env", ...unset, ...identity.map(value => value.startsWith("PACER_HOME=") ? "PACER_HOME=<PACER_HOME>"
+      : value.startsWith("PACER_RUN_DIR=") ? "PACER_RUN_DIR=<PACER_RUN_DIR>"
+      : value.startsWith("PACER_TRANSCRIPT_REPORT=") ? "PACER_TRANSCRIPT_REPORT=<PACER_TRANSCRIPT_REPORT>" : value),
+      ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
     if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
     terminal = made.result.terminal.handle;
@@ -412,6 +667,7 @@ async function runOrcaAttempt(
       const shown = await c.terminalShow(agentTerminal);
       if (shown.ok && shown.result.terminal?.handle === agentTerminal && shown.result.terminal.incarnationId) {
         const shownId = shown.result.terminal.incarnationId;
+        incarnationId = shownId;
         book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal, incarnationId: shownId }));
       }
     } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
@@ -431,6 +687,7 @@ async function runOrcaAttempt(
   let launchBroken: string | undefined;
   let endedAt: number;
   let tailText = "";
+  let keepAlive = false;
   try {
     try {
       // Once started, even a task/worker registration failure must keep supervision active.
@@ -439,6 +696,10 @@ async function runOrcaAttempt(
         updateOrcaState(ctx, (s) => {
           s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal: agentTerminal, startedAt };
         });
+      });
+      // An interactive lane's worker is owned through the task, so `pacer send` and `task.stop` can reach it.
+      if (task.interactionMode === "conversation") updateTask(ctx, task.id, t => {
+        t.live = { backend: "orca", worker: dispatchId, terminal: agentTerminal, executor: cfg.id, agent: p.agent, ...(incarnationId ? { incarnation: incarnationId } : {}), since: startedAt };
       });
     } catch (e) {
       log(`worker registration failed; continuing supervision: ${String(e)}`);
@@ -464,6 +725,9 @@ async function runOrcaAttempt(
       });
       log(waitLine(dispatchId, w));
       m = mapWait(w);
+      // Kept alive only while the task records it as its owner; otherwise stop, release and the reaper could not reach it.
+      keepAlive = task.interactionMode === "conversation" && w.kind === "settled" && w.state === "needs_input"
+        && readTask(ctx, task.id)?.live?.worker === dispatchId;
     }
 
     endedAt = deps.now() / 1000;
@@ -472,8 +736,12 @@ async function runOrcaAttempt(
       const rd = await c.workerRead(dispatchId, 60);
       tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
     }
-    await settle(c, dispatchId, m.settled, log, receipt => book("admission receipt", () => adm.finishOrca(ctx, admission, receipt)));
+    // An interactive lane's escalation leaves its worker and terminal running, so a live
+    // `pacer send`/`pacer answer` can deliver into the same process instead of respawning it.
+    if (keepAlive) log(`keeping orca worker ${dispatchId} alive for a live answer; task is needs_input`);
+    else await settle(c, dispatchId, m.settled, log, receipt => book("admission receipt", () => adm.finishOrca(ctx, admission, receipt)));
   } catch (e) {
+    keepAlive = false;
     try {
       const receipt = await c.workerStop(dispatchId);
       log(`worker-stop: ${receipt.ok ? (receipt.result.state ?? "ok") : receipt.error.code}`);
@@ -483,16 +751,27 @@ async function runOrcaAttempt(
     }
     throw e;
   } finally {
-    // Always close the exact terminal pacer created; nothing above may skip this.
-    const closed = await closeCreatedTerminal(c, agentTerminal);
-    log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
-    if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
-    else await recordUnclosed(ctx, task.id, agentTerminal, log, worktreeId());
-    await forget();
+    if (keepAlive) {
+      // The worker stays registered and owned by the task (`live`), holding its slot, until an answer reattaches to it
+      // or task.stop, settlement or the idle limit releases it (src/exec/live.ts).
+      book("live worker", () => updateTask(ctx, task.id, t => { if (t.live?.worker === dispatchId) t.live.since = deps.now() / 1000; }));
+      book("admission release", () => adm.finish(ctx, admission));
+    } else {
+      // Always close the exact terminal pacer created; nothing above may skip this.
+      const closed = await closeCreatedTerminal(c, agentTerminal);
+      log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
+      if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
+      else await recordUnclosed(ctx, task.id, agentTerminal, log, worktreeId());
+      await forget();
+      book("live worker", () => updateTask(ctx, task.id, t => { if (t.live?.worker === dispatchId) delete t.live; }));
+    }
   }
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };
   const after = await repoFingerprint(ctx, worktree ?? task.brief.repo);
+  // A stopped lane's unused worktree (and its empty group parent) goes; the outcome then names no worktree.
+  const removed = !keepAlive && await releaseStoppedLane(ctx, c, task, created, log, deps.sleep);
+  if (removed) m = { ...m, summary: `${m.summary}\nremoved the stopped lane's unused Orca worktree ${created!.path}` };
   const transient = m.summary.includes("transient provider busy after three retries") ? "transient provider busy after three retries" : null;
   const reason = transient ?? launchBroken ?? brokenReason(exec, endedAt - startedAt, before === null && after === null ? null : before !== null && before === after);
   const dir = tasksDir(ctx);
@@ -503,7 +782,7 @@ async function runOrcaAttempt(
     exec,
     report: tail([...p.notes, m.summary].join("\n\n"), REPORT_CHARS),
     backend: "orca",
-    ...(worktree ? { worktree } : {}),
+    ...(worktree && !removed ? { worktree } : {}),
     attempt: {
       executor: cfg.id, model: cfg.model, startedAt, endedAt,
       ...(reason ? { brokenReason: reason } : {}),
@@ -522,6 +801,17 @@ export function makeOrcaBackend(over: Partial<OrcaBackendDeps> = {}): Backend {
       return isReady(await new OrcaClient(ctx.run, ctx.env).status());
     },
     runAttempt: (ctx, cfg, task, onSpawn) => runOrcaAttempt(deps, ctx, cfg, task, onSpawn),
+    live: {
+      send: async (ctx, task, text) => {
+        if (!task.live || task.live.backend !== "orca") return { ok: false, code: "unavailable", message: "this task has no live terminal to send into" };
+        const c = new OrcaClient(ctx.run, ctx.env);
+        const problem = await liveAgentProblem(c, task.live);
+        if (problem) return { ok: false, code: "unavailable", message: `refused: ${problem}. Nothing was typed; answer or retry the task instead` };
+        const sent = await c.terminalSend(task.live.terminal, text);
+        return sent.ok ? { ok: true } : { ok: false, code: "unavailable", message: `orca terminal send failed: ${sent.error.code} ${sent.error.message}` };
+      },
+      release: (ctx, task, why) => releaseLive(ctx, new OrcaClient(ctx.run, ctx.env), task, why),
+    },
   };
 }
 

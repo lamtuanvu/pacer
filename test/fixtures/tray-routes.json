@@ -14,7 +14,8 @@
     "/settings/dispatcher",
     "/settings/updates",
     "/settings/hosts/workstation",
-    "/tasks/new"
+    "/tasks/new",
+    "/needs-you?answer=t-20261029-153500-a0f9"
   ],
   "rejected": [
     "/?new=task",
@@ -38,6 +39,18 @@
     "pacer://user@tasks/id",
     "pacer://tasks/%2e%2e",
     "/sessions?filter=done?x",
-    "/tasks/a#x"
+    "/tasks/a#x",
+    "/needs-you?answer=",
+    "/needs-you?answer=task-1",
+    "/needs-you?answer=t-20261029-153500-A0F9",
+    "/needs-you?answer=t-20261029-153500-a0fg",
+    "/needs-you?answer=t-2026102-153500-a0f9",
+    "/needs-you?answer=t-20261029-153500-a0f9&repo=x",
+    "/needs-you?repo=x&answer=t-20261029-153500-a0f9",
+    "/needs-you?answer=t-20261029-153500-a0f9#x",
+    "/needs-you?answer=t-20261029-153500-a0f9/",
+    "/needs-you?answer=t-20261029-153500-a0f9%00",
+    "/tasks?answer=t-20261029-153500-a0f9",
+    "pacer://needs-you?answer=t-20261029-153500-a0f9"
   ]
 }

@@ -8,7 +8,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { processIdentitySync } from "./control/lease";
 import { nativeCommand } from "./control/desktop";
 import { healthy, loadSession, record } from "./core";
-import { initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { exactFixtureExternal, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { captureProblem } from "./capture-content";
@@ -160,10 +160,11 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   if (!(TAKEOVER_SCENARIOS as readonly string[]).includes(scenario)) throw Error("Unknown fixed takeover scenario");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
-  if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || state.external.length !== 4 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
-  // Fixture apps have their own identifier, so the installed app may keep running; prove it is untouched.
+  if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || !exactFixtureExternal(state) || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
+  // The separate fixture bundle can run while the installed app stays open.
   const realApp = snapshotRealApp(enumerateNativeProcesses());
-  await verifyFixtureBundle(state, initialFixtureVersion(state));
+  const baseline = initialFixtureVersion(state);
+  await verifyFixtureBundle(state, baseline);
   const before = await inspectFixtureJobs(state);
   if (before.desktops.length || before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture job already active");
   if (!await healthy(session)) throw Error("Guarded source service is unhealthy");
