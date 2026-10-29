@@ -27,6 +27,7 @@ import { AppFrame } from "./AppFrame";
 import { panelCommands, usePanelState } from "./panels";
 import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
+import { useAgentDeepLink } from "./panels/agent-link";
 import { activeRepo } from "./narrow";
 
 /** The sheet loads after first paint so it stays out of the main bundle. Older services never load it. */
@@ -47,6 +48,7 @@ function Skeleton() {
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
+  useAgentDeepLink(route);
   const [density, setDensity] = useState<"normal" | "compact">(() => {
     try { return localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"; }
     catch { return "compact"; }
@@ -92,6 +94,9 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const wide = useMedia(PANEL_MEDIA, true);
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
+  const workPanels = !narrow && wide && !!context && !state.sessionEnded && (route.name === "dispatch" || (route.name === "sessions" && !route.id));
+  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, true);
+  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, true);
   const taskPanels = !narrow && wide && route.name === "sessions" && route.view !== "trace" && !!route.id && !!context && !state.sessionEnded;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.
   const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
@@ -100,9 +105,9 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);
-  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, inline: !taskPanels, heading: setHeading,
-    sessions: taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
-    details: taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, tasksOpen, detailsOpen]);
+  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, inline: !taskPanels && !workPanels, heading: setHeading,
+    sessions: workPanels ? { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } : taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
+    details: workPanels ? { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen) } : taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, tasksOpen, detailsOpen, workPanels, scopeOpen, inspectorOpen, route.name]);
   // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
   const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
@@ -112,10 +117,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     setDockOpen(!dockOpen);
   };
   useEffect(() => {
-    const offs = panelCommands(hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
-      dockAvailable ? toggleDock : undefined, taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
+    const offs = panelCommands(workPanels ? () => setScopeOpen(!scopeOpen) : hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
+      dockAvailable ? toggleDock : undefined, workPanels ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
-  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen]);
+  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
   const planner = state.snapshot?.planner, mode = state.snapshot?.mode?.mode;
@@ -157,8 +162,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   // Dispatcher and the legacy Assistant screen still rely on the shell for their h1.
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
-      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(workPanels ? { left: { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } } : hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(workPanels ? { right: { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen), label: "Inspector", keys: "Control+Shift+B" } } : taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
@@ -168,8 +173,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
-    left={settings || tasks}
-    right={details}
+    left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-scope-panel" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
+    right={details || (workPanels && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
     mainClass={`pc-main${!loading && !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}

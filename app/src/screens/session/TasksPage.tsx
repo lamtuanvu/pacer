@@ -1,3 +1,5 @@
+import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
+import { useFrame } from "../../shell/slots";
 import { useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { Page } from "../../ds/Page";
@@ -50,6 +52,7 @@ export interface TasksPageProps {
 /** The Tasks board: header, filters and the task tree beside the selected task. */
 export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork }: TasksPageProps) {
   const {state} = useTaskContext();
+  const frame = useFrame();
   const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -71,7 +74,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
-  return <Page width="full" className="pc-tasks-page">
+  return <><LazyWorkPanels query={query} selected={here?.node.id ?? null} /><Page width="full" className="pc-tasks-page">
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         <h1 className="pc-tasks-page__title">Tasks</h1>
@@ -99,7 +102,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
             : hasMoreWork && <Button size="sm" busy={loadingMoreWork} onClick={onLoadMoreWork}>Load more subtasks</Button>}
         </div>}
       </section>
-      {here && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
+      {here && frame?.inline !== false && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
     </div>
-  </Page>;
+  </Page></>;
 }
