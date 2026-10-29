@@ -88,6 +88,31 @@ test("--stop-work signals an identity-matched executor's process group", async (
   }
 });
 
+test("--stop-work falls back to signalling a non-group-leader executor", async () => {
+  const { ctx, d } = installed();
+  const child = Bun.spawn(["sleep", "30"]);
+  try {
+    const real = processIdentity(child.pid)!;
+    const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+    updateTask(ctx, t.id, x => { x.state = "running"; x.attemptStartedAt = ctx.now; x.childPid = child.pid; x.childIdentity = real; });
+    const r = await serviceCli(["uninstall", "--stop-work", "--yes"], ctx, d);
+    expect(r.out).toContain("stopped 1 of 1");
+    await child.exited;
+    expect(child.signalCode).toBe("SIGTERM");
+    expect(readTask(ctx, t.id)?.state).toBe("stopped");
+  } finally { child.kill("SIGKILL"); await child.exited; }
+});
+
+test("waiting interactive lanes count as work and stop with --stop-work", async () => {
+  const { ctx, d } = installed();
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, t.id, x => { x.state = "needs_input"; x.question = { text: "Answer?", at: ctx.now }; x.live = { backend: "missing", worker: "w", terminal: "term", executor: "codex", agent: "codex", since: ctx.now }; });
+  expect((await serviceCli(["uninstall"], ctx, d)).err).toContain("1 task");
+  const r = await serviceCli(["uninstall", "--stop-work", "--yes"], ctx, d);
+  expect(r.out).toContain("stopped 1 of 1");
+  expect(readTask(ctx, t.id)?.state).toBe("stopped");
+});
+
 test("a terminal child file cannot point at the operator process", () => {
   expect(terminalChildBelongsToHost(process.pid, process.pid)).toBe(false);
 });

@@ -163,8 +163,8 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
         <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>
-<RunningWork/>
-        <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig} checkedAt={query.data?.checkedAt}/>
+    <RunningWork/>
+    <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig} checkedAt={query.data?.checkedAt}/>
     <Feedback action={action}/>
   </section>;
 }

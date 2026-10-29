@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { listTasksWhere } from "../tasks/store";
+import { listTasksWhere, readTask } from "../tasks/store";
 import { listTerminals, terminalDirectory } from "../terminal/workspace";
 import { readRun, stopRun } from "../supervisor/run";
 import { hostVersionView, readSessionVersion } from "../session/protocol";
-import { processIdentity, sameProcess } from "../update/desktop/process-identity";
+import { processIdentity, sameProcess, signalSameProcess } from "../update/desktop/process-identity";
 import { pidAlive } from "../link/store";
-import { taskStop } from "../tasks/api";
+import { taskStop, settleLiveReleases } from "../tasks/api";
+import { liveWorkerOwned } from "../exec/live";
 import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { Ctx } from "../types";
 
@@ -23,7 +24,8 @@ const older = (version: string | null, current: string) => {
 /** Running tasks and live session hosts, with versions only: never paths. */
 export async function runningWork(ctx: Ctx, current = currentVersion()): Promise<RunningWork> {
   const tasks: RunningTask[] = [], sessions: RunningSession[] = [];
-  for (const t of listTasksWhere(ctx, { states: ["running"] })) {
+  for (const t of listTasksWhere(ctx, { states: ["running", "needs_input"] })) {
+    if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
     const runnerPacer = t.runnerPacer ?? t.handover?.pacer ?? null;
     tasks.push({ taskId: t.id, runnerPacer, older: older(runnerPacer, current) });
     const dir = t.run && !t.run.host ? t.run.dir : undefined;
@@ -88,13 +90,17 @@ function signalExecutorGroup(pid: number, identity: NonNullable<ReturnType<typeo
 /** Stop only work whose process identity is confirmed or whose runner still supervises it. */
 export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
   const report: StopReport = { stopped: [], skipped: [] };
-  for (const t of listTasksWhere(ctx, { states: ["queued", "running"] })) {
+  for (const t of listTasksWhere(ctx, { states: ["queued", "running", "needs_input"] })) {
+    if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
     const verified = !!t.childPid && !!t.childIdentity && sameProcess(processIdentity(t.childPid), t.childIdentity);
     const supervised = !!t.runnerPid && pidAlive(t.runnerPid);
     if (!verified && !supervised && t.state === "running") { report.skipped.push({ id: t.id, reason: "its process identity could not be confirmed and no runner supervises it" }); continue; }
+    if (verified && !signalExecutorGroup(t.childPid!, t.childIdentity!) && !signalSameProcess(t.childIdentity!, "SIGTERM")) {
+      report.skipped.push({ id: t.id, reason: "its checked executor could not be signalled" }); continue;
+    }
     const stopped = taskStop(ctx, t.id, { signal: false });
-    if (verified && stopped && stopped.childPid === t.childPid && sameProcess(stopped.childIdentity ?? null, t.childIdentity ?? null))
-      signalExecutorGroup(t.childPid!, t.childIdentity!);
+    if (t.state === "needs_input") await settleLiveReleases();
+    if (!stopped) { report.skipped.push({ id: t.id, reason: "the task was no longer available" }); continue; }
     report.stopped.push(t.id);
   }
   for (const terminal of await listTerminals(ctx)) {

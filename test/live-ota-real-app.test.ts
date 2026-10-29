@@ -23,6 +23,7 @@ test("fixture exercises prove the installed app's processes and consent were lef
   expect(realAppNote(before)).toContain("Installed app: 2 processes");
   expect(() => assertRealAppUnchanged(before, snapshotRealApp([app(10), app(20)], home, null))).not.toThrow();
   expect(() => assertRealAppUnchanged(before, snapshotRealApp([], home, null))).not.toThrow();
+  expect(realAppNote(before, snapshotRealApp([], home, null))).toContain("exited during exercise");
   expect(() => assertRealAppUnchanged(before, snapshotRealApp([app(10), app(20, "reused")], home, null))).toThrow("process changed");
   writeFileSync(consent, '{"keep":false}');
   expect(() => assertRealAppUnchanged(before, snapshotRealApp([app(10), app(20)], home, null))).toThrow("files, service or CLI link changed");
@@ -37,5 +38,9 @@ test("fixture exercises prove the installed app's processes and consent were lef
   expect(snapshotRealApp([], home, null).cliLink?.type).toBe("symlink");
   expect(snapshotRealApp([], home, null).cliLink?.target).toContain("/Applications/pacer.app");
   writeFileSync(join(dirname(consent), "other.json"), "other");
+  writeFileSync(join(dirname(consent), ".window-state.json"), "changing window state");
+  writeFileSync(join(dirname(consent), "cli-choice.json"), "changing choice");
+  writeFileSync(join(dirname(consent), "takeover-acknowledged.json"), "changing acknowledgement");
+  writeFileSync(join(dirname(consent), "takeover-dismissed.json"), "changing dismissal");
   expect(Object.keys(snapshotRealApp([], home, null).configFiles)).toEqual(["consent.json", "other.json"]);
 });

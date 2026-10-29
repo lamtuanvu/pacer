@@ -399,7 +399,9 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
   writeFileSync(evidence("real-app-after.json"), JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   assertRealAppUnchanged(realApp, realAppAfter);
-  observed.realApp = realAppNote(realApp);
+  const appNote = realAppNote(realApp, realAppAfter);
+  observed.realApp = appNote;
+  if (realApp.processes.length && !realAppAfter.processes.length) record(session, { kind: "note", behavior: `OTA ${scenario} installed app exited`, surface: "native desktop", verdict: "UNVERIFIED", text: appNote });
   state = readOtaRecord(id, options);
   updateOtaDriverRecord(id, state, { exercise: { ...state.exercise!, state: "complete" }, runtime: { ...state.runtime!, request: null } }, options);
   observed.preserved = preserved.map(item => item.name);

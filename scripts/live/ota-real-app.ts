@@ -23,12 +23,15 @@ export function realConsentPath(home = userInfo().homedir): string {
   return join(home, "Library/Application Support", RELEASE_IDENTIFIERS.desktop, "consent.json");
 }
 const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+// These are normal app presentation and choice records, not fixture invariants.
+const VOLATILE_CONFIG = new Set([".window-state.json", "cli-choice.json", "takeover-acknowledged.json", "takeover-dismissed.json"]);
 function configHashes(root: string): Record<string, string> {
   const files: Record<string, string> = {};
   if (!existsSync(root)) return files;
   function walk(path: string): void {
     for (const name of readdirSync(path).sort()) {
       const child = join(path, name), stat = lstatSync(child), key = relative(root, child);
+      if (VOLATILE_CONFIG.has(name)) continue;
       if (stat.isDirectory()) walk(child);
       else if (stat.isFile()) files[key] = hash(child);
       else files[key] = stat.isSymbolicLink() ? `symlink:${readlinkSync(child)}` : `other:${stat.mode}`;
@@ -67,6 +70,7 @@ export function assertRealAppUnchanged(before: RealAppSnapshot, after: RealAppSn
   if (after.processes.length && (before.processes.length !== after.processes.length || before.processes.some((item, index) => !sameProcess(item, after.processes[index] ?? null)))) throw Error("The installed app's process changed during the fixture exercise");
   if (before.otherApps.length !== after.otherApps.length || before.otherApps.some((item, index) => item.executable !== after.otherApps[index]?.executable || !sameProcess(item.process, after.otherApps[index]?.process ?? null))) throw Error("Another pacer app process changed during the fixture exercise");
 }
-export function realAppNote(snapshot: RealAppSnapshot): string {
-  return `Installed app: ${snapshot.installedAppNotRunning ? "not running" : `${snapshot.processes.length} processes`}; real service PID ${snapshot.servicePid ?? "absent"}; config files ${Object.keys(snapshot.configFiles).length}.`;
+export function realAppNote(snapshot: RealAppSnapshot, after = snapshot): string {
+  const state = snapshot.processes.length && !after.processes.length ? "exited during exercise" : after.installedAppNotRunning ? "not running" : `${after.processes.length} processes`;
+  return `Installed app: ${state}; real service PID ${after.servicePid ?? "absent"}; config files ${Object.keys(after.configFiles).length}.`;
 }

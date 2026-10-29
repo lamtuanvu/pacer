@@ -1,6 +1,6 @@
 import { prepareManualCandidate } from "./ota-candidate";
 /** Fixed live managed-update scenarios. Every update write crosses the guarded public API. */
-import { constants, closeSync, fstatSync, openSync, readFileSync, realpathSync, writeSync } from "node:fs";
+import { constants, closeSync, existsSync, fstatSync, openSync, readFileSync, realpathSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { HttpClient } from "../../src/api/http-client";
@@ -46,6 +46,8 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
   // The installed app may keep running beside the fixture; prove it is untouched at the end.
   const realApp = snapshotRealApp(enumerateNativeProcesses());
+  const realAppEvidence = (name: string) => join(session.root, "evidence", name);
+  writeFileSync(realAppEvidence("real-app-before.json"), JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   const before = await inspectFixtureJobs(state);
   if (resuming) {
     if (before.desktops.length || before.jobs[1].loaded || before.jobs[1].state !== "reserved") throw Error("Startup has unexpected native participants");
@@ -213,13 +215,18 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
-    assertRealAppUnchanged(realApp, snapshotRealApp(enumerateNativeProcesses()));
-    record(session, { kind: "note", behavior: `OTA ${scenario} installed app untouched`, surface: "native desktop", verdict: "PASS", text: realAppNote(realApp) });
+    const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
+    writeFileSync(realAppEvidence("real-app-after.json"), JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    assertRealAppUnchanged(realApp, realAppAfter);
+    record(session, { kind: "note", behavior: `OTA ${scenario} installed app untouched`, surface: "native desktop", verdict: realApp.processes.length && !realAppAfter.processes.length ? "UNVERIFIED" : "PASS", text: realAppNote(realApp, realAppAfter) });
     state = readOtaRecord(id, options);
     updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: expected === "recovery-failed" ? "failed" : "complete" } }, options);
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "PASS", text: `Observed ${expectedJournal}${outcome ? " with matching public status" : " offline, with both faults consumed, admission retained and desktop/service absent"}; exact native checkpoint and journal evidence verified. Configuration and authentication token remained byte-identical. Owned native processes and registrations retained until verified retirement.` });
   } catch (error) {
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "FAIL", text: error instanceof Error ? error.message : "Native exercise failed; resources and evidence retained." });
     throw error;
-  } finally { clearInterval(journalTrace); if (journalTraceFd !== undefined) closeSync(journalTraceFd); unsubscribe(); client.close(); }
+  } finally {
+    if (!existsSync(realAppEvidence("real-app-after.json"))) writeFileSync(realAppEvidence("real-app-after.json"), JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    clearInterval(journalTrace); if (journalTraceFd !== undefined) closeSync(journalTraceFd); unsubscribe(); client.close();
+  }
 }
