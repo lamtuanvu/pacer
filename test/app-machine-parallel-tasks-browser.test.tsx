@@ -225,6 +225,9 @@ browserTest('a refused Save keeps the draft and focus on Save for a retry',async
   await page.waitForFunction(()=>document.activeElement?.textContent==='Save changes',undefined,{timeout:5000});
   expect(await focused(page)).toBe('button::Save changes');
   expect(await field(page).inputValue()).toBe('9');
+  // Discard also clears the refused save's error.
+  await page.getByRole('button',{name:'Discard'}).click();
+  expect(await page.getByText('config.set refused').count()).toBe(0);
  }finally{await page.close();}
 });
 

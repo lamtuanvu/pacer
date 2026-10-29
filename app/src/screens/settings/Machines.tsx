@@ -143,7 +143,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
     if (lost || el === saveButton.current) setTimeout(() => (saveButton.current?.disabled ? status.current : saveButton.current)?.focus());
   };
   const [readError, setReadError] = useState<unknown>();
-  const reset = () => { setReadError(undefined); setForm({ base: saved, draft: saved }); status.current?.focus(); };
+  const reset = () => { setReadError(undefined); action.clear(); setForm({ base: saved, draft: saved }); status.current?.focus(); };
   const save = async () => {
     // Re-read before writing: a key changed elsewhere since this draft began is not overwritten.
     // Without a fresh read there is no conflict check, so the draft stays unsaved.
