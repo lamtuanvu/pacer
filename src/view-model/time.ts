@@ -14,6 +14,14 @@ export function elapsed(seconds: number): string {
   const m = Math.max(0, Math.floor(seconds / 60)), h = Math.floor(m / 60);
   return h ? `${h}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
 }
+/** Readable duration for captions: "<1 min", "2 min", "1 h 5 min". */
+export function durationWords(seconds: number): string {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  if (!minutes) return "<1 min";
+  if (!hours) return `${minutes} min`;
+  return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+}
 /** Calendar-aware local time shared by all surfaces. Timestamps are Unix seconds. */
 export function clock(at: number, now: number, timeZone?: string): string {
   const date = new Date(at * 1000), opts = { timeZone, hourCycle: "h23" as const };

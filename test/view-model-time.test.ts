@@ -37,3 +37,16 @@ test("browser time, copy and words imports stay within the lightweight vocabular
     "view-model/agents.ts", "view-model/copy.ts", "view-model/time.ts", "view-model/words.ts",
   ]);
 });
+
+test("durationWords uses readable minutes and hours without changing elapsed", () => {
+  for (const [seconds, expected] of [[0, "<1 min"], [59, "<1 min"], [120, "2 min"], [3600, "1 h"], [3900, "1 h 5 min"], [90000, "25 h"]] as const) {
+    expect(time.durationWords(seconds)).toBe(expected);
+  }
+  expect(time.elapsed(3900)).toBe("1h 05m");
+});
+
+test("durationWords covers the hour edge and negative input", async () => {
+  const { durationWords } = await import("../src/view-model/time");
+  expect(durationWords(59 * 60 + 59)).toBe("59 min");
+  expect(durationWords(-30)).toBe("<1 min");
+});

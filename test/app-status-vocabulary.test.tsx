@@ -64,5 +64,5 @@ test('planner, footer and tray agree on a ready executor at 37 percent', () => {
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);
   expect(tray).toContain('pc-meter__fill--warn');
   expect(tray).toContain('Eligibility unknown · No execution decision is available · Ahead of pace');
-  expect(tray).toContain('pc-status--warn">37%');
+  expect(tray).toContain('tray-executor-value--warn">37%');
 });

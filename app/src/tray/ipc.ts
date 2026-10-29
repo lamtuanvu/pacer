@@ -12,7 +12,7 @@ export function createTrayIpc(host: TrayHost | undefined = typeof window === "un
       if (invoke) await invoke("tray_open", { route });
       else host?.location.assign(appHref(route));
     },
-    resize: async (height: number) => { if (invoke) await invoke("tray_resize", { height: Math.max(1, Math.min(520, Math.ceil(height))) }); },
+    resize: async (height: number) => { if (invoke) await invoke("tray_resize", { height: Math.max(1, Math.min(560, Math.ceil(height))) }); },
     hide: async () => { if (invoke) await invoke("tray_hide"); },
     quit: async () => { if (invoke) await invoke("app_quit"); },
     desktop: !!invoke,

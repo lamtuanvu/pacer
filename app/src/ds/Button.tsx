@@ -6,7 +6,7 @@ import { Icon, type IconName } from "./icons";
 import { useDensity } from "./Density";
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'quiet' | 'danger';
-interface Appearance { variant?: ButtonVariant; size?: 'md' | 'sm' }
+interface Appearance { variant?: ButtonVariant; size?: 'md' | 'sm' | 'xs' }
 export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement>, Appearance { busy?: boolean }
 export interface ButtonLinkProps extends JSX.AnchorHTMLAttributes<HTMLAnchorElement>, Appearance {}
 function buttonClasses(variant: ButtonVariant, size: string, density: string, className?: unknown) {

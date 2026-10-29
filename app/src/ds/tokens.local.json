@@ -9,6 +9,15 @@
         },
         "usage": "Text on solid status fills such as count badges; dark text keeps 4.5:1 on the lighter dark fill.",
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "shadow-tray-menu-tint",
+        "value": {
+          "light": "rgb(9 9 11 / .16)",
+          "dark": "rgb(0 0 0 / .55)"
+        },
+        "usage": "Tray More menu shadow colour; darker in dark mode so the menu still lifts off dark surfaces.",
+        "provisional": "Tray board value; not yet in the design system."
       }
     ]
   },
@@ -221,6 +230,11 @@
         "provisional": "Dispatch board value; not yet in the design system."
       },
       {
+        "name": "size-236",
+        "value": "236px",
+        "provisional": "Tray board value; not yet in the design system."
+      },
+      {
         "name": "size-76",
         "value": "76px",
         "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
@@ -292,6 +306,13 @@
         "provisional": "ActivityBar board Plugins section label; not yet in the design system."
       },
       {
+        "name": "tray-count",
+        "fontSize": "20px",
+        "lineHeight": "26px",
+        "fontWeight": 650,
+        "provisional": "Tray board value; not yet in the design system."
+      },
+      {
         "name": "composer-agent",
         "fontSize": "18px",
         "lineHeight": "24px",
@@ -323,6 +344,12 @@
   },
   "shadow": {
     "tokens": [
+      {
+        "name": "shadow-tray-menu",
+        "value": "0 8px 24px var(--shadow-tray-menu-tint)",
+        "usage": "Tray More menu elevation.",
+        "provisional": "Tray board value; not yet in the design system."
+      },
       {
         "name": "shadow-agent-failure",
         "value": "inset 0 0 0 1px var(--bad-line)",

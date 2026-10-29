@@ -38,29 +38,36 @@ test("busy board has four linked counts, three attention rows, two running rows 
   const snapshot = fixture(), html = draw(snapshot);
   const attention = section(html, "Needs you"), active = section(html, "Running");
   expect(attention.match(/class="[^"]*tray-attention /g)).toHaveLength(3);
-  expect(attention).toContain('>+2 more in the app');
+  expect(attention).toContain('All 5 in Needs you');
   expect(attention).not.toContain("Attention 3");
   expect(attention).toContain("pacer · Testing · Failed twice 0");
-  expect(attention).toContain('>▶</span>');
-  expect(attention).toContain('>…</span>');
-  expect(attention).toContain('>◐</span>');
+  expect(attention).toContain('href="/app/#/needs-you"');
+  expect(attention.match(/pc-btn--primary/g)).toHaveLength(1);
   expect(attention.match(/<button/g)).toHaveLength(3);
   expect(attention).toContain('pc-btn--compact');
   expect(attention.match(/pc-list-row__actions/g)).toHaveLength(3);
   expect(attention).toContain(">Answer</span></button>");
   expect(attention).toContain(">Review</span></button>");
   expect(active.match(/class="[^"]*tray-running"/g)).toHaveLength(2);
-  expect(active).toContain("Idle · running for 15m");
-  expect(active).toContain("pc-status--warn");
+  expect(active).toContain('Idle</span><span class="tray-ellipsis">\u00a0· 15 min');
+  expect(active).toContain("tray-running-caption");
   expect(active).not.toContain("Queued");
-  expect(html).toContain("14 waiting for parallel tasks on Codex · next: Review screen");
+  expect(html).toContain("14 waiting for a free Codex slot · next: Review screen");
   const counts = html.split(/<nav(?=[^>]*aria-label="Task counts")[^>]*>/)[1]!.split("</nav>")[0]!;
-  for (const [n, label, route] of [[5, "needs you", "/"], [2, "running", "/sessions"], [14, "waiting", "/sessions?filter=waiting"], [3, "done today", "/sessions?filter=done"]]) {
+  for (const [n, label, route] of [[5, "needs you", "/needs-you"], [2, "running", "/sessions"], [14, "waiting", "/tasks"], [3, "done today", "/tasks"]]) {
     expect(counts).toContain(`href="/app/#${route}"`);
     expect(counts).toContain(`>${n}</b><span>${label}</span>`);
   }
   expect(counts).toContain('class="tray-idle">5');
   expect(trayModel({ ...snapshot, attention: undefined }).attention).toEqual([]);
+});
+
+test("running captions combine phase, readable duration and repository", () => {
+  const snapshot = fixture();
+  const task = snapshot.tasks[0]!;
+  snapshot.tasks = [{ ...task, attemptStartedAt: snapshot.at - 120, progress: { ...task.progress!, phase: "working" }, repo: { key: "repo", label: "repo", path: "$HOME/repo" } }];
+  const caption = draw(snapshot);
+  expect(caption).toContain('Editing</span><span class="tray-ellipsis">\u00a0· 2 min\u00a0· repo');
 });
 
 test("all-clear board uses a green check, optional cleared review time and no waiting row", () => {
@@ -80,12 +87,12 @@ test("all-clear board uses a green check, optional cleared review time and no wa
 test("planner uses its vendor, verdict, mode, meter tick and reset time", () => {
   const html = draw(fixture());
   expect(html).toContain("Gemini</strong>");
-  expect(html).toContain('title="Gemini planner" class="tray-identity"');
+  expect(html).toContain('<strong title="Gemini planner">Gemini</strong>');
   expect(html).toContain("pc-agent-mark--gemini");
   expect(html).not.toContain("Claude");
   expect(html).toContain(">Behind pace</span>");
   expect(html).toContain(">Normal</span>");
-  expect(html).toContain("63% used · pace 77%");
+  expect(html).toContain("63% of week used · pace 77%");
   expect(html).toContain("pc-meter__pace");
   expect(html).toContain("resets ");
 });
@@ -94,7 +101,7 @@ test("executor marks use current capacity, values and detailed tooltips after en
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("41% used · pace 58%");
   expect(html).toContain("92% used");
-  expect(html).toContain("pc-status--bad");
+  expect(html).toContain("tray-executor-value--off");
   expect(html).not.toContain("99% used");
   const executor = snapshot.executors![0]!;
   expect(executorValue(executor)).toBe("41%");
@@ -128,9 +135,11 @@ test("ahead and paused board has warn fill, Paused chip, resume icon and paused 
   expect(html).toContain(">Ahead of pace</span>");
   expect(html).toContain(">Paused</span>");
   expect(html).toContain('aria-label="Resume delegation"');
-  expect(html).toContain(">▶</button>");
-  expect(html).toContain("3 waiting · delegation paused for 38 min");
-  expect(html).toContain(" · paused until ");
+  expect(html).toContain('d="M8 5l11 7-11 7z"');
+  expect(html).toContain(" · 3 tasks waiting");
+  expect(html).toContain("Delegation paused");
+  expect(html).toContain("New work waits until ");
+  expect(html).not.toContain(" · paused until ");
   expect(html).not.toContain('aria-label="Running"');
   expect(html).toContain('aria-label="More" aria-expanded="false"');
   expect(html).not.toContain("Switch strategy");
@@ -149,11 +158,11 @@ test("browser IPC degrades to app links; resize, hide and quit are safe no-ops",
   expect(draw(fixture())).toContain('href="/app/#/"');
 });
 
-test("desktop IPC uses only the shared commands and caps rounded height at 520", async () => {
+test("desktop IPC uses only the shared commands and caps rounded height at 560", async () => {
   const calls: unknown[] = [];
   const desktop = createTrayIpc({ __TAURI__: { core: { invoke: async (command, args) => { calls.push([command, args]); } } }, location: { assign() { throw Error("Unexpected browser fallback"); } } });
   await desktop.resize(300.2); await desktop.resize(900); await desktop.open("/"); await desktop.hide(); await desktop.quit();
-  expect(calls).toEqual([["tray_resize", { height: 301 }], ["tray_resize", { height: 520 }], ["tray_open", { route: "/" }], ["tray_hide", undefined], ["app_quit", undefined]]);
+  expect(calls).toEqual([["tray_resize", { height: 301 }], ["tray_resize", { height: 560 }], ["tray_open", { route: "/" }], ["tray_hide", undefined], ["app_quit", undefined]]);
 });
 
 test("primary op action posts the item's exact params with the app client header", async () => {
@@ -210,9 +219,9 @@ test("tray assets use their own entry and external CSS and are served with the a
   expect(css).toContain("prefers-color-scheme: dark");
   expect(css).toContain("focus-visible");
   expect(css).toContain("width:var(--size-340)");
-  expect(css).toContain("max-height:var(--size-520)");
+  expect(css).toContain("max-height:var(--size-560)");
   expect(css).toContain("font-variant-numeric:tabular-nums");
-  expect(js).toContain("/settings/general");
+  expect(js).toContain("/settings");
   expect(js).toContain("strategy.use");
   expect(js).toContain("delegation.resume");
   for (const name of ["tray.html", "tray.js", "tray.css"]) {
@@ -225,8 +234,11 @@ test("tray assets use their own entry and external CSS and are served with the a
 
 test("row actions show one short verb and keep the full label as a tooltip", async () => {
   const { rowLabel } = await import("../app/src/tray/Tray");
-  expect(rowLabel("Retry on OpenCode")).toBe("Retry");
+  expect(rowLabel("Retry on OpenCode")).toBe("Retry on OpenCode");
   expect(rowLabel("Review")).toBe("Review");
+  expect(rowLabel("Review changes")).toBe("Review");
+  expect(rowLabel("Inspect failures")).toBe("Inspect");
+  expect(rowLabel("Run checks")).toBe("Run checks");
   expect(rowLabel("Open settings")).toBe("Settings");
 });
 
@@ -244,7 +256,7 @@ test("long settings actions shorten to Settings and labels ellipsize instead of 
   const { rowLabel } = await import("../app/src/tray/Tray");
   expect(rowLabel("Open planner settings")).toBe("Settings");
   expect(rowLabel("Open settings")).toBe("Settings");
-  expect(rowLabel("Retry on Codex")).toBe("Retry");
+  expect(rowLabel("Retry on Codex")).toBe("Retry on Codex");
   const css = (await buildApp()).find(f => f.path === "tray.css")!.text;
   expect(css).toMatch(/\.tray-action__label\{[^}]*text-overflow:ellipsis/);
 });
@@ -281,7 +293,8 @@ test("unknown capacity never reads free or shows a ready glyph; unavailable capa
     expect(executorValue(row)).toBe("?");
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain(">?</span>");
-    expect(html).toContain("pc-glyph pc-status--neutral");
+    expect(html).not.toContain("tray-executor-glyph");
+    expect(html).toContain("tray-executor-value--muted");
     expect(html.split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
     expect(html).not.toContain(">free</span>");
   }
@@ -307,4 +320,94 @@ test('Escape dismisses tray menus before hiding and reports native hide failures
  expect(steps).toEqual(['closed','hidden']);
  await dismissTray(()=>steps.push('closed'),async()=>{throw new Error('Native hide failed');},message=>steps.push(message));
  expect(steps.slice(-2)).toEqual(['closed','Native hide failed']);
+});
+
+test("footer starts a task and tray has no platform glyph controls", () => {
+  const html = draw(fixture());
+  expect(html).toContain('href="/app/#/tasks/new"');
+  expect(html).toContain('New task <kbd');
+  expect(html).toContain('⌘N');
+  expect(html).not.toMatch(/[⏸▶⋯⏳]/);
+});
+
+test("running rows cap at two while the section links the full count", () => {
+  const snapshot = fixture();
+  snapshot.tasks.push({ ...snapshot.tasks[0]!, id: "third" });
+  const active = section(draw(snapshot), "Running");
+  expect(active.match(/class="[^"]*tray-running"/g)).toHaveLength(2);
+  expect(active).toContain("All 3 in Tasks");
+});
+
+test("paused indefinitely omits zero waiting and uses singular task copy", () => {
+  const snapshot = fixture();
+  snapshot.pause = { until: null, reason: null, by: "app" };
+  expect(draw({ ...snapshot, tasks: [] })).toContain("New work waits until you resume</span>");
+  expect(draw({ ...snapshot, tasks: snapshot.tasks.filter(t => t.state === "queued").slice(0, 1) })).toContain(" · 1 task waiting");
+});
+
+
+test("tray literal destinations and generated row/action routes share the desktop contract", async () => {
+  const cases = await Bun.file("test/fixtures/tray-routes.json").json() as {allowed: string[]; rejected: string[]};
+  const allowed = (raw: string) => {
+    if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
+    if (raw.includes("?")) return false;
+    return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
+  };
+  for (const route of cases.allowed) expect(allowed(route)).toBe(true);
+  for (const route of cases.rejected) expect(allowed(route)).toBe(false);
+  const source = await Bun.file("app/src/tray/Tray.tsx").text();
+  const literals = [...source.matchAll(/(?:appHref|navigate|ipc.open)\("([^"`]+)"\)|route: "([^"`]+)"/g)].map(match => match[1] ?? match[2]!);
+  const modelSource = await Bun.file("app/src/tray/model.ts").text();
+  literals.push(...[...modelSource.matchAll(/"(\/[^"\n]*)"/g)].map(match => match[1]!));
+  const updateSource = await Bun.file("src/view-model/updates.ts").text();
+  literals.push(...[...updateSource.matchAll(/route: "(\/[^"\n]*)"/g)].map(match => match[1]!));
+  expect(literals.length).toBeGreaterThan(15);
+  for (const route of literals) { expect(cases.allowed).toContain(route); expect(allowed(route)).toBe(true); }
+  const html = draw({...fixture(), tasks: [{...fixture().tasks[0]!,id:"task-1"}]});
+  for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(cases.allowed).toContain(match[1]!);
+  const routes: string[] = [];
+  await performAction({label:"Answer",op:"task.answer",params:{id:"task-1"}}, api, {...ipc,open:async route=>{routes.push(route);}});
+  expect(routes).toEqual(["/tasks/task-1"]);
+  expect(cases.allowed).toContain(routes[0]!);
+});
+
+test("only the first visible failed or limit retry with a named executor is recommended", () => {
+  const snapshot = fixture();
+  const failed = snapshot.attention![0]!;
+  snapshot.attention = Array.from({length:5},(_,i)=>({...failed,id:`failed-${i}`,kind:"failed" as const,actions:[{label:"Retry on Codex",op:"task.retry",params:{id:`task-${i}`,executor:"codex"}}]}));
+  expect(trayModel(snapshot).recommendedId).toBe("failed-0");
+  expect(section(draw(snapshot),"Needs you").match(/pc-btn--primary/g)).toHaveLength(1);
+  snapshot.attention[0]!.kind="limit";
+  expect(trayModel(snapshot).recommendedId).toBe("failed-0");
+  snapshot.attention[0]!.actions=[];
+  expect(trayModel(snapshot).recommendedId).toBe("failed-1");
+  expect(section(draw(snapshot),"Needs you").match(/<button/g)).toHaveLength(2);
+  snapshot.attention.slice(0,3).forEach(item=>{item.actions=[];});
+  expect(trayModel(snapshot).recommendedId).toBeUndefined();
+  expect(section(draw(snapshot),"Needs you")).not.toContain("<button");
+});
+
+test("running without a repo has no trailing separator and shortcuts have metadata", () => {
+ const snapshot=fixture(); snapshot.tasks=[{...snapshot.tasks[0]!,repo:undefined}];
+ const html=draw(snapshot);
+ expect(section(html,"Running")).not.toMatch(/·\s*<\/span>/);
+ for(const key of ["Meta+N","Meta+O"]) expect(html).toContain(`aria-keyshortcuts="${key}"`);
+});
+
+test("ArrowUp without a focused row starts at the last row", () => {
+ const doc={activeElement:null as unknown};
+ const rows=[0,1,2].map(()=>({focus(){doc.activeElement=this;}}));
+ moveFocus({querySelectorAll:()=>rows,ownerDocument:doc} as unknown as HTMLElement,"ArrowUp");
+ expect(doc.activeElement).toBe(rows[2]);
+});
+
+
+test("executor warning and bad tones include shared glyphs after their values", () => {
+  const snapshot = fixture();
+  for (const verdict of ["ahead", "out"] as const) {
+    const executor = { ...snapshot.executors![0]!, usedPct: 90 };
+    const html = draw({ ...snapshot, planner: {...snapshot.planner!,runner:executor.id,verdict}, executors: [executor] }).split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!;
+    expect(html).toContain("tray-executor-glyph");
+    expect(html).toMatch(/90%<\/span><span class="tray-executor-glyph">/);
+  }
 });

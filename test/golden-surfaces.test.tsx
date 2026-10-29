@@ -164,7 +164,7 @@ test("tray shows unknown and unavailable capacity from the same rows", () => {
   const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
   expect(unknown.paceReason).toBe("no limit reported");
   const trayRow = anchorRows(tray, 'tray-executor').find(row => row.includes(` · ${unknown.slots.used}/${unknown.slots.max} parallel tasks`) && row.includes("Usage unknown"));
-  expect(trayRow).toContain("pc-glyph pc-status--neutral");
+  expect(trayRow).toContain("tray-executor-value--muted");
   expect(trayRow).toContain(">?</span>");
 
   const unavailable = { ...unknown, state: "down" as const, tone: "bad" as const, reason: "no active coding-plan subscription", sub: "Unavailable" };

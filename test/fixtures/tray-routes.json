@@ -1,0 +1,43 @@
+{
+  "allowed": [
+    "/",
+    "/needs-you",
+    "/sessions",
+    "/sessions/task-1",
+    "/tasks",
+    "/tasks/task-1",
+    "/review/task-1",
+    "/settings",
+    "/settings/executors",
+    "/settings/accounts",
+    "/settings/hosts",
+    "/settings/dispatcher",
+    "/settings/updates",
+    "/settings/hosts/workstation",
+    "/tasks/new"
+  ],
+  "rejected": [
+    "/?new=task",
+    "/needs-you/a_1",
+    "/sessions?filter=waiting",
+    "/sessions?filter=done",
+    "/tasks?filter=waiting",
+    "/tasks?filter=done",
+    "/?new=evil",
+    "/?new=task&x=1",
+    "/sessions?filter=all",
+    "/needs-you/a/b",
+    "/tasks/..",
+    "/tasks/%2e%2e",
+    "/tasks/a?filter=done",
+    "/settings?new=task",
+    "/tasks?filter=done#x",
+    "/tasks\\foo",
+    "//user@host",
+    "pacer://tasks?filter=done",
+    "pacer://user@tasks/id",
+    "pacer://tasks/%2e%2e",
+    "/sessions?filter=done?x",
+    "/tasks/a#x"
+  ]
+}
