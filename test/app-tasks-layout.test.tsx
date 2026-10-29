@@ -1,3 +1,4 @@
+import {taskHeading} from "../src/view-model/titles";
 import {expect, test} from 'bun:test';
 import {chromium} from 'playwright-core';
 import {renderToString} from 'preact-render-to-string';
@@ -24,7 +25,7 @@ const task = {id:'ended',title:'Implement ticket SFOS-488…',fullTitle:'Impleme
 
 test('Tasks rows open the task directly without repeated control actions',()=>{
  const html=renderToString(<SessionsList recent={{data:[view(task)]}}/>);
- expect(html).toContain(`>${task.fullTitle}</a>`);
+ expect(html).toContain(`>${taskHeading(task.fullTitle!)}</a>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
  expect(html).toContain(`href="#/tasks/ended"`);
  expect(html).not.toContain('Take over');
@@ -77,11 +78,11 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
-   // Only the selected title adopts the Session board's stronger selection weight.
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[36,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
+   // Tasks rows use the board's 600 weight for both selected and unselected titles.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
-   // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
-   expect(geometry.width).toBeLessThanOrEqual(1240);
+   // The board fills the content area beside the 52px activity rail; the tree and aside share a row.
+   expect(geometry.width).toBe(width-52);
    expect(geometry.left).toBeLessThan(100);
    expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
