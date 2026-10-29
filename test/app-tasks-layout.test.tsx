@@ -184,7 +184,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
 
 
 
-test.skipIf(!browserPath)('Needs you has one visible page h1 and space between repository context and the section', async()=>{
+test.skipIf(!browserPath)('Needs you has one visible page h1 and board spacing between tabs and waiting list', async()=>{
  const {NeedsYouPage}=await import('../app/src/screens/dispatch/Dispatch');
  const {ActionContext}=await import('../app/src/data/action-context');
  const {createActionRunner}=await import('../app/src/data/actions');
@@ -208,7 +208,7 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and space between r
    expect(await page.locator('h1').count()).toBe(1);
    expect(await page.locator('h1').innerText()).toBe('Needs you');
    expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
-   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.pc-section')!.getBoundingClientRect().top-n.querySelector('.pc-filter')!.getBoundingClientRect().bottom)).toBe(24);
+   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.ny-list')!.getBoundingClientRect().top-n.querySelector('[role=tablist]')!.getBoundingClientRect().bottom)).toBe(20);
    expect(await page.locator('.pc-topbar').getByRole('button',{name:'New task',exact:true}).count()).toBe(1);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }

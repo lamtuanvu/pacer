@@ -18,6 +18,15 @@
         },
         "usage": "Tray More menu shadow colour; darker in dark mode so the menu still lifts off dark surfaces.",
         "provisional": "Tray board value; not yet in the design system."
+      },
+      {
+        "name": "answer-scrim",
+        "value": {
+          "light": "color-mix(in srgb, var(--ink) 14%, transparent)",
+          "dark": "color-mix(in srgb, var(--ink) 14%, transparent)"
+        },
+        "usage": "Answer modal scrim.",
+        "provisional": "Answer board 21 value; not yet in the design system."
       }
     ]
   },
@@ -98,6 +107,12 @@
         "name": "radius-machine-tile",
         "value": "9px",
         "provisional": "Settings Machines board geometry."
+      },
+      {
+        "name": "radius-answer-chip",
+        "value": "99px",
+        "usage": "Quick answer capsule.",
+        "provisional": "Answer board 21 exact radius."
       }
     ]
   },
@@ -359,6 +374,12 @@
         "name": "shadow-choice-selected",
         "value": "0 0 0 1px var(--ink)",
         "provisional": "Settings Machines and Add agent board selection ring."
+      },
+      {
+        "name": "shadow-answer",
+        "value": "-12px 0 32px rgba(9,9,11,.12)",
+        "usage": "Answer side panel elevation.",
+        "provisional": "Answer board 21 value; not yet in the design system."
       }
     ]
   }

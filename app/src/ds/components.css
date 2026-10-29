@@ -934,3 +934,22 @@ a.pc-btn{text-decoration:none}
 .pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
 .pc-segmented--insights [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
 @media(max-width:560px),(pointer:coarse){.pc-segmented--insights .pc-btn{min-height:var(--control-touch)}}
+
+/* Needs you and Answer boards. */
+.pc-side-dialog{position:fixed;inset:var(--frame-top) 0 var(--frame-status) auto;margin:0;width:calc(var(--size-240) * 2);max-width:100%;height:calc(100dvh - var(--frame-top) - var(--frame-status));max-height:none;padding:0;display:flex;flex-direction:column;border:0;border-left:1px solid var(--line);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-answer);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-side-dialog:not([open]){display:none}
+.pc-side-dialog::backdrop{background:var(--answer-scrim);inset:var(--frame-top) 0 var(--frame-status) var(--size-52)}
+.pc-side-dialog__header{height:var(--size-48);flex-shrink:0;display:flex;align-items:center;gap:var(--space-2\.5);padding:0 var(--space-3) 0 var(--space-5);border-bottom:1px solid var(--line)}
+.pc-side-dialog__header h2{margin:0;flex-grow:1;font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
+.pc-side-dialog__header .pc-btn{width:var(--size-28);height:var(--size-28);padding:0;border:0;border-radius:var(--radius-sm);font-size:var(--type-headline-size);color:var(--ink-secondary)}
+.pc-side-dialog__body{flex-grow:1;min-height:0;overflow:auto;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)}
+.pc-side-dialog__footer{flex-shrink:0;display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-5);border-top:1px solid var(--line);background:var(--surface-card)}
+@media(max-width:767px){.pc-side-dialog__footer{flex-wrap:wrap}.pc-side-dialog__footer>:first-child{flex-basis:100%}}
+.pc-side-dialog .pc-textarea.pc-input{font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-needs-board>.pc-tabs{border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:0;gap:var(--space-1);justify-content:flex-start}
+.pc-needs-board>.pc-tabs .pc-btn{height:var(--size-32);border:0;border-bottom:var(--size-2) solid transparent;border-radius:0;padding:0 var(--space-2\.5);background:transparent;color:var(--ink-secondary);box-shadow:none;font-weight:var(--type-body-strong-weight)}
+.pc-needs-board>.pc-tabs .pc-btn[aria-pressed=true],.pc-needs-board>.pc-tabs .pc-btn[aria-selected=true]{border-bottom-color:var(--ink);color:var(--ink)}
+.ny-chip.pc-btn{height:var(--size-28);padding:0 var(--space-2\.5);border-radius:var(--radius-answer-chip);font-size:var(--type-caption-size);font-weight:var(--type-body-weight)}
+.ny-answer .pc-textarea{resize:vertical;padding:var(--space-2\.5) var(--space-3);border-radius:var(--radius-md);background:var(--surface-page)}
+/* Canonical link buttons retain their contrast when the global anchor hover rule applies. */
+a.pc-btn--primary:hover{color:var(--ink-on-ink)}

@@ -51,7 +51,7 @@ function useExpansion() {
  * the primary; executor, host and setup problems keep secondary actions. An answer opens the task.
  */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2) {
-  return item.actions.slice(0, count).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
+  return item.actions.slice(0, count).map((action, i) => action.op === "task.answer" ? <TextAction key={i} href={`#/needs-you?answer=${encodeURIComponent(item.taskId!)}`}>{action.label}</TextAction> : <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
     action={action.op === "task.answer" ? { label: action.label, op: "ui.open", params: { view: "task", id: item.taskId } } : action} confirmDone={gone(item)} />);
 }
 
@@ -385,8 +385,4 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} startWork={<StartWork />} />;
 }
 
-export function NeedsYouPage({ query }: { query: RouteQuery }) {
-  const { state } = useTaskContext(), runner = useActions();
-  if (!state.snapshot) return null;
-  return <Page width="full" className="pc-needs-you pc-page-body"><header className="pc-dispatch__title"><h1>Needs you</h1></header><RepoFilter snapshot={state.snapshot} query={query} /><NeedsYouList snapshot={state.snapshot} scope={{ repo: query.repo || null }} runner={runner} now={Date.now() / 1000} query={query} narrow={false} standalone /></Page>;
-}
+export { NeedsYouPage } from "../needs-you/NeedsYou";

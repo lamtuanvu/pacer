@@ -528,3 +528,20 @@ for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
+
+### SideDialog
+
+`SideDialog({ title, mark?, close, footer, children, onKeyDown? })` is the native
+modal side panel used by Needs you → Answer. It is 480px wide on desktop and
+contained by the viewport on narrow screens, between the shared top and status
+bars. The header is 48px; body padding is 20px and content gap is 16px. Escape
+closes, Tab/Shift-Tab cycle through enabled controls, and closing restores the
+invoker's focus. The caller owns loading, error, question, answer and busy states.
+The Answer board supplies provisional `answer-scrim`, `shadow-answer` and `radius-answer-chip` (99px) tokens. The panel follows the application-owned `--frame-top` and `--frame-status` layout offsets, whose values reference generated size tokens. This is
+original project code; no new upstream component is incorporated.
+
+Needs you retains the board's specialized three-column waiting list (20px glyph,
+flexible content, actions), with 14px/16px row padding and a 12px closed border.
+Its kind tabs, quick-answer chips and answer textarea use canonical DS controls
+with the board's recorded geometry. The API always includes an answer in the
+retry brief; the checked checkbox explains that fixed behavior visibly.

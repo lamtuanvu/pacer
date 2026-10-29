@@ -350,6 +350,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   const cases = await Bun.file("test/fixtures/tray-routes.json").json() as {allowed: string[]; rejected: string[]};
   const allowed = (raw: string) => {
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
+    if (/^\/needs-you\?answer=t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/.test(raw)) return true;
     if (raw.includes("?")) return false;
     return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
   };
@@ -366,8 +367,8 @@ test("tray literal destinations and generated row/action routes share the deskto
   const html = draw({...fixture(), tasks: [{...fixture().tasks[0]!,id:"task-1"}]});
   for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(cases.allowed).toContain(match[1]!);
   const routes: string[] = [];
-  await performAction({label:"Answer",op:"task.answer",params:{id:"task-1"}}, api, {...ipc,open:async route=>{routes.push(route);}});
-  expect(routes).toEqual(["/tasks/task-1"]);
+  await performAction({label:"Answer",op:"task.answer",params:{id:"t-20261029-153500-a0f9"}}, api, {...ipc,desktop:true,open:async route=>{routes.push(route);}});
+  expect(routes).toEqual(["/needs-you?answer=t-20261029-153500-a0f9"]);
   expect(cases.allowed).toContain(routes[0]!);
 });
 
@@ -410,4 +411,11 @@ test("executor warning and bad tones include shared glyphs after their values", 
     expect(html).toContain("tray-executor-glyph");
     expect(html).toMatch(/90%<\/span><span class="tray-executor-glyph">/);
   }
+});
+
+
+test("browser tray Answer opens the Needs you question panel", async () => {
+  const routes: string[] = [];
+  await performAction({ label: "Answer", op: "task.answer", params: { id: "task-1" } }, api, { ...ipc, desktop: false, open: async route => { routes.push(route); } });
+  expect(routes).toEqual(["/needs-you?answer=task-1"]);
 });

@@ -137,7 +137,7 @@ test("Needs you owns exactly one page title, with no hidden duplicate in the top
   const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as never }}><Layout route={route} state={state} title="Needs you"><NeedsYouPage query={route.query} /></Layout></TaskContext.Provider></ActionContext.Provider>);
   expect(html.match(/<h1\b/g)).toHaveLength(1);
   expect(html).toContain('<h1>Needs you</h1>');
-  expect(html).toContain('pc-needs-you pc-page-body');
+  expect(html).toContain('pc-needs-you pc-needs-board');
 });
 
 test('every settings destination has exactly one h1 in the real shell', async () => {

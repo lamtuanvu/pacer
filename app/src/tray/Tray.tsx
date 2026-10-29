@@ -41,7 +41,7 @@ function TrayStatusGlyph({ status }: { status: Status }) {
 }
 
 export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
-  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/tasks/${encodeURIComponent(String(action.params.id))}`);
+  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
 }
