@@ -49,13 +49,13 @@ export function createActionRunner(deps: ActionDeps) {
       catch (error) {
         // The service's conflict says the state moved on (another client acted first); it names no client.
         if (action.op.startsWith("desktop.update.")) await deps.refetch();
-        if (error instanceof ApiError && error.code === "conflict" && action.op !== "task.takeover" && action.op !== "agent.connect" && action.op !== "runner.settings.save" && !action.op.startsWith("desktop.update.") && !action.op.startsWith("project.strategy.")) return set(key, { status: "handled", message: "Already handled elsewhere" });
+        if (error instanceof ApiError && error.code === "conflict" && action.op !== "mode.hold" && action.op !== "mode.release" && action.op !== "task.takeover" && action.op !== "agent.connect" && action.op !== "runner.settings.save" && !action.op.startsWith("desktop.update.") && !action.op.startsWith("project.strategy.")) return set(key, { status: "handled", message: "Already handled elsewhere" });
         const e = error instanceof ApiError ? error : null;
         return set(key, { status: "error", message: e?.message ?? (error instanceof Error ? error.message : String(error)), ...(e?.hint ? { hint: e.hint } : {}) });
       }
       results.set(key, result);
       if ((action.op === "task.review" || action.op === "dispatch.review") && (action.params.verdict === "accept" || action.params.accepted === true) && typeof action.params.id === "string") deps.reviewAccepted?.(action.params.id);
-      if (action.op.startsWith("desktop.update.") || action.op === "task.review" || action.op === "dispatch.review") await deps.refetch();
+      if (action.op === "mode.hold" || action.op === "mode.release" || action.op.startsWith("desktop.update.") || action.op === "task.review" || action.op === "dispatch.review") await deps.refetch();
       if (action.op === "task.takeover") {
         const state = (result as {state?: string})?.state;
         deps.navigate(`${uiHref({view:"session",id:action.params.id})}${state === "starting" || state === "driving" ? `?takeover=${state}` : ""}`);

@@ -1,3 +1,4 @@
+import { budgetResourceRevision } from "../../data/budget-revision";
 import { displayPath, settingsText } from "./presentation";
 import { useNotifications } from "../../data/notification-context";
 import { Alert } from "../../ds/Alert";
@@ -46,6 +47,8 @@ export function SettingsBoard({id,title,caption,actions,children}:{id:string;tit
  </section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
+ const budget = budgetResourceRevision(op, invalidations);
+ if (budget !== undefined) return budget;
  // update.check itself publishes an update event; reacting to it creates a request loop.
  return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
@@ -53,7 +56,7 @@ export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
  const generation=useRef(0);
- const serialized=JSON.stringify(params),invalidations=resourceRevision(op,state.invalidations);
+ const serialized=JSON.stringify(params),invalidations=budgetResourceRevision(op,state.invalidations,state.snapshot?.accounts) ?? resourceRevision(op,state.invalidations);
  useEffect(()=>{let active=true;const ticket=++generation.current;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
  return {data,error,loading,setData:(next:T)=>{generation.current++;setLoading(false);setData(next);},reload:()=>reload(v=>v+1)};
 }

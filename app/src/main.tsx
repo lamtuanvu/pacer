@@ -1,5 +1,6 @@
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
 import { updateNoticeHiddenOn } from "./settings-pages";
+import { startPolling } from "./data/poll";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -73,10 +74,9 @@ function App() {
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
   useEffect(() => {
     let active = true;
-    const refresh = () => { void api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => { if (active) setChecklist(c => c ?? "error"); }); };
-    refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => { active = false; clearInterval(timer); };
+    const refresh = () => api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => { if (active) setChecklist(c => c ?? "error"); });
+    const stop = startPolling(refresh, 30_000);
+    return () => { active = false; stop(); };
   }, [api, state.invalidations.setup, state.connected, setupRevision]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = state.features.ops.size ? setupCompleteFrom(checklist) : null;
