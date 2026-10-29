@@ -8,6 +8,7 @@ import { settingsNavId } from "../app/src/settings-pages";
 import { reduceStore } from "../app/src/data/store";
 import { uiHref } from "../app/src/data/actions";
 import { actionRoute } from "../app/src/tray/model";
+import { settingsNote } from "../app/src/screens/settings/General";
 
 const id = "a".repeat(26);
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(m => m[1]);
@@ -41,7 +42,8 @@ test("network question shows the advertised name, a Change name link and Allow p
   expect(html).toContain("Let your other machines find this one on home-wifi?");
   expect(html).toContain("pacer-k3x9");
   expect(html).toContain("It will appear as <strong>pacer-k3x9</strong>.");
-  expect(html).toMatch(/<a [^>]*href="#\/settings\/machine"[^>]*>Change name<\/a>/);
+  // A link inside running text uses the DS inline link style (underlined), not the muted text action.
+  expect(html).toMatch(/<a [^>]*class="pc-inline-link"[^>]*href="#\/settings\/machine"[^>]*>Change name<\/a>|<a [^>]*href="#\/settings\/machine"[^>]*class="pc-inline-link"[^>]*>Change name<\/a>/);
   expect(buttons(html)).toEqual(["Allow", "Not on this network"]);
   expect(primaries(html)).toBe(1);
 });
@@ -66,7 +68,9 @@ test("prompts come from attention items matched to discovery.list", () => {
 test("neutral pairing page names no product and links to Plugins settings", () => {
   const html = renderToString(<PairingView />);
   expect(html).toContain("Pairing lets this machine use another machine’s executors. It is provided by plugins, and none is installed or enabled.");
-  expect(html).toMatch(/<a [^>]*class="pc-text-action[^"]*"[^>]*href="#\/settings\/plugins"|<a [^>]*href="#\/settings\/plugins"[^>]*class="pc-text-action/);
+  // A standalone link is a button link (UI-8), not the muted text action.
+  expect(html).toMatch(/<a [^>]*href="#\/settings\/plugins"[^>]*class="pc-btn pc-btn--secondary[^"]*"[^>]*>Open Plugins settings<\/a>|<a [^>]*class="pc-btn pc-btn--secondary[^"]*"[^>]*href="#\/settings\/plugins"[^>]*>Open Plugins settings<\/a>/);
+  expect(html).not.toContain("pc-text-action");
   expect([...html.matchAll(/href="([^"]*)"/g)].map(m => m[1])).toEqual(["#/settings/plugins"]);
   const route = resolveRoute("#/settings/pairing") as Route;
   expect(route).toMatchObject({ name: "settings", section: "pairing" });
@@ -78,6 +82,14 @@ test("Pair from Needs you or the tray opens the neutral pairing page when no plu
   const pair = { label: "Pair", op: "ui.open", params: { view: "settings", section: "pairing" }, style: "primary" as const };
   expect(uiHref(pair.params)).toBe("#/settings/pairing");
   expect(actionRoute(pair)).toBe("/settings/pairing");
+});
+
+test("the Machines page footer does not say discovery changes wait for the next routing decision", () => {
+  expect(settingsNote("machine")).not.toMatch(/^Changes apply on the next routing decision/);
+  expect(settingsNote("machine")).toContain("Discovery changes apply right away.");
+  expect(settingsNote("dispatcher")).toBe("Changes apply on the next routing decision.");
+  expect(settingsNote("app")).toBeNull();
+  expect(settingsNote(undefined)).toBeNull();
 });
 
 test("network state line", () => {

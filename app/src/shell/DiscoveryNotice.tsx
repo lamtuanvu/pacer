@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useActions } from "../data/action-context";
 import { useNotifications } from "../data/notification-context";
-import { Button, TextAction } from "../ds/Button";
+import { Button } from "../ds/Button";
 import { Disclosure } from "../ds/Controls";
 import { NoticeCard } from "../ds/NoticeCard";
 import { hrefFor, routes } from "../router";
@@ -53,7 +53,7 @@ export function DiscoveryNoticeView({ found, network, onAction, busy = false, na
     <Button variant="primary" aria-disabled={busy} onClick={act("allow")}>Allow</Button>
     <Button aria-disabled={busy} onClick={act("deny")}>Not on this network</Button>
   </>}>
-    <p>It will appear as <strong>{network.name}</strong>. <TextAction href={hrefFor(routes.settings("machine"))}>Change name</TextAction></p>
+    <p>It will appear as <strong>{network.name}</strong>. <a className="pc-inline-link" href={hrefFor(routes.settings("machine"))}>Change name</a></p>
     {children}
   </NoticeCard>;
   return null;
