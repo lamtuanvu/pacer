@@ -86,7 +86,7 @@ for (const width of [375, 1440]) {
       for (let i = 1; i < labels.length; i++) expect(labels[i]!.left).toBeGreaterThanOrEqual(labels[i - 1]!.right);
       expect(await page.locator(".sr-only table tbody tr").count()).toBe(14);
       const buttons = await page.getByRole("group", { name: "Period" }).getByRole("button").evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().height));
-      expect(buttons.every(h => h === (width === 375 ? 48 : 32))).toBe(true);
+      expect(buttons.every(h => h === (width === 375 ? 44 : 32))).toBe(true);
       const group = await page.getByRole("group", { name: "Period" }).evaluate(n => ({ padding: getComputedStyle(n).padding, radius: getComputedStyle(n).borderRadius }));
       expect(group).toEqual({ padding: "3px", radius: "8px" });
       const matrix = page.locator(".pc-insights__heat");

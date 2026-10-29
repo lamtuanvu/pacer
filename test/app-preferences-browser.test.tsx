@@ -38,6 +38,8 @@ browserTest('density persists and announces shell changes; App does not duplicat
   await page.addInitScript(()=>{window.addEventListener('pacer:density',event=>{(window as any).densityEvent=(event as CustomEvent).detail;});});
   await page.goto(String(server.url));
   const density=page.getByRole('group',{name:'Density',exact:true});
+  expect(await density.getByRole('button',{name:'Comfortable'}).getAttribute('aria-pressed')).toBe('true');
+  expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBeNull();
   await density.getByRole('button',{name:'Comfortable'}).click();
   expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBe('normal');
   expect(await page.evaluate(()=>(window as any).densityEvent)).toBe('normal');
@@ -45,9 +47,11 @@ browserTest('density persists and announces shell changes; App does not duplicat
   expect(await density.getByRole('button',{name:'Comfortable'}).getAttribute('aria-pressed')).toBe('true');
   await density.getByRole('button',{name:'Compact',exact:true}).click();
   expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBe('compact');
+  await page.reload();
+  expect(await density.getByRole('button',{name:'Compact',exact:true}).getAttribute('aria-pressed')).toBe('true');
   expect(await page.getByRole('switch',{name:'Desktop banners'}).count()).toBe(0);
   expect(await page.getByRole('group',{name:'Terminal',exact:true}).count()).toBe(0);
-  expect(await page.getByRole('link',{name:'Release notes',exact:true}).count()).toBe(1);
+  await page.getByRole('link',{name:'Release notes',exact:true}).waitFor();
   expect(await page.getByText(/Once a day, in the background. Last checked .*\d{2}:\d{2}/).count()).toBe(1);
  }finally{await page.close();}
 });

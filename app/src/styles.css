@@ -624,7 +624,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-dispatch-split__half--page>.pc-text-action,.pc-dispatch-attention .pc-section__head>.pc-text-action{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--link)}
 .pc-dispatch-attention,.pc-dispatch-attention>.pc-dispatch-cards{gap:var(--space-2\.5)}
 .pc-count.pc-count--bad{min-width:var(--size-20);height:var(--size-20);justify-content:center;padding:0 var(--space-1\.5);font-size:var(--type-label-size);line-height:var(--size-20);font-weight:var(--type-count-badge-weight)}
-.pc-filter--menu .pc-search-picker>.pc-btn{border-radius:var(--radius-md);height:var(--control-compact);min-height:var(--control-compact)}
+.pc-filter--menu .pc-search-picker>.pc-btn{border-radius:var(--radius-md);min-height:var(--button-control,var(--control-normal))}
 .pc-live-dispatch>.pc-card-section__head{padding:var(--space-3\.5) var(--space-5);gap:var(--space-3)}
 .pc-live-dispatch>.pc-dispatch-cards{padding:0;gap:0}
 /* Session identity stays visible while facts yield to reachable frame actions. */
@@ -654,9 +654,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* Preserve the native shell height through its shared density provider. */
 .pc-density:has(>.pc-app){height:100%;min-height:0}
 
-/* Comfortable desktop controls retain the shared 32px form density. */
-.pc-density--normal{--control-normal:var(--control-settings)}
-.pc-density--normal .pc-btn--normal{min-height:var(--control-settings)}
 
 .pc-section-heading--headline{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);letter-spacing:normal;text-transform:none;color:var(--ink)}
 

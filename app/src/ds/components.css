@@ -945,9 +945,9 @@ a.pc-btn{text-decoration:none}
 .pc-meter--slim{width:100%;height:var(--size-6)}
 .pc-usage--slim .pc-usage__text{white-space:normal}
 
-/* Board header actions share a 26px control without changing compact form density. */
-.pc-btn.pc-btn--bar{height:var(--size-26);min-height:var(--size-26);padding:0 var(--space-2\.5);border-radius:var(--radius-sm);font-size:var(--type-caption-size)}
-@media(pointer:coarse){.pc-btn.pc-btn--bar{height:var(--control-touch);min-height:var(--control-touch)}}
+/* Header action appearance; geometry follows shared density. */
+.pc-btn.pc-btn--bar{padding:0 var(--space-2\.5);border-radius:var(--radius-sm);font-size:var(--type-caption-size)}
+
 
 .pc-page h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight)}
 
@@ -988,3 +988,28 @@ a.pc-btn{text-decoration:none}
 .ny-answer .pc-textarea{resize:vertical;padding:var(--space-2\.5) var(--space-3);border-radius:var(--radius-md);background:var(--surface-page)}
 /* Canonical link buttons retain their contrast when the global anchor hover rule applies. */
 a.pc-btn--primary:hover{color:var(--ink-on-ink)}
+
+/* One shared action size across page headers, toolbars and cards. Settings
+   providers inherit the app choice; the tray supplies its own compact token. */
+.pc-density--normal{--button-control:var(--control-normal)}
+.pc-density--compact{--button-control:var(--control-compact)}
+.pc-btn--compact{--button-control:var(--control-compact)}
+.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings):not(.pc-icon-button):not(:where(.pc-segmented *)):not(.pc-btn--touch){min-height:var(--button-control,var(--control-normal));padding-block:0}
+@media(max-width:560px),(pointer:coarse){
+ .pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings,.pc-btn--touch):not(.tray .pc-btn){min-height:var(--control-touch);min-width:var(--control-touch)}
+}
+
+.pc-input.pc-control--normal:not(.pc-textarea){min-height:var(--control-normal);padding:var(--space-1) var(--space-3)}
+@media(max-width:560px),(pointer:coarse){
+ .pc-input.pc-control--normal:not(.pc-textarea),.pc-input.pc-control--compact:not(.pc-textarea),.pc-range.pc-control--normal,.pc-range.pc-control--compact,.pc-choice-picker--normal .pc-choice-picker__trigger{min-height:var(--control-touch)}
+}
+/* Touch targets also apply to shared text actions and controls without Button. */
+@media(max-width:560px),(pointer:coarse){
+ body :is(.pc-text-action,.pc-inline-link,.pc-aurora-launcher,.pc-task-card__action,.pc-task-card__toggle,.pc-task-card__title,.pc-input):not(.pc-switch):not(.pc-textarea):not(.tray *){box-sizing:border-box;min-height:var(--control-touch);min-width:var(--control-touch)}
+ .pc-inline-link{display:inline-flex;align-items:center}
+}
+/* Transparent borders enlarge the native switch itself while retaining its track. */
+@media(max-width:560px),(pointer:coarse){
+ body .pc-switch:not(.tray *){--switch-track-width:var(--switch-width);--switch-track-height:var(--switch-height);box-sizing:border-box;width:var(--control-touch);height:var(--control-touch);min-width:var(--control-touch);min-height:var(--control-touch);border-style:solid;border-color:transparent;border-width:calc((var(--control-touch) - var(--switch-track-height))/2) calc((var(--control-touch) - var(--switch-track-width))/2);background-clip:padding-box}
+ body .pc-switch--sm:not(.tray *){--switch-track-width:var(--size-36);--switch-track-height:var(--size-20)}
+}
