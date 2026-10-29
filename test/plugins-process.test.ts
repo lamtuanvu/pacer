@@ -53,3 +53,16 @@ test("an exit rejects pending calls and plugin errors keep their code", async ()
   expect(await codeOf(c.p.request("diagnostic.ping", {}, 5000))).toBe("plugin_unavailable");
   await s.p.terminate();
 }, 15000);
+
+test("an aborted signal cancels a pending call, and an already-aborted one never sends", async () => {
+  const s = start("slow");
+  await s.hello();
+  const controller = new AbortController();
+  const pending = codeOf(s.p.request("diagnostic.ping", {}, 5000, controller.signal));
+  controller.abort();
+  expect(await pending).toBe("plugin_unavailable");
+  expect(await codeOf(s.p.request("diagnostic.ping", {}, 5000, controller.signal))).toBe("plugin_unavailable");
+  expect(s.p.alive).toBe(true);
+  expect(await s.p.request("diagnostic.ping", {}, 5000)).toMatchObject({ ok: true });
+  await s.p.terminate();
+}, 15000);
