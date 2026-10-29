@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { constants } from "node:os";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 
 export type ProcessIdentity = { pid: number; bootId: string; birth: string };
@@ -46,4 +47,37 @@ export function ownProcessIdentity(): ProcessIdentity | null {
   const identity = processIdentity(process.pid);
   if (identity) ownIdentity = identity;
   return identity;
+}
+
+const libcSymbols = {
+  syscall: { args: [FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64], returns: FFIType.i64 },
+  close: { args: [FFIType.i32], returns: FFIType.i32 },
+} as const;
+let libc: ReturnType<typeof dlopen<typeof libcSymbols>> | null | undefined;
+// Generic syscall numbers, identical on x86_64 and arm64 Linux.
+const SYS_PIDFD_SEND_SIGNAL = 424, SYS_PIDFD_OPEN = 434;
+function linuxLibc() {
+  if (libc !== undefined) return libc;
+  try { libc = dlopen("libc.so.6", libcSymbols); } catch { libc = null; }
+  return libc;
+}
+
+/** Signal only while the live process is still the recorded one. */
+export function signalSameProcess(identity: ProcessIdentity, signal: NodeJS.Signals): boolean {
+  const number = constants.signals[signal];
+  if (!number || !Number.isSafeInteger(identity.pid) || identity.pid <= 1) return false;
+  if (process.platform === "linux") {
+    const lib = linuxLibc();
+    if (lib) {
+      const fd = Number(lib.symbols.syscall(SYS_PIDFD_OPEN, identity.pid, 0, 0, 0));
+      if (fd >= 0) {
+        try {
+          if (!sameProcess(processIdentity(identity.pid), identity)) return false;
+          return Number(lib.symbols.syscall(SYS_PIDFD_SEND_SIGNAL, fd, number, 0, 0)) === 0;
+        } finally { lib.symbols.close(fd); }
+      }
+    }
+  }
+  if (!sameProcess(processIdentity(identity.pid), identity)) return false;
+  try { process.kill(identity.pid, signal); return true; } catch { return false; }
 }
