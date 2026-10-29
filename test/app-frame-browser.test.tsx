@@ -35,6 +35,79 @@ const noHorizontalOverflow = (page: Page) => page.evaluate(() => {
   return root.scrollWidth <= root.clientWidth && main.scrollWidth <= main.clientWidth;
 });
 
+browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }, { width: 700, height: 812 }]) {
+      const page = await browser.newPage({ viewport });
+      await open(page, built, "#/overview");
+      // Add enough real flowing content to exceed either viewport without changing the frame's styles.
+      await page.locator("#main-content").evaluate(main => {
+        const navigation = document.createElement("nav");
+        navigation.className = "pc-detail-navigation";
+        navigation.textContent = "Detail navigation";
+        main.prepend(navigation);
+        const session = document.createElement("section");
+        session.className = "pc-session-main";
+        const tabs = document.createElement("div");
+        tabs.className = "pc-tabs";
+        tabs.textContent = "Session tabs";
+        session.append(tabs);
+        main.append(session);
+        for (let i = 0; i < 100; i++) {
+          const row = document.createElement("p");
+          row.textContent = `Work item ${i + 1}`;
+          session.append(row);
+        }
+      });
+      const geometry = () => page.evaluate(() => {
+        const work = document.querySelector<HTMLElement>(".pc-work")!;
+        const bar = document.querySelector(".pc-statusbar, .pc-bottom-bar")!;
+        return {
+          documentHeight: document.scrollingElement!.scrollHeight,
+          documentTop: document.scrollingElement!.scrollTop,
+          workHeight: work.clientHeight,
+          workScrollHeight: work.scrollHeight,
+          workTop: work.scrollTop,
+          top: document.querySelector(".pc-topbar")!.getBoundingClientRect().y,
+          workBottom: work.getBoundingClientRect().bottom,
+          barTop: bar.getBoundingClientRect().top,
+          barBottom: bar.getBoundingClientRect().bottom,
+        };
+      });
+      const before = await geometry();
+      expect(before.documentHeight).toBe(viewport.height);
+      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
+      expect(before.top).toBe(0);
+      expect(before.workBottom).toBeLessThanOrEqual(before.barTop);
+      expect(before.barBottom).toBe(viewport.height);
+      await page.locator(".pc-work").hover();
+      await page.mouse.wheel(0, 500);
+      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      const after = await geometry();
+      expect(after.documentHeight).toBe(viewport.height);
+      expect(after.documentTop).toBe(0);
+      expect(after.workTop).toBeGreaterThan(0);
+      expect(after.top).toBe(0);
+      if (viewport.width >= 768) {
+        const sticky = await page.evaluate(() => ({
+          workTop: document.querySelector(".pc-work")!.getBoundingClientRect().top,
+          navigationTop: document.querySelector(".pc-detail-navigation")!.getBoundingClientRect().top,
+          tabsTop: document.querySelector(".pc-session-main > .pc-tabs")!.getBoundingClientRect().top,
+        }));
+        expect(sticky.navigationTop).toBe(sticky.workTop);
+        expect(sticky.tabsTop).toBe(sticky.workTop);
+      }
+      // At the end of the work area, the final content remains above the fixed bottom bar.
+      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      const lastBottom = await page.locator("#main-content .pc-session-main > p").last().evaluate(row => row.getBoundingClientRect().bottom);
+      expect(lastBottom).toBeLessThanOrEqual((await geometry()).barTop);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);
+
 browserTest("dock_focus_moves_in_and_returns", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
