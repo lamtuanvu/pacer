@@ -45,6 +45,9 @@ export const messagingConfigSchema = z.object({
     backoff_max_s: z.number().int().min(10).default(900),
     max_nudges: z.number().int().min(0).default(3),
     nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).default(["relaxed", "normal"]),
+    // How long an external or human participant may block others before the human is alerted.
+    escalate_after_s: z.number().int().min(10).default(900),
+    retry_delivery: z.boolean().default(true),
   }).strict().prefault({}),
   hooks: z.object({ stop: z.enum(["block", "inject_only", "off"]).default("block"), stop_release_after: z.number().int().min(1).default(2) }).strict().prefault({}),
   grants: z.object({ user_started_tasks: z.enum(["on", "off"]).default("on") }).strict().prefault({}),
@@ -56,6 +59,11 @@ export type MessagingConfig = z.infer<typeof messagingConfigSchema>;
 export const messagingOverrideSchema = z.object({
   rules: z.array(ruleSchema).max(50).optional(),
   max_turns: z.number().int().positive().max(10000).optional(),
+  liveness: z.object({
+    interval_s: z.number().int().min(10).optional(),
+    max_nudges: z.number().int().min(0).optional(),
+    escalate_after_s: z.number().int().min(10).optional(),
+  }).strict().optional(),
 }).strict();
 export type MessagingOverride = z.infer<typeof messagingOverrideSchema>;
 
