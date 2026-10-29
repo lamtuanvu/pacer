@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { capacityNote, queueWait } from "../src/view-model/capacity";
+import { capacityNote, machineHardCap, queueWait } from "../src/view-model/capacity";
 import type { ClientSnapshot, ClientTask } from "../src/view-model/snapshot";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ExecutorRow } from "../src/api/read-model/types";
@@ -48,7 +48,7 @@ test('executor usage follows the account/planner verdict independently of readin
   expect(executorPace({...executor,id:'unknown',account:'missing'},snapshot)).toEqual(paceStatus('unknown'));
 });
 test("machine-guard waits read in plain words", () => {
- const wait=(queue:object)=>queueWait({state:'queued',queue:{since:1,position:1,...queue}} as ClientTask,{...snapshot,machine:{used:3,max:null}});
+ const wait=(queue:object)=>queueWait({state:'queued',queue:{since:1,position:1,...queue}} as ClientTask,{...snapshot,machine:{used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true}});
  expect(wait({reason:'machine_memory_pressure',limit:'machine',machine:{memoryPressure:'critical',memoryPressureLimit:'critical'}})).toBe('Waiting: memory pressure critical');
  expect(wait({reason:'machine_memory_pressure',limit:'machine',machine:{memoryPressure:'warning',memoryPressureLimit:'warning'}})).toBe('Waiting: memory pressure warning');
  expect(wait({reason:'machine_load',limit:'machine',machine:{loadPerCore:4.92,loadLimit:3}})).toBe('Waiting: load 4.9/core over limit 3');
@@ -57,5 +57,16 @@ test("machine-guard waits read in plain words", () => {
  expect(wait({reason:'machine_memory_pressure'})).toBe('Waiting: memory pressure high');
  // No fixed machine cap: a machine no_slot wait without capacity falls back to generic copy.
  expect(wait({reason:'no_slot',limit:'machine'})).toBe('Waiting for parallel task capacity');
- expect(capacityNote({...snapshot.executors![0]!,limitedBy:'machine'} as ExecutorRow,{...snapshot,machine:{used:0,max:null}})).toBe('Limited by this machine');
+ expect(capacityNote({...snapshot.executors![0]!,limitedBy:'machine'} as ExecutorRow,{...snapshot,machine:{used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true}})).toBe('Limited by this machine');
+});
+test("the machine cap reads hardCap and never shows the legacy unlimited max", () => {
+ expect(machineHardCap({max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true})).toBeNull();
+ expect(machineHardCap({max:6,hardCap:6,unlimited:false})).toBe(6);
+ // A 3.0 service sends only max, always the cap.
+ expect(machineHardCap({max:2})).toBe(2);
+ expect(machineHardCap({max:Number.MAX_SAFE_INTEGER})).toBeNull();
+ expect(machineHardCap(undefined)).toBeNull();
+ const task={state:'queued',queue:{reason:'no_slot',since:1,position:1,limit:'machine'}} as ClientTask;
+ expect(queueWait(task,{...snapshot,machine:{used:4,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true}})).toBe('Waiting for parallel task capacity');
+ expect(queueWait(task,{...snapshot,machine:{used:4,max:4,hardCap:4,unlimited:false}})).toBe('Waiting: this machine is running 4 of 4');
 });

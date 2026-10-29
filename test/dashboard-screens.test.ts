@@ -541,7 +541,7 @@ describe("Settings › This machine in the TUI", () => {
   });
   test("memory pressure and load limits step and the guard state is shown", () => {
     const s = snapshot();
-    s.machine = { used: 3, max: null, memoryPressure: "critical", memoryPressureLimit: "critical", loadPerCore: 4.92, loadLimit: null, open: false, reason: "machine_memory_pressure", detail: "memory pressure critical" };
+    s.machine = { used: 3, max: Number.MAX_SAFE_INTEGER, hardCap: null, unlimited: true, memoryPressure: "critical", memoryPressureLimit: "critical", loadPerCore: 4.92, loadLimit: null, open: false, reason: "machine_memory_pressure", detail: "memory pressure critical" };
     const d = withKeys({ "execution.local_memory_pressure_limit": "critical", "execution.local_load_limit": "off" });
     const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state });
     expect(text).toContain("‹ Critical ›");

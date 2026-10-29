@@ -14,7 +14,7 @@ test("docs/protocol.md is generated from the registry and up to date: run `bun r
 
 test("2.2+ hello advertises attention, activity and repository operations", () => {
   const hello = helloBody();
-  expect(hello.protocol).toBe("3.0.0");
+  expect(hello.protocol).toBe("3.1.0");
   for (const op of ["attention.dismiss", "attention.snooze", "task.retry_options", "activity.list", "repo.list", "repo.add", "repo.remove"]) expect(hello.ops).toContain(op);
   for (const text of ["ui.open", "expect_rev", "POST /v3/session/exchange", "## Activity", "## Attention and actions"]) expect(renderProtocolDoc()).toContain(text);
 });
@@ -24,7 +24,7 @@ for (const major of [3,2] as const) test(`protocol v${major} docs match the sele
  expect(readFileSync(join(import.meta.dir,"..","docs",file),"utf8")).toBe(doc);
  expect(doc).toContain(`GET /v${major}/snapshot`);
  if(major===3){expect(doc).not.toContain("retain the legacy summary array");expect(doc).not.toContain("`budget`, `task`, `mode`, `alert`");}
- expect(doc).toContain(major===3?"3.0.0":"2.8.0");
+ expect(doc).toContain(major===3?"3.1.0":"2.8.0");
  const schema=doc.split("### `task.review`")[1]!.split("###")[0]!;
  expect(schema).toContain(major===3?'"verdict"':'"accepted"');
 });

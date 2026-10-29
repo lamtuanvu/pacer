@@ -26,7 +26,7 @@ test("HTTP v2 and v3 share cold snapshot work and serve stale while rebuilding",
     expect(calls).toBe(1);
     resolve(initial);
     const [v3, v2] = await Promise.all([a, b]);
-    expect(v3.protocol).toBe("3.0.0");
+    expect(v3.protocol).toBe("3.1.0");
     expect(v2.protocol).toBe("2.8.0");
     await Bun.sleep(1100);
     expect((await get()).seq).toBe(initial.seq);

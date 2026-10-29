@@ -37,11 +37,13 @@ import {
   accountUsageFreshness,
   capacityNote,
   executorEligibility,
+  machineHardCap,
 } from "../../../../src/view-model/capacity";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import type { ExecutorRow, MachineCapacity } from "../../../../src/api/read-model/types";
+import type { ExecutorRow } from "../../../../src/api/read-model/types";
+import type { ClientMachine } from "../../../../src/view-model/snapshot";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
@@ -171,7 +173,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${value("pacing.planner_reserve")}% planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${value("pacing.fill_threshold")}%` : ""].filter(Boolean).join(" · "), page: "planner" });
-  if (snapshot?.machine) tiles.push({ label: "Machines", value: snapshot.machine.max == null ? "No limit" : `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
+  if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
   return <div className="pc-settings-board pc-settings-board--overview">
     <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
@@ -603,11 +605,11 @@ function machineChanges(base: MachineDraft, draft: MachineDraft): { key: string;
 }
 const PRESSURE_WORDS: Record<string, string> = { normal: "normal", warning: "warning", critical: "critical" };
 /** What the machine guard sees now, in plain words. */
-export function machineNow(machine: MachineCapacity | undefined): string | null {
+export function machineNow(machine: ClientMachine | undefined): string | null {
   if (!machine) return null;
   const pressure = machine.memoryPressure === undefined ? null : machine.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${PRESSURE_WORDS[machine.memoryPressure]}`;
   const load = machine.loadPerCore == null ? null : `load ${Math.round(machine.loadPerCore * 10) / 10} per core`;
-  const running = `${machine.used} running${machine.max != null ? ` of ${machine.max}` : ""}`;
+  const cap = machineHardCap(machine), running = `${machine.used} running${cap !== null ? ` of ${cap}` : ""}`;
   const waits = machine.open === false && machine.detail ? `new tasks wait: ${machine.detail}` : null;
   return [pressure, load, running, waits].filter(Boolean).join(" · ");
 }

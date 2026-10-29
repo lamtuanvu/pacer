@@ -53,11 +53,17 @@ export interface ReadModelFields {
 export type ReadModel = ReadModelFields;
 
 /**
- * Local capacity. max is the hard cap, or null when no fixed cap is set. The guard
- * fields describe what holds new local starts; null signals are unavailable.
+ * Local capacity. hardCap is the fixed cap, or null with unlimited true when none is set.
+ * The guard fields describe what holds new local starts; null signals are unavailable.
  */
 export interface MachineCapacity {
- used: number; max: number | null;
+ used: number;
+ /**
+  * @deprecated Legacy 3.0 field kept numeric for older clients' free-slot math: hardCap when
+  * set, otherwise Number.MAX_SAFE_INTEGER. Read hardCap and unlimited instead; never display it.
+  */
+ max: number;
+ hardCap: number | null; unlimited: boolean;
  memoryPressure?: "normal" | "warning" | "critical" | null; memoryPressureLimit?: "critical" | "warning" | "off";
  loadPerCore?: number | null; loadLimit?: number | null;
  open?: boolean; reason?: "machine_memory_pressure" | "machine_load"; detail?: string;

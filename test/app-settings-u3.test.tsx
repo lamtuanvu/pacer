@@ -191,16 +191,19 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
 test('This machine shows the guard state now and no limit by default',()=>{
- const machine={used:3,max:null,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
+ const machine={used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
  const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
  expect(html).toContain('Now: memory pressure critical · load 4.9 per core · 3 running · new tasks wait: memory pressure critical');
  expect(html).toContain('No limit');
  expect(html).toContain('Hold new tasks at memory pressure');
  expect(html).toContain('Load limit per CPU core');
- const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
+ const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,hardCap:4,unlimited:false,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
  expect(unavailable).toContain('Now: memory pressure unavailable · 0 running of 4');
  expect(machineNow(undefined)).toBeNull();
- expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}})).toContain('No limit');
+ const overview=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(overview).toContain('No limit');
+ // The legacy max stands in for "no cap" for 3.0 clients and is never shown.
+ for(const page of [html,overview])expect(page).not.toContain(String(Number.MAX_SAFE_INTEGER));
  expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:3}}})).toContain('3 parallel');
 });
 test('board pages render their headline and other editors retain shell titles', () => {

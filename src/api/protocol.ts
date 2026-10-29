@@ -2,7 +2,7 @@ import { CoreError, type CoreErrorCode } from "../core/errors";
 import pkg from "../../package.json";
 import { opNames } from "./ops";
 
-export const PROTOCOL_VERSION = "3.0.0";
+export const PROTOCOL_VERSION = "3.1.0";
 
 export const PREVIOUS = "2.8.0";
 export function helloBody() {
