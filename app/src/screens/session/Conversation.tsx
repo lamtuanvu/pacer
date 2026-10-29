@@ -14,6 +14,7 @@ import { changeConversation } from "../../model/conversation";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { SessionAttachments } from "./Attachments";
 import { SessionView } from "./SessionView";
+import { machineWaitWords } from "../../../../src/view-model/capacity";
 
 export function TerminalOpenFallback({ command }: { command: string }) {
   return (
@@ -135,7 +136,7 @@ export function Conversation({
         )}
         {task.queue && (
           <p className="pc-session-notice muted">
-            {task.queue.detail ?? "Waiting for an available execution slot."}
+            {machineWaitWords(task.queue) ?? task.queue.detail ?? "Waiting for an available execution slot."}
           </p>
         )}
         <ErrorMessage error={error ?? context.error} />

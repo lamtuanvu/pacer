@@ -17,7 +17,7 @@ import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
 import { Pill } from "../ds/Pill";
 import { StatusGlyph } from "../ds/StatusGlyph";
-import { executorPace, executorEligibility } from "../../../src/view-model/capacity";
+import { executorPace, executorEligibility, machineWaitWords } from "../../../src/view-model/capacity";
 import { Icon, type IconName } from "../ds/icons";
 import type { Status } from "../../../src/view-model/words";
 import { Kbd } from "../ds/Kbd";
@@ -133,8 +133,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
   const nextExecutor = next?.executor ? agentInfo(runnerAgent(next.executor)).name : "executor";
+  const machineWait = next?.queue ? machineWaitWords(next.queue)?.replace(/^Waiting: /, "") : undefined;
   const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
-  const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{model.waiting} waiting for a free {nextExecutor} slot{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
+  const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{machineWait ? `${model.waiting} waiting · ${machineWait}` : `${model.waiting} waiting for a free ${nextExecutor} slot`}{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
       <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>

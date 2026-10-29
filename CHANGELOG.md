@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-29
+
 ### Fixed
 
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
@@ -57,6 +59,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run local tasks without a fixed cap by default. `execution.local_max_tasks` is now optional (`unlimited` by default; a whole number of at least 1 still sets a hard cap, with no upper ceiling), and new local tasks wait only while macOS memory pressure reaches `execution.local_memory_pressure_limit` (`critical` by default, or `warning`/`off`) or the load per CPU core exceeds the optional `execution.local_load_limit`. Running tasks are never stopped. Waits report `machine_memory_pressure` or `machine_load` with the observed value, the snapshot `machine` row adds `hardCap` (null without a fixed cap), `unlimited` and the guard state, and Settings › This machine and the TUI edit and show it. Existing numeric caps keep working. `machine.max` stays a number but is deprecated; without a fixed cap it is `Number.MAX_SAFE_INTEGER` so older clients' free-slot arithmetic still works, and clients should read `hardCap`/`unlimited` instead. Client compatibility: protocol 3 clients must accept the string `"unlimited"` from `config.get` for `execution.local_max_tasks`, and the new queue reasons; the 2.x compatibility snapshot keeps `machine.max` numeric (the sum of the local executors' own limits when there is no fixed cap).
 - Complete the Agents, Accounts, Machines and Add agent board headings. Machines uses shared board rows within its cards. Takes work now saves immediately without saving other draft edits, reports failures inline, and restores its saved value on failure. Escape closes agent details and restores row focus. Missing agents can retry detection; failed host checks link to host management for recovery.
 
 - `pacer --version` and `pacer status --line` are answered by the Rust front door without starting the core, so shell prompts and status bars that call them return faster.
