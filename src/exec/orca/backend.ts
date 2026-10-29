@@ -251,6 +251,12 @@ async function releaseStoppedLane(
     if (loadOrcaState(ctx).stranded[task.id]?.id === w.id) return false;
     const sep = w.id.indexOf("::");
     if (current.group && sep > 0) await releaseEmptyGroup(ctx, c, w.id.slice(0, sep), current.group, log, sleep ? { sleep } : {});
+    // Forget the removed path, so an answer or retry starts fresh instead of reaching for a missing worktree.
+    const gone = (p?: string) => p === w.path || !!p?.startsWith(`${w.path}/`);
+    updateTask(ctx, task.id, t => {
+      if (gone(t.worktree)) delete t.worktree;
+      if (t.result && gone(t.result.worktree)) delete t.result.worktree;
+    });
     taskActivity(ctx, current, "message", `Removed the stopped lane's unused Orca worktree ${w.path}`);
     return true;
   } catch (e) {
@@ -285,8 +291,8 @@ async function releaseLive(ctx: Ctx, c: OrcaClient, task: TaskRecord, why: strin
   log(`closed pacer terminal ${live.terminal}: ${closed.failure ?? "ok"}`);
   if (!closed.proof) await recordUnclosed(ctx, task.id, live.terminal, log);
   const current = readTask(ctx, task.id);
-  const releaseLane = current?.state === "stopped" || (current?.state === "needs_input" && why === "idle limit reached while waiting for an answer")
-    || current?.state === "done" || current?.state === "partial" || current?.state === "failed" || current?.state === "limit";
+  // A task still waiting for an answer keeps its worktree, so the answer can start from it.
+  const releaseLane = current?.state === "stopped" || current?.state === "done" || current?.state === "partial" || current?.state === "failed" || current?.state === "limit";
   const lane = releaseLane ? await liveLaneWorktree(ctx, c, task, live).catch(() => null) : null;
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.workers[live.worker]; }); });
   updateTask(ctx, task.id, t => { if (t.live?.worker === live.worker) delete t.live; });

@@ -942,6 +942,7 @@ test("stopping an answered group lane removes its original worktree and empty gr
   expect(loadOrcaState(x.ctx).groups).toEqual({});
   expect(readTask(x.ctx, asked.id)?.state).not.toBe("needs_input");
   expect(readTask(x.ctx, asked.id)?.dismissed).toBe(true);
+  expect(readTask(x.ctx, retry.id)?.worktree).toBeUndefined();
 });
 
 test("Orca agent receives the task's pacer home and port", async () => {
@@ -1211,10 +1212,12 @@ test("a runner id with an account (codex#work) names its lane worktree the way O
   expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
 });
 
-/** Git in a lane's worktree, routed after the defaults: clean, with `commits` commits beyond its base. */
+/** Git in a lane's worktree, routed after the defaults: clean, with `commits` commits beyond its base, at LANE_HEAD. */
+const LANE_HEAD = "b".repeat(40);
 const laneGit = (root: () => string, commits: number): Route[] => [
   [["git", "-C"], (a: string[]) => a[2] !== root() ? raw("", 99)
-    : a[3] === "status" ? raw("") : a[3] === "rev-list" ? raw(`${commits}\n`) : a[3] === "rev-parse" ? raw(`${root()}\n`) : raw("", 99)],
+    : a[3] === "status" ? raw("") : a[3] === "rev-list" ? raw(`${commits}\n`)
+    : a[3] === "rev-parse" ? raw(a[4] === "--verify" ? `${LANE_HEAD}\n` : `${root()}\n`) : raw("", 99)],
 ];
 /** `orca worktree show` that knows a group lane: its own worktree by path or id, and the group parent listing it until removed. */
 function groupLaneShows(ref: {x?: ReturnType<typeof setup>}, state: {lane: boolean}): Route[] {
@@ -1268,14 +1271,24 @@ test("pacer stop on a kept-alive group lane also removes its unused worktree and
   const removes = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"));
   expect(removes).toEqual([`id:${x.wt}`, "id:repo-1::/work/pacer-group-feature-x"]);
   expect(loadOrcaState(x.ctx).groups).toEqual({});
+  // The task forgets the removed path, so a later retry starts fresh instead of asking for a missing worktree.
+  expect(readTask(x.ctx, asked.id)?.worktree).toBeUndefined();
 });
 
-test("an idle-expired lane releases its unused worktree", async () => {
+test("an idle-expired lane keeps its worktree, so its open question can still be answered", async () => {
   const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
+  const {answer} = await import("../src/core/tasks");
   const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
   const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
-  askedLane(x);
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.baseSha = "a".repeat(40); t.result = {status: "needs_input", executor: "codex", model: null, files: "", report: "asked", backend: "orca", worktree: x.root}; });
   await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, [x.backend]);
   expect(workerStops(x)).toBe(1);
-  expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"))).toEqual([`id:${x.wt}`]);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+  expect(readTask(x.ctx, asked.id)).toMatchObject({state: "needs_input", worktree: x.root, result: {worktree: x.root}});
+  // The answer starts a new attempt from the lane's worktree head, as before the worker was released.
+  updateTask(x.ctx, asked.id, t => { t.brief.repo = mkdtempSync(join(tmpdir(), "pacer-idle-")); });
+  const inputs: {brief: {base?: string}}[] = [];
+  await answer(x.ctx, asked.id, "go with B", {}, {delegate: (c, input) => { inputs.push(input); return createTask(c, {brief: input.brief, kind: null, requestedExecutor: "codex", timeoutS: 1}); }});
+  expect(inputs[0]?.brief.base).toBe(LANE_HEAD);
 });

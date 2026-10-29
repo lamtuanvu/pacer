@@ -72,6 +72,20 @@ test("retry re-delegates the stored brief, links both tasks, and passes the exec
   expect(readTask(ctx, r.retry.id)?.retryOf).toBe(t.id);
 });
 
+test("retry of a task whose worktree was removed starts fresh instead of reusing the missing path", async () => {
+  const { ctx, t } = mk();
+  const kept = tmpDir(), gone = join(tmpDir(), "removed-lane");
+  const inputs: Parameters<typeof tasks.delegate>[1][] = [];
+  const retryOnce = async (id: string) => tasks.retry(ctx, id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  updateTask(ctx, t.id, (x) => { x.state = "stopped"; x.worktree = gone; x.baseSha = "c".repeat(40); });
+  await retryOnce(t.id);
+  expect(inputs[0].reuseWorktree).toBeUndefined();
+  const other = tasks.delegate(ctx, { brief: { goal: "g", repo: t.brief.repo } }, () => 1, s);
+  updateTask(ctx, other.id, (x) => { x.state = "stopped"; x.worktree = kept; });
+  await retryOnce(other.id);
+  expect(inputs[1].reuseWorktree).toBe(kept);
+});
+
 test("retry without executor lets routing choose", async () => {
   const { ctx, t } = mk();
   const inputs: Parameters<typeof tasks.delegate>[1][] = [];

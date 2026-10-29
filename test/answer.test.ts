@@ -81,6 +81,18 @@ test("an answer starts from the asking executor's committed worktree head",async
   expect(readTask(ctx,r.retry.id)?.placement?.requested).toBe("new");
 });
 
+test("an answer whose asking worktree was removed starts from the lane's recorded base, or is refused as unavailable",async()=>{
+  const {ctx,task,deps}=setup();
+  const gone=join(tmpDir(),"removed-lane");
+  updateTask(ctx,task.id,t=>{t.worktree=gone;t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:gone};});
+  await expect(callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps)).rejects.toMatchObject({code:"unavailable"});
+  expect(readTask(ctx,task.id)?.question?.answer).toBeUndefined();
+  const base="c".repeat(40);
+  updateTask(ctx,task.id,t=>{t.baseSha=base;});
+  const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
+  expect(readTask(ctx,r.retry.id)?.brief.base).toBe(base);
+});
+
 test("a failed delegation leaves the question unanswered and available to answer",async()=>{
   const {ctx,task}=setup();
   await expect(tasks.answer(ctx,task.id,"postgres",{}, {delegate:()=>{throw new Error("delegate unavailable");}})).rejects.toThrow("delegate unavailable");
