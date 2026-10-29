@@ -5,10 +5,19 @@ import { displayName } from "../render/accounts";
 import type { TaskRecord } from "../tasks/types";
 
 export interface SlotUse { byExecutor: Record<string, number>; byHost: Record<string, number>; local: number }
+/** Task states that can hold a slot: running, and `needs_input` while its backend keeps the lane's worker live. */
+export const SLOT_STATES: TaskRecord["state"][] = ["running", "needs_input"];
+/**
+ * Whether a task occupies an executor slot. A kept-alive worker still runs its agent, so it holds the slot until it is
+ * released; once an answer attempt is created to reattach to it, the slot passes to that attempt.
+ */
+export function holdsSlot(task: TaskRecord): boolean {
+  return task.state === "running" || (task.state === "needs_input" && !!task.live && !task.retriedBy);
+}
 export function slotUse(tasks: TaskRecord[]): SlotUse {
   const use: SlotUse = {byExecutor: {}, byHost: {}, local: 0};
   for (const task of tasks) {
-    if (task.state !== "running") continue;
+    if (!holdsSlot(task)) continue;
     const executor = task.run?.executor ?? task.executor;
     if (executor) use.byExecutor[executor] = (use.byExecutor[executor] ?? 0) + 1;
     const host = task.run?.host ?? (executor ? parseRunnerId(executor)?.host : null);

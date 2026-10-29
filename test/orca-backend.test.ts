@@ -13,6 +13,7 @@ import {loadOrcaState, updateOrcaState} from "../src/exec/orca/state";
 import {reconcileHostWork, cleanHostWorktree} from "../src/exec/cleanup";
 import {randomUUID} from "node:crypto";
 import {fakeRun, raw, type Route} from "./fixtures/orca/fake";
+import {readActivity} from "../src/activity/log";
 
 const repo = "/work/app", terminal = "term_agent", dispatch = "ctx_1";
 const O = (...args: string[]) => ["orca", ...args];
@@ -832,6 +833,7 @@ test("an interactive lane's escalation keeps its worker and terminal alive inste
   expect(closes(x.f.calls)).toHaveLength(0);
   expect(loadOrcaState(x.ctx).workers[dispatch]).toMatchObject({taskId: x.task.id, terminal});
   expect(readTask(x.ctx, x.task.id)?.question?.text).toBe("Should I also update the README?");
+  expect(readTask(x.ctx, x.task.id)?.live).toMatchObject({backend: "orca", worker: dispatch, terminal, executor: "codex", agent: "codex", incarnation: "inc"});
 });
 
 test("a delegated (non-interactive) lane's escalation still stops its worker, unlike an interactive lane", async () => {
@@ -841,37 +843,195 @@ test("a delegated (non-interactive) lane's escalation still stops its worker, un
   expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
   expect(closes(x.f.calls)).toHaveLength(1);
   expect(loadOrcaState(x.ctx).workers).toEqual({});
+  expect(readTask(x.ctx, x.task.id)?.live).toBeUndefined();
 });
 
-const liveWorker = [O("orchestration", "worker-show"), [envelope({worker: {state: "ready"}}), envelope({worker: {state: "succeeded"}})]] as Route;
+const agentInForeground = [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: true, writable: true, incarnationId: "inc", agentIdentity: "codex"}})] as Route;
+const shellInForeground = [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: true, writable: true, incarnationId: "inc", agentIdentity: null}})] as Route;
+const liveWorker = [O("orchestration", "worker-show"), [envelope({worker: {state: "ready"}}), envelope({worker: {state: "ready"}}), envelope({worker: {state: "succeeded"}})]] as Route;
+const LIVE = {backend: "orca", worker: "ctx_live", terminal, executor: "codex", agent: "codex", incarnation: "inc", since: 1};
 
-test("answering an interactive lane with a live worker delivers the answer live instead of respawning it", async () => {
-  const x = setup([liveWorker, [O("terminal", "send"), envelope({})]]);
-  const original = updateTask(x.ctx, x.task.id, t => {t.interactionMode = "conversation"; t.state = "needs_input"; t.question = {text: "which approach?", at: 1};});
+/** A plain interactive lane that asked a question and kept its worker `ctx_live` alive. */
+function askedLane(x: ReturnType<typeof setup>, answer?: string) {
+  const asked = updateTask(x.ctx, x.task.id, t => {
+    t.interactionMode = "conversation"; t.state = "needs_input"; t.worktree = x.root; t.live = {...LIVE};
+    t.question = {text: "which approach?", at: 1, ...(answer ? {answer} : {})};
+  });
   updateOrcaState(x.ctx, s => {
     s.coordinator = "term_coord"; s.run = "run_1";
-    s.workers.ctx_live = {dispatchId: "ctx_live", taskId: original.id, executor: "codex", worktree: x.root, terminal, startedAt: 1};
+    s.workers.ctx_live = {dispatchId: "ctx_live", taskId: asked.id, executor: "codex", worktree: x.root, terminal, startedAt: 1};
   });
-  const retry = createTask(x.ctx, {brief: {...original.brief, qa: [{q: "which approach?", a: "go with B"}]}, kind: null, requestedExecutor: "codex", timeoutS: 1, group: "feature-x"});
-  const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, retry.id, t => {t.retryOf = original.id; t.state = "running";}));
+  return asked;
+}
+function answerOf(x: ReturnType<typeof setup>, of: {id: string; brief: object}, a: string) {
+  updateTask(x.ctx, of.id, t => { t.question!.answer = a; });
+  const retry = createTask(x.ctx, {brief: {...(of as {brief: {goal: string; repo: string}}).brief, qa: [{q: "which approach?", a}]}, kind: null, requestedExecutor: "codex", timeoutS: 1, interactionMode: "conversation"});
+  const running = updateTask(x.ctx, retry.id, t => {t.retryOf = of.id; t.state = "running";});
+  updateTask(x.ctx, of.id, t => { t.retriedBy = running.id; });
+  return running;
+}
+const sendsOf = (calls: string[][], text: string) => calls.filter(a => a[1] === "terminal" && a[2] === "send" && a.includes(text));
+
+test("answering an interactive lane with a live worker delivers the answer live and moves the worker to the answer", async () => {
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})]]);
+  const asked = askedLane(x);
+  const retry = answerOf(x, asked, "go with B");
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, retry);
   expect(x.f.count(O("orchestration", "worker-start"))).toBe(0);
   expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "create")).toHaveLength(0);
-  expect(x.f.calls).toContainEqual(["orca", "terminal", "send", "--terminal", terminal, "--text", "go with B", "--enter", "--json"]);
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(1);
   expect(out.backend).toBe("orca");
   expect(out.worktree).toBe(x.root);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  // The worker finished this round, so it is settled and released rather than kept.
   expect(closes(x.f.calls)).toHaveLength(1);
   expect(loadOrcaState(x.ctx).workers).toEqual({});
+  expect(readTask(x.ctx, retry.id)?.live).toBeUndefined();
+});
+
+test("a second question and answer reattach to the same worker again, and pacer send reaches it after an answer", async () => {
+  const x = setup([
+    [O("orchestration", "worker-show"), envelope({worker: {state: "running"}})], agentInForeground,
+    [O("orchestration", "check"), [envelope({messages: [{id: "q1", type: "question", from_handle: terminal, subject: "q", body: "Should I also update the README?", payload: JSON.stringify({dispatchId: "ctx_live"})}], deliveryId: "d1"}), envelope({messages: [{id: "m1", type: "worker_done", subject: "done", body: "ok", payload: JSON.stringify({dispatchId: "ctx_live", outcome: "succeeded"})}], deliveryId: "d2"})]],
+    [O("orchestration", "reply"), envelope({})], [O("terminal", "send"), envelope({})],
+  ]);
+  const first = askedLane(x);
+  const second = answerOf(x, first, "go with B");
+  // Round two: the reattached attempt asks again, so the worker is kept and owned by the second attempt.
+  await x.backend.runAttempt(x.ctx, x.cfg, second);
+  expect(readTask(x.ctx, second.id)?.state).toBe("running");
+  expect(readTask(x.ctx, second.id)?.question?.text).toBe("Should I also update the README?");
+  expect(readTask(x.ctx, second.id)?.live).toMatchObject({worker: "ctx_live", terminal});
+  expect(loadOrcaState(x.ctx).workers.ctx_live?.taskId).toBe(second.id);
+  expect(closes(x.f.calls)).toHaveLength(0);
+  // pacer send finds the worker under the attempt that now owns it while that attempt runs.
+  const {send} = await import("../src/session/send");
+  await send(x.ctx, second.id, "also keep the old flag", {by: "planner"});
+  expect(sendsOf(x.f.calls, "also keep the old flag")).toHaveLength(1);
+  updateTask(x.ctx, second.id, t => { t.state = "needs_input"; });
+  // Round three: answering the second question reattaches to the same worker; no new worker or worktree.
+  const third = answerOf(x, readTask(x.ctx, second.id)!, "yes, update it");
+  await x.backend.runAttempt(x.ctx, x.cfg, third);
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(0);
+  expect(sendsOf(x.f.calls, "yes, update it")).toHaveLength(1);
+  expect(readTask(x.ctx, second.id)?.live).toBeUndefined();
 });
 
 test("a managed work answer (same task id, no retryOf) also reattaches to its live worker", async () => {
-  const x = setup([liveWorker, [O("terminal", "send"), envelope({})]]);
-  updateTask(x.ctx, x.task.id, t => {t.interactionMode = "conversation"; t.worktree = x.root; t.brief.qa = [{q: "which approach?", a: "go with B"}];});
-  updateOrcaState(x.ctx, s => {
-    s.coordinator = "term_coord"; s.run = "run_1";
-    s.workers.ctx_live = {dispatchId: "ctx_live", taskId: x.task.id, executor: "codex", worktree: x.root, terminal, startedAt: 1};
-  });
-  const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.state = "running";}));
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})]]);
+  askedLane(x);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.state = "running"; t.brief.qa = [{q: "which approach?", a: "go with B"}];}));
   expect(x.f.count(O("orchestration", "worker-start"))).toBe(0);
-  expect(x.f.calls).toContainEqual(["orca", "terminal", "send", "--terminal", terminal, "--text", "go with B", "--enter", "--json"]);
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(1);
   expect(out.worktree).toBe(x.root);
+});
+
+test("an answer is never typed into a shell: the stale worker is released and the answer respawns", async () => {
+  const x = setup([liveWorker, shellInForeground]);
+  const asked = askedLane(x);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, answerOf(x, asked, "go with B"));
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(0);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(1);
+  expect(out.backend).toBe("orca");
+});
+
+test("an answer routed to another executor releases the old worker before starting fresh", async () => {
+  const x = setup([liveWorker, agentInForeground]);
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.live = {...LIVE, executor: "claude-code", agent: "claude"}; });
+  await x.backend.runAttempt(x.ctx, x.cfg, answerOf(x, asked, "go with B"));
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(1);
+});
+
+test("task.stop on a kept-alive lane stops its worker and closes its terminal", async () => {
+  const x = setup();
+  const asked = askedLane(x);
+  const {taskStop} = await import("../src/tasks/api");
+  expect(taskStop(x.ctx, asked.id)?.state).toBe("stopped");
+  for (let i = 0; i < 50 && readTask(x.ctx, asked.id)?.live; i++) await Bun.sleep(5);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
+});
+
+test("a kept-alive worker expires after the idle limit, and settled or reviewed lanes are released", async () => {
+  const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
+  const x = setup();
+  const asked = askedLane(x);
+  const backends = [x.backend];
+  expect(await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S - 1}, backends)).toEqual([]);
+  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(0);
+  expect(await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, backends)).toEqual([asked.id]);
+  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  for (const settle of [(t: TaskRecordish) => { t.state = "done"; }, (t: TaskRecordish) => { t.review = {verdict: "reject", at: 1}; }]) {
+    const y = setup();
+    const lane = askedLane(y);
+    updateTask(y.ctx, lane.id, settle as never);
+    expect(await reapLiveWorkers(y.ctx, [y.backend])).toEqual([lane.id]);
+    expect(readTask(y.ctx, lane.id)?.live).toBeUndefined();
+  }
+});
+type TaskRecordish = {state: string; review?: unknown};
+
+test("a pending answer keeps the worker for its reattach; a failed one releases it", async () => {
+  const {reapLiveWorkers} = await import("../src/exec/live");
+  const x = setup();
+  const asked = askedLane(x);
+  const retry = answerOf(x, asked, "go with B");
+  updateTask(x.ctx, retry.id, t => { t.state = "queued"; });
+  expect(await reapLiveWorkers(x.ctx, [x.backend])).toEqual([]);
+  updateTask(x.ctx, retry.id, t => { t.state = "failed"; });
+  expect(await reapLiveWorkers(x.ctx, [x.backend])).toEqual([asked.id]);
+});
+
+test("a kept-alive worker holds its executor slot until an answer takes it over", async () => {
+  const {slotUse} = await import("../src/engine/slots");
+  const x = setup();
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.executor = "codex"; });
+  expect(slotUse([readTask(x.ctx, asked.id)!]).byExecutor).toEqual({codex: 1});
+  expect(slotUse([{...readTask(x.ctx, asked.id)!, live: undefined}]).byExecutor).toEqual({});
+  const retry = answerOf(x, asked, "go with B");
+  updateTask(x.ctx, retry.id, t => { t.executor = "codex"; });
+  expect(slotUse([readTask(x.ctx, asked.id)!, readTask(x.ctx, retry.id)!]).byExecutor).toEqual({codex: 1});
+});
+
+test("group: a cached parent worktree Orca no longer shows is created again", async () => {
+  const x = setup([[O("worktree", "show", "--worktree", "path:/work/pacer-group-feature-x"), failure("selector_not_found")]]);
+  updateOrcaState(x.ctx, s => { s.groups["repo-1:feature-x"] = {selector: "path:/work/pacer-group-feature-x"}; });
+  await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.group = "feature-x";}));
+  const creates = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "create");
+  expect(creates.filter(a => arg(a, "--name") === "pacer-group-feature-x")).toHaveLength(1);
+  expect(loadOrcaState(x.ctx).groups["repo-1:feature-x"]).toEqual({selector: "path:/work/pacer-group-feature-x"});
+});
+
+test("an agent that exits between the reattach check and the answer gets nothing typed; the answer respawns", async () => {
+  const x = setup([liveWorker, [O("terminal", "show"), [envelope({terminal: {handle: terminal, connected: true, writable: true, incarnationId: "inc", agentIdentity: "codex"}}),
+    envelope({terminal: {handle: terminal, connected: true, writable: true, incarnationId: "inc", agentIdentity: null}})]]]);
+  const asked = askedLane(x);
+  const retry = answerOf(x, asked, "go with B");
+  await x.backend.runAttempt(x.ctx, x.cfg, retry);
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(0);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(readTask(x.ctx, retry.id)?.live?.worker).not.toBe("ctx_live");
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(1);
+});
+
+test("a live answer Orca fails to deliver is not swallowed: the worker is released, the timeline says why and the answer respawns", async () => {
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), [failure("terminal_gone"), envelope({})]]]);
+  const asked = askedLane(x);
+  const retry = answerOf(x, asked, "go with B");
+  await x.backend.runAttempt(x.ctx, x.cfg, retry);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(1);
+  const {entries} = readActivity(x.ctx, {taskId: retry.id, kinds: ["message"]});
+  expect(entries.map(e => e.text)).toContainEqual(expect.stringContaining("the answer could not be delivered (terminal_gone)"));
 });

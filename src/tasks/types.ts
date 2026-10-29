@@ -158,14 +158,35 @@ export interface RunRef {
 
 export interface ReviewRequest { note: string; at: number }
 
+/**
+ * A worker an interactive lane's backend owns and can reach live: `task.send` delivers into it, an answer reattaches to it,
+ * and it holds its executor's slot while the task waits in `needs_input`. `task.stop`, expiry and settlement release it.
+ */
+export interface LiveWorker {
+  /** The backend that owns the worker; only it can send into or release it. */
+  backend: string;
+  worker: string;
+  terminal: string;
+  executor: string;
+  /** The agent the backend expects in the terminal's foreground; input is refused when anything else is there. */
+  agent: string;
+  incarnation?: string;
+  /** When the worker last became idle-owned (started, escalated or reattached), for the idle expiry. */
+  since: number;
+}
+
 export interface TaskRecord {
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;
+  /** `pacer delegate --interactive`: a conversation that may run on any backend and keep its worker live. A chat from `session.create` stays on the direct backend, whose terminal `session.io` streams. */
+  interactive?: boolean;
   /** Lanes sharing a named Orca parent worktree (`pacer delegate --group`); cosmetic grouping when the backend isn't Orca. */
   group?: string;
   /** Who most recently delivered live input into this task's running terminal (`pacer send`); a short lease, not a process lock. */
   driving?: { by: string; at: number };
+  /** The interactive lane's worker the backend keeps owning, while running and after a `needs_input` escalation. */
+  live?: LiveWorker;
   reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;

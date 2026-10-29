@@ -260,6 +260,7 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
     if (stopped()) return;
     await superviseTaskRecord(ctx, task, spawn, stopped);
   }
+  if (!stopped() && !ctx.readOnly) await (await import("../exec/live")).reapLiveWorkers(ctx);
 }
 
 export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 1000): Promise<TaskRecord | null> {
@@ -277,10 +278,15 @@ export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 
 export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
-  if (t.state === "needs_input") return updateTask(ctx, id, x => {
-    x.state = "stopped";
-    if (x.result) x.result.status = "stopped";
-  });
+  if (t.state === "needs_input") {
+    const stopped = updateTask(ctx, id, x => {
+      x.state = "stopped";
+      if (x.result) x.result.status = "stopped";
+    });
+    // A kept-alive interactive lane's worker is stopped and its terminal closed; the supervision pass retries failures.
+    if (stopped.live) void import("../exec/live").then(m => m.releaseLiveWorker(ctx, stopped, "the task was stopped")).catch(() => {});
+    return stopped;
+  }
   if (isTerminal(t)) return t;
   const runnerAlive = t.state === "running" && alive(t.runnerPid);
   const updated = updateTask(ctx, id, (x) => {

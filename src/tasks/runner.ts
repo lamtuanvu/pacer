@@ -21,7 +21,7 @@ import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
-import { slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { type SpawnRunner } from "./api";
@@ -288,7 +288,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           requirePolicyIdentity(ctx, repo);
           if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
-          const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== id));
+          const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }).filter(t => t.id !== id));
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;

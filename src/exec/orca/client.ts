@@ -12,7 +12,8 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string }
+/** `agentIdentity` is the agent Orca sees in the terminal's foreground (`claude`, `codex`), or null for a plain shell. */
+export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;

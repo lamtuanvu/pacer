@@ -284,6 +284,12 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }
 
+/** Tasks whose backend still records a live worker (`TaskRecord.live`), newest first. */
+export function listLiveTasks(ctx: Ctx): TaskRecord[] {
+  const rows = connection(ctx).db.query<{ record: string }, []>("SELECT record FROM tasks WHERE json_extract(record, '$.live') IS NOT NULL ORDER BY id DESC").all();
+  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+}
+
 /** Newest first. */
 export function listTasks(ctx: Ctx, limit = 20): TaskRecord[] {
   return listTasksWhere(ctx, { limit });
