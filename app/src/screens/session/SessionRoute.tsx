@@ -12,9 +12,13 @@ import { useFrame } from "../../shell/slots";
 import { useQuery, useTaskContext } from "../task-shared";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { sessionChangeText, sessionDetail } from "./controller";
-import { Brief, Session } from "./Session";
+import { Session } from "./Session";
 import { Conversation, type SessionSlots } from "./Conversation";
-import { SessionPanel, SessionTitle, SessionWorkspace, SessionInsights, WorktreeChanges, type SessionPanelTab, type TaskDiff } from "./SessionPanel";
+import { SessionPanel, SessionHeader, SessionFiles, SessionWorkspace, SessionInsights, WorktreeChanges, type SessionPanelTab, type TaskDiff } from "./SessionPanel";
+import { Button } from "../../ds/Button";
+import { SectionHeading } from "../../ds/SectionHeading";
+import { parseDiff } from "../../model/diff";
+import { changeConversation } from "../../model/conversation";
 import type { Action } from './types';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
@@ -23,6 +27,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  const [panelTab,setPanelTab]=useState<SessionPanelTab>(tab??'details');
  const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
+ const [endBusy,setEndBusy]=useState(false);
  const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
  const takeoverState=useRef<TakeoverState>(),takeoverAbort=useRef<AbortController>();
  const task=useQuery<TaskDetail>('task.get',{id}),session=useQuery<SessionInfo>('task.session',{id}),diff=useQuery<TaskDiff>('task.diff',{id});
@@ -78,13 +83,28 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
-  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={actions} next={next&&{...next,open:openPanel}}/>,
-  panel:(details,files,access)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
-   changes={<><WorktreeChanges diff={diff.data} loading={diff.loading} error={diff.error?'Could not load changes. The worktree may have been removed.':undefined}/>{files}</>}
-   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!}/>{details}{data&&<Brief data={data}/>}<div className="pc-session-detail-group">{result}</div>{access}</div>}/>,
+  title:actions=>actions,
+  panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work}
+   count={diff.data ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : 0}
+   readFile={session.data?.attempt != null ? reference=>api.call('session.file.read',{id,attempt:session.data!.attempt!,reference}) : undefined}
+   changes={<><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>{diff.error && <p role="alert">Could not load changes. The worktree may have been removed.</p>}{files}</>}
+   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!} executor={state.snapshot?.accounts?.find(row=>row.executors.includes(task.data!.executor ?? ""))}/><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>
+    <section><SectionHeading as="h3">Acceptance</SectionHeading>{task.data!.acceptance.cmd ? <><code className="pc-session-acceptance">{task.data!.acceptance.cmd}</code><p className="muted">{task.data!.acceptance.state === 'pending' ? 'Runs when the session ends' : task.data!.acceptance.state === 'none' ? 'No checks recorded' : task.data!.acceptance.state === 'passed' ? 'Checks passed' : task.data!.acceptance.state === 'failed' ? 'Checks failed' : 'Checks running'}</p></> : <p className="muted">No acceptance command.</p>}</section>
+    {!active && <div className="pc-session-detail-group">{result}{details}</div>}{access}</div>}/>,
   showChanges:()=>openPanel('changes'),
  };
- if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/>;
- return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ const endSession=active&&task.data ? async()=>{
+  if(endBusy)return;
+  setEndBusy(true);
+  try {
+  if(task.data!.interactionMode==='conversation') {
+   if(!await dialogs.confirm('End this session? The agent stops. Its output and changes are kept.','End session','End session'))return;
+   try { await changeConversation(api,id,'end'); task.reload(); session.reload(); } catch(error) { setShortcutError(message(error)??'Could not end session'); }
+  } else if(stop) await invoke(stop).catch(error=>setShortcutError(message(error)??'Could not end session'));
+ } finally { setEndBusy(false); }
+ } : undefined;
+ const header=task.data&&<><SessionHeader task={task.data} onEnd={endSession} busy={endBusy}/>{next && frame?.details && !frame.details.open && <div className="pc-session-next"><Button size="sm" onClick={()=>openPanel(next.tab)}>{next.label}</Button></div>}</>;
+ if(task.data?.interactionMode==='conversation')return <>{dialogs.dialog}{header}{shortcutError&&<p role="alert">{shortcutError}</p>}<Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/></>;
+ return <>{dialogs.dialog}{header}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

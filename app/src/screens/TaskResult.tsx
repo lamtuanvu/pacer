@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
-import { scopedTaskTree, taskTree } from "../../../src/view-model/task-tree";
+import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
@@ -137,14 +137,15 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const { state } = useTaskContext(), frame = useFrame();
   const task = useQuery<TaskDetail>("task.get", {id});
   const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
+  const work = useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
   // Narrow layouts have no side panels, so the details follow the session in the page.
   const [below, setBelow] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => frame?.inline ? { ...frame, right: below } : frame, [frame, below]);
   const title = task.data && (task.data.title?.trim() || task.data.fullTitle?.trim() || task.data.goal);
-  useFrameHeading(task.data ? { title: title!, agent: markAgent(task.data.executor ?? "unknown") } : null);
+  useFrameHeading(null);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
   const selected={...task.data,parentId:task.data.work?.parentId??null};
-  const extra=[...(history.data?.tasks??[]),selected];
+  const extra=[...workTasks(work.data?.tasks??[]),...(history.data?.tasks??[]),selected];
   const now=Date.now()/1000;
   const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.

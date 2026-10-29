@@ -36,7 +36,8 @@ test('Tasks rows open the task directly without repeated control actions',()=>{
 test('Task navigator identifies the selected task and preserves the repo filter',()=>{
  const selected=view({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
  const html=renderToString(<TaskNavigator selectedId={selected.id} nodes={[selected,view(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
- expect(html).toContain('pc-task-card--compact');
+ expect(html).toContain('pc-session-node');
+ expect(html).not.toContain('pc-task-card');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
  expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');

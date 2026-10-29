@@ -138,8 +138,6 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
   return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}
-    {slots && <><FrameSlot name="title">{slots.title(null)}</FrameSlot><FrameSlot name="actions">{active && data.stop && onAction && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session"
-      aria-label="End session" title="End session (asks to confirm)" onClick={() => void run(data.stop!)}/>}</FrameSlot></>}
     {(!embedded || (!slots && active && data.stop)) && <header className="pc-session-header">
       {!embedded && <AgentMark agent={data.agent} size={28}/>}
       {!embedded && <div className="pc-session-heading">
@@ -174,7 +172,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
             <ResourceView value={data.changes} loading="Loading changes…" empty="No changes so far.">{text => <pre tabIndex={0} aria-label="Changes">{text}</pre>}</ResourceView>
           </div> : <Brief data={data}/>}
       </div>
-    </div>{slots ? <FrameSlot name="right">{slots.panel(<div className="pc-session-detail-group">{aside}</div>)}</FrameSlot>
+    </div>{slots ? <FrameSlot name="right">{slots.panel(<div className="pc-session-detail-group">{aside}</div>, null, session && session.host !== "none" && session.targets.length > 0 && <section><SectionHeading as="h3">Open elsewhere</SectionHeading><div className="row-actions">{session.targets.includes("terminal") && <Button size="sm" disabled={busy} onClick={() => void attach("terminal")}>Open in terminal</Button>}{session.targets.includes("orca") && <Button size="sm" disabled={busy} onClick={() => void attach("orca")}>Open in Orca</Button>}</div><p className="muted">The session keeps running here; both windows stay in sync.</p></section>)}</FrameSlot>
       : <aside className="pc-session-aside" aria-label="Session activity and actions">{aside}</aside>}</div>
     {retryOpen && <Dialog title={active ? 'Stop and retry session' : 'Retry session'} close={() => setRetryOpen(false)}>
       <div className="pc-form">

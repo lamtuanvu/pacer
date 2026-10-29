@@ -474,7 +474,7 @@ uppercase headers, 10px × 16px body cells and 24px agent marks. Provisional
 `Icon` also supplies lock and close glyphs for the account information banner and
 agent detail dismissal; decorative glyphs remain hidden from assistive technology.
 `UsageMeter size="slim"` stacks its 6px meter above its caption and wraps caption
-text; it is used by both agent tables. `SettingRow layout="stacked"` places the
+text; it is used by both agent tables and the session details panel. `SettingRow layout="stacked"` places the
 control beneath its label and description with a top divider for detail blocks.
 `SectionHeading variant="headline"` provides the board's 16/22/650 mixed-case
 aside title. These variants retain the base components' semantics and actions.
@@ -530,3 +530,7 @@ bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
 
 The assistant launcher uses the shared `AuroraLauncher` (surface-card in both themes, muted 11px shortcut) and its `AuroraAvatar` uses the board’s conic aurora token gradient. The shell clips the overlay to the work area; setup composes 24px `AgentMark` rows and a semantic h2 using the 14px/650 session-title tokens. App preferences uses the existing `Switch size="sm"` (36×20, green on). `AuroraSheet autoScroll` defaults to true for conversation updates; setup/status cards set it false to retain their heading at the top. No upstream source is introduced.
+
+Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
+
+Button `size="bar"` supplies the boards’ 26px header action, 10px horizontal padding and 6px radius, with the shared touch minimum on coarse pointers. The session End session action consumes it.
