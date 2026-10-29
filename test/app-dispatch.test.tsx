@@ -57,9 +57,9 @@ test("period switch offers Today, 7 days and 30 days with 7 days selected, only 
     expect(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} period={period} insights={measured} />)).toContain(`aria-label="${label}"`);
 });
 
-test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
+test("New task is the primary action and uses the composer shortcut", () => {
   const html = view();
-  expect(html).toMatch(/<button aria-keyshortcuts="d" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">D<\/kbd>/);
+  expect(html).toMatch(/<button aria-keyshortcuts="Meta\+N" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">⌘N<\/kbd>/);
   // No quick-delegate box: the board has none.
   expect(html).not.toContain("Quick delegate");
 });
@@ -224,7 +224,7 @@ test("with dispatch.explain the next task states its ladder step, the dispatcher
   expect(html).not.toContain("Local");
   expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: balanced · change</);
   // An explanation that would queue the work names nobody, whatever the preview ranks first.
-  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy (1 of 1 running).");
+  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy.");
 });
 
 test("narrow Dispatch follows the board: planner, Needs you, Running without desktop figures", () => {

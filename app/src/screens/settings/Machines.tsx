@@ -186,6 +186,10 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
     <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes · only terminals found on this machine">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={draft.terminal} options={options} placeholder={draft.terminal.includes("{cmd}") ? "Custom terminal (CLI)" : "Saved terminal not found"} disabled={action.busy} onValueChange={terminal => edit({ terminal })} />
     </SettingRow>
+    <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent’s terminal UI and finish when the agent reports its result. Headless runs without an interactive terminal. An agent’s own session setting overrides this.">
+      <ChoicePicker aria-label="Delegated task launch" value={draft.launch} options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]} disabled={action.busy} onValueChange={launch => edit({launch})}/>
+    </SettingRow>
+    <TaskBackendField value={draft.backend} source={keys?.[MACHINE_KEYS.backend]?.source} disabled={action.busy} run={(_op, params) => edit({backend:(params as {value:string}).value})}/>
     <SettingRow variant="board" label="Worktrees" description="Each task gets one here"><code className="u3-worktrees-path">~/.pacer/worktrees</code></SettingRow>
     {conflict && <Alert tone="warning" title="Settings changed elsewhere">
       Your draft is preserved. Reload the saved settings before making further changes.{" "}

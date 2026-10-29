@@ -554,8 +554,10 @@ browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls'
         const rect=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
         const dock=rect('#pc-terminal-dock'),centre=rect('.pc-work-wrap'),rail=rect('.pc-rail');
         const search=document.querySelector('.pc-topbar__new')!;
-        return {dock:{left:dock.left,right:dock.right,height:dock.height},centre:{left:centre.left,right:centre.right},railBottom:rail.bottom,centreBottom:centre.bottom,newHeight:search.getBoundingClientRect().height,plugins:getComputedStyle(document.querySelector('.pc-rail__plugins-label')!).fontSize,statusButtons:[...document.querySelectorAll('.pc-statusbar .pc-btn')].map(e=>e.getBoundingClientRect().height)};
+        return {dock:{left:dock.left,right:dock.right,height:dock.height},centre:{left:centre.left,right:centre.right},railBottom:rail.bottom,centreBottom:centre.bottom,newHeight:search.getBoundingClientRect().height,plugins:getComputedStyle(document.querySelector('.pc-rail__plugins-label')!).fontSize,pluginBounds:(()=>{const el=document.querySelector('.pc-rail__plugins-label')!;const r=document.createRange();r.selectNodeContents(el);const b=r.getBoundingClientRect();return {left:b.left,right:b.right};})(),statusButtons:[...document.querySelectorAll('.pc-statusbar .pc-btn')].map(e=>e.getBoundingClientRect().height)};
       });
+      expect(geometry.pluginBounds.left).toBeGreaterThanOrEqual(4);
+      expect(geometry.pluginBounds.right).toBeLessThanOrEqual(48);
       expect(geometry.dock.left).toBe(geometry.centre.left);
       expect(geometry.dock.right).toBe(geometry.centre.right);
       expect(Math.abs(geometry.dock.height-260)).toBeLessThan(2);

@@ -16,6 +16,8 @@ browserTest('session file tabs preserve terminal, use a desktop pane, and close 
  const page=await browser.newPage({viewport:{width:1440,height:900}});
  try {
   await page.goto(server.url.toString());
+  expect((await page.locator('.pc-session-node__toggle').boundingBox())!.height).toBe(22);
+  expect(await page.locator('.pc-session-panel__body>.pc-stack--section').evaluate(el=>getComputedStyle(el).gap)).toBe('24px');
   await page.getByRole('button',{name:'reports/demo.md',exact:true}).click();
   await page.getByRole('region',{name:/File viewer/}).waitFor();
   expect(await page.locator('[data-layout]').getAttribute('data-layout')).toBe('pane');

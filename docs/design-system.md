@@ -531,7 +531,7 @@ links keep the shared touch minimum for both width and height.
 
 The assistant launcher uses the shared `AuroraLauncher` (surface-card in both themes, muted 11px shortcut) and its `AuroraAvatar` uses the board’s conic aurora token gradient. The shell clips the overlay to the work area; setup composes 24px `AgentMark` rows and a semantic h2 using the 14px/650 session-title tokens. App preferences uses the existing `Switch size="sm"` (36×20, green on). `AuroraSheet autoScroll` defaults to true for conversation updates; setup/status cards set it false to retain their heading at the top. No upstream source is introduced.
 
-Session detail keeps the sole h1 in the top bar; its in-page header uses an h2 and retains screen actions. Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
+Session detail keeps the sole h1 in its in-page session header; the global top bar retains the shared search and actions. Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
 
 Button `size="bar"` supplies the boards’ 26px header action, 10px horizontal padding and 6px radius, with the shared touch minimum on coarse pointers. The session End session action consumes it.
 
@@ -607,3 +607,5 @@ The frame's assistant clearance adapters expose measured dock height through
 `--pc-assistant-header-height` (nonnegative CSS pixels). AppFrame owns these
 read-only layout measurements; the open launcher clamps below that header.
 Neither channel accepts user input or changes the closed launcher's spacing.
+
+Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.

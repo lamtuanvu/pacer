@@ -607,7 +607,7 @@ a.pc-btn{text-decoration:none}
  .pc-aurora[data-generating=true] .pc-aurora__glow span:nth-child(4){animation:pc-aurora-drift calc(var(--motion-loading)*18) ease-in-out infinite}
 }
 @media (prefers-reduced-motion:reduce){.pc-aurora,.pc-aurora[data-state=closed]{transition:none;transform:none}}
-.pc-aurora__column{position:relative;pointer-events:auto;width:calc(100% - var(--space-12)*2);max-width:calc(var(--size-680) + var(--size-80));margin:0 auto var(--space-4);display:flex;flex-direction:column;gap:var(--space-2\.5);min-height:0}
+.pc-aurora__column{position:relative;pointer-events:auto;width:calc(100% - var(--space-12)*2);max-width:calc(var(--size-680) + var(--size-80));margin:0 auto var(--size-18);display:flex;flex-direction:column;gap:var(--space-2\.5);min-height:0}
 .pc-aurora--narrow .pc-aurora__column{width:calc(100% - var(--space-4)*2);height:100%;margin-bottom:var(--space-3)}
 .pc-aurora__log{display:flex;flex-direction:column;gap:var(--space-2\.5);max-height:var(--size-280);overflow-y:auto;overscroll-behavior:contain;-webkit-mask-image:linear-gradient(to bottom,transparent 0%,var(--ink) var(--size-56));mask-image:linear-gradient(to bottom,transparent 0%,var(--ink) var(--size-56));scrollbar-width:none}
 .pc-aurora__log[data-expanded=true]{max-height:var(--size-360)}
@@ -1024,7 +1024,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-choice-ladder{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--radius-md)}
 .pc-choice-ladder li{display:grid;grid-template-columns:var(--size-24) minmax(0,1fr) auto;gap:var(--space-3);padding:var(--space-3)}
 .pc-session-bar .pc-btn.pc-session-end{height:var(--size-26);min-height:var(--size-26)}
-.pc-session-node__toggle.pc-btn{height:var(--size-22);min-height:var(--size-22)}
+@media(min-width:561px) and (pointer:fine){.pc-session-node__toggle.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings){height:var(--size-22);min-height:var(--size-22)}}
 .pc-workspace-terminal__tab>.pc-btn.pc-btn--normal,.pc-workspace-terminal__tab>.pc-btn.pc-btn--compact{height:var(--size-30);min-height:var(--size-30)}
 .ny-chip.pc-btn.pc-btn--normal,.ny-chip.pc-btn.pc-btn--compact{height:var(--size-28);min-height:var(--size-28)}
 .pc-side-dialog__head .pc-icon-button.pc-btn{height:var(--size-28);min-height:var(--size-28);width:var(--size-28);min-width:var(--size-28)}

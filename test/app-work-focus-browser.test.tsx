@@ -37,6 +37,7 @@ browserTest("keyboard review keeps focus in Work details when Accept disappears"
    await page.goto(`${server.url}`);
    await page.getByText('17% observed account movement', { exact: false }).waitFor();
    expect(await page.locator('.pc-work-analytics tbody').innerText()).toContain('3%');
+   expect(await page.locator('#root').innerText()).not.toMatch(/unknown|unmeasured|Work step|Work created/i);
    expect(await page.locator('#root').innerText()).not.toMatch(/\d+\.\d+%/);
   } finally { await page.close(); }
  });

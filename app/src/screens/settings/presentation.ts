@@ -10,8 +10,7 @@ export function settingsText(value: string): string {
 
 /** The service may return another machine's home; do not expose that absolute path. */
 export function displayPath(value: string): string {
-  return value.replace(/^(?:\/Users\/[^/]+\/|\/home\/[^/]+\/|.*\/home\/)/, '~/')
-    .replace(/^\/(?!~)(?:[^/]+\/)+/, '~/');
+  return value.replace(/^(?:\/Users\/[^/]+\/|\/home\/[^/]+\/|.*\/home\/)/, '~/');
 }
 
 /** Diagnostics describe the outcome, while implementation output stays out of the UI. */

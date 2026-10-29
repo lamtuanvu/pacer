@@ -14,7 +14,7 @@ const render = (s=state,initial=view) => renderToString(<TaskContext.Provider va
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
   for(const copy of ["Executor order for acme/repo","Move down: Cursor · team · local","Move up: Codex · personal · local","Use global rules","Allowed executors for acme/repo, in priority order"]) expect(html).toContain(copy);
-  expect(html).not.toContain("unsaved change");
+  expect(html).toContain("No unsaved changes");
   const inherited=render(state,{...view,rev:0,executors:null as any});
   expect(inherited).toContain("Add executors to give this repository its own order");
   expect(inherited).toContain("Add Cursor · team · local");
@@ -77,7 +77,8 @@ test("project rows resolve snapshot status by executor ID and preserve unavailab
   ] };
   const html = render({ ...state, snapshot }, { ...view, executors: [...view.executors, "removed#old@local"] });
   expect(html).toContain("Blocked by you");
-  expect(html).toContain('class="pc-executor-id">cursor#team');
+  expect(html).toContain("Cursor · team");
+  expect(html).not.toContain('class="pc-executor-id">cursor#team');
   expect(html).toContain("Unavailable in the active setup");
   expect(html).toContain("pc-sortable--icons");
   expect(html).toContain('<h3 class="pc-section-heading">Available executors');

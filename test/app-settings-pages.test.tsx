@@ -65,7 +65,7 @@ test('task backend picker shows the current backend and sets the chosen one', ()
   expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
   expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
   const env={...orca,config:{...orca.config,keys:{...orca.config.keys,'execution.backend':{value:'direct',source:'env PACER_BACKEND'}}}};
-  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('PACER_BACKEND overrides the saved setting.');
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('A device setting overrides this saved choice.');
   const calls: unknown[][]=[], field=TaskBackendField({value:'direct',run:(...args)=>calls.push(args)}) as any;
   field.props.children.props.onValueChange('orca');
   expect(calls).toEqual([['config.set',{key:'execution.backend',value:'orca'}]]);
