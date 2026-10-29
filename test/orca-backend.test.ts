@@ -1299,6 +1299,35 @@ test("pacer stop on a kept-alive group lane also removes its unused worktree and
   expect(readTask(x.ctx, asked.id)?.worktree).toBeUndefined();
 });
 
+for (const settled of ["done", "partial", "failed", "limit"] as const) {
+  test(`a lane whose kept-alive worker is reaped after it settled ${settled} releases its unused worktree`, async () => {
+    const {reapLiveWorkers} = await import("../src/exec/live");
+    const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+    const x = ref.x = setup(groupLaneShows(ref, state), {}, {}, laneGit(() => ref.x!.root, 0));
+    const asked = askedLane(x);
+    updateTask(x.ctx, asked.id, t => { t.state = settled; t.result = {status: settled, executor: "codex", model: null, files: "", report: "r", backend: "orca", worktree: x.root}; });
+    await reapLiveWorkers(x.ctx, [x.backend]);
+    expect(workerStops(x)).toBe(1);
+    expect(x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"))).toEqual([`id:${x.wt}`]);
+    expect(readTask(x.ctx, asked.id)?.worktree).toBeUndefined();
+    expect(readTask(x.ctx, asked.id)?.result?.worktree).toBeUndefined();
+  });
+}
+
+test("an answer round that settles with no work releases the lane's worktree; one with commits keeps it", async () => {
+  for (const commits of [0, 1]) {
+    const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
+    const x = ref.x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})], ...groupLaneShows(ref, state)], {}, {}, laneGit(() => ref.x!.root, commits));
+    const asked = askedLane(x);
+    const retry = answerOf(x, asked, "go with B");
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, retry);
+    const removes = x.f.calls.filter(a => a[1] === "worktree" && a[2] === "rm").map(a => arg(a, "--worktree"));
+    expect(removes).toEqual(commits ? [] : [`id:${x.wt}`]);
+    expect(out.worktree).toBe(commits ? x.root : undefined);
+    expect(readTask(x.ctx, retry.id)?.worktree).toBe(commits ? x.root : undefined);
+  }
+});
+
 test("an idle-expired lane keeps its worktree, so its open question can still be answered", async () => {
   const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
   const {answer} = await import("../src/core/tasks");
