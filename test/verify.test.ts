@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { chmodSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { verifyRepo } from "../src/exec/verify";
 import { tmpDir } from "./helpers";
 
@@ -103,3 +105,30 @@ for (const [output, summary] of [["38 passed", "38 passed"], ["36 pass\n2 fail",
     expect(v.acceptance?.machine).toBeNull();
   });
 }
+
+/** A PATH with git and an `sh` that refuses `set -o pipefail`, and no bash. */
+function noPipefailPath(): string {
+  const bin = tmpDir();
+  const git = Bun.which("git");
+  if (!git) throw new Error("git not found");
+  symlinkSync(git, join(bin, "git"));
+  writeFileSync(join(bin, "sh"), `#!/bin/sh\nif [ "$2" = "set -o pipefail" ]; then exit 2; fi\nexec /bin/sh "$@"\n`);
+  chmodSync(join(bin, "sh"), 0o755);
+  return bin;
+}
+
+test("acceptance_pipefail fails the check without running it when no shell supports pipefail", async () => {
+  const repo = await gitRepo();
+  const v = await verifyRepo(repo, "false | true", { ...env, PATH: noPipefailPath() }, undefined, true);
+  expect(v.acceptance?.passed).toBe(false);
+  expect(v.acceptance?.shell).toBe("sh -c (pipefail unsupported)");
+  expect(v.acceptance?.exitCode).toBeUndefined();
+  expect(v.acceptance?.hint).toContain("acceptance_pipefail");
+  expect(v.acceptance?.tail).toContain("pipefail");
+});
+
+test("without acceptance_pipefail, a shell lacking pipefail still runs the command", async () => {
+  const v = await verifyRepo(await gitRepo(), "false | true", { ...env, PATH: noPipefailPath() });
+  expect(v.acceptance?.passed).toBe(true);
+  expect(v.acceptance?.shell).toBe("sh -c");
+});

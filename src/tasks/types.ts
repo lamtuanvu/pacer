@@ -103,7 +103,7 @@ export interface Attempt {
 
 export interface Verification {
   files: string;
-  /** `exitCode` and `shell` are always set by `verifyRepo`; optional so hand-built results (tests, other callers) need not supply them. */
+  /** `verifyRepo` always sets `shell`, and `exitCode` whenever the command ran; optional so hand-built results (tests, other callers) need not supply them. */
   acceptance?: {
     cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null;
     exitCode?: number; shell?: string; hint?: string;

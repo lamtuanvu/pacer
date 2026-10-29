@@ -54,7 +54,8 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 unavailable): idioms like `grep -v ... | (! grep .)` or `git log | grep -q ...` keep
 their ordinary meaning. Set `acceptance_pipefail: true` (or `--acceptance-pipefail`),
 or write `set -o pipefail;` at the start of the command yourself, to fail the check on
-a non-final pipeline stage's exit code too. The result always reports the acceptance
+a non-final pipeline stage's exit code too. If `acceptance_pipefail` is set but bash is
+missing and `sh` cannot `set -o pipefail`, the check fails without running the command. The result always reports the acceptance
 command's exit code and which shell/options ran it; a 141 (SIGPIPE) or an instant,
 empty-output failure comes with a hint, since both often mean a piped command raced
 past an earlier stage rather than the task actually failing.
