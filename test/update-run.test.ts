@@ -466,3 +466,10 @@ test("companion downloads are verified before either install and successful pair
   }
 
 });
+
+test("update prints what kept running after the restart", async () => {
+  const root = tmpDir(); release(root, "0.13.1"); const exec = installed();
+  const r = await runUpdate({ check: false }, deps(root, exec, { restartService: async (_path, target) => ({ restarted: true, summary: `Updated to v${target}. 1 task and 1 session kept running; 0 stayed on the previous runner.` }) }));
+  expect(r.code).toBe(0);
+  expect(r.out).toContain("restarted pacer serve\nUpdated to v0.13.1. 1 task and 1 session kept running; 0 stayed on the previous runner.");
+});

@@ -24,6 +24,8 @@ export interface ServiceBackend {
 export interface ServiceDeps {
   platform?: string; uid?: number; argv?: string[]; port?: number;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>; waitMs?: number; healthTimeoutMs?: number;
+  /** CLI upgrade-path calls to the restarted service (tests inject these). */
+  upgrade?: import("./upgrade").UpgradeDeps;
 }
 /** Fixture labels are compile-time sandbox capabilities, never runtime environment choices. */
 export function desktopServiceLabel(ctx: Ctx): string {

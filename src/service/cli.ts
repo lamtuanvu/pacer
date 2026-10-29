@@ -1,20 +1,30 @@
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readText } from "../install/fsx";
+import { isExecutorSession } from "../install/role";
 import { serviceBackend, type ServiceDeps } from "./index";
+import { restartAroundWork, UPGRADE_CLI_REFUSAL } from "./upgrade";
 export const SERVICE_USAGE = "service install [--replace]|uninstall|status [--json]|restart|logs [-n N]";
 export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {}): Promise<Result> {
   const [cmd, ...rest] = args;
   const bad = () => ({ code: 2, out: "", err: `usage: pacer ${SERVICE_USAGE}` });
   if (!["install", "uninstall", "status", "restart", "logs"].includes(cmd)) return bad();
   if (cmd === "install" ? rest.length > 1 || rest.some(x => x !== "--replace") : cmd === "status" ? rest.length > 1 || rest.some(x => x !== "--json") : cmd === "logs" ? rest.length !== 0 && (rest.length !== 2 || rest[0] !== "-n" || !/^\d+$/.test(rest[1]) || !Number.isSafeInteger(Number(rest[1]))) : rest.length > 0) return bad();
+  // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
+  if (["install", "restart", "uninstall"].includes(cmd) && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer service: ${UPGRADE_CLI_REFUSAL}` };
   try {
     const b = serviceBackend(ctx, deps); let out: string;
+    const report = (r: { summary: string | null; warning?: string }) => [...(r.summary ? [r.summary] : []), ...(r.warning ? [`WARNING: ${r.warning}`] : [])];
     switch (cmd) {
-      case "install": out = ["installed pacer serve", ...await b.install({ replace: rest.includes("--replace") })].join("\n"); break;
+      case "install": {
+        const notes: string[] = [];
+        const r = await restartAroundWork(ctx, async () => { notes.push(...await b.install({ replace: rest.includes("--replace") })); return true; }, { prefix: v => `Restarted on v${v}.`, deps: deps.upgrade });
+        out = ["installed pacer serve", ...notes, ...report(r)].join("\n"); break;
+      }
       case "uninstall": await b.uninstall(); out = "uninstalled pacer serve"; break;
       case "restart": {
-        await b.restart(); out = "restarted pacer serve"; break;
+        const r = await restartAroundWork(ctx, async () => { await b.restart(); return true; }, { prefix: v => `Restarted on v${v}.`, deps: deps.upgrade });
+        out = ["restarted pacer serve", ...report(r)].join("\n"); break;
       }
       case "status": {
         const s = await b.status();
