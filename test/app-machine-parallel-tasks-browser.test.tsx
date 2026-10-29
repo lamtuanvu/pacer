@@ -8,7 +8,7 @@ const browserTest=test.skipIf(!browserPath);
 let browser:Browser,server:ReturnType<typeof Bun.serve>;
 type Values={'execution.local_max_tasks':number|string;'execution.local_memory_pressure_limit':string;'execution.local_load_limit':number|string};
 const defaults:Values={'execution.local_max_tasks':'unlimited','execution.local_memory_pressure_limit':'critical','execution.local_load_limit':'off'};
-let values:Values={...defaults},sets:unknown[]=[],failGet=false;
+let values:Values={...defaults},sets:unknown[]=[],failGet=false,failSet=false;
 beforeAll(async()=>{
  if(!browserPath)return;
  const out=tmpDir();
@@ -22,6 +22,7 @@ beforeAll(async()=>{
   const op=path.slice(5),params=await req.json();
   if(op==='config.get'&&failGet)return Response.json({code:'internal',message:'config read failed'},{status:500});
   if(op==='config.get')return Response.json({keys:{...Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'user'}])),'execution.launch_mode':{value:'interactive',source:'default'},'terminal.open':{value:'',source:'default'},'terminal.app':{value:'Terminal',source:'default'}},terminalChoices:[{value:'auto',label:'Automatic'}],planners:[]});
+  if(op==='config.set'&&failSet)return Response.json({code:'forbidden',message:'config.set refused'},{status:403});
   if(op==='config.set'){sets.push(params);const key=params.key as keyof Values,previous=values[key];values={...values,[key]:params.value};return Response.json({key,value:params.value,previous,diff:'',undo:`pacer config set ${key} ${previous}`});}
   return Response.json({});
  }});
@@ -30,7 +31,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await browser?.close();server?.stop(true);});
 
 async function open(initial:Partial<Values>={}):Promise<Page>{
- values={...defaults,...initial};sets=[];failGet=false;
+ values={...defaults,...initial};sets=[];failGet=false;failSet=false;
  const page=await browser.newPage();
  await page.goto(String(server.url));
  await page.getByRole('group',{name:'Parallel task limit'}).waitFor();
@@ -209,6 +210,20 @@ browserTest('keyboard Discard and Save keep focus on the save status instead of 
   await page.waitForFunction(()=>document.activeElement?.textContent==='All changes saved',undefined,{timeout:5000});
   expect(sets).toEqual([{key:'execution.local_max_tasks',value:7}]);
   expect(await focused(page)).toBe('span:status:All changes saved');
+ }finally{await page.close();}
+});
+
+browserTest('a refused Save keeps the draft and focus on Save for a retry',async()=>{
+ const page=await open({'execution.local_max_tasks':2});
+ try{
+  await field(page).fill('9');
+  failSet=true;
+  await save(page).focus();
+  await page.keyboard.press('Enter');
+  await page.getByText('config.set refused').waitFor({timeout:5000});
+  await page.waitForFunction(()=>!(document.activeElement as HTMLButtonElement|null)?.disabled,undefined,{timeout:5000});
+  expect(await focused(page)).toBe('button::Save changes');
+  expect(await field(page).inputValue()).toBe('9');
  }finally{await page.close();}
 });
 

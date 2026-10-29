@@ -136,9 +136,10 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const edit = (patch: Partial<MachineDraft>) => setForm(f => ({ ...f, draft: { ...f.draft, ...patch } }));
   // Discard and Save disable themselves; the save status keeps keyboard focus in the form.
   const status = useRef<HTMLSpanElement>(null);
-  const keepFocus = () => {
-    const el = document.activeElement as HTMLButtonElement | null;
-    if (!el || el === document.body || el.disabled || el.closest(".u3-save-bar")) status.current?.focus();
+  const keepFocus = (wrote: boolean) => {
+    const el = document.activeElement;
+    // A failed write leaves Save enabled for a retry, so focus stays there unless it was lost.
+    if (!el || el === document.body || (wrote && el.closest(".u3-save-bar"))) status.current?.focus();
   };
   const [readError, setReadError] = useState<unknown>();
   const reset = () => { setReadError(undefined); setForm({ base: saved, draft: saved }); status.current?.focus(); };
@@ -150,13 +151,14 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
     try { latest = await api.call<ConfigData>("config.get", {}); } catch (e) { setReadError(e); return; }
     query.setData(latest);
     if (machineConflicts(base, draft, machineDraft(latest)).length) return;
+    let wrote = true;
     for (const change of changes) {
-      if (!(await action.run("config.set", change))) break;
+      if (!(await action.run("config.set", change))) { wrote = false; break; }
       // Record the written value as saved now so the form does not flash the old one.
       latest = { ...latest, keys: { ...latest.keys, [change.key]: { ...latest.keys[change.key], value: change.value } } };
       query.setData(latest);
     }
-    keepFocus();
+    keepFocus(wrote);
   };
   // Pressure and load change without any setting changing: re-read the guard state while open.
   // A failed poll keeps the last reading rather than replacing the form with an error.
