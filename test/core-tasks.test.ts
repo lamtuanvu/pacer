@@ -72,18 +72,24 @@ test("retry re-delegates the stored brief, links both tasks, and passes the exec
   expect(readTask(ctx, r.retry.id)?.retryOf).toBe(t.id);
 });
 
-test("retry of a task whose worktree was removed starts fresh instead of reusing the missing path", async () => {
+test("retry of a task whose worktree pacer removed starts fresh; one removed out of band is refused", async () => {
   const { ctx, t } = mk();
   const kept = tmpDir(), gone = join(tmpDir(), "removed-lane");
   const inputs: Parameters<typeof tasks.delegate>[1][] = [];
   const retryOnce = async (id: string) => tasks.retry(ctx, id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
-  updateTask(ctx, t.id, (x) => { x.state = "stopped"; x.worktree = gone; x.baseSha = "c".repeat(40); });
+  // Pacer forgets a lane worktree it removes, so the retry has no path to reuse.
+  updateTask(ctx, t.id, (x) => { x.state = "stopped"; delete x.worktree; x.baseSha = "c".repeat(40); });
   await retryOnce(t.id);
   expect(inputs[0].reuseWorktree).toBeUndefined();
   const other = tasks.delegate(ctx, { brief: { goal: "g", repo: t.brief.repo } }, () => 1, s);
   updateTask(ctx, other.id, (x) => { x.state = "stopped"; x.worktree = kept; });
   await retryOnce(other.id);
   expect(inputs[1].reuseWorktree).toBe(kept);
+  const lost = tasks.delegate(ctx, { brief: { goal: "g", repo: t.brief.repo } }, () => 1, s);
+  updateTask(ctx, lost.id, (x) => { x.state = "stopped"; x.worktree = gone; });
+  await expect(retryOnce(lost.id)).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining("restore it before retrying") });
+  expect(inputs).toHaveLength(2);
+  expect(readTask(ctx, lost.id)?.retriedBy).toBeUndefined();
 });
 
 test("retry without executor lets routing choose", async () => {

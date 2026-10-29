@@ -81,16 +81,21 @@ test("an answer starts from the asking executor's committed worktree head",async
   expect(readTask(ctx,r.retry.id)?.placement?.requested).toBe("new");
 });
 
-test("an answer whose asking worktree was removed starts from the lane's recorded base, or is refused as unavailable",async()=>{
+test("an answer whose asking worktree pacer removed starts from the lane's recorded base",async()=>{
   const {ctx,task,deps}=setup();
-  const gone=join(tmpDir(),"removed-lane");
-  updateTask(ctx,task.id,t=>{t.worktree=gone;t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:gone};});
-  await expect(callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps)).rejects.toMatchObject({code:"unavailable"});
-  expect(readTask(ctx,task.id)?.question?.answer).toBeUndefined();
   const base="c".repeat(40);
-  updateTask(ctx,task.id,t=>{t.baseSha=base;});
+  updateTask(ctx,task.id,t=>{t.baseSha=base;t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"orca"};});
   const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
   expect(readTask(ctx,r.retry.id)?.brief.base).toBe(base);
+});
+
+test("an answer whose asking worktree was removed out of band is refused until it is restored",async()=>{
+  const {ctx,task,deps}=setup();
+  const gone=join(tmpDir(),"removed-lane");
+  updateTask(ctx,task.id,t=>{t.worktree=gone;t.baseSha="c".repeat(40);t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:gone};});
+  await expect(callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps)).rejects.toMatchObject({code:"conflict",message:expect.stringContaining("restore it before answering")});
+  expect(readTask(ctx,task.id)?.question?.answer).toBeUndefined();
+  expect(readTask(ctx,task.id)?.retriedBy).toBeUndefined();
 });
 
 test("a failed delegation leaves the question unanswered and available to answer",async()=>{

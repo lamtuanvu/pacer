@@ -283,10 +283,11 @@ async function retryTask(
     if (worktree) {
       const head = await boundedGitRead(ctx.run, ["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
       if (head.code === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim())) answerBase = head.stdout.trim();
-      else if (before.run?.host || existsSync(worktree)) throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
-      // The lane's worktree was removed: start from the commit it was created from, or refuse clearly.
-      else if (before.baseSha) answerBase = before.baseSha;
-      else throw new CoreError("unavailable", "the asking executor's worktree was removed and no base commit is recorded; retry the task instead");
+      else if (!before.run?.host && !existsSync(worktree)) throw new CoreError("conflict", "the asking executor's worktree is unavailable; restore it before answering");
+      else throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
+    } else if (before.baseSha) {
+      // Pacer removed the lane's unused worktree and forgot its path: start from the commit it was created from.
+      answerBase = before.baseSha;
     }
   }
   const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
@@ -304,9 +305,9 @@ async function retryTask(
     if (prior && ["queued", "running"].includes(prior.state)) {
       throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
     }
-    // A worktree that no longer exists (an unused lane worktree pacer removed) is not reused; the retry starts fresh.
-    const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined]
-      .find(p => p?.startsWith("/") && (task.run?.host || existsSync(p))) : undefined;
+    // Pacer forgets a lane worktree it removes; a recorded path that is missing was removed out of band.
+    const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
+    if (reuseWorktree && !task.run?.host && !existsSync(reuseWorktree)) throw new CoreError("conflict", "Task worktree is unavailable; restore it before retrying");
     const input: DelegateInput = {
       ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
       admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
