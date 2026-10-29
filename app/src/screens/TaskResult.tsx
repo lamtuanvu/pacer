@@ -82,7 +82,7 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
 
 /** Answers a question the task sent the human with msg.send, then marks it read. */
 export function MessageAnswer({ task, question, focus = false, onSent }: { task: TaskDetail; question: { id: string; text: string }; focus?: boolean; onSent: (message: string) => void }) {
-  const { api } = useTaskContext();
+  const { api } = useTaskContext(), runner = useActions();
   const [answer,setAnswer] = useState(""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
   const inFlight = useRef(false), input = useRef<HTMLTextAreaElement>(null), requestId = useRef("");
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
@@ -96,6 +96,8 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
       await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
       requestId.current = "";setAnswer("");
       onSent(answerDeliveryWords(result?.delivery));
+      // The service publishes the cleared question too; refetching keeps this session right if that event is late.
+      void runner?.refetch();
     } catch (error) {
       setRefused(messageRefusalWords(error instanceof ApiError ? (error.data as { reason?: unknown } | undefined)?.reason : undefined));
       input.current?.focus();

@@ -31,7 +31,7 @@ import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 import { callerParticipant, parentOf, rootOf } from "../messaging/participants";
 import * as msgStore from "../messaging/store";
-import { notifyMessage, startTurnIfIdle } from "../messaging/turns";
+import { notifyMessage, readMessages, startTurnIfIdle } from "../messaging/turns";
 
 /** True when the next turn can resume the task's own native session. */
 function canContinue(ctx: Ctx, t: TaskRecord): boolean {
@@ -100,7 +100,7 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
     const parent = parentOf(ctx, `task:${id}`);
     if (parent) {
       const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "question", body: text, replyTo: null, requestId: `ask:${id}:${ctx.now}` });
-      if (!r.duplicate) notifyMessage(ctx, r.message);
+      if (!r.duplicate) void notifyMessage(ctx, r.message);
     }
     return asked;
   });
@@ -188,7 +188,7 @@ function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answer" | "
   const from = callerParticipant(ctx, { appAuthenticated: deps.appAuthenticated, participant: deps.participant }).id;
   const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, to), from, to, kind: m.kind, body: m.body, replyTo: m.replyTo, requestId: m.requestId });
   if (r.duplicate) return apiTask(ctx, readTask(ctx, id)!); // A retried request: the first one already acted.
-  notifyMessage(ctx, r.message);
+  void notifyMessage(ctx, r.message);
   before?.();
   if (startTurnIfIdle(ctx, id, deps.spawnRunner ?? spawnRunner) === "turn_started") return apiTask(ctx, readTask(ctx, id)!);
   undo?.();
@@ -483,7 +483,7 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
     const task = continueWithMessage(ctx, current, { kind: "answer", body: text, replyTo: question?.id ?? null, requestId: `answer:${id}:${current.rev}` }, deps,
       () => setAnswer(text), () => setAnswer());
     if (task) {
-      if (question) msgStore.markRead(ctx, question.to, [question.id]);
+      if (question) readMessages(ctx, question.to, [question.id]);
       return { task, retry: task };
     }
     expectRev = readTask(ctx, id)?.rev;

@@ -58,3 +58,25 @@ test("a reviewed task's question can only be opened, not answered", () => {
   const item = deriveItems(input(ctx, [api!])).find(i => i.kind === "message");
   expect(item?.actions.map(a => a.label)).toEqual(["Open task"]);
 });
+
+test("msg.read publishes the task and clears its message attention, without bumping the task's rev", async () => {
+  const { callOp } = await import("../src/api/ops");
+  const { readOutboxSince } = await import("../src/link/store");
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "Fix login", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.origin = "human"; x.state = "done"; });
+  const rev = readTask(ctx, t.id)!.rev;
+  const m = store.insertMessage(ctx, { taskId: t.id, rootId: `task:${t.id}`, from: `task:${t.id}`, to: "human", kind: "question", body: "Which provider?", replyTo: null, requestId: null }).message;
+  expect(await callOp(ctx, "msg.read", { ids: [m.id] }, { appAuthenticated: true })).toEqual({ read: 1 });
+  let events: ReturnType<typeof readOutboxSince> = [];
+  for (let i = 0; i < 40 && !events.length; i++) { await Bun.sleep(25); events = readOutboxSince(ctx, 0); }
+  expect(events.map(e => e.envelope)).toEqual([
+    { type: "task", data: expect.objectContaining({ id: t.id }) },
+    { type: "entity", data: { kind: "attention", id: `message:${t.id}`, removed: true } },
+  ]);
+  expect(readTask(ctx, t.id)!.rev).toBe(rev);
+  // Reading what was already read publishes nothing more.
+  await callOp(ctx, "msg.read", { ids: [m.id] }, { appAuthenticated: true });
+  await Bun.sleep(100);
+  expect(readOutboxSince(ctx, 0)).toHaveLength(2);
+});

@@ -6,7 +6,7 @@ import { callerParticipant, parentOf, rootOf, taskOf } from "../messaging/partic
 import { checkSend, effectivePolicy } from "../messaging/policy";
 import { sendMessage } from "../messaging/send";
 import * as store from "../messaging/store";
-import { deliver, isClosed } from "../messaging/turns";
+import { deliver, isClosed, readMessages } from "../messaging/turns";
 import { MSG_KINDS, participantSchema, type Message } from "../messaging/types";
 import { readTask, updateTask } from "../tasks/store";
 
@@ -50,7 +50,7 @@ export const msgOps: Record<string, OpDef> = {
         const hits = p.reply_to ? unread.filter(replies) : unread;
         if (hits.length) {
           // Waiting consumes what it returns; msg.inbox does not.
-          store.markRead(ctx, me, hits.map(m => m.id), Date.now() / 1000);
+          readMessages(ctx, me, hits.map(m => m.id), Date.now() / 1000);
           return { participant: me, messages: hits.map(m => store.getMessage(ctx, m.id) ?? m), timedOut: false };
         }
         if (Date.now() >= until) return { participant: me, messages: [], timedOut: true };
@@ -66,7 +66,7 @@ export const msgOps: Record<string, OpDef> = {
   "msg.read": op({
     description: "Mark the caller's messages read.",
     params: z.object({ ids: z.array(z.string().max(64)).min(1).max(500) }).strict(),
-    handler: (ctx, p, deps) => ({ read: store.markRead(ctx, callerParticipant(ctx, deps).id, p.ids) }),
+    handler: (ctx, p, deps) => ({ read: readMessages(ctx, callerParticipant(ctx, deps).id, p.ids) }),
   }),
   "msg.confirm": op({
     description: "Release a message that a guardrail held for human confirmation.",

@@ -5,7 +5,7 @@ import { callerParticipant, rootOf, taskOf } from "./participants";
 import { checkSend } from "./policy";
 import { readTask, updateTask } from "../tasks/store";
 import * as store from "./store";
-import { assertOpen, deliver, notifyMessage, type Delivery } from "./turns";
+import { assertOpen, deliver, notifyMessage, readMessages, type Delivery } from "./turns";
 import { participantSchema, type Message, type MsgKind } from "./types";
 
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
@@ -29,7 +29,7 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
   const r = store.insertMessage(ctx, { taskId, rootId: root, from: caller.id, to: input.to, kind, body, replyTo: input.replyTo ?? null,
     requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
-  notifyMessage(ctx, r.message);
+  void notifyMessage(ctx, r.message);
   const undo = kind === "answer" && !verdict.hold ? recordAnswer(ctx, caller.id, input.to, input.replyTo!, body) : undefined;
   const delivery = verdict.hold ? "held" : deliver(ctx, input.to, deps.spawnRunner);
   // As pacer answer does: an answer that reaches no turn leaves the question open for the legacy retry.
@@ -45,7 +45,7 @@ function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, bod
   const question = store.getMessage(ctx, replyTo);
   const id = taskOf(to);
   if (!question || question.kind !== "question" || !id || question.from !== to || (question.to !== caller && caller !== "human")) return undefined;
-  store.markRead(ctx, question.to, [question.id]);
+  readMessages(ctx, question.to, [question.id]);
   const task = readTask(ctx, id);
   if (!task?.question || task.question.answer !== undefined) return undefined;
   updateTask(ctx, id, t => { if (t.question && t.question.answer === undefined) { t.question.answer = body; t.question.answeredAt = ctx.now; } });

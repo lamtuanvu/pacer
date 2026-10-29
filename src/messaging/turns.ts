@@ -1,5 +1,7 @@
 import { CoreError } from "../core/errors";
+import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
+import { publishTaskMessages } from "./publish";
 import { launchTaskRunner, spawnRunner as defaultSpawn, type SpawnRunner } from "../tasks/api";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { getWork } from "../dispatch/work";
@@ -21,9 +23,18 @@ const sessionAgent = (t: TaskRecord) => t.run?.executor ?? t.result?.executor ??
 /** Unique per turn: the attempt it will run as, then the task's turn count, so a run that ended before any attempt never reuses an id. */
 export const turnKey = (ctx: Ctx, t: TaskRecord, replay = false) => `${t.id}#${t.attempts.length + 1}.${store.turnsForTask(ctx, t.id) + 1}${replay ? "r" : ""}`;
 
-export function notifyMessage(ctx: Ctx, m: Message): void {
+export function notifyMessage(ctx: Ctx, m: Message): Promise<unknown> {
   // Task 7 registers the "message" entity kind in src/link/envelope.ts.
-  void publish(ctx, [{ type: "entity", data: { kind: "message", id: m.id, value: m } }]);
+  const event: OutboxEvent = { type: "entity", data: { kind: "message", id: m.id, value: m } };
+  // A message to or from the human changes what the task shows them and what needs them.
+  return m.to === "human" || m.from === "human" ? publishTaskMessages(ctx, [m.taskId], [event]) : publish(ctx, [event]);
+}
+
+/** Marks the recipient's messages read; reading the human's updates their tasks' attention at once. */
+export function readMessages(ctx: Ctx, to: string, ids: string[], at = ctx.now): number {
+  const read = store.markRead(ctx, to, ids, at);
+  if (read && to === "human") void publishTaskMessages(ctx, ids.map(id => store.getMessage(ctx, id)?.taskId ?? null));
+  return read;
 }
 
 /** The runner config for a turn; an executor that is no longer configured has only its id. */
@@ -109,14 +120,14 @@ export function claimTurnMessages(ctx: Ctx, task: TaskRecord): { turnId: string;
   if (!task.pendingTurn) return null;
   const turnId = task.pendingTurn.id;
   const messages = store.claimPending(ctx, `task:${task.id}`, turnId);
-  for (const m of messages) notifyMessage(ctx, m);
+  for (const m of messages) void notifyMessage(ctx, m);
   return { turnId, messages };
 }
 
 function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): void {
   const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
     body: `${head} ${readable(body).slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
-  if (!r.duplicate) { notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
+  if (!r.duplicate) { void notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
 }
 
 /** An agent CLI's JSON error result (Claude's stream-json) as one readable line; other text is kept. */

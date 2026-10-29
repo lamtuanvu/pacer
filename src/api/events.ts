@@ -68,7 +68,7 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
   const oldest = all[0]?.seq;
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
   const after = all.filter((e) => e.seq > since);
-  // Enrich task events in one batch: per-event apiTask re-reads every task file for repo
+  // Enrich task events in one batch, with the task's current unread messages: per-event apiTask re-reads every task file for repo
   // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
   const ids = [...new Set(after.flatMap(e => e.envelope.type === "task" ? [e.envelope.data.id] : []))];
   const records = ids.map(id => readTask(ctx, id)).filter((t): t is TaskRecord => t !== null);
@@ -82,7 +82,7 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
       if(env.type==="task"){
         data={...env.data,title:env.data.title || shortTitle(env.data.goal),fullTitle:fullTaskTitle({title:env.data.title,brief:{goal:env.data.goal}})};
         const task=enriched.get(env.data.id);
-        if(task){const {repo,kind,host,title,fullTitle}=task;data={...env.data,repo,kind,host,title,fullTitle};}
+        if(task){const {repo,kind,host,title,fullTitle,messages}=task;data={...env.data,repo,kind,host,title,fullTitle,...(messages?{messages}:{})};}
       }
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),
