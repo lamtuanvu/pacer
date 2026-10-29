@@ -474,9 +474,9 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
           cleanTestHooks.beforeRename?.(own.real);
           const aside = moveAside(own.ids, t.id);
           if (!aside) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
-          // Node has no handle-based recursive delete, so one window remains: the worktrees folder itself being
-          // replaced between moveAside's root re-check and this rmSync. Swapping the repo-tag or task folder no
-          // longer reaches it, because the renamed path sits directly in the canonical root.
+          // Node has no handle-based recursive delete, so a window remains between moveAside's checks and this
+          // rmSync: a same-user process that replaces the worktrees folder itself, or renames another directory
+          // into the aside name, gets that directory deleted. Accepted for this path only; see .project/decisions.md.
           rmSync(aside, { recursive: true, force: true });
           const failed = pruneRuns(ctx, t);
           if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
