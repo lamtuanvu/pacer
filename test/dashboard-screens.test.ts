@@ -527,7 +527,8 @@ describe("Settings › This machine in the TUI", () => {
     return d;
   };
   const params = (s: ClientSnapshot, d: Partial<DashData>, id: string, key: string) =>
-    (screenItems(s, s.at, { data: d, state }).find(item => item.id === id)?.keys[key]?.effect as any)?.action?.params;
+    { const effect = screenItems(s, s.at, { data: d, state }).find(item => item.id === id)?.keys[key]?.effect as any;
+      return effect && (expect(effect).toMatchObject({ type: "flow", name: "machine-step" }), { key: effect.params.key, value: effect.params.value }); };
   test("parallel tasks steps between no limit and a hard cap", () => {
     const s = snapshot();
     const unlimited = withKeys({ "execution.local_max_tasks": "unlimited" });

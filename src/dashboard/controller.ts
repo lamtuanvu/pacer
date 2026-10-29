@@ -14,6 +14,7 @@ import type { TerminalTheme } from "./theme";
 import { updateState, type UpdateState } from "./screens/common";
 import type { SessionPreparation } from "../session/capabilities";
 import { agentInfo } from "../view-model/agents";
+import { machineStep, type MachineKey } from "./screens/settings";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -167,6 +168,11 @@ export class Dashboard {
     this.pending.add(done);
   }
   invalidateSettings() { this.settingsLoaded.clear(); }
+  /** A service event: re-read the snapshot, and the config a settings section shows when another client changed it. */
+  event(event: { type: string }): Promise<void> {
+    if (event.type === "config" || event.type === "reset") this.settingsLoaded.delete("config");
+    return this.refresh();
+  }
 
   /** Handle one key. Resolves "quit" when the dashboard should close. */
   async key(key: string): Promise<"quit" | void> {
@@ -283,6 +289,19 @@ export class Dashboard {
   }
 
   private async flow(name: string, params: Record<string, unknown>) {
+    if (name === "machine-step") {
+      // The shown value can be older than a change made elsewhere: step from the value config.get reads now.
+      const key = params.key as MachineKey, label = String(params.label);
+      let fresh: NonNullable<NonNullable<SettingsData["config"]>["value"]>;
+      try { fresh = await this.deps.client.call("config.get", {}); }
+      catch (error) { this.reportError(error); return; }
+      this.data.settings.config = { value: fresh };
+      this.settingsLoaded.add("config");
+      const value = machineStep(key, fresh.keys?.[key]?.value, params.step === -1 ? -1 : 1);
+      if (value === undefined) { this.report(`${label} is already ${key === "execution.local_max_tasks" ? "No limit" : "Off"}.`, "warn"); return; }
+      await this.call({ label, op: "config.set", params: { key, value } });
+      return;
+    }
     if (name === "conversation-prepare") {
       try {
         const prepared = await this.deps.client.call<SessionPreparation>("session.prepare", {repo: params.repo});

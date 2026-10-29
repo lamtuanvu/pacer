@@ -207,26 +207,36 @@ export function machineGuardWords(m: NonNullable<ScreenCtx["s"]["machine"]>): st
   const waits = m.open === false && m.detail ? `new tasks wait: ${m.detail}` : null;
   return [pressure, load, `${m.used} running`, waits].filter(Boolean).join(" · ");
 }
+/** The next value of a This machine setting one step down (-1) or up (1) from `current`; undefined when it cannot step.
+ * Parallel tasks below 1 means no fixed limit and up from no limit starts at 4, as in the app; load steps by 0.5 per
+ * core and below 0.5 turns the ceiling off. */
+export function machineStep(key: MachineKey, current: unknown, step: -1 | 1): unknown {
+  if (key === "execution.local_memory_pressure_limit") return cycle(PRESSURE_LIMITS, String(current ?? "critical"), step);
+  const n = typeof current === "number" ? current : null;
+  if (key === "execution.local_max_tasks") return n === null ? (step > 0 ? 4 : undefined) : step > 0 ? n + 1 : n <= 1 ? "unlimited" : n - 1;
+  return n === null ? (step > 0 ? 2 : undefined) : step > 0 ? Math.round((n + 0.5) * 10) / 10 : n <= 0.5 ? "off" : Math.round((n - 0.5) * 10) / 10;
+}
+export type MachineKey = "execution.local_max_tasks" | "execution.local_memory_pressure_limit" | "execution.local_load_limit";
+/** A step the controller re-bases on a fresh config.get, so it never overwrites a change made elsewhere. */
+const machineAct = (label: string, key: MachineKey, current: unknown, step: -1 | 1): Act | undefined => {
+  const value = machineStep(key, current, step);
+  return value === undefined ? undefined : { label, effect: { type: "flow", name: "machine-step", params: { label, key, step, value } } };
+};
 const machine: Build = (ctx, width) => {
   const rows: Row[] = [], items: Item[] = [], config = ctx.data.settings.config;
   const pending = resourceState(ctx, config);
   if (pending) return { rows: pending, items };
-  const keys = config!.value!.keys ?? {};
-  // Stepping below 1 means no fixed limit; stepping up from no limit starts at 4, as in the app.
-  const rawMax = keys["execution.local_max_tasks"]?.value, max = typeof rawMax === "number" ? rawMax : null;
+  const keys = config!.value!.keys ?? {}, value = (k: MachineKey) => keys[k]?.value;
+  const steps = (label: string, key: MachineKey) => [machineAct(label, key, value(key), -1), machineAct(label, key, value(key), 1)] as const;
+  const rawMax = value("execution.local_max_tasks"), max = typeof rawMax === "number" ? rawMax : null;
   const cap = stepper(ctx, width, "setting:local-max", "Parallel tasks", max === null ? "No limit" : String(max),
-    max === null ? undefined : set(ctx, "Parallel tasks", "execution.local_max_tasks", max <= 1 ? "unlimited" : max - 1),
-    set(ctx, "Parallel tasks", "execution.local_max_tasks", max === null ? 4 : max + 1),
-    ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined);
-  const pressure = String(keys["execution.local_memory_pressure_limit"]?.value ?? "critical");
+    ...steps("Parallel tasks", "execution.local_max_tasks"), ctx.s.machine ? `${ctx.s.machine.used} busy now` : undefined);
+  const pressure = String(value("execution.local_memory_pressure_limit") ?? "critical");
   const hold = stepper(ctx, width, "setting:memory-pressure", "Hold at memory pressure", PRESSURE_LABELS[pressure] ?? pressure,
-    set(ctx, "Memory pressure limit", "execution.local_memory_pressure_limit", cycle(PRESSURE_LIMITS, pressure, -1)),
-    set(ctx, "Memory pressure limit", "execution.local_memory_pressure_limit", cycle(PRESSURE_LIMITS, pressure, 1)));
-  // Load steps by 0.5 per core; stepping below 0.5 turns the ceiling off.
-  const rawLoad = keys["execution.local_load_limit"]?.value, load = typeof rawLoad === "number" ? rawLoad : null;
+    ...steps("Memory pressure limit", "execution.local_memory_pressure_limit"));
+  const rawLoad = value("execution.local_load_limit"), load = typeof rawLoad === "number" ? rawLoad : null;
   const ceiling = stepper(ctx, width, "setting:load-limit", "Load limit per core", load === null ? "Off" : String(load),
-    load === null ? undefined : set(ctx, "Load limit", "execution.local_load_limit", load <= 0.5 ? "off" : Math.round((load - 0.5) * 10) / 10),
-    set(ctx, "Load limit", "execution.local_load_limit", load === null ? 2 : Math.round((load + 0.5) * 10) / 10));
+    ...steps("Load limit", "execution.local_load_limit"));
   for (const control of [cap, hold, ceiling]) { items.push(control.item); rows.push(...control.rows); }
   if (ctx.s.machine) rows.push(...fieldRows(field(ctx, width, "Now", [span(machineGuardWords(ctx.s.machine), { fg: ctx.s.machine.open === false ? "warn" : "secondary" })])));
   rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. Without a limit, new tasks start until memory pressure or load reaches its limit. Running tasks are never stopped.", { fg: "muted" })])));
