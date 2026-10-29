@@ -980,7 +980,7 @@ test("a kept-alive worker expires after the idle limit, and settled or reviewed 
     expect(readTask(y.ctx, lane.id)?.live).toBeUndefined();
   }
 });
-type TaskRecordish = {state: string; review?: unknown};
+type TaskRecordish = {state: string; review?: unknown; dismissed?: number};
 
 test("a pending answer keeps the worker for its reattach; a failed one releases it", async () => {
   const {reapLiveWorkers} = await import("../src/exec/live");
@@ -1003,6 +1003,91 @@ test("a kept-alive worker holds its executor slot until an answer takes it over"
   const retry = answerOf(x, asked, "go with B");
   updateTask(x.ctx, retry.id, t => { t.executor = "codex"; });
   expect(slotUse([readTask(x.ctx, asked.id)!, readTask(x.ctx, retry.id)!]).byExecutor).toEqual({codex: 1});
+});
+
+const workerStops = (x: ReturnType<typeof setup>) => x.f.count(O("orchestration", "worker-stop"));
+
+test("dispatch.stop on managed work stops a lane waiting on its question and releases its live worker", async () => {
+  const {callOp} = await import("../src/api/ops");
+  const {registerWork} = await import("../src/dispatch/work");
+  const {settleLiveReleases} = await import("../src/tasks/api");
+  const x = setup();
+  const root = createTask(x.ctx, {brief: {goal: "root", repo}, kind: null, requestedExecutor: null, timeoutS: 600});
+  registerWork(x.ctx, root.id, {allowDelegation: true});
+  updateTask(x.ctx, root.id, t => { t.state = "running"; });
+  registerWork(x.ctx, x.task.id, {}, root.id);
+  const asked = askedLane(x);
+  await callOp(x.ctx, "dispatch.stop", {id: root.id, expect_rev: readTask(x.ctx, root.id)!.rev});
+  await settleLiveReleases();
+  expect(readTask(x.ctx, asked.id)?.state).toBe("stopped");
+  expect(workerStops(x)).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+});
+
+test("task.stop on a managed lane waiting on its question goes through stopWork and releases its live worker", async () => {
+  const {callOp} = await import("../src/api/ops");
+  const {registerWork} = await import("../src/dispatch/work");
+  const {settleLiveReleases} = await import("../src/tasks/api");
+  const x = setup();
+  registerWork(x.ctx, x.task.id, {allowDelegation: true});
+  const asked = askedLane(x);
+  await callOp(x.ctx, "task.stop", {id: asked.id});
+  await settleLiveReleases();
+  expect(readTask(x.ctx, asked.id)?.state).toBe("stopped");
+  expect(workerStops(x)).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+});
+
+test("pacer stop releases a kept-alive lane's worker before the command returns", async () => {
+  const {main} = await import("../src/cli");
+  const x = setup();
+  const asked = askedLane(x);
+  const result = await main(["stop", asked.id], x.ctx);
+  expect(result).toMatchObject({code: 0, out: `${asked.id} stopped`});
+  expect(workerStops(x)).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+});
+
+test("the supervision pass releases a live worker once it hits the idle limit", async () => {
+  const {LIVE_IDLE_S} = await import("../src/exec/live");
+  const {superviseTasks} = await import("../src/tasks/api");
+  const x = setup();
+  const asked = askedLane(x);
+  await superviseTasks({...x.ctx, now: 1 + LIVE_IDLE_S - 1}, () => 0);
+  expect(workerStops(x)).toBe(0);
+  expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
+  await superviseTasks({...x.ctx, now: 1 + LIVE_IDLE_S}, () => 0);
+  expect(workerStops(x)).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
+});
+
+test("the supervision pass releases a live worker after dismissal, review, settlement or a stop whose release never ran", async () => {
+  const {superviseTasks} = await import("../src/tasks/api");
+  const ends: Array<(t: TaskRecordish) => void> = [
+    t => { t.dismissed = 1; }, t => { t.review = {verdict: "reject", at: 1}; }, t => { t.state = "done"; }, t => { t.state = "stopped"; },
+  ];
+  for (const end of ends) {
+    const x = setup();
+    const asked = askedLane(x);
+    updateTask(x.ctx, asked.id, end as never);
+    await superviseTasks(x.ctx, () => 0);
+    expect(workerStops(x)).toBe(1);
+    expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  }
+});
+
+test("the supervision pass retries a live-worker release that failed", async () => {
+  const {superviseTasks} = await import("../src/tasks/api");
+  const x = setup([[O("orchestration", "worker-stop"), [() => { throw Error("orca is not reachable"); }, envelope({dispatchId: "ctx_live", state: "stopped"})]]]);
+  const asked = askedLane(x);
+  updateTask(x.ctx, asked.id, t => { t.state = "stopped"; });
+  await superviseTasks(x.ctx, () => 0);
+  expect(workerStops(x)).toBe(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
+  await superviseTasks(x.ctx, () => 0);
+  expect(workerStops(x)).toBe(2);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
 });
 
 test("group: a cached parent worktree Orca no longer shows is created again", async () => {

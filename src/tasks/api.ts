@@ -274,6 +274,17 @@ export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 
   }
 }
 
+/** Live-worker releases `taskStop` started and that have not finished. */
+const liveReleases = new Set<Promise<void>>();
+
+/**
+ * Wait for the live-worker releases this process started. A short-lived caller (the CLI) awaits this before it exits,
+ * so `pacer stop` stops the worker itself instead of leaving it to the service's next supervision pass.
+ */
+export async function settleLiveReleases(): Promise<void> {
+  while (liveReleases.size) await Promise.all([...liveReleases]);
+}
+
 /** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. */
 export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const t = readTask(ctx, id);
@@ -284,7 +295,11 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
       if (x.result) x.result.status = "stopped";
     });
     // A kept-alive interactive lane's worker is stopped and its terminal closed; the supervision pass retries failures.
-    if (stopped.live) void import("../exec/live").then(m => m.releaseLiveWorker(ctx, stopped, "the task was stopped")).catch(() => {});
+    if (stopped.live) {
+      const release: Promise<void> = import("../exec/live").then(m => m.releaseLiveWorker(ctx, stopped, "the task was stopped"))
+        .catch(() => {}).finally(() => { liveReleases.delete(release); });
+      liveReleases.add(release);
+    }
     return stopped;
   }
   if (isTerminal(t)) return t;

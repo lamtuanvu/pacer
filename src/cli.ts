@@ -9,7 +9,7 @@ import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
-import { superviseTasks } from "./tasks/api";
+import { settleLiveReleases, superviseTasks } from "./tasks/api";
 import { drainQueue } from "./tasks/drain";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
@@ -501,6 +501,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
         }
         const t=cmd==="wait" ? await core.tasks.wait(ctx,pos[0],Number(str(opts.timeout)??600)) : core.tasks.stop(ctx,pos[0]);
+        if(cmd==="stop")await settleLiveReleases();
         return {code:cmd==="wait"&&!TERMINAL_STATES.includes(t.state)?2:0,out:opts.json?JSON.stringify(summarizeTask(t),null,1):cmd==="stop"?`${t.id} ${t.state}`:renderTask(t),err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
@@ -688,6 +689,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
 
 if (import.meta.main) {
   const r = await main(process.argv.slice(2));
+  // Any command that stopped a kept-alive lane (stop, dispatch stop, session end) finishes releasing its worker first.
+  await settleLiveReleases();
   if (r.out) process.stdout.write(r.out.endsWith("\n") ? r.out : `${r.out}\n`);
   if (r.err) process.stderr.write(r.err.endsWith("\n") ? r.err : `${r.err}\n`);
   if (!r.keepAlive) process.exit(r.code);
