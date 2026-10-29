@@ -22,7 +22,7 @@ const outline = (html: string) => [...html.matchAll(/<(div|header|nav|main|foote
   .filter(item => /^(header|nav|main|footer|aside|section)|pc-app|pc-body|pc-work|pc-live-region|skip-link|pc-dock|pc-side-panel/.test(item));
 
 test("layout_renders_same_landmarks", () => {
-  const html = withService("#/overview");
+  const html = withService("#/");
   // The frame keeps today's region order and classes when there is no side panel and no dock.
   expect(outline(html).filter(item => !item.startsWith("section") && !item.startsWith("nav.pc-") || item.startsWith("nav.pc-rail"))).toEqual([
     "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-body", "nav.pc-rail",
@@ -71,7 +71,7 @@ test("dock_not_rendered_on_terminal_route", () => {
   (globalThis as any).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
   try {
     // Saved open: other routes mount the dock, the terminal route never does and offers no dock control.
-    expect(withService("#/overview")).toContain('<div class="pc-dock"><section id="pc-terminal-dock"');
+    expect(withService("#/")).toContain('<div class="pc-dock"><section id="pc-terminal-dock"');
     const terminal = withService("#/terminal");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
@@ -88,7 +88,7 @@ test("settings attention counts enabled executors that cannot take work and name
   expect(settingsAttention(withExecutors([row("ready"), row("down", false), row("busy")]))).toBe(0);
   expect(settingsAttention(withExecutors([row("down"), row("failing"), row("ready"), row("exhausted", false)]))).toBe(2);
   const render = (executors: unknown[]) => renderToString(<TaskContext.Provider value={{ state: { ...ready(), snapshot: withExecutors(executors) }, api }}>
-    <Layout route={at("#/overview")} state={{ ...ready(), snapshot: withExecutors(executors) }} title="Screen"><p>body</p></Layout></TaskContext.Provider>);
+    <Layout route={at("#/")} state={{ ...ready(), snapshot: withExecutors(executors) }} title="Screen"><p>body</p></Layout></TaskContext.Provider>);
   expect(render([row("down")])).toContain('aria-label="Settings, 1 agent needs attention"');
   expect(render([row("down"), row("blocked")])).toContain('aria-label="Settings, 2 agents need attention"');
   expect(render([row("ready")])).toContain('aria-label="Settings"');
@@ -96,7 +96,7 @@ test("settings attention counts enabled executors that cannot take work and name
 
 test("the planner chip carries the mode pill with a tone from the mode", () => {
   const html = (mode: string) => { const state = ready(); return renderToString(<TaskContext.Provider value={{ state, api }}>
-    <Layout route={at("#/overview")} state={{ ...state, snapshot: { ...snap, mode: { ...snap.mode!, mode } } as ClientSnapshot }} title="Screen"><p>body</p></Layout></TaskContext.Provider>); };
+    <Layout route={at("#/")} state={{ ...state, snapshot: { ...snap, mode: { ...snap.mode!, mode } } as ClientSnapshot }} title="Screen"><p>body</p></Layout></TaskContext.Provider>); };
   expect(html("relaxed")).toMatch(/pc-planner[\s\S]*pc-pill--good[^>]*>Relaxed</);
   expect(html("strict")).toMatch(/pc-planner[\s\S]*pc-pill--warn[^>]*>Strict</);
   expect(html("normal")).toMatch(/pc-planner[\s\S]*pc-pill--neutral[^>]*>Normal</);

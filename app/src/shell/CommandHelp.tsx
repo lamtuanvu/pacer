@@ -4,7 +4,7 @@ import { Kbd } from "../ds/Kbd";
 import { keyCaps } from "../keys/commands";
 import type { KeyRegistry } from "../keys/registry";
 import { Dialog } from "../screens/task-shared";
-const SCOPES: Record<string, string> = { global: "Anywhere", overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings" };
+const SCOPES: Record<string, string> = { global: "Anywhere", dispatch: "Dispatch", review: "Review", sessions: "Sessions", settings: "Settings" };
 /** The ? overlay: every registered shortcut, grouped by where it works. */
 /** `mac` picks the symbols on macOS (⌘ ⌃) or the words elsewhere; by default the platform decides. */
 export function CommandHelp({ registry, close, mac }: { registry: KeyRegistry; close: () => void; mac?: boolean }) {

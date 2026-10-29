@@ -85,10 +85,11 @@ test('settings panel groups pages and keeps a stable keyboard order', () => {
   const html = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} />);
   expect(navOrder(html)).toEqual([
     '#/', '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine',
-    '#/settings/app', '#/settings/diagnostics',
+    '#/settings/plugins', '#/settings/app', '#/settings/diagnostics',
   ]);
   expect(html).not.toMatch(/tabindex="[1-9]/);
-  expect(html.indexOf('>Dispatch<')).toBeLessThan(html.indexOf('>App<'));
+  expect(html.indexOf('>Dispatch<')).toBeLessThan(html.indexOf('>Extend<'));
+  expect(html.indexOf('>Extend<')).toBeLessThan(html.indexOf('>App<'));
   expect(html).toContain('>Overview<');
   expect(html).toContain('>Budget &amp; pacing<');
   expect(html).toContain('>App preferences<');
@@ -214,9 +215,9 @@ test.skipIf(!browserPath)('settings_nav_tab_order_follows_groups', async () => {
     const page = await browser.newPage();
     const css = (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css'].map(path => Bun.file(path).text()))).join('\n');
     await page.setContent(`<style>${css}</style>${renderToString(<SettingsPanel route={{ name: 'settings', section: 'planner', query }} counts={null} />)}`);
-    const order: string[] = [];
-    for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement?.getAttribute('href') ?? '')); }
-    expect(order).toEqual(navOrder(await page.content()));
+    const order: string[] = [], expected = navOrder(await page.content());
+    for (let i = 0; i < expected.length; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement?.getAttribute('href') ?? '')); }
+    expect(order).toEqual(expected);
     expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('solid');
     expect(await page.locator('[aria-current="page"]').getAttribute('href')).toBe('#/settings/planner');
     expect(await page.getByRole('navigation', { name: 'Settings' }).ariaSnapshot()).toContain('Budget & pacing');
@@ -328,7 +329,7 @@ test('board navigation includes its back link and save guidance without unsuppor
   expect(html).toContain('Nothing saves silently');
   expect(html).toContain('Lists and editors show unsaved changes until you save. Switches save at once.');
   for (const label of ['Agents', 'Machines', 'Settings']) expect(html).toContain(`>${label}<`);
-  for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<', '>Extend<', '>Plugins<', 'Checks not run']) expect(html).not.toContain(text);
+  for (const text of ['>Accounts<', '>Add executor<', '>Remote hosts<', 'Checks not run']) expect(html).not.toContain(text);
 });
 
 test('Agents retain links to secondary pages with the current scope', () => {

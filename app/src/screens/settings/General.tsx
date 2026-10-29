@@ -20,12 +20,10 @@ import { modeWords, toneFor } from "../../../../src/view-model/words";
 import { StatusDot } from "../../ds/StatusDot";
 import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
-import { ProjectStrategies } from "./ProjectStrategies";
 import {
   Checkbox,
   Disclosure,
   Range,
-  TextArea,
   TextInput,
 } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -52,7 +50,7 @@ import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
-import type { RoutingRules, Rule } from "../../model/executors";
+import type { RoutingRules } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
 import { consentAction, plannerAgent } from "../../model/settings";
 import { Dialog, useTaskContext } from "../task-shared";
@@ -101,7 +99,6 @@ export function SettingsGeneral({
   host?: string;
   alias?: string;
 }) {
-  const [dispatchRevision, setDispatchRevision] = useState(0);
   let content: ComponentChildren;
   switch (section) {
     case "planner":
@@ -122,10 +119,7 @@ export function SettingsGeneral({
       content = <AddExecutor host={host} />;
       break;
     case "dispatcher":
-      content = <LazyDispatcher key={dispatchRevision} query={query}>
-        <StrategiesSection initialData={initialData.strategies} onActivated={() => setDispatchRevision(value => value + 1)} />
-        <RoutingSection initialData={initialData.routing} />
-      </LazyDispatcher>;
+      content = <LazyDispatcher query={query} />;
       break;
     case "app":
     case "updates":
@@ -388,192 +382,6 @@ function PlannerConsent({
         <Feedback action={action} />
       </div>
     </Dialog>
-  );
-}
-export function canAddRoutingRule(executor: string, available: readonly string[]): boolean {
-  return !!executor && available.includes(executor);
-}
-function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
-  const query = useResource("routing.get", {}, initialData),
-    strategiesQuery = useResource<StrategyRow[]>("strategy.list", {}),
-    action = useOperation(query.reload);
-  const [adding, setAdding] = useState(false),
-    [kind, setKind] = useState("tests"),
-    [executor, setExecutor] = useState("");
-  const save = (index: number, patch: Partial<Rule>) =>
-    void action.run("routing.set", {
-      rules: query.data!.rules.map((r, i) =>
-        i === index ? { ...r, ...patch } : r,
-      ),
-    });
-
-  // Show active strategy in detail
-  const activeStrategy = strategiesQuery.data?.find((s) => s.active);
-  const strategyLabel = activeStrategy
-    ? `Global rules from profile: ${activeStrategy.name}${activeStrategy.summary ? ` · ${activeStrategy.summary}` : ""}`
-    : "Choose the executors eligible for a task. First matching rule wins.";
-
-  return (
-    <Section
-      id="executor-eligibility"
-      title="Executor eligibility"
-      detail={strategyLabel}
-      actions={
-        <>
-          <Button onClick={() => setAdding((v) => !v)}>Add rule</Button>
-        </>
-      }
-    >
-      <p>These global rules choose executors by task kind. A project override supplies its own executor list for that repository. The decision engine above then ranks eligible accounts and models.</p>
-      <ResourceState resource={query}>
-        {query.data?.rules.length === 0 ? (
-          <p>No routing rules yet.</p>
-        ) : (
-          query.data?.rules.map((rule, index) => (
-            <div className="u3-setting" key={index}>
-              <Field label={`Rule ${index + 1} task kinds`}>
-                <TextInput
-                  aria-label={`Rule ${index + 1} task kinds`}
-                  value={rule.kinds?.join(", ") ?? ""}
-                  placeholder="Everything else"
-                  disabled={action.busy}
-                  onChange={(e) =>
-                    save(index, {
-                      kinds: e.currentTarget.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Executor order (comma separated)">
-                <TextInput
-                  value={rule.executors.join(", ")}
-                  disabled={action.busy}
-                  onChange={(e) =>
-                    save(index, {
-                      executors: e.currentTarget.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-            </div>
-          ))
-        )}
-      </ResourceState>
-      {adding && query.data && (
-        <form
-          className="pc-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!canAddRoutingRule(executor, query.data!.available)) return;
-            const rules = [...query.data!.rules],
-              at = rules.findIndex((r) => !r.kinds?.length);
-            rules.splice(at < 0 ? rules.length : at, 0, {
-              kinds: kind
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean),
-              executors: [executor],
-            });
-            void action.run("routing.set", { rules }, () => setAdding(false));
-          }}
-        >
-          <Field label="Task kinds">
-            <TextInput
-              required
-              value={kind}
-              onInput={(e) => setKind(e.currentTarget.value)}
-            />
-          </Field>
-          <Field label="Executor">
-            <ChoicePicker
-              required
-              value={executor}
-              placeholder="Choose executor"
-              searchable
-              options={query.data.available.map((id) => ({ value: id, label: id }))}
-              onValueChange={setExecutor}
-            />
-          </Field>
-          <Button type="submit" disabled={action.busy || !canAddRoutingRule(executor, query.data.available)}>
-            Add rule
-          </Button>
-        </form>
-      )}
-      <Feedback action={action} />
-      <ProjectStrategies />
-    </Section>
-  );
-}
-function StrategiesSection({ initialData, onActivated }: { initialData?: StrategyRow[]; onActivated?: () => void }) {
-  const query = useResource("strategy.list", {}, initialData),
-    action = useOperation(query.reload);
-  const [building, setBuilding] = useState(false),
-    [brief, setBrief] = useState("");
-  return (
-    <Section
-      id="saved-profiles"
-      title="Saved profiles"
-      detail="Each profile saves global planner, pacing, eligibility and dispatcher settings. Switch anytime."
-      actions={
-        <>
-          <Button onClick={() => setBuilding((v) => !v)}>New from a brief</Button>
-        </>
-      }
-    >
-      <ResourceState resource={query} empty="No saved profiles yet.">
-        {query.data?.map((strategy) => (
-          <div className="u3-setting" key={strategy.name}>
-            <strong>{strategy.name}</strong>
-            <div className="u3-row">
-              <span>{strategy.summary}</span>
-              {strategy.active ? (
-                <span>Active</span>
-              ) : (
-                <Button
-                  disabled={action.busy}
-                  onClick={() =>
-                    void action.run("strategy.use", { name: strategy.name }, onActivated)
-                  }
-                >
-                  Use
-                </Button>
-              )}
-            </div>
-          </div>
-        ))}
-      </ResourceState>
-      {building && (
-        <form
-          className="pc-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void action.run("strategy.build", { brief });
-          }}
-        >
-          <Field label="What should this strategy do?">
-            <TextArea
-              value={brief}
-              maxLength={2000}
-              required
-              onInput={(e) => setBrief(e.currentTarget.value)}
-            />
-          </Field>
-          <Button type="submit" disabled={action.busy}>
-            Build strategy
-          </Button>
-          <p className="u3-muted">
-            Opens a planning session or returns a command to run.
-          </p>
-        </form>
-      )}
-      <Feedback action={action} />
-    </Section>
   );
 }
 function NotificationsSection({

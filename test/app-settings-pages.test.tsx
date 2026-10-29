@@ -34,14 +34,14 @@ test('General links to settings pages rather than mounting every editor', () => 
 test('This machine is a reachable settings page with one current icon navigation item', () => {
   const route = resolveRoute('#/settings/machine') as Route;
   expect(route).toMatchObject({ name: 'settings', section: 'machine' });
-  expect(render('machine')).toContain('Parallel tasks on this machine');
+  expect(render('machine')).toContain('Parallel tasks');
   expect(render('machine')).toContain('Preferred terminal');
   expect(render('machine')).toContain('Delegated task launch');
   const html = renderToString(<SettingsPanel route={route} counts={null}/>);
   expect(html).toContain('href="#/settings/machine"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
   const items = [...html.matchAll(/<a\b[^>]*class="[^"]*pc-settings-nav__item[^>]*>[\s\S]*?<\/a>/g)];
-  expect(items.length).toBe(7);
+  expect(items.length).toBe(8);
   for (const [item] of items) expect(item).toContain('<svg');
 });
 test('terminal picker shows Linux automatic and an existing custom template', () => {

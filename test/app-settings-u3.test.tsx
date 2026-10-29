@@ -2,7 +2,9 @@ import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { StrategyQuickAccessPopup } from '../app/src/shell/StrategyQuickAccess';
 import { expect, test } from 'bun:test';
-import { canAddRoutingRule } from '../app/src/screens/settings/General';
+import { SetupEditor } from '../app/src/screens/settings/DispatcherSetup';
+import { SavedSetups } from '../app/src/screens/settings/Dispatcher';
+import { dispatchConfigSchema } from '../src/dispatch/types';
 import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
@@ -12,16 +14,18 @@ import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
-test('a routing rule requires a current executor choice', () => {
- expect(canAddRoutingRule('', ['codex'])).toBe(false);
- expect(canAddRoutingRule('removed', ['codex'])).toBe(false);
- expect(canAddRoutingRule('codex', ['codex'])).toBe(true);
-});
-test('Dispatcher owns saved profiles and executor eligibility', () => {
- const html=render(<SettingsGeneral section="dispatcher" initialData={settings}/>);
- expect(html).toContain('Saved profiles');
- expect(html).toContain('Executor eligibility');
+test('the executor pool offers only executors that are not already in a rule', () => {
+ const view={strategy:'default',planner:'codex',plannerAccount:'work',source:'built-in' as const,config:dispatchConfigSchema.parse({})};
+ const html=render(<SetupEditor view={view} eligibility={{kind:'global',rules:[{kinds:['tests'],executors:['codex']},{executors:['codex']}],available:['codex','cursor']}} onSaved={()=>{}} onDirtyChange={()=>{}}/>);
+ expect(html).toContain('Add Cursor');
+ expect(html).not.toContain('Add Codex');
  expect(html).toContain('Rule 1 task kinds');
+});
+test('Dispatcher owns saved setups and executor eligibility', () => {
+ expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).toContain('Loading dispatcher');
+ const html=render(<SavedSetups initialData={settings.strategies}/>);
+ expect(html).toContain('Saved setups');
+ expect(html).toContain('id="saved-profiles"');
 });
 test('rail quick access has one Dispatcher settings link',()=>{
  const html=render(<StrategyQuickAccessPopup route={{name:"settings",section:"dispatcher",query:{repo:null,scope:null}}} close={()=>{}}/>);
@@ -45,8 +49,8 @@ test('the update checkbox keeps its label inline', () => {
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
- const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty);
- for(const word of ['No accounts','No executors','No routing rules','No saved profiles'])expect(html).toContain(word);
+ const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
+ for(const word of ['No accounts','No executors','Loading dispatcher','No saved setups'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where it runs','Model and test'])expect(html).toContain(word);
@@ -88,12 +92,15 @@ test('section failures show the service hint and a retry action',async()=>{
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
  const {APP_JS_BUDGET}=await import('../app/build');
+ // Split like the shipped app, so lazy screens leave the entry chunk the browser loads first.
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true,splitting:true});
- expect(result.success).toBe(true);expect(result.outputs.length).toBeGreaterThan(0);
- const chunks=await Promise.all(result.outputs.map(output=>output.text()));
- const text=chunks.join('\n');expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
- // Production settings use lazy chunks; apply the unchanged UI-3 budget to each emitted chunk.
- for(const chunk of chunks) expect(Bun.gzipSync(chunk).byteLength).toBeLessThan(APP_JS_BUDGET);
+ expect(result.success).toBe(true);
+ const chunks=await Promise.all(result.outputs.filter(file=>file.path.endsWith('.js')).map(async file=>({path:file.path,kind:file.kind,text:await file.text()})));
+ expect(chunks.filter(chunk=>chunk.kind==='entry-point')).toHaveLength(1);
+ const all=chunks.map(chunk=>chunk.text).join('\n');expect(all).toContain('adoptedStyleSheets');expect(all).toContain('--surface-card');
+ // Only the entry chunk counts against the UI-3 budget; lazily loaded chunks are fetched on demand (decisions.md, 2026-10-29).
+ const entry=chunks.find(chunk=>chunk.kind==='entry-point')!;
+ expect(Bun.gzipSync(entry.text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
