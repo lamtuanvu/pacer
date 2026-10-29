@@ -66,3 +66,13 @@ test("network --advertise sends networksRev as expect_rev", async () => {
   expect(r.code).toBe(0);
   expect(calls[1]).toEqual(["discovery.network.set", { network: home.key, advertise: true, expect_rev: 3 }]);
 });
+
+test("ls names the network once, whether it has an SSID or only the neutral label", async () => {
+  const listing = (label: string) => ({ available: true, enabled: true, rev: 1, networksRev: 1, found: [], network: { key: home.key, label, advertise: null, muted: false, name: "pacer-k3x9" } });
+  const client = (label: string) => async () => ({ call: async () => listing(label), close() {} }) as never;
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const neutral = await discoveryCmd(["ls"], fakeCtx(), client("Network 1dab25"));
+  expect(neutral.out.split("\n")[0]).toBe("Network 1dab25: not answered as pacer-k3x9.");
+  const ssid = await discoveryCmd(["ls"], fakeCtx(), client("home-wifi"));
+  expect(ssid.out.split("\n")[0]).toBe("Network home-wifi: not answered as pacer-k3x9.");
+});

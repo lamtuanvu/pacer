@@ -12,9 +12,12 @@ const usage = "usage: pacer discovery ls [--json] | pair|later|ignore <id-prefix
 const fail = (message: string): Result => ({ code: 2, out: "", err: `pacer: ${message}` });
 const answer = (advertise: boolean | null) => advertise === null ? "not answered" : advertise ? "advertising" : "not advertising";
 
+/** A network with no SSID is already labelled "Network <id>". */
+const networkName = (label: string) => label.startsWith("Network ") ? label : `Network ${label}`;
+
 function formatList(l: Listing): string {
   const head = !l.enabled ? "Discovery is off." : !l.available ? "Discovery is unavailable: the pacer service is not running its LAN radio."
-    : l.network ? `Network ${l.network.label}: ${answer(l.network.advertise)} as ${l.network.name}${l.network.muted ? ", prompts muted" : ""}.` : "Network unknown: this machine is not advertised.";
+    : l.network ? `${networkName(l.network.label)}: ${answer(l.network.advertise)} as ${l.network.name}${l.network.muted ? ", prompts muted" : ""}.` : "Network unknown: this machine is not advertised.";
   const rows = l.found.map(f => `${f.discoveryId.slice(0, 8)}  ${f.name}  ${f.version || "-"}${f.silenced ? "  silenced" : ""}`);
   return [head, ...(rows.length ? ["Found (names are unverified):", ...rows] : ["No pacer machines found."])].join("\n");
 }
