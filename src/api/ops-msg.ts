@@ -1,19 +1,31 @@
 import { z } from "zod";
 import type { OpDef } from "./ops";
 import { CoreError } from "../core/errors";
+import { publishConfigChange } from "../core/events";
+import { resolveRepoInputReadOnly } from "../core/repos";
+import { projectKey } from "../config/project-strategies";
+import { isAbsolute } from "node:path";
 import { workTree } from "../dispatch/work";
 import { callerParticipant, parentOf, rootOf, taskOf } from "../messaging/participants";
 import { checkSend, effectivePolicy } from "../messaging/policy";
+import { projectMessagingGet, projectMessagingWrite } from "../messaging/project-policy";
 import { sendMessage } from "../messaging/send";
 import * as store from "../messaging/store";
 import { deliver, isClosed, readMessages } from "../messaging/turns";
-import { MSG_KINDS, participantSchema, type Message } from "../messaging/types";
+import { MSG_KINDS, participantSchema, ruleSchema, type Message } from "../messaging/types";
 import { readTask, updateTask } from "../tasks/store";
 import { autoCleanTask } from "../tasks/cleanup";
 
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 const taskId = z.string().regex(/^t-\d{8}-\d{6}-[0-9a-f]{4}$/);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const repoKey = async (ctx: Parameters<OpDef["handler"]>[0], value: string) => {
+  if (projectKey(value)) return value;
+  if (isAbsolute(value)) return (await resolveRepoInputReadOnly(ctx, value)).key;
+  throw new CoreError("invalid_input", "repo must be an absolute path or a repository key");
+};
+const liveness = z.object({ interval_s: z.number().int().min(10).optional(), backoff_max_s: z.number().int().min(10).optional(),
+  max_nudges: z.number().int().nonnegative().optional(), nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional() }).strict();
 
 /** Executors may read only threads in their own tree; planners and the human read any. */
 function assertCanRead(ctx: Parameters<OpDef["handler"]>[0], deps: Parameters<OpDef["handler"]>[2], task: string): void {
@@ -23,6 +35,31 @@ function assertCanRead(ctx: Parameters<OpDef["handler"]>[0], deps: Parameters<Op
 }
 
 export const msgOps: Record<string, OpDef> = {
+  "project.messaging.get": op({
+    description: "Read a repository messaging policy and revision.",
+    params: z.object({ repo: z.string().min(1).max(4096) }).strict(),
+    handler: async (ctx, p) => projectMessagingGet(ctx, await repoKey(ctx, p.repo)),
+  }),
+  "project.messaging.set": op({
+    description: "Set repository messaging rules with a revision check.",
+    params: z.object({ repo: z.string().min(1).max(4096), expect_rev: z.number().int().nonnegative().safe(),
+      rules: z.array(ruleSchema).max(50), max_turns: z.number().int().positive().max(10000).optional(), liveness: liveness.optional() }).strict(),
+    handler: async (ctx, p) => {
+      const result = await projectMessagingWrite(ctx, await repoKey(ctx, p.repo), p.expect_rev,
+        { rules: p.rules, ...(p.max_turns !== undefined ? { max_turns: p.max_turns } : {}), ...(p.liveness ? { liveness: p.liveness } : {}) });
+      await publishConfigChange(ctx, "project-messaging");
+      return result;
+    },
+  }),
+  "project.messaging.remove": op({
+    description: "Remove repository messaging rules with a revision check.",
+    params: z.object({ repo: z.string().min(1).max(4096), expect_rev: z.number().int().nonnegative().safe() }).strict(),
+    handler: async (ctx, p) => {
+      const result = await projectMessagingWrite(ctx, await repoKey(ctx, p.repo), p.expect_rev, null);
+      await publishConfigChange(ctx, "project-messaging");
+      return result;
+    },
+  }),
   "msg.send": op({
     description: "Send a message to another participant. A message to a settled task starts a turn that resumes its native session once project policy admits it (delegate, then route); another admitted executor replays the thread when policy excludes the prior one. A veto or no admitted executor returns delivery held with hold { reason, plugin? }, and the message stays pending.",
     params: z.object({ to: participantSchema, body: z.string().min(1).max(1 << 20), kind: z.enum(MSG_KINDS).optional(), reply_to: z.string().max(64).optional(), request_id: z.string().min(1).max(128).optional() }).strict(),
@@ -97,7 +134,10 @@ export const msgOps: Record<string, OpDef> = {
     description: "The effective messaging guardrail, or which rule decides a hypothetical send.",
     params: z.object({ task: taskId.optional(), check: z.object({ from: participantSchema, to: participantSchema, kind: z.enum(MSG_KINDS), grant: z.boolean().optional() }).strict().optional() }).strict(),
     handler: (ctx, p) => {
-      const policy = effectivePolicy(ctx, { root: p.task ? rootOf(ctx, `task:${p.task}`) : undefined });
+      const root = p.task ? rootOf(ctx, `task:${p.task}`) : p.check
+        ? taskOf(p.check.to) ? rootOf(ctx, p.check.to) : rootOf(ctx, p.check.from)
+        : undefined;
+      const policy = effectivePolicy(ctx, { root });
       if (!p.check) return policy;
       try { return { ...policy, check: checkSend(ctx, { from: p.check.from, to: p.check.to, kind: p.check.kind, bytes: 0, hasGrant: !!p.check.grant }) }; }
       catch (e) { return { ...policy, check: { decision: "deny", error: e instanceof CoreError ? { code: e.code, message: e.message, data: e.data } : String(e) } }; }

@@ -2932,6 +2932,27 @@ Params JSON Schema:
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 10000
+        },
+        "liveness": {
+          "type": "object",
+          "properties": {
+            "interval_s": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 9007199254740991
+            },
+            "max_nudges": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "escalate_after_s": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
