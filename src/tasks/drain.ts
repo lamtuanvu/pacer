@@ -14,7 +14,8 @@ import { readPause } from "../core/pause";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
 import { rankExecutors } from "../engine/rank";
-import { slotBlock, slotUse } from "../engine/slots";
+import { slotBlock, slotUse, type SlotUse } from "../engine/slots";
+import { queueCapacity } from "./capacity";
 import { computeStatus, type Status } from "../engine/status";
 import { remoteExclusion } from "../remote/eligibility";
 import { gitInfo } from "../core/git";
@@ -23,12 +24,40 @@ import { spawnRunner, launchTaskRunner, type SpawnRunner } from "./api";
 import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
 
-interface DrainDeps {
+export interface DrainDeps {
   hooks?: DecisionHooks;
   loadStrategy(ctx: Ctx): Strategy;
   computeStatus(ctx: Ctx, s: Strategy): Promise<Status>;
 }
 const defaults: DrainDeps = {loadStrategy, computeStatus};
+
+const CAPACITY_REASONS: readonly string[] = ["no_slot", "machine_memory_pressure", "machine_load"];
+/** Keep a capacity wait's reason current: machine pressure can change without any task finishing. */
+const NO_EXECUTOR = "Waiting for an available executor";
+/** A capacity wait, or the neutral wait this function wrote in place of a stale machine reason. */
+const refreshable = (q: {reason: string; limit?: string; detail?: string}) => CAPACITY_REASONS.includes(q.reason) || (q.reason === "waiting_retry" && q.limit === "machine" && q.detail === NO_EXECUTOR);
+function refreshCapacityWait(ctx: Ctx, id: string, s: Strategy, executor: string | undefined, use: SlotUse): void {
+  const current = readTask(ctx, id)?.queue;
+  if (!current || !refreshable(current)) return;
+  const next = executor ? queueCapacity(s, executor, use) : undefined;
+  if (!next) {
+    // Nothing capacity-related holds it now (e.g. every executor is excluded): drop a stale machine reason.
+    if (current.reason.startsWith("machine_")) updateTask(ctx, id, t => {
+      if (t.state !== "queued" || !t.queue || !refreshable(t.queue)) return;
+      t.queue = {reason: "waiting_retry", limit: "machine", detail: NO_EXECUTOR, since: t.queue.since, position: t.queue.position};
+    });
+    return;
+  }
+  const same = current.reason === next.reason && current.limit === next.limit && current.detail === next.detail
+    && JSON.stringify(current.capacity) === JSON.stringify(next.capacity) && JSON.stringify(current.machine) === JSON.stringify(next.machine);
+  if (same) return;
+  updateTask(ctx, id, t => {
+    if (t.state !== "queued" || !t.queue || !refreshable(t.queue)) return;
+    const {since, position} = t.queue;
+    t.queue = {reason: next.reason, since, position, limit: next.limit,
+      ...(next.capacity ? {capacity: next.capacity} : {}), ...(next.detail ? {detail: next.detail} : {}), ...(next.machine ? {machine: next.machine} : {})};
+  });
+}
 
 /** Reserve slots before spawning so concurrent drains and runners see the same capacity. */
 export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, deps: DrainDeps = defaults): Promise<string[]> {
@@ -124,8 +153,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
-        const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use));
-        if (!executor) return;
+        const executor = eligible.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
+        if (!executor) { refreshCapacityWait(ctx, task.id, s, eligible.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.
         updateTask(ctx, task.id, t => {t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
         return current;

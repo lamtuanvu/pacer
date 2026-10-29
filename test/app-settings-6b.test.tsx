@@ -205,7 +205,9 @@ test('Machines uses the board cards and only reports known local facts and execu
   expect(html).toContain('pacer 0.11.0');
   expect(html).toContain('pc-pill--good');
   expect(html).toContain('may use 3');
-  expect(html).toContain('u3-parallel-input');
+  // The default is no limit; the number field appears only for a hard cap.
+  expect(html).toContain('aria-label="Parallel task limit"');
+  expect(render(<SettingsGeneral section="machine" initialData={{...settings,config:{...settings.config!,keys:{...settings.config!.keys,'execution.local_max_tasks':{value:4}}}}} />, withState({}))).toContain('u3-parallel-input');
   expect(html).toContain('u3-terminal-picker');
   for (const absent of ['macOS 27','arm64','Worktrees']) expect(html).not.toContain(absent);
   const empty=render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:4}}));

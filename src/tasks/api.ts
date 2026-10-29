@@ -19,6 +19,8 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
+import { validateExecution } from "../config/execution";
+import { machineGuard } from "../engine/machine";
 import { killTree } from "../exec/process";
 import { RemoteRunIO } from "../remote/run-io";
 import { readRunLiveness } from "../supervisor/run";
@@ -254,6 +256,22 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
     if (stopped()) return;
     await superviseTaskRecord(ctx, task, spawn, stopped);
   }
+  if (!stopped()) await drainMachineWaits(ctx, spawn);
+}
+
+/**
+ * Machine pressure and load can ease without any task finishing, so tasks held
+ * by a machine guard are re-checked on the supervision tick, not only on completion.
+ */
+export async function drainMachineWaits(ctx: Ctx, spawn: SpawnRunner = spawnRunner, deps?: import("./drain").DrainDeps): Promise<string[]> {
+  const held = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue?.reason === "machine_memory_pressure" || t.queue?.reason === "machine_load");
+  if (!held.length) return [];
+  // A full drain reads usage and routing for every queued task. Skip it while the guard
+  // still holds them for the same reason; the pump's regular drain refreshes the details.
+  let guard: ReturnType<typeof machineGuard> = null;
+  try { guard = machineGuard(validateExecution((deps?.loadStrategy ?? loadStrategy)(ctx).execution)); } catch { guard = null; }
+  if (guard && held.every(t => t.queue?.reason === guard!.reason)) return [];
+  return (await import("./drain")).drainQueue(ctx, spawn, deps);
 }
 
 export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 1000): Promise<TaskRecord | null> {

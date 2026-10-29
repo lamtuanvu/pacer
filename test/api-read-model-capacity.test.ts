@@ -1,3 +1,4 @@
+import { setMachineReaders } from "../src/engine/machine";
 import { expect, test } from "bun:test";
 import { buildExecutors, buildPlanner, buildAccounts } from "../src/api/read-model/capacity";
 import type { ApiTask } from "../src/api/read-model/types";
@@ -56,6 +57,10 @@ test("executor shared-cap notes appear only below the configured executor limit"
  s.runners.codex!.maxTasks=4;
  s.runners['codex@devbox']!.maxTasks=4;
  let rows=buildExecutors(st,s,[],st.generatedAt);
+ // No fixed machine cap by default: nothing is lower than the executor's own limit.
+ expect(rows.find(e=>e.id==='codex')?.limitedBy).toBeUndefined();
+ s.execution.local_max_tasks=2;
+ rows=buildExecutors(st,s,[],st.generatedAt);
  expect(rows.find(e=>e.id==='codex')).toMatchObject({limitedBy:'machine',slots:{max:4}});
  expect(rows.find(e=>e.id==='codex@devbox')).toMatchObject({limitedBy:'host',slots:{max:4}});
  s.execution.local_max_tasks=4;s.hosts.devbox!.maxTasks=4;
@@ -69,4 +74,14 @@ test('executor table follows saved priority rather than routing declaration orde
  s.pacing.order=['cursor','codex'];
  const rows=buildExecutors(st,s,[],st.generatedAt).filter(r=>r.rank!=='planner');
  expect(rows.slice(0,2).map(r=>r.id)).toEqual(['cursor','codex']);
+});
+
+test("executor rows show hard caps only; the machine row carries the guard",()=>{
+ const {s,st}=capacityFixture();
+ setMachineReaders({pressure:()=>4,load:()=>({avg1:0,cores:1})});
+ try{
+  const rows=buildExecutors(st,s,[],st.generatedAt);
+  expect(rows.find(e=>e.id==="codex")?.state).not.toBe("full");
+  expect(rows.find(e=>e.id==="codex")?.reason ?? "").not.toContain("memory pressure");
+ }finally{setMachineReaders({pressure:()=>1,load:()=>({avg1:0,cores:1})});}
 });
