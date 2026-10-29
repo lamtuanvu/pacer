@@ -43,7 +43,7 @@ export async function nativeCommand(request: Record<string, unknown>, clock?: Op
     const status = await child.exited;
     if (status) throw new ControlError("observer_unavailable", "native observer terminated", request.command === "act" ? "unknown" : undefined);
     const result = JSON.parse(output);
-    if (!result.ok) throw new ControlError(result.error?.code ?? "observer_unavailable", result.error?.message ?? "native request failed", request.command === "act" ? "not_delivered" : undefined);
+    if (!result.ok) throw new ControlError(result.error?.code ?? "observer_unavailable", result.error?.message ?? "native request failed", request.command === "act" ? (result.delivery === "not_delivered" ? "not_delivered" : "unknown") : undefined);
     return result.result;
   } finally { clearTimeout(timer); }
 }
