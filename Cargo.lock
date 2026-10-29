@@ -966,6 +966,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-discovery-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-dispatch-protocol"
 version = "0.0.0"
 dependencies = [

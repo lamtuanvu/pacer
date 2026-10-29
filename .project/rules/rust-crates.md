@@ -38,6 +38,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 0 | `pacer-client-protocol` (`crates/client-protocol`) | Generated client-protocol types | 4,000–7,000 generated | none at runtime (`typify` and `syn` only in `xtask`) |
 | 0 | `pacer-dispatch-protocol` (`crates/dispatch-protocol`) | Generated dispatch operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-limits-protocol` (`crates/limits-protocol`) | Generated limits operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
+| 0 | `pacer-discovery-protocol` (`crates/discovery-protocol`) | Generated LAN discovery operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-plugin-ops-protocol` (`crates/plugin-ops-protocol`) | Generated plugin operation types (`plugin.*` client ops) from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-session-protocol` (`crates/session-protocol`) | Generated interactive-session operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-terminal-protocol` (`crates/terminal-protocol`) | Generated terminal and host-terminal operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |

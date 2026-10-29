@@ -21,6 +21,9 @@ generated = true
 [crates.pacer-limits-protocol]
 layer = 0
 generated = true
+[crates.pacer-discovery-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-ops-protocol]
 layer = 0
 generated = true
