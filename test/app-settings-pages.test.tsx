@@ -83,3 +83,24 @@ test('a warning save renders one inline warning without a success toast', () => 
   expect(html).toContain("Orca isn't running");
   expect(html).not.toContain('Changes saved');
 });
+
+test('App Workspace includes assistant status and a settings link with or without an account', () => {
+  const statuses = [
+    { available: true, configured: true, account: 'answers', label: 'Available · answers' },
+    { available: false, configured: true, account: 'answers', reason: 'Daily limit reached.', label: 'Unavailable · answers · Daily limit reached.' },
+    { available: false, configured: false, reason: 'The assistant is not set up.', label: 'Not configured · The assistant is not set up.' },
+  ];
+  for (const { label, ...assistant } of statuses) {
+    const html = renderToString(<TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, assistant }}/></TaskContext.Provider>);
+    const workspace = html.match(/<section[^>]*aria-labelledby="workspace-h"[^>]*>[\s\S]*?<\/section>/)?.[0] ?? "";
+    expect(workspace).toContain('>Assistant<');
+    expect(workspace).toContain('pc-setting-row--board');
+    expect(workspace).toContain('Open with ⌘J from anywhere. Uses the account chosen in assistant settings.');
+    expect(workspace).toContain(label);
+    expect(workspace).toMatch(/<a[^>]*href="#\/settings\/assistant"[^>]*>Choose account and limits<\/a>/);
+    expect(workspace).not.toContain('role="switch"');
+  }
+  expect(resolveRoute('#/settings/assistant')).toMatchObject({ name: 'settings', section: 'assistant' });
+  const nav = renderToString(<SettingsPanel route={resolveRoute('#/settings/app') as Route} counts={null}/>);
+  expect(nav).not.toContain('href="#/settings/assistant"');
+});

@@ -22,9 +22,9 @@ test("ask records text verbatim and refuses a second question", async () => {
   expect(await main(["ask","again"],ctx)).toMatchObject({code:2,err:"already asked; stop and wait for the answer"});
 });
 test("ask requires executor session and task identity", async () => {
-  for (const env of [{}, {PACER_ROLE:"executor"}, {PACER_TASK_ID:"t-20261016-000000-abcd"}]) {
-    expect(await main(["ask","which db?"],fakeCtx({env}))).toMatchObject({code:2,err:"pacer ask works only inside a delegated task"});
-  }
+  // Executors keep the task question; anywhere else `pacer ask` talks to the assistant.
+  expect(await main(["ask","which db?"],fakeCtx({env:{PACER_ROLE:"executor"}}))).toMatchObject({code:2,err:"pacer ask works only inside a delegated task"});
+  expect(await main(["ask","which db?"],fakeCtx({env:{}}))).toMatchObject({code:2,err:"The assistant is not set up."});
 });
 test("task.ask has the same session restrictions and records the question", async () => {
   const {ctx,task}=setup();

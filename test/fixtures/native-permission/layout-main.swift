@@ -5,17 +5,25 @@ import AppKit
         if CommandLine.arguments.count > 2 {
             let mode=CommandLine.arguments[1], path=CommandLine.arguments[2]
             if mode == "launcher" {
-                let child=Process();child.executableURL=URL(fileURLWithPath:CommandLine.arguments[0]);child.arguments=["orphan",path]
+                let ready=Pipe()
+                let child=Process()
+                child.executableURL=URL(fileURLWithPath:CommandLine.arguments[0])
+                child.arguments=["orphan",path]
+                child.standardOutput=ready
                 try child.run()
-                for _ in 0..<100 { if FileManager.default.fileExists(atPath:path+".ready") { return };Thread.sleep(forTimeInterval:0.01) }
-                throw NSError(domain:"launcher",code:1)
+                try ready.fileHandleForWriting.close()
+                // Keep the launcher alive until the controller captured its identity.
+                guard ready.fileHandleForReading.readData(ofLength:1) == Data([1]) else {
+                    throw NSError(domain:"launcher",code:1)
+                }
+                return
             }
             if mode == "orphan" {
                 let controller=PermissionChipController(appURL:URL(fileURLWithPath:"/Applications/Finder.app"),targetPID:getpid(),identity:permissionProcessIdentity(getpid())!,timeout:5)
-                try Data().write(to:URL(fileURLWithPath:path+".ready"))
-                for _ in 0..<100 { if getppid() != controller.launcherPID { break };Thread.sleep(forTimeInterval:0.01) }
+                FileHandle.standardOutput.write(Data([1]))
+                while getppid() == controller.launcherPID { Thread.sleep(forTimeInterval:0.01) }
                 controller.tick()
-                try JSONSerialization.data(withJSONObject:controller.result).write(to:URL(fileURLWithPath:path))
+                try JSONSerialization.data(withJSONObject:["result":controller.result,"finished":controller.finished]).write(to:URL(fileURLWithPath:path),options:.atomic)
                 return
             }
         }
