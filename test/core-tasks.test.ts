@@ -216,6 +216,7 @@ test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by de
   expect(parseDelegateBrief(brief,brief.repo).brief.pipefail).toBeUndefined();
   expect(parseDelegateBrief({...brief,acceptance_pipefail:true},brief.repo).brief.pipefail).toBe(true);
   expect(parseDelegateBrief({...brief,acceptance_pipefail:false},brief.repo).brief.pipefail).toBe(false);
+});
 
 test("a retry keeps the original task's origin, whoever retries it", async () => {
   const ctx = fakeCtx();

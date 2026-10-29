@@ -231,6 +231,8 @@ test("a commit from a clean tree to a clean tree counts as change", async () => 
 
 test("git fingerprints change when HEAD moves", () => {
   expect(gitFingerprint("", "", "a")).not.toBe(gitFingerprint("", "", "b"));
+});
+
 test("a delegated interactive run ends once the executor asked a question and its turn ended", async () => {
   const ctx = fakeCtx();
   const task = createTask(ctx, {brief: {goal: "Ask", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});

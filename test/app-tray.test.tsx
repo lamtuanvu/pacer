@@ -352,7 +352,7 @@ test("tray literal destinations and generated row/action routes share the deskto
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
     if (/^\/needs-you\?answer=t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/.test(raw)) return true;
     if (raw.includes("?")) return false;
-    return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
+    return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw) || /^\/sessions\/[A-Za-z0-9_-]+\/answer$/.test(raw);
   };
   for (const route of cases.allowed) expect(allowed(route)).toBe(true);
   for (const route of cases.rejected) expect(allowed(route)).toBe(false);
@@ -411,6 +411,8 @@ test("executor warning and bad tones keep board percentages with status in the t
     expect(html).not.toContain("tray-executor-glyph");
     expect(html).toContain("90%</span>");
   }
+});
+
 test("Answer opens the task at its answer box through a route the native shell accepts", async () => {
   const route = actionRoute({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-20261029-190507-4d5a", tab: "answer" } });
   expect(route).toBe("/sessions/t-20261029-190507-4d5a/answer");
@@ -421,7 +423,8 @@ test("Answer opens the task at its answer box through a route the native shell a
   const native = createTrayIpc({ __TAURI__: { core: { invoke: async (command, args) => { opened.push(`${command} ${String(args?.route)}`); } } }, location: { assign: () => { throw Error("native must not assign"); } } });
   await performAction({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } }, api, native);
   await performAction({ label: "Answer", op: "task.answer", params: { id: "t-2" } }, api, native);
-  expect(opened).toEqual(["tray_open /sessions/t-1/answer", "tray_open /sessions/t-2/answer"]);
+  // A legacy needs_input question still opens main's Needs you answer panel.
+  expect(opened).toEqual(["tray_open /sessions/t-1/answer", "tray_open /needs-you?answer=t-2"]);
   const browser: string[] = [];
   await performAction({ label: "Answer", op: "ui.open", params: { view: "task", id: "t-1", tab: "answer" } }, api, createTrayIpc({ location: { assign: url => { browser.push(url); } } }));
   expect(browser).toEqual(["/app/#/sessions/t-1/answer"]);

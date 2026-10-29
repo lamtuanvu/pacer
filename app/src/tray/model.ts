@@ -14,7 +14,7 @@ export { displayTitle as shortTitle } from "../../../src/view-model/titles";
  * Tray routes are checked by the native shell (`logic::route`): no query string, and task views use the
  * `/sessions/<id>` form, which the app redirects to the task view. `/sessions/<id>/answer` opens it with the answer box focused.
  */
-export const taskRoute = (id: string, answer = false) => `/sessions/${encodeURIComponent(id)}${answer ? "/answer" : ""}`;
+export const taskRoute = (id: string, answer = false) => answer ? `/sessions/${encodeURIComponent(id)}/answer` : `/sessions/${encodeURIComponent(id)}`;
 export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
