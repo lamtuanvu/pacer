@@ -34,6 +34,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/plugin-ops-protocol` | `pacer-plugin-ops-protocol`: generated `plugin.*` client operation types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/terminal-protocol` | `pacer-terminal-protocol`: generated terminal and host-terminal operation types, split from the client schema under CRATE-3 |
+| `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
@@ -99,7 +100,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 |--------|------------|------------------------|--------|
 | Architecture | `src/plugins/**`, `plugins/**`, `src/**`, `app/**`, `desktop/**`; any new capability or surface | [rules/architecture.md](rules/architecture.md) | Established, plus proposals |
 | API & protocol compatibility | `src/api/**`, `src/serve/**`, `src/mcp/**`, `docs/protocol*.md`, any client reading the API | [rules/api-protocol.md](rules/api-protocol.md) | Established |
-| Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
+| Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows, `src/plugins/**`, `src/identity/**`, `src/discovery/**` | [rules/security.md](rules/security.md) | Established, plus proposals |
 | TypeScript & testing | `src/**`, `app/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
 | UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25; compact density UI-26; spacing ownership UI-27) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |

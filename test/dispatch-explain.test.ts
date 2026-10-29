@@ -9,7 +9,8 @@ import { explainDispatch } from "../src/core/dispatch-explain";
 import { previewDispatch } from "../src/core/dispatch";
 import { blockExecutor } from "../src/executors/blocked";
 import { pause } from "../src/core/pause";
-import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir, withLoginIndicators } from "./helpers";
+import { rankExecutors } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
 
 function setup(used: Record<string, number | null>, extra: Record<string, unknown> = {}) {
@@ -22,11 +23,13 @@ function setup(used: Record<string, number | null>, extra: Record<string, unknow
     executors: { ranked: [], excluded: [] } });
   return { ctx, strategy, deps: { strategy, status } };
 }
-const input = () => ({ repo: tmpDir(), goal: "Fix the login bug", delegationEnforcement: "cooperative" as const });
+const input = () => ({ via: "dispatch" as const, repo: tmpDir(), goal: "Fix the login bug", delegationEnforcement: "cooperative" as const });
 
 test("an eligible executor is chosen with the ladder step and passing reasons", async () => {
   const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
   const r = await explainDispatch(ctx, input(), deps);
+  expect(r.mode).toBe("ladder");
+  expect(r.strategy.source).toBe("built-in");
   expect(r.outcome).toBe("select");
   expect(r.kind).toEqual({ value: "debug", source: "detected" });
   expect(r.chosen).toMatchObject({ executor: "codex", account: "codex", model: { kind: "exact", id: "provider/deep" }, host: null });
@@ -139,7 +142,7 @@ function snapshot(root: string): string[] {
 }
 test("explain writes nothing and runs no agent binary, on a fresh and an initialized home", async () => {
   const calls: string[][] = [];
-  for (const initialized of [false, true]) {
+  for (const initialized of [false, true]) for (const via of ["delegate", "dispatch"] as const) {
     const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
     if (initialized) {
       const { taskDatabase } = await import("../src/dispatch/../tasks/store");
@@ -148,7 +151,7 @@ test("explain writes nothing and runs no agent binary, on a fresh and an initial
     }
     ctx.run = async argv => { calls.push(argv); if (argv[0] === "git") return { code: 1, stdout: "", stderr: "" }; throw new Error(`unexpected spawn: ${argv.join(" ")}`); };
     const before = snapshot(ctx.pacerHome);
-    for (let i = 0; i < 5; i++) await explainDispatch(ctx, { repo: tmpDir(), goal: "Fix a bug" }, deps);
+    for (let i = 0; i < 5; i++) await explainDispatch(ctx, { via, repo: tmpDir(), goal: "Fix a bug" }, deps);
     expect(snapshot(ctx.pacerHome)).toEqual(before);
   }
   expect(calls.every(c => c[0] === "git")).toBe(true);
@@ -228,4 +231,108 @@ test("pacer route --explain refuses an executor session before calling the servi
 test("an oversized strategyDraft is refused", async () => {
   const { ctx, deps } = setup({ "claude-code": 10 });
   await expect(explainDispatch(ctx, { ...input(), strategyDraft: { from: "default", description: "x".repeat(2000) } }, deps)).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("delegate explains ranking even with a dispatch block and no measured model capacity", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: null, cursor: null }, { pacing: { policy: "priority", order: ["cursor", "codex"] } });
+  strategy.dispatch = dispatchConfigSchema.parse({});
+  const status = await deps.status();
+  const route = rankExecutors("debug", strategy, Object.fromEntries(status.providers.map(p => [p.id, p])));
+  const r = await explainDispatch(ctx, { ...input(), via: "delegate", kind: "debug" }, deps);
+  expect(r).toMatchObject({ mode: "ranked", outcome: "select", chosen: { runner: route.ranked[0].id, model: { kind: "executor-default" } }, step: null });
+  expect(r.reasons[0]).toMatchObject({ code: "rank_match", text: route.ranked[0].reason });
+  expect(r.fallbacks.filter(f => f.state === "eligible").map(f => f.runner)).toEqual(route.ranked.slice(1).map(e => e.id));
+  // The dispatch entry point uses the ladder with the same strategy.
+  expect(await explainDispatch(ctx, input(), deps)).toMatchObject({ mode: "ladder", outcome: "queue", chosen: null });
+});
+
+test("without dispatch, explain agrees with the routing.route operation", async () => {
+  const ctx = withLoginIndicators(fakeCtx());
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}, cursor: {}}\npacing: {policy: priority, order: [cursor, codex]}\n");
+  const params = { repo: tmpDir(), goal: "Fix a bug", kind: "debug" };
+  const route = await callOp(ctx, "routing.route", { kind: params.kind, repo: params.repo }) as { ranked: { id: string; reason: string }[] };
+  expect(route.ranked.length).toBeGreaterThan(0);
+  const before = snapshot(ctx.pacerHome);
+  const r = await callOp(ctx, "dispatch.explain", params);
+  expect(r).toMatchObject({ mode: "ranked", outcome: "select", chosen: { runner: route.ranked[0].id } });
+  expect(snapshot(ctx.pacerHome)).toEqual(before);
+});
+
+test("unmanaged ranking applies executor blocks without managed enforcement or engine calls", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: null, cursor: null });
+  delete strategy.dispatch;
+  blockExecutor(ctx, "codex");
+  const r = await explainDispatch(ctx, { ...input(), via: "delegate" }, { ...deps, engine: { id: "unused", version: "1", decide: async () => { throw new Error("managed engine called"); } } });
+  expect(r).toMatchObject({ mode: "ranked", chosen: { runner: "cursor" } });
+  expect(r.fallbacks.find(f => f.runner === "codex")).toMatchObject({ state: "excluded", reason: { code: "blocked_by_user" } });
+  expect(r.uncertainty.some(r => r.code === "enforcement_unverified")).toBe(false);
+  expect(await explainDispatch(ctx, { ...input(), via: "delegate", executor: "codex" }, deps)).toMatchObject({ mode: "ranked", outcome: "fail", chosen: null });
+});
+
+test("unmanaged explanations queue when paused or no executors are ranked", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: 20 });
+  delete strategy.dispatch;
+  pause(ctx, { for: "1h" });
+  expect(await explainDispatch(ctx, { ...input(), via: "delegate" }, deps)).toMatchObject({ mode: "ranked", outcome: "queue", chosen: null, reasons: [{ code: "paused" }] });
+  const empty = setup({ "claude-code": 10 });
+  delete empty.strategy.dispatch;
+  expect(await explainDispatch(empty.ctx, { ...input(), via: "delegate" }, empty.deps)).toMatchObject({ mode: "ranked", outcome: "queue", chosen: null, reasons: [{ code: "no_executor_ranked" }] });
+});
+
+test("unmanaged revision ignores elapsed time over the same routing facts", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
+  delete strategy.dispatch;
+  const a = await explainDispatch(ctx, { ...input(), via: "delegate" }, deps);
+  const later = await explainDispatch({ ...ctx, now: ctx.now + 5 }, { ...input(), via: "delegate" }, deps);
+  expect(later.revision).toBe(a.revision);
+});
+
+test("a legacy work node without dispatch config agrees with the runner's ladder resolution", async () => {
+  const { createTask } = await import("../src/tasks/store");
+  const { registerWork } = await import("../src/dispatch/work");
+  const { resolveTaskDispatch } = await import("../src/dispatch/runtime");
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
+  const params = { ...input(), kind: "debug" };
+  expect(strategy.dispatch).toBeUndefined();
+  const task = createTask(ctx, { brief: { repo: params.repo, goal: params.goal }, kind: "debug", requestedExecutor: null, timeoutS: 600 });
+  const work = registerWork(ctx, task.id, { kind: "debug" });
+  // Existing cooperative work remains supported; new roots require strict enforcement.
+  const { dispatchDatabase } = await import("../src/dispatch/store");
+  dispatchDatabase(ctx).query("UPDATE work_nodes SET options=? WHERE task_id=?")
+    .run(JSON.stringify({ ...work.options, delegationEnforcement: "cooperative" }), task.id);
+  const actual = await resolveTaskDispatch(ctx, task, strategy, await deps.status(), new Set());
+  const explained = await explainDispatch(ctx, params, deps);
+  if (actual.proposal?.state !== "ranked") throw new Error("expected runner ladder selection");
+  const chosenId = actual.proposal.choices[0].id;
+  expect(explained).toMatchObject({ mode: "ladder", strategy: { source: "built-in" },
+    chosen: { runner: actual.request.candidates.find(c => c.id === chosenId)?.runner } });
+});
+
+test("delegate reports ignored dispatch inputs and uses strategy ranking", async () => {
+  const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 }, { dispatch: {} });
+  const r = await explainDispatch(ctx, { ...input(), via: "delegate", requirements: { tools: true },
+    preferences: { models: ["other"] }, model: "other", difficulty: "complex" }, deps);
+  expect(r).toMatchObject({ mode: "ranked", strategy: { source: "strategy" } });
+  expect(r.uncertainty.find(r => r.code === "ranked_inputs_ignored")?.facts.fields).toBe("requirements, preferences, model, difficulty");
+});
+
+test("delegate includes the planner only for conversations, as the runner does", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: 20 });
+  const params = { ...input(), via: "delegate", executor: "claude-code", interactionMode: "conversation" };
+  const status = await deps.status();
+  const actual = rankExecutors("debug", strategy, Object.fromEntries(status.providers.map(p => [p.id, p])),
+    { executors: ["claude-code"], order: "configured" }, { includePlanner: true });
+  expect(await explainDispatch(ctx, params, deps)).toMatchObject({ chosen: { runner: actual.ranked[0].id } });
+  expect((await explainDispatch(ctx, { ...params, interactionMode: "delegated", allowDelegation: true }, deps)).chosen?.runner).toBe("codex");
+});
+
+test("a conversation's blocked requested executor is explained like a delegated task's, as the runner decides", async () => {
+  const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
+  blockExecutor(ctx, "codex");
+  const conversation = await explainDispatch(ctx, { ...input(), via: "delegate", interactionMode: "conversation", executor: "codex" }, deps);
+  const delegated = await explainDispatch(ctx, { ...input(), via: "delegate", interactionMode: "delegated", executor: "codex" }, deps);
+  expect(conversation).toMatchObject({ outcome: delegated.outcome, chosen: delegated.chosen });
+  expect(conversation.reasons.some(r => r.code === "blocked_by_user")).toBe(true);
+  expect(conversation.reasons.some(r => r.text.includes("waits for this executor"))).toBe(false);
 });

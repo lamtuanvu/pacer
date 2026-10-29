@@ -148,27 +148,45 @@ pub fn adoption_context(
     binding: &super::super::wire::Binding,
     trust: &ReleaseTrust,
 ) -> Result<AdoptionContext, OtaError> {
-    let context: AdoptionContext = request(
-        endpoint,
-        binding,
-        trust,
-        "adoption-context",
-        serde_json::json!({}),
-    )?;
-    if context.schema != 1
-        || context.transaction_kind != "adoption"
-        || context.binding != *binding
-        || context.source.target.id != binding.installation_id
-        || context.service != *endpoint.process
-        || context.service_executable != endpoint.executable.to_string_lossy()
-        || context.protocol != 3
-        || context.admission_protocol != 1
-        || !context.state_compatible
-    {
-        return Err(OtaError::Identity);
-    }
-    Ok(context)
+    let until = std::time::Instant::now() + HANDSHAKE_RETRY;
+    // Only this read-only request may repeat after a lost reply. Mutating
+    // requests retain their existing single-exchange behavior.
+    deadline::retry(
+        until,
+        std::time::Instant::now,
+        std::thread::sleep,
+        |until| {
+            let (mut stream, session) = authenticate_service_adoption_until(
+                endpoint,
+                trust,
+                "helper",
+                None,
+                None,
+                Some(until),
+            )?;
+            write_frame_until(
+                &mut stream,
+                &serde_json::json!({"schema":1,"kind":"adoption-context","transactionKind":"adoption","sessionId":session.session_id,"sequence":1,"binding":binding}),
+                Some(until),
+            )?;
+            let context: AdoptionContext = read_frame_until(&mut stream, Some(until))?;
+            if context.schema != 1
+                || context.transaction_kind != "adoption"
+                || context.binding != *binding
+                || context.source.target.id != binding.installation_id
+                || context.service != *endpoint.process
+                || context.service_executable != endpoint.executable.to_string_lossy()
+                || context.protocol != 3
+                || context.admission_protocol != 1
+                || !context.state_compatible
+            {
+                return Err(OtaError::Identity);
+            }
+            Ok(context)
+        },
+    )
 }
+
 pub fn prepare_adoption_reconnect(
     endpoint: &ServiceEndpoint<'_>,
     binding: &super::super::wire::Binding,

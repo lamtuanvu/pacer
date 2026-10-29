@@ -1,6 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import * as childProcess from "node:child_process";
+import { once } from "node:events";
 import { buildActivity, hourBin, loadActivity } from "../src/pace/activity";
 import * as activity from "../src/pace/activity";
 import { fakeCtx, localTs } from "./helpers";
@@ -125,15 +127,25 @@ test("detached activity child releases the parent's lock immediately after rebui
   const ctx = fakeCtx();
   const argv = process.argv[1];
   const lock = join(ctx.pacerHome, "activity.lock");
+  // Observe the real detached child. Completion, rather than a three-second
+  // startup budget, is the boundary at which the lock must already be gone.
+  const realSpawn = childProcess.spawn;
+  let completion: Promise<unknown[]> | undefined;
+  const spawn = spyOn(childProcess, "spawn").mockImplementation(((...args: Parameters<typeof realSpawn>) => {
+    const child = realSpawn(...args);
+    completion = once(child, "exit");
+    return child;
+  }) as typeof realSpawn);
   try {
     process.argv[1] = new URL("../src/cli.ts", import.meta.url).pathname;
     expect(activity.tryActivityLock(ctx)).toBe(true);
     activity.backgroundRebuild(ctx);
-  } finally { process.argv[1] = argv; }
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline && (!existsSync(join(ctx.pacerHome, "activity.json")) || existsSync(lock))) {
-    await Bun.sleep(20);
+  } finally {
+    process.argv[1] = argv;
+    spawn.mockRestore();
   }
+  expect(completion).toBeDefined();
+  expect(await completion!).toEqual([0, null]);
   expect(existsSync(join(ctx.pacerHome, "activity.json"))).toBe(true);
   expect(existsSync(lock)).toBe(false);
 });

@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "transactionKind": "takeover",
+  "transactionId": "fixture-tx",
+  "candidate": {
+    "label": "com.pacer.serve",
+    "registrationSha256": "9ceec13202afbf12ee3abb994c669c711749c18e194326734db6123e94947e04",
+    "process": {
+      "pid": 123,
+      "bootId": "boot",
+      "birth": "one"
+    },
+    "program": "/tmp/pacer-fixture/pacer",
+    "canonicalProgram": "/tmp/pacer-fixture/pacer",
+    "identity": {
+      "device": "1",
+      "inode": "2",
+      "size": 5,
+      "modifiedNs": "4",
+      "changedNs": "5",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "cdhash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "home": "/tmp/pacer-fixture/home",
+    "port": 4317
+  },
+  "desktop": {
+    "pid": 456,
+    "bootId": "boot",
+    "birth": "two"
+  },
+  "bundledCli": "/tmp/pacer-fixture/app/pacer",
+  "originalRegistrationB64": "cGxpc3Q=",
+  "relinkTerminal": false,
+  "authorizedAt": {
+    "bootId": "boot",
+    "millis": 1
+  }
+}

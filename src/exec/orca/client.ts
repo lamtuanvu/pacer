@@ -1,5 +1,7 @@
 import type { RunFn } from "../../types";
 import { isObj } from "../../util";
+import { sanitizedOrcaEnv } from "../attestation-env";
+export { sanitizedOrcaEnv } from "../attestation-env";
 
 export interface OrcaError { code: string; message: string }
 export type OrcaReply<T> = { ok: true; result: T } | { ok: false; error: OrcaError };
@@ -10,9 +12,7 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
-export interface WorktreeRow { id?: string; path?: string }
-export interface WorktreeCreateOpts { repoId: string; name: string; baseBranch: string; parentWorktree?: string; noParent?: boolean }
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreePath?: string }
+export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
@@ -27,13 +27,15 @@ export interface WorkerStartResult {
 }
 export interface WorkerClosureResult { dispatchId?: string; state?: string; processAction?: string; close?: { handle?: string; ptyKilled?: boolean } }
 export interface WorkerRow { state?: string; stage?: string; worktreeId?: string; agentTerminalHandle?: string; lastError?: string | null }
+export interface WorkerListRow { dispatchId?: string; workerState?: string; agentTerminalHandle?: string; resource?: { terminalHandle?: string } }
+export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean }
 export interface OrcaMessage { id: string; type: string; from_handle?: string; subject?: string; body?: string; payload?: string | null }
 export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage[]; timedOut?: boolean; acknowledged?: string | null }
 
 export type Placement =
-  | { kind: "new-child"; repoId: string; baseBranch: string; name: string }
+  | { kind: "new-child"; repoId: string; baseBranch: string; name: string; parentWorktree?: string }
   | { kind: "existing"; selector: string };
-export interface WorkerStartOpts { spec: string; agent: string; model: string | null; placement: Placement; run: string; from: string }
+export interface WorkerStartOpts { spec: string; terminal: string; worktree: string; run: string; from: string }
 
 export const WAKE_TYPES = "worker_done,escalation,question";
 export const CALL_TIMEOUT_MS = 30_000;
@@ -56,13 +58,9 @@ export function parseOrcaOutput(stdout: string): unknown {
 }
 
 export function workerStartArgs(o: WorkerStartOpts): string[] {
-  const place = o.placement.kind === "new-child"
-    ? ["--worktree", "new-child", "--repo", `id:${o.placement.repoId}`, "--base-branch", o.placement.baseBranch,
-      "--name", o.placement.name, "--setup", "skip"]
-    : ["--worktree", o.placement.selector];
   return [
-    "orchestration", "worker-start", "--spec", o.spec, "--agent", o.agent, ...(o.model ? ["--model", o.model] : []),
-    ...place, "--run", o.run, "--from", o.from,
+    "orchestration", "worker-start", "--spec", o.spec, "--terminal", o.terminal,
+    "--worktree", o.worktree, "--run", o.run, "--from", o.from,
   ];
 }
 
@@ -97,15 +95,6 @@ export function isLiveTerminal(r: OrcaReply<{ terminal?: TerminalRow }>): boolea
   return r.ok && r.result.terminal?.connected === true && r.result.terminal?.writable === true;
 }
 
-/** Remove caller attestation: pacer owns its coordinator identity. */
-export function sanitizedOrcaEnv(source: Record<string,string|undefined> = process.env): Record<string,string|undefined> {
-  const env = {...source}, named = source.ORCA_AGENT_SESSION_ID_ENV;
-  for (const key of Object.keys(env)) {
-    if (["ORCA_AGENT_SESSION_ID","ORCA_AGENT_SESSION_ID_ENV","ORCA_TERMINAL_HANDLE","ORCA_PANE_KEY","ORCA_TAB_ID","ORCA_WORKTREE_ID","ORCA_AGENT_LAUNCH_TOKEN",named].includes(key) || key.startsWith("ORCA_AGENT_HOOK_") || key.startsWith("ORCA_SESSION_")) delete env[key];
-  }
-  return env;
-}
-
 /** Every orca CLI call pacer makes. `run` is injectable (Ctx.run), so tests answer from recorded receipts. */
 export class OrcaClient {
   constructor(private readonly run: RunFn, private readonly env: Record<string,string|undefined> = process.env) {}
@@ -130,29 +119,33 @@ export class OrcaClient {
   status() { return this.call<StatusResult>(["status"], 15_000); }
   repoList() { return this.call<{ repos?: RepoRow[] }>(["repo", "list"]); }
   repoAdd(path: string) { return this.call<{ repo: RepoRow }>(["repo", "add", "--path", path]); }
-  terminalCreate(worktree: string, title: string) {
-    return this.call<{ terminal: TerminalRow }>(["terminal", "create", "--worktree", worktree, "--title", title]);
+  terminalCreate(worktree: string, title: string, command?: string) {
+    return this.call<{ terminal: TerminalRow }>(["terminal", "create", "--worktree", worktree, "--title", title,
+      ...(command ? ["--command", command] : [])]);
   }
+  terminalWait(handle: string) { return this.call<{ wait?: { satisfied?: boolean; blockedReason?: string | null; status?: string } }>(
+    ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "60000"], 65_000); }
+  /** `parentWorktree` nests the new worktree under a `--group`'s shared parent; `noParent` creates a top-level one. */
+  worktreeCreate(p: Extract<Placement, {kind: "new-child"}> & { noParent?: boolean }) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
+    ["worktree", "create", "--name", p.name, "--repo", `id:${p.repoId}`, "--base-branch", p.baseBranch, "--setup", "skip",
+      ...(p.parentWorktree ? ["--parent-worktree", p.parentWorktree] : p.noParent ? ["--no-parent"] : [])]); }
+  worktreeShow(path: string) { return this.worktreeShowBy(`path:${path}`); }
+  worktreeShowBy(selector: string) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", selector]); }
+  worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }
+  terminalList(worktree: string) { return this.call<{ terminals?: TerminalRow[]; truncated?: boolean }>(["terminal", "list", "--worktree", worktree]); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }
-  /** Orca's own visual nesting primitive, used to group lanes under a named parent (worker-start's `new-child` has no `--parent-worktree` passthrough). */
-  worktreeCreate(o: WorktreeCreateOpts) {
-    return this.call<{ worktree?: WorktreeRow }>([
-      "worktree", "create", "--repo", `id:${o.repoId}`, "--name", o.name, "--base-branch", o.baseBranch,
-      ...(o.parentWorktree ? ["--parent-worktree", o.parentWorktree] : o.noParent ? ["--no-parent"] : []),
-    ]);
-  }
-  /** Best-effort cleanup for a worktree `worktreeCreate` made that no worker ever started in. */
-  worktreeRemove(selector: string) {
-    return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", selector, "--force"]);
-  }
   runCreate(objective: string, from: string) {
     return this.call<{ run: RunRow }>(["orchestration", "run-create", "--objective", objective, "--from", from]);
   }
   runShow(id: string) { return this.call<{ run: RunRow }>(["orchestration", "run-show", "--id", id]); }
   workerStart(o: WorkerStartOpts) { return this.call<WorkerStartResult>(workerStartArgs(o), START_TIMEOUT_MS); }
+  workerList(run: string, cursor?: string) {
+    return this.call<{ workers?: WorkerListRow[]; page?: { hasMore?: boolean; nextCursor?: string | null }; scope?: { run?: string } }>(
+      ["orchestration", "worker-list", "--run", run, ...(cursor ? ["--cursor", cursor] : [])]);
+  }
   workerShow(dispatch: string) { return this.call<{ worker?: WorkerRow }>(["orchestration", "worker-show", "--dispatch", dispatch]); }
   workerRead(dispatch: string, limit: number) {
     return this.call<{ terminal?: { tail?: string[] } }>(["orchestration", "worker-read", "--dispatch", dispatch, "--limit", String(limit)]);

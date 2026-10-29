@@ -11,6 +11,10 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "helper_parent.rs"]
+mod parent_proof;
+
 #[cfg(target_os = "macos")]
 #[path = "helper_adoption.rs"]
 mod adoption;
@@ -62,7 +66,7 @@ impl Bootstrap {
     }
     fn verify_parent(&self, trust: &ReleaseTrust) -> Result<(), OtaError> {
         let parent = unsafe { libc::getppid() };
-        if parent <= 1 || parent as u32 != self.service.pid {
+        if parent <= 1 {
             return Err(OtaError::Identity);
         }
         let verified = trust.verify_process(&self.service, CodeRole::Cli)?;
@@ -73,6 +77,12 @@ impl Bootstrap {
             .map_err(|_| OtaError::Identity)?
             != self.executable
         {
+            return Err(OtaError::Identity);
+        }
+        if parent as u32 != self.service.pid {
+            #[cfg(target_os = "macos")]
+            parent_proof::verify(verified.details(), parent as u32, trust)?;
+            #[cfg(not(target_os = "macos"))]
             return Err(OtaError::Identity);
         }
         if let Some(fixture) = trust.fixture_policy() {
@@ -90,6 +100,41 @@ impl Bootstrap {
             executable: &self.executable,
         }
     }
+}
+#[cfg(target_os = "macos")]
+pub(crate) fn verify_takeover_parent(
+    manifest: &super::takeover::journal::TakeoverManifest,
+    trust: &ReleaseTrust,
+) -> Result<(), OtaError> {
+    let pid = unsafe { libc::getppid() };
+    if pid <= 1 || pid as u32 != manifest.desktop.pid {
+        return Err(OtaError::Identity);
+    }
+    let verified = trust.verify_process(&manifest.desktop, CodeRole::Desktop)?;
+    let app = manifest
+        .bundled_cli
+        .parent()
+        .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::parent)
+        .ok_or(OtaError::Identity)?;
+    let desktop = app.join("Contents/MacOS/pacer");
+    let helper = app.join("Contents/Resources/pacer-update-helper");
+    if verified
+        .details()
+        .executable
+        .canonicalize()
+        .map_err(|_| OtaError::Identity)?
+        != desktop
+        || std::env::current_exe()
+            .map_err(|_| OtaError::Identity)?
+            .canonicalize()
+            .map_err(|_| OtaError::Identity)?
+            != helper
+    {
+        return Err(OtaError::Identity);
+    }
+    trust.verify_static(&manifest.bundled_cli, CodeRole::Cli)?;
+    trust.verify_static(&helper, CodeRole::Helper)
 }
 struct Responses<W: Write> {
     output: W,
@@ -645,14 +690,24 @@ mod tests {
 
 /// Fixed fixture entry point that installs the lease's external service.
 #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
-pub async fn fixture_attach() -> Result<serde_json::Value, OtaError> {
+pub async fn fixture_attach(takeover: bool) -> Result<serde_json::Value, OtaError> {
     let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
     let own = super::native::process_details(std::process::id())
         .map_err(|_| OtaError::Identity)?
         .ok_or(OtaError::Identity)?;
     trust.verify_process(&own.identity, CodeRole::Helper)?;
     trust.verify_static(&own.executable, CodeRole::Helper)?;
-    serde_json::to_value(super::platform::fixture_attach(&trust).await?)
+    serde_json::to_value(super::platform::fixture_attach(&trust, takeover).await?)
+        .map_err(|_| OtaError::Invalid)
+}
+
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+pub async fn fixture_refresh_takeover() -> Result<serde_json::Value, OtaError> {
+    let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
+    let own = super::native::process_details(std::process::id())
+        .map_err(|_| OtaError::Identity)?.ok_or(OtaError::Identity)?;
+    trust.verify_process(&own.identity, CodeRole::Helper)?;
+    serde_json::to_value(super::platform::fixture_refresh_takeover(&trust).await?)
         .map_err(|_| OtaError::Invalid)
 }
 

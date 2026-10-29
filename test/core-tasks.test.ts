@@ -182,3 +182,9 @@ test("group rejects invalid names", () => {
   expect(()=>tasks.delegate(ctx,{brief,group:"-bad"},()=>1,s)).toThrow(/group must be/);
   expect(()=>tasks.delegate(ctx,{brief,group:"x".repeat(41)},()=>1,s)).toThrow(/group must be/);
 });
+test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by default", () => {
+  const brief={goal:"g",repo:tmpDir(),acceptance:"test -f x"};
+  expect(parseDelegateBrief(brief,brief.repo).brief.pipefail).toBeUndefined();
+  expect(parseDelegateBrief({...brief,acceptance_pipefail:true},brief.repo).brief.pipefail).toBe(true);
+  expect(parseDelegateBrief({...brief,acceptance_pipefail:false},brief.repo).brief.pipefail).toBe(false);
+});

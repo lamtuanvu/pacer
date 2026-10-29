@@ -14,6 +14,7 @@ import type { BrowserApi } from '../../data/api';
 import { useActions } from "../../data/action-context";
 import { Button } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
+import { withQuery, type RouteQuery } from "../../router";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
@@ -25,12 +26,23 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
  return polled??event;
 }
 export const SettingsPageContext = createContext<string | null>(null);
+/** The route's repo and scope, so links between settings pages keep them. */
+export const SettingsQueryContext = createContext<RouteQuery>({ repo: null, scope: null });
+export function useScoped() { const query = useContext(SettingsQueryContext); return (href: string) => withQuery(href, query); }
 
 export function Section({id,title,detail,actions,children,step}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren;step?:number}) {
  useSettingsStyles();
  const page = useContext(SettingsPageContext) === id;
  if (step !== undefined) return <section aria-label={title} id={id} className="pc-settings-step"><span className="pc-settings-step__number" aria-hidden="true">{step}</span><div className="pc-settings-step__body"><div className="pc-settings-step__heading"><h2>{title}</h2>{detail && <p>{detail}</p>}{actions}</div>{children}</div></section>;
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
+}
+/** Board page heading and block rhythm shared by the Slice 6b editors. */
+export function SettingsBoard({id,title,caption,actions,children}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren}) {
+ useSettingsStyles();
+ return <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
+  <header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header>
+  {children}
+ </section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.
@@ -50,11 +62,14 @@ export function ResourceState({resource,empty,children}:{resource:{data:unknown;
  if(Array.isArray(resource.data)&&resource.data.length===0)return <EmptyState title={empty??'Nothing here yet.'}/>;
  return <>{children}</>;
 }
-export interface OperationResult {data:unknown;message:string;hint?:string;command?:string;job?:Job;jobId?:string;path?:string;undo?:string}
+export interface OperationResult {data:unknown;message:string;hint?:string;command?:string;job?:Job;jobId?:string;path?:string;undo?:string;warning?:string}
 export async function performOperation(call:BrowserApi['call'],op:string,params:unknown):Promise<OperationResult> {
  const data=await call<unknown>(op,params),r=(data&&typeof data==='object'?data:{}) as Record<string,unknown>;
  const candidate=(r.job??(r.steps&&r.id?r:undefined)) as Job|string|undefined;
- return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
+ return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,warning:typeof r.warning==='string'?r.warning:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
+}
+export function shouldNotifySuccess(result: OperationResult, enabled = true): boolean {
+ return !result.jobId && !result.warning && enabled;
 }
 export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean} = {}) {
  const notifications=useNotifications();
@@ -73,7 +88,7 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
    const outcome=await runner.run(key,{label:operation,op:operation,params:payload as Record<string,unknown>});
    if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message+('hint' in outcome&&outcome.hint?` · ${outcome.hint}`:''));
    return runner.result(key) as T;
-  },op,params);setResult(r);if(!r.jobId && options.notifySuccess !== false)notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
+  },op,params);setResult(r);if(shouldNotifySuccess(r, options.notifySuccess !== false))notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
  return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
@@ -83,7 +98,7 @@ export function JobProgress({job}:{job:Job}) {
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
- return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
+ return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&!action.result.warning&&<span>{action.result.message}</span>}{action.result.warning&&<Alert tone="warning" title={action.result.warning}/>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
 export function Segment(props:{variant?:"board";label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');

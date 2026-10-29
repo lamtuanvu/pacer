@@ -89,6 +89,7 @@ export class PluginRegistry {
       if (m.id !== folder) refusal = `manifest id ${m.id} does not match folder ${folder}`;
       else if (!PLUGIN_ID.test(folder)) refusal = `invalid folder name ${folder}`;
       else if (!m.entry || isAbsolute(m.entry) || normalize(m.entry).startsWith("..")) refusal = "entry must be a relative path inside the plugin folder";
+      else if (Object.hasOwn(m.contributes, "assistant")) refusal = "only bundled plugins may serve the assistant extension point until installed plugins are sandboxed";
       else if (!hostRangeAccepts(m.host, PLUGIN_PROTOCOL_VERSION)) refusal = `needs host ${m.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
       apply(this.entry(folder, refusal ? null : m, false, dir), refusal, cfg.installed[folder] ?? null);
     }
@@ -159,7 +160,12 @@ export class PluginRegistry {
 
   private spec(ctx: Ctx, e: Entry): SpawnSpec {
     const env = { PATH: ctx.env.PATH, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLUGIN_ID: e.id, PACER_PLUGIN_PROTOCOL: PLUGIN_PROTOCOL_VERSION };
-    if (e.bundled) return { ...this.deps.spawnBundled(ctx, e.id), env };
+    if (e.bundled) {
+      const spec = this.deps.spawnBundled(ctx, e.id);
+      // Only the trusted launcher may issue a fixed development core selector.
+      // Installed peers never inherit it, nor any other launcher environment.
+      return { ...spec, env: { ...env, ...(typeof spec.env.PACER_CORE_ARGV === "string" ? {PACER_CORE_ARGV:spec.env.PACER_CORE_ARGV} : {}) } };
+    }
     return { argv: [join(e.dir!, e.manifest!.entry!)], cwd: e.dir!, env };
   }
 
@@ -311,7 +317,7 @@ export class PluginRegistry {
     try { await proc.terminate(); } finally { e.stopping = false; e.process = undefined; }
   }
 
-  async call<T>(ctx: Ctx, id: string, method: string, params: unknown): Promise<T> {
+  async call<T>(ctx: Ctx, id: string, method: string, params: unknown, o: { deadlineMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     const e = this.find(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const def = EXTENSION_METHODS[method];
@@ -320,7 +326,7 @@ export class PluginRegistry {
       const proc = await this.start(ctx, e);
       const point = method.split(".")[0]!;
       if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
-      const out = await proc.request<unknown>(method, params, def.deadlineMs);
+      const out = await proc.request<unknown>(method, params, Math.min(o.deadlineMs ?? def.deadlineMs, def.deadlineMs), o.signal);
       if (!method.startsWith("ui.")) return out as T;
       const checked = def.result.safeParse(out);
       if (!checked.success) { appendPluginLog(ctx, id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${id} returned an invalid ${method} result`); }

@@ -5,6 +5,7 @@ import type { Ctx } from '../types';
 /** Preserve caller role when a planner-owned daemon performs the operation. */
 export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<string, unknown>): void {
   if (!isExecutorSession(ctx)) return;
+  if (name.startsWith('assistant.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executors cannot use the assistant or read its history.');
   if (name.startsWith('plugin.ui.') || name.startsWith('plugin.settings.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: plugin UI and settings are for the app and the operator, not executor sessions.');
   if (name === 'plugin.enable' && params.grant === true) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executor sessions cannot grant plugin access.');
   if (name === 'dispatch.explain') throw new ApiError('not_allowed', 'PACER_ROLE=executor: route explanations are for planners and people; executors do not choose where work goes.');

@@ -20,6 +20,7 @@ import { boundedGitRead } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
+import { cleanHostWorktree, reconcileHostWork } from "../exec/cleanup";
 import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
@@ -342,16 +343,25 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
 /** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
+  const shared = (t: TaskRecord, path: string) => listTasksWhere(ctx).some(other => other.id !== t.id
+    && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(path).real
+    && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
+  if (!o.dryRun) await reconcileHostWork(ctx);
   for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
-    if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
+    if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved)) continue;
+    const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
+    if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
+    if (host) {
+      if (!o.dryRun) cleanTaskRuns(ctx, t);
+      if ("removed" in host) removed.push(t.id);
+      continue;
+    }
+    if (t.run?.mode !== "new") continue;
     const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
     if (!wt.startsWith(root) || (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; }))) continue;
     const path = join(root, ...wt.slice(root.length).split("/").slice(0, 2)); // worktree root: <root>/<repo-tag>/<task-id>
-    const shared = listTasksWhere(ctx).some(other => other.id !== t.id
-      && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(wt).real
-      && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
-    if (shared) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
+    if (shared(t, wt)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
     if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
     if (o.dryRun) { removed.push(t.id); continue; }
     if (t.run.host) {

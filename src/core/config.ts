@@ -17,15 +17,18 @@ import { plannerAccounts } from "../install/init";
 
 import { LAUNCH_MODES, validateExecution } from '../config/execution';
 
-const pendingEdits = new Set<string>();
+export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it is.";
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.launch_mode','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+const pendingEdits = new Set<string>();
+const BACKEND_OVERRIDE_HINT = 'PACER_BACKEND overrides the saved task backend setting.';
+
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
@@ -42,6 +45,7 @@ function parseValue(key:ConfigKey, value:string): unknown {
     return n;
   }
   if(key==='execution.launch_mode' && !(LAUNCH_MODES as readonly string[]).includes(value)) throw new CoreError('invalid_input', 'execution.launch_mode must be interactive or headless');
+  if(key==='execution.backend' && !['orca','direct'].includes(value)) throw new CoreError('invalid_input', 'execution.backend must be orca or direct');
   if(key==='pacing.order') {
     if(value==='') return [];
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');
@@ -64,7 +68,9 @@ export function get(ctx: Ctx) {
   try {
     const s = loadStrategy(ctx), path = strategyPath(ctx), doc = new StrategyDoc(readFileSync(path, 'utf8')), values = effective(s, doc);
     return {
-      keys: Object.fromEntries(CONFIG_KEYS.map(key => [key, {value: values[key], source: doc.getIn(key.split('.')) === undefined ? 'default' : path}])),
+      keys: Object.fromEntries(CONFIG_KEYS.map(key => [key, key === 'execution.backend' && ctx.env.PACER_BACKEND
+        ? {value: ctx.env.PACER_BACKEND === 'orca' ? 'orca' : 'direct', source: 'env PACER_BACKEND'}
+        : {value: values[key], source: doc.getIn(key.split('.')) === undefined ? 'default' : path}])),
       terminalChoices: process.platform === 'darwin'
         ? [{value:'auto',label:'Automatic'},{value:'terminal-app',label:'Terminal'},{value:'iterm',label:'iTerm'},{value:'ghostty',label:'Ghostty'}]
         : [{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'},{value:'wezterm',label:'WezTerm'},{value:'kitty',label:'Kitty'},{value:'alacritty',label:'Alacritty'},{value:'gnome-terminal',label:'GNOME Terminal'},{value:'x-terminal-emulator',label:'System terminal'}],
@@ -74,10 +80,11 @@ export function get(ctx: Ctx) {
 }
 
 /** Validate before writing; integration failure rolls back our strategy edit. */
-export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean} = {}) {
+export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean; backendReady?: (ctx: Ctx, s: Strategy, id: string) => Promise<boolean>} = {}) {
   const editKey = `${strategyPath(ctx)}:${keyInput}`;
   if (pendingEdits.has(editKey)) throw new CoreError('conflict', 'This setting is already being changed', 'Refresh and retry.');
   pendingEdits.add(editKey);
+  let ownsEdit = true;
   try {
     const path=strategyPath(ctx), s=loadStrategy(ctx), before=readFileSync(path,'utf8'), doc=new StrategyDoc(before), values=effective(s,doc);
     const applyEdit = (change: Parameters<typeof editStrategy>[1]) => {
@@ -132,6 +139,21 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
       }
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):setValue(d));
     await publishConfigChange(ctx, "config");
-    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
-  } catch (e) { throw toCoreError(e); } finally { pendingEdits.delete(editKey); }
+    pendingEdits.delete(editKey);
+    ownsEdit = false;
+    // Readiness is only a hint; never hold the edit lock while probing Orca.
+    let warning: string | undefined;
+    let hint: string | undefined;
+    if (key === 'execution.backend' && ctx.env.PACER_BACKEND) {
+      notes.push(hint = BACKEND_OVERRIDE_HINT);
+    } else if (key === 'execution.backend' && value === 'orca' && options.backendReady) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const ready = await Promise.race([
+        Promise.resolve().then(() => options.backendReady!(ctx, next, value)).catch(() => false),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
+      ]).finally(() => { if (timer) clearTimeout(timer); });
+      if (!ready) notes.push(warning = ORCA_NOT_RUNNING);
+    }
+    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes, ...(warning ? {warning} : {}), ...(hint ? {hint} : {})};
+  } catch (e) { throw toCoreError(e); } finally { if (ownsEdit) pendingEdits.delete(editKey); }
 }

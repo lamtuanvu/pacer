@@ -36,7 +36,7 @@ import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
-import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
+import { conversationFallback, type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
@@ -66,34 +66,11 @@ export function observedAttemptModel(runner:string,stdout:string):string|null {
 }
 const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
 
-/**
- * Passing any explicit `CandidateSelection` into `rankExecutors` takes its `if (selection)` branch,
- * which sorts by array order alone and skips the `pacing.policy` ordering (priority promotion/
- * demotion, headroom/fill reordering) entirely — correct for a real project selection, which is a
- * curated order to respect verbatim, but not for widening a conversation's pool, which must keep
- * that ordering for every other candidate. So a conversation ranks with no selection override at
- * all (exactly like a delegated task with no project policy), and only afterward, if its requested
- * executor was left out of the routing pool entirely (e.g. the planner's own account, excluded by
- * every routing rule), is that one candidate ranked on its own — a lone selection trivially keeps
- * its own order — and appended as a last-resort fallback, never disturbing the real sort above it.
- */
-function conversationFallback(
-  ranking: ReturnType<typeof rankExecutors>, kind: string | null, s: Strategy,
-  byId: Record<string, Status["providers"][number]>, requested: string | null,
-): void {
-  if (!requested || ranking.ranked.some(e => e.id === requested) || ranking.excluded.some(e => e.id === requested)) return;
-  const solo = rankExecutors(kind, s, byId, { executors: [requested], order: "configured" }, { includePlanner: true });
-  if (!solo.ranked.length) { ranking.excluded.push(...solo.excluded); return; }
-  const floor = Math.min(1, ...ranking.ranked.map(e => e.score));
-  ranking.ranked.push({ ...solo.ranked[0], score: floor - 1 });
-  if (solo.uncertain?.length) (ranking.uncertain ??= []).push(...solo.uncertain);
-}
-
 export interface RunnerDeps {
   loadStrategy: (ctx: Ctx) => Strategy;
   computeStatus: (ctx: Ctx, s: Strategy, opts?: Parameters<typeof computeStatus>[2]) => Promise<Status>;
   runAttempt?: (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void) => Promise<AttemptOutcome>;
-  verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"]) => Promise<Verification>;
+  verifyRepo: (repo: string, acceptance: string | undefined, env: Ctx["env"], timeoutMs?: number, pipefail?: boolean) => Promise<Verification>;
   hooks?: DecisionHooks;
   spawnRunner?: SpawnRunner;
 }
@@ -101,7 +78,7 @@ export interface RunnerDeps {
 const DEFAULTS: RunnerDeps = {
   loadStrategy,
   computeStatus,
-  verifyRepo: (repo, acceptance, env) => verifyRepo(repo, acceptance, env),
+  verifyRepo,
 };
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
@@ -645,7 +622,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
-      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, undefined, task.brief.pipefail);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;

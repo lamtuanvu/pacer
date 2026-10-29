@@ -1,9 +1,14 @@
+import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { appDigest, otaFixturePolicy, recordOtaDiagnosticProcess, type OtaRecord } from "./ota";
+import { DarwinAuthority, type NativeProcess } from "../../src/update/desktop/native-os";
+import { parseNativeFixture } from "../../src/update/desktop/native-fixture";
+import { sameProcess } from "../../src/update/desktop/process-identity";
+import { validatePairedFixtureCore } from "./ota-paired-proof";
+import { appDigest, initialFixtureVersion, otaFixturePolicy, recordOtaDiagnosticProcess, type OtaRecord } from "./ota";
 import { fixtureProcessSchema } from "./ota-exercise-record";
 import { installationFingerprint } from "../../src/update/desktop/identity";
 import { processIdentity } from "../../src/update/desktop/process-identity";
@@ -19,11 +24,12 @@ export function validateFixtureIdentity(state: OtaRecord, value: unknown, role: 
 }
 /** The lease's only external service program; Desktop sees it as attached. */
 export const fixtureExternalCli = (state: Pick<OtaRecord, "root">) => join(state.root, "external/pacer");
+export const fixtureTakeoverCli = (state: Pick<OtaRecord, "pacerHome">) => join(state.pacerHome, ".local/bin/pacer");
 /** Ownership follows the exact registered program: the bundled CLI is managed, the lease's external CLI is attached. */
 export function fixtureInstallation(state: OtaRecord, observed: unknown, version: string, ownership?: Installation["ownership"]): Installation {
   const report = jobsSchema.parse(observed), service = report.jobs.find(job => job.label === state.serviceLabel);
   const bundled = join(state.currentApp, "Contents/Resources/pacer"), external = fixtureExternalCli(state);
-  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
+  if (!service || report.jobs.filter(job => job.label === state.serviceLabel).length !== 1 || !service.loaded || service.state !== "loaded" || !service.process || (service.executable !== bundled && service.executable !== external && service.executable !== fixtureTakeoverCli(state)) || !service.registrationText || digest(service.registrationText) !== service.registrationSha256) throw Error("Exact fixture service is not proven");
   const actual = service.executable === bundled ? "managed" as const : "attached" as const;
   if (ownership && ownership !== actual) throw Error(`Fixture service is ${actual}, not ${ownership}`);
   const identity: Omit<Installation, "id" | "version"> = { appPath: state.currentApp, bundleId: "dev.pacer.desktop", ownerUid: state.ownerUid, arch: state.nativeFixture!.arch, pacerHome: state.pacerHome, port: state.innerPort, serviceLabel: state.serviceLabel, ownership: actual };
@@ -71,6 +77,17 @@ export async function verifyFixtureBundle(state: OtaRecord, version: string): Pr
   knownFixtureBytes(state, version);
   await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
   for (const [role, binary] of [["cli", "Contents/Resources/pacer"], ["helper", "Contents/Resources/pacer-update-helper"], ["desktop", "Contents/MacOS/pacer"]] as const) validateFixtureIdentity(state, JSON.parse(await run(state, [join(state.currentApp, binary), "--pacer-identity"])), role, version);
+  if (version === state.nativeFixture.candidateVersion) {
+    const metadata = JSON.parse(readFixtureBundleMetadata(state.currentApp));
+    const core = join(state.currentApp, "Contents/Resources/pacer-core"), sourceCore = join(state.sources[1].path, "Contents/Resources/pacer-core");
+    const info = lstatSync(core);
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== state.ownerUid || info.nlink !== 1 || (info.mode & 0o111) === 0) throw Error("Candidate core is not an owned executable");
+    const bytes = readFileSync(core);
+    validatePairedFixtureCore(metadata, state.nativeFixture.arch, bytes, readFileSync(sourceCore));
+    await run(state, ["/usr/bin/codesign", "--verify", "--strict", core]);
+    validateFixtureIdentity(state, JSON.parse(await run(state, [core, "--pacer-identity"])), "cli", version);
+  }
+
 }
 export async function inspectFixtureJobs(state: OtaRecord, retire = false): Promise<FixtureJobs> {
   knownFixtureBytes(state);
@@ -92,9 +109,28 @@ export async function attachFixtureService(state: OtaRecord): Promise<FixtureJob
   await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
   await run(state, ["/usr/bin/codesign", "--verify", "--strict", fixtureExternalCli(state)]);
   const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
-  validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture!.baselineVersion);
+  validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", initialFixtureVersion(state));
   const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach"])));
   if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel || report.jobs[1].label !== state.recoveryLabel) throw Error("Fixture attach returned foreign jobs");
+  return report;
+}
+
+export async function attachFixtureTakeover(state: OtaRecord): Promise<FixtureJobs> {
+  if (!state.nativeFixture?.signingCertSha1) throw Error("Takeover requires a certificate-pinned fixture lease");
+  knownFixtureBytes(state);
+  const link = fixtureTakeoverCli(state), bin = join(state.pacerHome, ".local/bin");
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  if (lstatExists(link)) throw Error("Takeover command path already exists");
+  // The candidate reports a different version than the baseline desktop. The
+  // takeover page must therefore win over the ordinary version gate.
+  const staged = join(state.root, "external/takeover-pacer");
+  const entry = state.external.find(file => file.path === staged);
+  if (!entry || createHash("sha256").update(readFileSync(staged)).digest("hex") !== entry.sha256) throw Error("Takeover CLI differs from immutable lease");
+  copyFileSync(staged, link, constants.COPYFILE_EXCL);
+  await run(state, ["/usr/bin/codesign", "--verify", "--strict", link]);
+  const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
+  const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach-takeover"])));
+  if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel) throw Error("Takeover attach returned foreign jobs");
   return report;
 }
 
@@ -109,4 +145,18 @@ export async function retireFixtureStartupJobs(state: OtaRecord): Promise<Fixtur
   validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture.baselineVersion);
   validateDiagnosticFiles(directory, state.diagnostics, digest(JSON.stringify(otaFixturePolicy(state))));
   return jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-retire"])));
+}
+
+/** Read-only fixture certificate validation; never enables production authority. */
+export function verifyPairedFixtureCode(state: OtaRecord, participants: { root: NativeProcess; core: NativeProcess }): void {
+  const policy = parseNativeFixture(JSON.stringify(otaFixturePolicy(state)));
+  if (!policy.signingCertSha1 || !/^[0-9A-F]{40}$/.test(policy.signingCertSha1)) throw Error("Paired live proof requires the fixture certificate pin");
+  const authority = new DarwinAuthority({}, policy); // Fresh per observation; no reused process verdicts.
+  for (const [value, name] of [[participants.root, "pacer"], [participants.core, "pacer-core"]] as const) {
+    const path = join(state.currentApp, "Contents/Resources", name);
+    if (value.executable !== path || value.uid !== state.ownerUid) throw Error("Paired code proof path or owner changed");
+    authority.verifyStatic(path, "cli");
+    const verified = authority.verifyProcess(value.process, "cli");
+    if (!sameProcess(verified.process, value.process) || verified.executable !== path || verified.parentPid !== value.parentPid || verified.uid !== value.uid) throw Error("Paired code proof incarnation changed");
+  }
 }

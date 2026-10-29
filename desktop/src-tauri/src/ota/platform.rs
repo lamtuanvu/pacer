@@ -1,11 +1,40 @@
 //! Native platform effects. Loaded job descriptions are checked conservatively;
 //! unsupported macOS dictionary shapes refuse instead of guessing ownership.
+#[cfg(any(test, feature = "ota-fixture"))]
+#[path = "platform_retirement_diagnostics.rs"]
+mod retirement_diagnostics;
+// The value is evaluated exactly once; non-fixture builds have no diagnostics.
+macro_rules! fixture_retire_step {
+    ($enabled:expr, $role:expr, $stage:ident, $value:expr) => {{
+        let result = $value;
+        #[cfg(feature = "ota-fixture")]
+        let result = if $enabled {
+            retirement_diagnostics::step($role, retirement_diagnostics::Stage::$stage, result)
+        } else {
+            result
+        };
+        result
+    }};
+}
+macro_rules! fixture_retire_transition {
+    ($enabled:expr, $role:expr, $live:expr, $prior_live:expr, $value:expr) => {{
+        let result = $value;
+        #[cfg(feature = "ota-fixture")]
+        let result = if $enabled {
+            retirement_diagnostics::transition($role, $live, $prior_live, result)
+        } else {
+            result
+        };
+        result
+    }};
+}
 #[cfg(target_os = "macos")]
 #[path = "platform_adoption.rs"]
 mod adoption_native;
 #[cfg(any(test, feature = "ota-fixture"))]
 #[path = "platform_fixture.rs"]
 mod fixture;
+use super::bootstrap_identity::LegacyExecutable;
 use super::OtaError;
 use super::{
     native,
@@ -15,7 +44,7 @@ use super::{
 #[cfg(target_os = "macos")]
 pub(crate) use adoption_native::NativeAdoptionPlatform;
 #[cfg(feature = "ota-fixture")]
-pub(crate) use fixture::{fixture_attach, fixture_jobs};
+pub(crate) use fixture::{fixture_attach, fixture_jobs, fixture_refresh_takeover};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -46,6 +75,33 @@ pub(crate) struct OwnedJob {
     pub plist_path: PathBuf,
     pub role: CodeRole,
 }
+pub(crate) enum ProgramCheck {
+    Role(CodeRole),
+    Pinned(LegacyExecutable),
+}
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
+    use std::os::unix::fs::MetadataExt;
+    let Some(policy) = trust.fixture_policy() else { return Ok(false) };
+    if path != policy.takeover_cli() { return Ok(false) }
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
+    ensure(metadata.is_file() && metadata.nlink() == 1 && path.canonicalize().map_err(|_| OtaError::Identity)? == path)?;
+    ensure(trust.verify_static(path, CodeRole::Cli) == Err(OtaError::Identity))?;
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+#[cfg_attr(not(feature = "ota-fixture"), allow(unused_variables))]
+pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, executable: &Path, role: CodeRole) -> Result<(), OtaError> {
+    #[cfg(feature = "ota-fixture")]
+    if matches!(role, CodeRole::Cli) && fixture_takeover_program(trust, executable)? {
+        super::bootstrap_identity::inspect_legacy_executable(executable, process)?;
+        return Ok(());
+    }
+    trust.verify_process(process, role).map(|_| ())
+}
 #[cfg(target_os = "macos")]
 fn inherit_launch_socket(command: &mut std::process::Command, fd: std::os::fd::RawFd) {
     use std::os::unix::process::CommandExt;
@@ -62,7 +118,7 @@ fn inherit_launch_socket(command: &mut std::process::Command, fd: std::os::fd::R
     }
 }
 impl OwnedJob {
-    fn check(&self, trust: &ReleaseTrust) -> Result<(), OtaError> {
+    fn check_with(&self, trust: &ReleaseTrust, program: &ProgramCheck) -> Result<(), OtaError> {
         if let Some(policy) = trust.fixture_policy() {
             policy.validate_live().map_err(|_| OtaError::Identity)?;
             if ![&policy.service_label, &policy.recovery_label].contains(&&self.definition.label)
@@ -76,10 +132,55 @@ impl OwnedJob {
             return Err(OtaError::Identity);
         }
         let executable = self.definition.arguments.first().ok_or(OtaError::Invalid)?;
-        trust.verify_static(Path::new(executable), self.role)
+        match program {
+            ProgramCheck::Role(role) => {
+                #[cfg(feature = "ota-fixture")]
+                if fixture_takeover_program(trust, Path::new(executable))? { return Ok(()); }
+                trust.verify_static(Path::new(executable), *role)
+            }
+            ProgramCheck::Pinned(expected) => {
+                use std::os::unix::fs::MetadataExt;
+                let path = Path::new(executable)
+                    .canonicalize()
+                    .map_err(|_| OtaError::Identity)?;
+                let meta = std::fs::symlink_metadata(&path).map_err(|_| OtaError::Identity)?;
+                let bytes = super::platform_fs::read_owned_file(&path, 512 * 1024 * 1024)?;
+                if path != Path::new(executable)
+                    || !meta.is_file()
+                    || meta.nlink() != 1
+                    || meta.dev().to_string() != expected.device
+                    || meta.ino().to_string() != expected.inode
+                    || meta.size() != expected.size
+                    || (i128::from(meta.mtime()) * 1_000_000_000 + i128::from(meta.mtime_nsec()))
+                        .to_string()
+                        != expected.modified_ns
+                    || (i128::from(meta.ctime()) * 1_000_000_000 + i128::from(meta.ctime_nsec()))
+                        .to_string()
+                        != expected.changed_ns
+                    || digest(&bytes) != expected.sha256
+                {
+                    return Err(OtaError::Identity);
+                }
+                Ok(())
+            }
+        }
     }
     pub(crate) fn observe(&self, trust: &ReleaseTrust) -> Result<Option<LoadedJob>, OtaError> {
-        self.check(trust)?;
+        self.observe_with(trust, &ProgramCheck::Role(self.role))
+    }
+    pub(crate) fn observe_pinned(
+        &self,
+        trust: &ReleaseTrust,
+        file: &LegacyExecutable,
+    ) -> Result<Option<LoadedJob>, OtaError> {
+        self.observe_with(trust, &ProgramCheck::Pinned(file.clone()))
+    }
+    fn observe_with(
+        &self,
+        trust: &ReleaseTrust,
+        program: &ProgramCheck,
+    ) -> Result<Option<LoadedJob>, OtaError> {
+        self.check_with(trust, program)?;
         copy_user_job(&self.definition.label)?
             .map(|value| self.definition.match_loaded(&value))
             .transpose()
@@ -91,7 +192,7 @@ impl OwnedJob {
     ) -> Result<(), OtaError> {
         self.change_inner(trust, change, None).await
     }
-    async fn stop_exact(
+    pub(crate) async fn stop_exact(
         &self,
         trust: &ReleaseTrust,
         expected: &ProcessIdentity,
@@ -99,13 +200,50 @@ impl OwnedJob {
         self.change_inner(trust, JobChange::Bootout, Some(expected))
             .await
     }
+    pub(crate) async fn stop_pinned(
+        &self,
+        trust: &ReleaseTrust,
+        expected: &ProcessIdentity,
+        file: LegacyExecutable,
+    ) -> Result<(), OtaError> {
+        self.change_inner_with(
+            trust,
+            JobChange::Bootout,
+            Some(expected),
+            &ProgramCheck::Pinned(file),
+        )
+        .await
+    }
+    pub(crate) async fn launch_pinned(
+        &self,
+        trust: &ReleaseTrust,
+        file: LegacyExecutable,
+    ) -> Result<(), OtaError> {
+        self.change_inner_with(
+            trust,
+            JobChange::Bootstrap,
+            None,
+            &ProgramCheck::Pinned(file),
+        )
+        .await
+    }
     async fn change_inner(
         &self,
         trust: &ReleaseTrust,
         change: JobChange,
         expected: Option<&ProcessIdentity>,
     ) -> Result<(), OtaError> {
-        let current = self.observe(trust)?;
+        self.change_inner_with(trust, change, expected, &ProgramCheck::Role(self.role))
+            .await
+    }
+    async fn change_inner_with(
+        &self,
+        trust: &ReleaseTrust,
+        change: JobChange,
+        expected: Option<&ProcessIdentity>,
+        program: &ProgramCheck,
+    ) -> Result<(), OtaError> {
+        let current = self.observe_with(trust, program)?;
         let stopped_process = if change == JobChange::Bootout {
             let process = current
                 .as_ref()
@@ -122,12 +260,29 @@ impl OwnedJob {
                         .as_ref()
                         .is_some_and(|details| details.identity == *expected),
                 )?;
-            } else if matches!(self.role, CodeRole::Cli) && current.is_some() {
+            } else if matches!(
+                program,
+                ProgramCheck::Pinned(_) | ProgramCheck::Role(CodeRole::Cli)
+            ) && current.is_some()
+            {
                 return Err(OtaError::Identity);
             }
             if let Some(details) = &process {
                 ensure(details.executable == Path::new(&self.definition.arguments[0]))?;
-                trust.verify_process(&details.identity, self.role)?;
+                match program {
+                    ProgramCheck::Role(role) => {
+                        verify_fixture_or_release_process(trust, &details.identity, &details.executable, *role)?;
+                    }
+                    ProgramCheck::Pinned(file) => {
+                        if super::bootstrap_identity::inspect_legacy_executable(
+                            &details.executable,
+                            &details.identity,
+                        )? != *file
+                        {
+                            return Err(OtaError::Identity);
+                        }
+                    }
+                }
             }
             process.map(|details| details.identity)
         } else {
@@ -158,10 +313,26 @@ impl OwnedJob {
                 current.as_ref().and_then(|job| job.pid),
             )?;
         }
-        self.check(trust)?;
+        self.check_with(trust, program)?;
         if let Some(process) = &stopped_process {
-            ensure(self.observe(trust)?.and_then(|job| job.pid) == Some(process.pid))?;
-            trust.verify_process(process, self.role)?;
+            ensure(
+                self.observe_with(trust, program)?.and_then(|job| job.pid) == Some(process.pid),
+            )?;
+            match program {
+                ProgramCheck::Role(role) => {
+                    let details = native::process_details(process.pid).map_err(|_| OtaError::Identity)?.ok_or(OtaError::Identity)?;
+                    verify_fixture_or_release_process(trust, process, &details.executable, *role)?;
+                }
+                ProgramCheck::Pinned(file) => {
+                    if super::bootstrap_identity::inspect_legacy_executable(
+                        Path::new(&self.definition.arguments[0]),
+                        process,
+                    )? != *file
+                    {
+                        return Err(OtaError::Identity);
+                    }
+                }
+            }
         }
         let domain = format!("gui/{}", unsafe { libc::geteuid() });
         let target = format!("{domain}/{}", self.definition.label);
@@ -195,11 +366,13 @@ impl OwnedJob {
         if !status.success() {
             return Err(OtaError::Io);
         }
-        let after = self.observe(trust)?;
+        let after = self.observe_with(trust, program)?;
         if change == JobChange::Bootstrap {
             let start = native::awake_now().map_err(|_| OtaError::Identity)?;
             loop {
-                let current = self.observe(trust)?.ok_or(OtaError::Identity)?;
+                let current = self
+                    .observe_with(trust, program)?
+                    .ok_or(OtaError::Identity)?;
                 match self.fixture_ledger(trust, &registration, "loaded", current.pid) {
                     Ok(()) => break,
                     Err(OtaError::Identity) | Err(OtaError::Busy) => {
@@ -223,6 +396,13 @@ impl OwnedJob {
             }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
+        // Bootout completion must use the state after exact exit and retirement,
+        // not a manager snapshot captured immediately after launchctl returned.
+        let after = if change == JobChange::Bootout {
+            self.observe(trust)?
+        } else {
+            after
+        };
         match change {
             JobChange::Bootstrap if after.is_none() => Err(OtaError::Identity),
             JobChange::Bootout if after.is_some() => Err(OtaError::Identity),
@@ -596,7 +776,7 @@ impl OwnedJob {
         let Some(policy) = trust.fixture_policy() else {
             return Ok(());
         };
-        policy.validate_live().map_err(|_| OtaError::Identity)?;
+        fixture_retire_step!(next == "retired", self.role, LedgerPolicy, policy.validate_live().map_err(|_| OtaError::Identity))?;
         ensure([&policy.service_label, &policy.recovery_label].contains(&&self.definition.label))?;
         let expected = policy
             .root
@@ -619,7 +799,8 @@ impl OwnedJob {
                 self.definition.arguments.len() == 2
                     && self.definition.arguments[1] == "serve"
                     && (program == policy.current_app.join("Contents/Resources/pacer")
-                        || program == policy.external_cli()),
+                        || program == policy.external_cli()
+                        || program == policy.takeover_cli()),
             )?;
             let row = record["registrations"]
                 .as_array()
@@ -633,7 +814,7 @@ impl OwnedJob {
             {
                 // Adoption replaces the service registration in place. Only a
                 // stopped job whose recorded incarnations all exited may switch.
-                ensure(copy_user_job(&self.definition.label)?.is_none())?;
+                fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
                 let prior: Vec<ProcessIdentity> = serde_json::from_value(row["processes"].clone())
                     .map_err(|_| OtaError::Invalid)?;
                 let mut gone = Vec::new();
@@ -652,6 +833,8 @@ impl OwnedJob {
         }
         let mut processes = Vec::new();
         let mut exited = Vec::new();
+        #[cfg(feature = "ota-fixture")]
+        let mut prior_still_live = false;
         if next == "loaded" {
             if let Some(pid) = pid {
                 let details = native::process_details(pid)
@@ -661,13 +844,13 @@ impl OwnedJob {
                     details.uid == policy.uid
                         && details.executable == Path::new(&self.definition.arguments[0]),
                 )?;
-                trust.verify_process(&details.identity, self.role)?;
+                verify_fixture_or_release_process(trust, &details.identity, &details.executable, self.role)?;
                 processes.push(details.identity);
             }
         }
         if next == "retired" {
-            ensure(copy_user_job(&self.definition.label)?.is_none())?;
-            let inventory = super::control::native_process_inventory()?;
+            fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
+            let inventory = fixture_retire_step!(true, self.role, GlobalInventory, super::control::native_process_inventory())?;
             processes = inventory
                 .into_iter()
                 .filter(|details| details.executable == Path::new(&self.definition.arguments[0]))
@@ -682,12 +865,15 @@ impl OwnedJob {
             let prior: Vec<ProcessIdentity> =
                 serde_json::from_value(row["processes"].clone()).map_err(|_| OtaError::Invalid)?;
             for process in prior {
-                if original_process_gone(&process)? {
+                if fixture_retire_step!(true, self.role, PriorIdentity, original_process_gone(&process))? {
                     exited.push(process);
+                } else {
+                    #[cfg(feature = "ota-fixture")]
+                    { prior_still_live = true; }
                 }
             }
         }
-        registration_transition(
+        fixture_retire_transition!(next == "retired", self.role, !processes.is_empty(), prior_still_live, registration_transition(
             &mut record,
             &self.definition.label,
             &self.plist_path,
@@ -695,9 +881,9 @@ impl OwnedJob {
             next,
             &processes,
             &exited,
-        )?;
+        ))?;
         let after = serde_json::to_vec_pretty(&record).map_err(|_| OtaError::Invalid)?;
-        root.replace_exact("record.json", &before, &after)
+        fixture_retire_step!(next == "retired", self.role, LedgerReplace, root.replace_exact("record.json", &before, &after))
     }
 }
 
@@ -744,7 +930,7 @@ fn parse_disabled(text: &str, label: &str) -> Result<bool, OtaError> {
 
 /// The dedicated print-disabled command is a bounded, strict baseline query.
 /// launchctl print's diagnostic state is never parsed as authority.
-async fn disabled_state(label: &str) -> Result<bool, OtaError> {
+pub(crate) async fn disabled_state(label: &str) -> Result<bool, OtaError> {
     use tokio::io::AsyncReadExt;
     let mut child = tokio::process::Command::new("/bin/launchctl")
         .args([
@@ -895,6 +1081,76 @@ async fn await_child_exit_receipt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pinned_job_checks_file_identity_while_role_path_rejects_unsigned_file() {
+        use base64::Engine;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let executable = root.join("other-pacer");
+        std::fs::write(&executable, b"unsigned fixture").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let metadata = std::fs::metadata(&executable).unwrap();
+        let stamp = |seconds: i64, nanos: i64| {
+            (i128::from(seconds) * 1_000_000_000 + i128::from(nanos)).to_string()
+        };
+        let identity = LegacyExecutable {
+            device: metadata.dev().to_string(),
+            inode: metadata.ino().to_string(),
+            size: metadata.size(),
+            modified_ns: stamp(metadata.mtime(), metadata.mtime_nsec()),
+            changed_ns: stamp(metadata.ctime(), metadata.ctime_nsec()),
+            sha256: digest(b"unsigned fixture"),
+            cdhash: "a".repeat(40),
+        };
+        let path = root.join("fixture.plist");
+        let definition = JobDefinition {
+            label: "com.pacer.test".into(),
+            arguments: vec![executable.to_string_lossy().into_owned(), "serve".into()],
+            environment: BTreeMap::new(),
+            keep_alive: true,
+            run_at_load: true,
+        };
+        std::fs::write(&path, definition.to_plist().unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let job = OwnedJob {
+            definition,
+            plist_path: path,
+            role: CodeRole::Cli,
+        };
+        let mut packet = vec![0u8; 42];
+        packet[..2].copy_from_slice(b"Ed");
+        packet[10..].fill(7);
+        let public_key = base64::engine::general_purpose::STANDARD.encode(format!(
+            "untrusted comment: fixture\n{}\n",
+            base64::engine::general_purpose::STANDARD.encode(packet)
+        ));
+        let trust = ReleaseTrust::from_production(&public_key, Some("ABCDE12345"), None).unwrap();
+        assert_eq!(
+            job.check_with(&trust, &ProgramCheck::Pinned(identity.clone())),
+            Ok(())
+        );
+        assert_eq!(job.observe(&trust).err(), Some(OtaError::Identity));
+        std::fs::write(&executable, b"changed fixture").unwrap();
+        assert_eq!(
+            job.check_with(&trust, &ProgramCheck::Pinned(identity.clone())),
+            Err(OtaError::Identity)
+        );
+        std::fs::remove_file(&executable).unwrap();
+        std::fs::write(&executable, b"unsigned fixture").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            job.check_with(&trust, &ProgramCheck::Pinned(identity.clone())),
+            Err(OtaError::Identity)
+        );
+        let linked = root.join("extra-link");
+        std::fs::hard_link(&executable, &linked).unwrap();
+        assert_eq!(
+            job.check_with(&trust, &ProgramCheck::Pinned(identity)),
+            Err(OtaError::Identity)
+        );
+    }
     #[cfg(target_os = "macos")]
     #[test]
     fn maintenance_socket_survives_exec_with_redirected_stdio() {
@@ -1165,13 +1421,32 @@ mod tests {
         let mut record = serde_json::json!({"registrations":[{"label":"fixture.service","path":"/tmp/fixture.plist","state":"loaded","sha256":a,"processes":[process]}]});
         let before = record.clone();
         // A live recorded incarnation blocks the switch.
-        assert!(registration_generation_switch(&mut record, "fixture.service", path, &b, &[]).is_err());
+        assert!(
+            registration_generation_switch(&mut record, "fixture.service", path, &b, &[]).is_err()
+        );
         assert_eq!(record, before);
         // A reserved row or unchanged hash is not a generation switch.
         let mut reserved = serde_json::json!({"registrations":[{"label":"fixture.service","path":"/tmp/fixture.plist","state":"reserved","sha256":null,"processes":[]}]});
-        assert!(registration_generation_switch(&mut reserved, "fixture.service", path, &b, &[]).is_err());
-        assert!(registration_generation_switch(&mut record, "fixture.service", path, &a, std::slice::from_ref(&process)).is_err());
-        registration_generation_switch(&mut record, "fixture.service", path, &b, std::slice::from_ref(&process)).unwrap();
+        assert!(
+            registration_generation_switch(&mut reserved, "fixture.service", path, &b, &[])
+                .is_err()
+        );
+        assert!(registration_generation_switch(
+            &mut record,
+            "fixture.service",
+            path,
+            &a,
+            std::slice::from_ref(&process)
+        )
+        .is_err());
+        registration_generation_switch(
+            &mut record,
+            "fixture.service",
+            path,
+            &b,
+            std::slice::from_ref(&process),
+        )
+        .unwrap();
         let row = &record["registrations"][0];
         assert_eq!(row["state"], "retired");
         assert_eq!(row["sha256"], b.as_str());
@@ -1180,14 +1455,26 @@ mod tests {
         assert_eq!(row["history"][0]["sha256"], a.as_str());
         assert_eq!(row["history"][0]["processes"][0]["pid"], 123);
         // The ordinary transition continues with the new generation.
-        registration_transition(&mut record, "fixture.service", path, &b, "intent", &[], &[]).unwrap();
+        registration_transition(&mut record, "fixture.service", path, &b, "intent", &[], &[])
+            .unwrap();
         // A third registration is never cataloged; returning to the first is.
         let snapshot = record.clone();
-        assert!(registration_generation_switch(&mut record, "fixture.service", path, &c, &[]).is_err());
+        assert!(
+            registration_generation_switch(&mut record, "fixture.service", path, &c, &[]).is_err()
+        );
         assert_eq!(record, snapshot);
         registration_generation_switch(&mut record, "fixture.service", path, &a, &[]).unwrap();
-        assert_eq!(record["registrations"][0]["generations"], serde_json::json!([a, b]));
-        assert_eq!(record["registrations"][0]["history"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            record["registrations"][0]["generations"],
+            serde_json::json!([a, b])
+        );
+        assert_eq!(
+            record["registrations"][0]["history"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(record["registrations"][0]["history"][1]["state"], "intent");
     }
     #[test]
@@ -1379,6 +1666,12 @@ impl NativePlatform {
                 65536,
             )?)
             .map_err(|_| OtaError::Invalid)?;
+        let layout = metadata.get("cliLayout")
+            .map(|value| serde_json::from_value::<crate::packaging::CliLayout>(value.clone()))
+            .transpose().map_err(|_| OtaError::Invalid)?;
+        if matches!(layout, Some(crate::packaging::CliLayout::Paired)) {
+            self.trust.verify_static(&path.join("Contents/Resources/pacer-core"), CodeRole::Cli)?;
+        }
         ensure(
             metadata["schema"] == 1
                 && metadata["version"] == version

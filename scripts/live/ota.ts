@@ -12,7 +12,11 @@ import { ownProcessIdentity, sameProcess } from "../../src/update/desktop/proces
 
 /** Scripts-only coordinates; none are production runtime/env options. */
 export interface OtaOptions { base?: string; sourceRoot?: string; realHome?: string; platform?: "darwin" | "linux" }
-export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
+export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
+export const initialLayoutSchema = z.enum(["bridge", "paired"]);
+export type InitialLayout = z.infer<typeof initialLayoutSchema>;
+/** The published baseline sees only an ordinary nonce; the candidate binds this subfamily to the private record. */
+const OLD_SERVICE_CHOICE_NONCE_PREFIX = "f0a3c29e5c0d";
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.object({ path: z.string(), sha256: hash.nullable() }).strict();
 const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash, signingCertSha1: z.string().regex(/^[0-9A-F]{40}$/).optional() }).strict();
@@ -23,25 +27,42 @@ const registration = z.object({ label: z.string(), path: z.string(), state: z.en
   .refine(value => value.state === "reserved" ? value.sha256 === null && value.processes.length === 0 : value.sha256 !== null, "Invalid registration ownership");
 const schema = z.object({
   schema: z.literal(1), sessionId: z.string(), root: z.string(), ownerUid: z.number().int(), nonce: z.string().regex(/^[a-f0-9]{32}$/),
+  initialLayout: initialLayoutSchema.default("bridge"),
+  oldServiceChoice: z.literal("continue").optional(),
   phase: z.enum(["building", "preparing", "prepared", "cleaned"]), pacerHome: z.string(), port: z.number().int(), innerPort: z.number().int(),
   installationId: z.string(), currentApp: z.string(), candidateApp: z.string(), serviceLabel: z.string(), recoveryLabel: z.string(),
   sources: z.tuple([source, source]), registrationBefore: hash.nullable(), registrations: z.tuple([registration, registration]),
   exercise: exerciseSchema.nullable().default(null), runtime: runtimeSchema.nullable().default(null), diagnostics: diagnosticSchema.nullable().default(null), diagnosticProcesses: z.array(incarnation).max(128).default([]), diagnosticsHistory: z.array(diagnosticSchema.extend({ path: z.string(), sourceSha256: hash }).strict()).max(3).default([]),
   processes: z.tuple([]), nativeFixture: buildIntent.nullable(), artifacts: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(2).default([]),
-  external: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(2).default([]),
+  external: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(4).default([]),
 }).strict().refine(state => state.phase === "building" ? state.nativeFixture !== null && state.sources.every(source => source.sha256 === null) && state.artifacts.length === 0 : state.sources.every(source => source.sha256 !== null), "Source fingerprints are required outside building").refine(state => (!state.exercise && !state.runtime) || (state.phase === "prepared" || state.phase === "cleaned" && state.runtime?.state === "retired" && (!state.exercise || state.exercise.state === "complete")) && !!state.nativeFixture && !!state.runtime && (!state.exercise || sameProcess(state.exercise.driver, state.runtime.driver)), "Native exercise requires an exact runtime lease");
 export type OtaRecord = z.infer<typeof schema>;
+/** Fixed initial assembly only; versions never come from a public request. */
+export function initialFixtureVersion(state: Pick<OtaRecord, "initialLayout" | "nativeFixture">): "0.2.3" | "0.2.4" {
+  const layout = initialLayoutSchema.parse(state.initialLayout ?? "bridge");
+  if (state.nativeFixture?.baselineVersion !== "0.2.3" || state.nativeFixture.candidateVersion !== "0.2.4") throw Error("Unknown fixed fixture versions");
+  return layout === "paired" ? "0.2.4" : "0.2.3";
+}
+export function assertFixtureLayoutScenario(state: Pick<OtaRecord, "initialLayout">, scenario: string): void {
+  const layout = initialLayoutSchema.parse(state.initialLayout ?? "bridge");
+  if (layout === "paired" && scenario !== "adopt" && scenario !== "adopt-failure") throw Error("Paired initial layout is only for adoption scenarios");
+}
+
 export function otaFixturePolicy(state: OtaRecord) {
   const cert = state.nativeFixture?.signingCertSha1;
   return { schema: 1 as const, root: state.root, nonce: state.nonce, home: state.pacerHome, port: state.innerPort, currentApp: state.currentApp, serviceLabel: state.serviceLabel, recoveryLabel: state.recoveryLabel, uid: state.ownerUid, ...(cert ? { signingCertSha1: cert } : {}) };
 }
 /** Reserve compile coordinates only. A building lease grants no runtime capability. */
-export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}, signingCertSha1?: string): OtaRecord {
-  const session = sessionFor(id, options), root = join(session.root, "ota"), nonce = randomBytes(16).toString("hex");
+export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}, signingCertSha1?: string, initialLayout: InitialLayout = "bridge", oldServiceChoice = false): OtaRecord {
+  initialLayout = initialLayoutSchema.parse(initialLayout);
+  if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
+  const session = sessionFor(id, options), root = join(session.root, "ota");
+  let nonce = oldServiceChoice ? OLD_SERVICE_CHOICE_NONCE_PREFIX + randomBytes(10).toString("hex") : randomBytes(16).toString("hex");
+  while (!oldServiceChoice && nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX)) nonce = randomBytes(16).toString("hex");
   const nativeFixture = buildIntent.parse({ schema: 1, kind: "native-build", buildRoot: join(root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch, updaterKeySha256, ...(signingCertSha1 ? { signingCertSha1 } : {}) });
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
   const registration = (label: string): OtaRecord["registrations"][number] => ({ label, path: join(root, "registrations", `${label}.plist`), state: "reserved", sha256: null, processes: [] });
-  const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
+  const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), initialLayout, ...(oldServiceChoice ? { oldServiceChoice: "continue" as const } : {}), phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
     sources: [{ path: join(root, "build/baseline/pacer.app"), sha256: null }, { path: join(root, "build/candidate/pacer.app"), sha256: null }], registrationBefore: registrationDigest(options), registrations: [registration(serviceLabel), registration(recoveryLabel)], processes: [], nativeFixture, artifacts: [], external: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
   mkdirSync(root, { mode: 0o700 });
   persist(session, state);
@@ -56,8 +77,9 @@ export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffe
   if (!files.feed.length || files.feed.length > 131072 || !files.archive.length || files.archive.length > 512 * 1024 * 1024) throw Error("Invalid fixture artifact size");
   for (const source of state.sources) source.sha256 = appDigest(source.path);
   for (const [index, target] of [state.currentApp, state.candidateApp].entries()) {
-    cpSync(state.sources[index].path, target, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false });
-    if (appDigest(target) !== state.sources[index].sha256) throw Error("Fixture copy changed");
+    const sourceIndex = index === 0 && state.initialLayout === "bridge" ? 0 : 1;
+    cpSync(state.sources[sourceIndex].path, target, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false });
+    if (appDigest(target) !== state.sources[sourceIndex].sha256) throw Error("Fixture copy changed");
   }
   // One external standalone CLI (baseline bytes) for attached/adoption scenarios.
   // A standalone CLI loads its native shim from its own directory.
@@ -65,6 +87,11 @@ export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffe
   for (const [from, name, mode] of [["Contents/Resources/pacer", "pacer", 0o700], ["Contents/Frameworks/libpacer-native.dylib", "libpacer-native.dylib", 0o700]] as const) {
     const path = join(state.root, "external", name);
     copyFileSync(join(state.sources[0].path, from), path, constants.COPYFILE_EXCL); chmodSync(path, mode);
+    state.external.push({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
+  }
+  for (const [from, name] of [["baseline/takeover-pacer", "takeover-pacer-alt"], ["candidate/takeover-pacer", "takeover-pacer"]] as const) {
+    const path = join(state.root, "external", name);
+    copyFileSync(join(state.root, "build", from), path, constants.COPYFILE_EXCL); chmodSync(path, 0o700);
     state.external.push({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
   }
   syncDirectory(join(state.root, "external"));
@@ -199,8 +226,10 @@ function registrationProgram(state: OtaRecord, label: string, text: string): str
       env.PACER_PORT !== undefined && env.PACER_PORT !== String(state.innerPort) || typeof value.KeepAlive !== "boolean" || typeof value.RunAtLoad !== "boolean" ||
       Object.keys(value).some(key => !["Label", "ProgramArguments", "EnvironmentVariables", "KeepAlive", "RunAtLoad", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"].includes(key))) throw Error("Fixture registration is not owned by this lease");
   const program = canonical(args[0] as string);
-  const external = state.external.length && label === state.serviceLabel && program === join(state.root, "external/pacer");
-  if (!external && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
+  const external = state.external.length && label === state.serviceLabel && (program === join(state.root, "external/pacer") || program === join(state.pacerHome, ".local/bin/pacer"));
+  // A takeover's recovery job runs its helper copy from the takeover journal directory.
+  const takeoverRecovery = label === state.recoveryLabel && !!state.exercise?.scenario.startsWith("takeover") && inside(join(state.pacerHome, "desktop-updates/native/takeover"), program);
+  if (!external && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
   owned(program, "file");
   for (const key of ["StandardOutPath", "StandardErrorPath"]) if (value[key] !== undefined) throw Error("Fixture probes must use inherited null output");
   return program;
@@ -214,6 +243,8 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   canonical(root); owned(root, "directory", true); owned(statePath(session), "file", true);
   if (lstatSync(statePath(session)).size > 262_144) throw Error("OTA resource record exceeds inspection limit");
   const state = schema.parse(JSON.parse(readFileSync(statePath(session), "utf8")));
+  if (state.nativeFixture && (state.oldServiceChoice === "continue") !== state.nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX)) throw Error("Fixture old-service choice differs from compiled nonce");
+  if (state.oldServiceChoice && state.initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   const prefix = `com.pacer.live.${state.nonce}`;
   if (state.sessionId !== id || state.root !== root || state.ownerUid !== uid() || state.pacerHome !== join(session.root, "home") ||
       state.port !== session.port || state.innerPort !== session.innerPort || state.installationId !== `ota-${state.nonce}` ||
@@ -269,12 +300,12 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   }
   if (state.nativeFixture && state.phase === "prepared" && (state.artifacts.length !== 2 || state.artifacts.some(asset => !present(asset.path)))) throw Error("Fixture artifacts missing");
   if (state.artifacts.some(asset => asset.path !== join(root, "feed/stable.json") && asset.path !== join(root, "artifacts", `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`)) || new Set(state.artifacts.map(asset => asset.path)).size !== state.artifacts.length) throw Error("Invalid fixture artifact ledger");
-  const externalFiles = [join(root, "external/pacer"), join(root, "external/libpacer-native.dylib")];
-  if (state.external.length && (!state.nativeFixture || state.external.length !== 2 || state.external.some((file, index) => file.path !== externalFiles[index]))) throw Error("Invalid external service ledger");
+  const externalFiles = [join(root, "external/pacer"), join(root, "external/libpacer-native.dylib"), join(root, "external/takeover-pacer-alt"), join(root, "external/takeover-pacer")];
+  if (state.external.length && (!state.nativeFixture || state.external.length !== 4 || state.external.some((file, index) => file.path !== externalFiles[index]))) throw Error("Invalid external service ledger");
   if (present(join(root, "external"))) {
     if (!state.external.length) throw Error("Unrecorded external service");
     canonical(join(root, "external")); owned(join(root, "external"), "directory", true);
-    if (readdirSync(join(root, "external")).sort().join() !== "libpacer-native.dylib,pacer") throw Error("Unrecorded external service resource");
+    if (readdirSync(join(root, "external")).sort().join() !== "libpacer-native.dylib,pacer,takeover-pacer,takeover-pacer-alt") throw Error("Unrecorded external service resource");
     for (const file of state.external) {
       canonical(file.path); owned(file.path, "file", true);
       if (lstatSync(file.path).size > 512 * 1024 * 1024 || createHash("sha256").update(readFileSync(file.path)).digest("hex") !== file.sha256) throw Error("External service changed");
@@ -301,7 +332,7 @@ export async function prepareOta(id: string, fromApp: string, toApp: string, opt
   const registrationBefore = registrationDigest(options), root = join(session.root, "ota"), nonce = randomBytes(16).toString("hex");
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
   const reserved = (label: string): OtaRecord["registrations"][number] => ({ label, path: join(root, "registrations", `${label}.plist`), state: "reserved", sha256: null, processes: [] });
-  const state: OtaRecord = { schema: 1, sessionId: id, root, ownerUid: uid(), nonce, phase: "preparing", pacerHome: join(session.root, "home"),
+  const state: OtaRecord = { schema: 1, sessionId: id, root, ownerUid: uid(), nonce, initialLayout: "bridge", phase: "preparing", pacerHome: join(session.root, "home"),
     port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"),
     serviceLabel, recoveryLabel, sources, registrationBefore, registrations: [reserved(serviceLabel), reserved(recoveryLabel)],
     processes: [], nativeFixture: null, artifacts: [], external: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
@@ -343,17 +374,19 @@ export async function cleanupOta(id: string, options: OtaOptions = {}): Promise<
   for (const directory of ["feed", "artifacts", "external"]) if (present(join(state.root, directory))) rmSync(join(state.root, directory), { recursive: true });
   unchanged(state, options); state.phase = "cleaned"; persist(session, state);
   });
-  record(session, { kind: "note", behavior: "OTA fixture cleanup", surface: "harness", verdict: "PASS", text: "Only recorded disposable copies removed; source fingerprints and real registration bytes unchanged. No service-manager calls or native launches." });
+  record(session, { kind: "note", behavior: "OTA fixture cleanup", surface: "harness", verdict: "PASS", text: initial.runtime ? "Native participants retired through the fixed lease-bound helper; only recorded disposable copies removed. Source fingerprints, sandbox user data and real registration bytes unchanged." : "Only recorded disposable copies removed; source fingerprints and real registration bytes unchanged. No service-manager calls or native launches." });
 }
 export async function exerciseOta(id: string, scenario: string, options: OtaOptions = {}): Promise<void> {
   if (!(OTA_SCENARIOS as readonly string[]).includes(scenario)) throw Error("Unsupported OTA scenario");
   const session = sessionFor(id, options), state = readOtaRecord(id, options);
   if (state.phase !== "prepared") throw Error("OTA fixtures are not prepared");
   unchanged(state, options);
+  assertFixtureLayoutScenario(state, scenario);
   if (state.nativeFixture) {
     try {
       const { ATTACHED_SCENARIOS } = await import("./ota-exercise-record");
       if ((ATTACHED_SCENARIOS as readonly string[]).includes(scenario)) return await (await import("./ota-adoption")).runAttachedExercise(id, scenario, options);
+      if (scenario.startsWith("takeover")) return await (await import("./ota-takeover")).runTakeoverExercise(id, scenario, options);
       return await (await import("./ota-exercise")).runManagedExercise(id, scenario, options);
     }
     catch (error) {
@@ -385,6 +418,7 @@ export async function resumeOtaStartup(id: string, expected: OtaRecord, options:
 
 /** Internal driver CAS; never a public capability or arbitrary native command. */
 export function updateOtaDriverRecord(id: string, expected: Pick<OtaRecord, "runtime" | "exercise">, next: Pick<OtaRecord, "runtime" | "exercise">, options: OtaOptions = {}): OtaRecord {
+  if ("initialLayout" in next) throw Error("Initial layout is immutable to the runtime driver");
   const session = sessionFor(id, options), own = ownProcessIdentity();
   if (!own || !next.runtime || !sameProcess(own, next.runtime.driver)) throw Error("Only the exact live fixture driver may update its lease");
   return withOtaLedgerLock(join(session.root, "ota"), () => {

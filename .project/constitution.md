@@ -1,11 +1,11 @@
 # pacer Constitution
 
-Status: Amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.15.0 | Updated: 2026-10-27
+Status: Amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.17.0 | Updated: 2026-10-29
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
 
-pacer routes and paces AI coding work across subscription budgets. A planner agent plans and reviews. pacer delegates execution to executor agents (Codex, OpenCode endpoints and others), tracks usage and pace per account, and supervises delegated runs. Delegated runs can execute locally, in Orca worktrees or on SSH remote hosts. See [README.md](../README.md) and [docs/specs/2026-10-11-pacer-design.md](../docs/specs/2026-10-11-pacer-design.md).
+pacer routes and paces AI coding work across subscription budgets. A planner agent plans and reviews. pacer delegates execution to executor agents (Codex, OpenCode endpoints and others), tracks usage and pace per account, and supervises delegated runs. Delegated runs can execute locally, in Orca worktrees, on SSH remote hosts or on paired pacer machines. See [README.md](../README.md) and [docs/specs/2026-10-11-pacer-design.md](../docs/specs/2026-10-11-pacer-design.md).
 
 In scope:
 - The `pacer` CLI and the local service (`pacer serve`), with its HTTP, SSE, WebSocket, stdio JSON-RPC and MCP APIs.
@@ -40,7 +40,7 @@ External constraints:
 | P10 | Contributions are signed off under the DCO and use Conventional Commit PR titles. PRs are squash-merged. | all PRs | [CONTRIBUTING.md](../CONTRIBUTING.md), `.github/workflows/pr-title.yml` | Established |
 | P11 | Generated artifacts (protocol docs, embedded app assets, design tokens) are committed fresh, and tests fail when they are stale. | `scripts/`, `src/app/assets.generated.ts`, `docs/protocol*.md` | CONTRIBUTING.md, `test/api-protocol-doc.test.ts` | Established |
 | P12 | Durable architectural choices are recorded in `docs/decisions/`. | design changes | [GOVERNANCE.md](../GOVERNANCE.md) | Established |
-| P13 | The host is minimal. Every capability a plugin could provide is a plugin against the versioned plugin protocol; bundled reference plugins are the open implementations, and the host never falls back to a built-in once an adapter is extracted. | `src/plugins/`, `plugins/`, adapters | [ADR plugin-host-and-rust-strangler](../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md) D1–D2 | Established |
+| P13 | The host is minimal. Every capability a plugin could provide is a plugin against the versioned plugin protocol; bundled reference plugins are the open implementations, and the host never falls back to a built-in once an adapter is extracted. **Proposed Rust front-door addition (amendment 0.16.0):** From M1, the host entry point is a Rust binary; the TypeScript core runs as its child during M1/M2 until M2 completes ([ADR 0004](../docs/decisions/0004-rust-front-door-and-coexistence.md)). | `src/plugins/`, `plugins/`, adapters | [ADR plugin-host-and-rust-strangler](../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md) D1–D2 | Established |
 | P14 | The plugin protocol is versioned under the same compatibility rule as the client protocol (P4) and generated from zod schemas with a freshness test (P11). | `src/plugins/protocol.ts`, `docs/plugin-protocol*.{md,json}` | same ADR | Established |
 | P15 | The host never checks entitlements. A commercial plugin verifies its own license and reports status through `entitlement.report`; `tier` is informational. | `src/plugins/` | same ADR D3–D4 | Established |
 
@@ -100,6 +100,15 @@ Other reviewers remain advisory. This amendment changes no remote branch protect
 - Consumer CSS may not override shared layout spacing. Source checks and browser geometry regressions complement the existing UI-18, UI-24 and CT-11 evidence requirements.
 - This amendment adds a rule; it grants no validation exception and changes no API or architecture boundary.
 
+## Amendment 0.16.0 — Rust front door and coexistence
+
+Proposed; adopted only by the maintainer merging this amendment PR.
+
+- Extend P13 with the Rust entry point and supervised TypeScript child during M1/M2. Existing minimal-host and plugin constraints remain established; this addition does not claim unfinished plugin extraction is complete.
+- Add ARCH-15 and ARCH-16 for public transport ownership, transparent forwarding and durable shared-state protocols. Existing ARCH-13 and ARCH-14 retain their plugin meanings.
+- Record native listener transfer, Root-owned immutable helper spawning, paired packaging and the complete-app repair boundary in [ADR 0004](../docs/decisions/0004-rust-front-door-and-coexistence.md). Authenticated private IPC remains permitted; durable state retains the established file/lock and SQLite contracts.
+- Adoption records the architecture, not M1 completion, crate publication, release approval or live validation success. CT-11 and all established security, protocol, UI, release and evidence requirements remain in force. Missing required behavior remains FAIL or UNVERIFIED until resolved or covered by a maintainer-recorded scoped exception.
+
 ## Workflow choice
 
 No development workflow is mandated. Contributors may use Superpowers, SpecKit, dev-cycle, a custom workflow or direct work. Workflow artifacts follow AGENTS.md: plans and reviews go in `.work/`, specs in `docs/specs/`, ADRs in `docs/decisions/`.
@@ -156,6 +165,16 @@ Proposed for adoption by maintainer merge; implementation for the current dispat
 ## Amendment 0.15.0 — agent work routing
 
 Proposed; adopted when the maintainer merges it. It adds REPO-11 to REPO-14 to [rules/repository.md](rules/repository.md#repo-11-to-repo-14-agent-work-routing): delegate execution through pacer as the mode requires, use the smallest capable model tier for work on the planner's side, record the choice in every brief and report, and keep executor state in a sandbox. The rules name no particular planner or vendor (P3). They don't relax REPO-10, CT-11, the UI evidence gates or the maintainer's merge authority.
+
+## Amendment 0.17.0 — paired machines
+
+Proposed; adopted only by the maintainer merging this amendment PR. It records the host side of execution on paired pacer machines, as described in the [machine peers spec](../docs/specs/2026-10-28-machine-peers-design.md), [ADR 0012](../docs/decisions/0012-machine-identity-and-paired-execution.md) and [ADR 0013](../docs/decisions/0013-lan-discovery-and-pairing-hand-over.md).
+
+- The purpose-and-scope line adds paired pacer machines to local, Orca and SSH execution. A task runs on, and is owned by, the machine whose runner executes it.
+- ARCH-7 narrows to SSH host runners. Execution on a paired machine is a second model next to it, in which the remote machine runs pacer.
+- SEC-11 to SEC-16 are added to [rules/security.md](rules/security.md): presence-only discovery, plugin-owned peer listeners, tiered peer credentials, the one-hop rule, domain-separated signing and untrusted discovered values. Its "Applies to" line gains `src/plugins/**`, `src/identity/**`, `src/discovery/**` and `$PACER_HOME/identity/**`.
+
+SEC-1, SEC-2, SEC-3 and SEC-6 are unchanged. SEC-3 governs the service's API listener; SEC-11 is the only non-loopback socket the open host opens. The amendment names no plugin; pairing is described as a host feature that plugins provide. It doesn't relax REPO-10, CT-11 or the maintainer's merge authority.
 
 ## Amendment and exception policy
 

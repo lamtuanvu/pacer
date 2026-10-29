@@ -4,18 +4,20 @@ export const fixtureProcessSchema = z.object({ pid: z.number().int().positive(),
 export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure"] as const;
 /** Scenarios that start Desktop attached to the lease's one external service. */
 export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
-export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS] as const;
+export const TAKEOVER_SCENARIOS = ["takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash"] as const;
+export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS, ...TAKEOVER_SCENARIOS] as const;
 const points = {
   upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"],
   "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
+  takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
 } as const;
 const transaction = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const exerciseSchema = z.object({
   schema: z.literal(1), scenario: z.enum(NATIVE_SCENARIOS), state: z.enum(["armed", "running", "complete", "failed"]),
   driver: fixtureProcessSchema, installationId: z.string().regex(/^[a-f0-9]{64}$/), transactionId: transaction.nullable(),
   faults: z.array(z.object({
-    point: z.enum(["authorized", "installed", "restore", "candidate-startup", "adoption-startup"]),
+    point: z.enum(["authorized", "installed", "restore", "candidate-startup", "adoption-startup", "takeover-startup", "takeover-switch"]),
     consumed: z.object({ process: fixtureProcessSchema, transactionId: transaction }).strict().nullable(),
   }).strict()).max(2),
 }).strict().superRefine((value, context) => {

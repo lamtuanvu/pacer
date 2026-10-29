@@ -36,7 +36,7 @@ async function uninstallUnlocked(ctx: Ctx, planner: string | PlannerCfg): Promis
       }
       const text = readText(file.path);
       const intact = text !== null && sha256(text) === file.afterHash;
-      if (file.action === "created" && intact) {
+      if (file.action === "created" && intact && (file.exact !== false || file.undo.length === 0)) {
         rmSync(file.path); report.removed.push(file.path);
       } else if (file.action === "edited" && intact && file.exact && file.backup && existsSync(file.backup)) {
         writeInstallFile(file.path, readInstallFile(file.backup)!); rmSync(file.backup); report.restored.push(file.path);

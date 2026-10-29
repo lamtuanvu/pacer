@@ -17,6 +17,8 @@ use std::{
 
 #[path = "control_adoption.rs"]
 mod adoption;
+#[path = "control_deadline.rs"]
+mod deadline;
 pub use adoption::*;
 
 const MAX_FRAME: usize = 262_144;
@@ -129,6 +131,40 @@ pub fn read_frame<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> Re
     let mut bytes = vec![0; n];
     stream.read_exact(&mut bytes).map_err(|_| OtaError::Io)?;
     serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)
+}
+fn write_frame_until<T: Serialize>(
+    stream: &mut UnixStream,
+    value: &T,
+    until: Option<std::time::Instant>,
+) -> Result<(), OtaError> {
+    let Some(until) = until else {
+        return write_frame(stream, value);
+    };
+    let bytes = serde_json::to_vec(value).map_err(|_| OtaError::Invalid)?;
+    if bytes.is_empty() || bytes.len() > MAX_FRAME {
+        return Err(OtaError::Invalid);
+    }
+    deadline::write_all(stream, &(bytes.len() as u32).to_be_bytes(), until)?;
+    deadline::write_all(stream, &bytes, until)
+}
+fn read_frame_until<T: serde::de::DeserializeOwned>(
+    stream: &mut UnixStream,
+    until: Option<std::time::Instant>,
+) -> Result<T, OtaError> {
+    let Some(until) = until else {
+        return read_frame(stream);
+    };
+    let mut length = [0u8; 4];
+    deadline::read_exact(stream, &mut length, until)?;
+    let size = u32::from_be_bytes(length) as usize;
+    if size == 0 || size > MAX_FRAME {
+        return Err(OtaError::Invalid);
+    }
+    let mut bytes = vec![0; size];
+    deadline::read_exact(stream, &mut bytes, until)?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)?;
+    deadline::remaining(until)?;
+    Ok(value)
 }
 #[cfg(target_os = "macos")]
 pub fn peer_token(stream: &UnixStream) -> Result<[u8; 32], OtaError> {
@@ -314,27 +350,93 @@ pub fn match_readiness(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_open_reports_a_closed_peer_without_consuming_data() {
+        use std::io::{Read, Write};
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        assert!(channel_open(&ours));
+        theirs.write_all(b"x").unwrap();
+        assert!(channel_open(&ours));
+        let mut byte = [0u8; 1];
+        (&ours).read_exact(&mut byte).unwrap();
+        assert_eq!(&byte, b"x");
+        drop(theirs);
+        assert!(!channel_open(&ours));
+    }
+
+    #[test]
+    fn takeover_registration_uses_the_inspection_registration_directory() {
+        let home = Path::new("/fixture/home");
+        let fixture = Path::new("/fixture/ota/registrations");
+        assert_eq!(service_registration_path(home, "com.pacer.live.test.service", Some(fixture)), fixture.join("com.pacer.live.test.service.plist"));
+        assert_eq!(service_registration_path(home, "com.pacer.serve", None), home.join("Library/LaunchAgents/com.pacer.serve.plist"));
+    }
     #[test]
     fn handshake_retries_only_transient_refusals_within_its_deadline() {
         let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
         let mut calls = 0;
-        let ok = retry_handshake(later, || {}, || {
-            calls += 1;
-            if calls < 3 { Err(OtaError::Io) } else { Ok(calls) }
-        });
+        let ok = retry_handshake(
+            later,
+            || {},
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(OtaError::Io)
+                } else {
+                    Ok(calls)
+                }
+            },
+        );
         assert_eq!((ok, calls), (Ok(3), 3));
         calls = 0;
-        let refused: Result<(), _> = retry_handshake(later, || {}, || {
-            calls += 1;
-            Err(OtaError::Identity)
-        });
+        let refused: Result<(), _> = retry_handshake(
+            later,
+            || {},
+            || {
+                calls += 1;
+                Err(OtaError::Identity)
+            },
+        );
         assert_eq!((refused, calls), (Err(OtaError::Identity), 1));
         calls = 0;
-        let expired: Result<(), _> = retry_handshake(std::time::Instant::now(), || {}, || {
-            calls += 1;
-            Err(if calls == 1 { OtaError::Unavailable } else { OtaError::Io })
-        });
+        let expired: Result<(), _> = retry_handshake(
+            std::time::Instant::now(),
+            || {},
+            || {
+                calls += 1;
+                Err(if calls == 1 {
+                    OtaError::Unavailable
+                } else {
+                    OtaError::Io
+                })
+            },
+        );
         assert_eq!((expired, calls), (Err(OtaError::Unavailable), 1));
+    }
+    #[test]
+    fn adoption_context_deadline_preserves_invalid_frame_refusal() {
+        for payload in [b"{".as_slice(), b"null".as_slice()] {
+            let (mut client, mut server) = UnixStream::pair().unwrap();
+            server
+                .write_all(&(payload.len() as u32).to_be_bytes())
+                .unwrap();
+            server.write_all(payload).unwrap();
+            let result: Result<ControlSession, _> = read_frame_until(
+                &mut client,
+                Some(std::time::Instant::now() + HANDSHAKE_RETRY),
+            );
+            assert!(matches!(result, Err(OtaError::Invalid)));
+        }
+        for length in [0, MAX_FRAME + 1] {
+            let (mut client, mut server) = UnixStream::pair().unwrap();
+            server.write_all(&(length as u32).to_be_bytes()).unwrap();
+            let result: Result<ControlSession, _> = read_frame_until(
+                &mut client,
+                Some(std::time::Instant::now() + HANDSHAKE_RETRY),
+            );
+            assert!(matches!(result, Err(OtaError::Invalid)));
+        }
     }
     #[test]
     fn shutdown_requires_receipt_for_the_exact_pending_effect() {
@@ -770,6 +872,19 @@ fn authenticate_service_adoption(
     ticket: Option<&LaunchTicket>,
     adoption: Option<&AdoptionReconnectPlan>,
 ) -> Result<(UnixStream, ControlSession), OtaError> {
+    authenticate_service_adoption_until(endpoint, trust, role, ticket, adoption, None)
+}
+fn authenticate_service_adoption_until(
+    endpoint: &ServiceEndpoint<'_>,
+    trust: &ReleaseTrust,
+    role: &str,
+    ticket: Option<&LaunchTicket>,
+    adoption: Option<&AdoptionReconnectPlan>,
+    until: Option<std::time::Instant>,
+) -> Result<(UnixStream, ControlSession), OtaError> {
+    if let Some(until) = until {
+        deadline::remaining(until)?;
+    }
     if ticket.is_some() && adoption.is_some() {
         return Err(OtaError::Identity);
     }
@@ -778,10 +893,16 @@ fn authenticate_service_adoption(
     })?)
     .map_err(|_| OtaError::Unavailable)?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .set_read_timeout(Some(match until {
+            Some(until) => deadline::remaining(until)?,
+            None => std::time::Duration::from_secs(10),
+        }))
         .map_err(|_| OtaError::Io)?;
     stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(10)))
+        .set_write_timeout(Some(match until {
+            Some(until) => deadline::remaining(until)?,
+            None => std::time::Duration::from_secs(10),
+        }))
         .map_err(|_| OtaError::Io)?;
     let peer = trust.verify_peer(endpoint.process, CodeRole::Cli, &peer_token(&stream)?)?;
     if peer
@@ -796,7 +917,7 @@ fn authenticate_service_adoption(
     {
         return Err(OtaError::Identity);
     }
-    let challenge: ServiceChallenge = read_frame(&mut stream)?;
+    let challenge: ServiceChallenge = read_frame_until(&mut stream, until)?;
     if challenge.schema != 1
         || challenge.kind != "challenge"
         || !valid_nonce(&challenge.nonce)
@@ -818,8 +939,8 @@ fn authenticate_service_adoption(
         plan.validate()?;
         hello["adoption"] = serde_json::to_value(plan).map_err(|_| OtaError::Invalid)?;
     }
-    write_frame(&mut stream, &hello)?;
-    let session: ControlSession = read_frame(&mut stream)?;
+    write_frame_until(&mut stream, &hello, until)?;
+    let session: ControlSession = read_frame_until(&mut stream, until)?;
     if session.schema != 1
         || session.kind != "registered"
         || session.nonce != nonce
@@ -828,7 +949,32 @@ fn authenticate_service_adoption(
     {
         return Err(OtaError::Identity);
     }
+    if let Some(until) = until {
+        deadline::remaining(until)?;
+    }
     Ok((stream, session))
+}
+/// An authenticated helper channel to a service, with no request sent. The
+/// takeover helper holds it as proof of the bundled service's native endpoint.
+pub fn authenticate_helper(
+    endpoint: &ServiceEndpoint<'_>,
+    trust: &ReleaseTrust,
+) -> Result<UnixStream, OtaError> {
+    authenticate_service(endpoint, trust, "helper", None).map(|(stream, _)| stream)
+}
+/// Whether the service still holds an authenticated channel open.
+pub fn channel_open(stream: &UnixStream) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut byte = 0u8;
+    let read = unsafe {
+        libc::recv(
+            stream.as_raw_fd(),
+            (&mut byte as *mut u8).cast(),
+            1,
+            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+        )
+    };
+    read > 0 || read < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock
 }
 /// A helper's stdin target is descriptive only; this authenticated context is the
 /// service's independently observed authority. Recovery returns recorded context.
@@ -969,7 +1115,7 @@ pub fn observe_launch(
     Ok(observed)
 }
 
-fn parse_registration(
+pub(crate) fn parse_registration(
     bytes: &[u8],
     user_home: &Path,
     home: &Path,
@@ -1053,12 +1199,17 @@ pub fn inspect_registered_service(
     let observed = observe_service_registration(user_home, home, port, trust)?;
     trust.verify_process(&observed.process, CodeRole::Cli)?;
     trust.verify_static(&observed.executable, CodeRole::Cli)?;
-    Ok(RegisteredService { home: observed.home, port: observed.port, process: observed.process, executable: observed.executable })
+    Ok(RegisteredService {
+        home: observed.home,
+        port: observed.port,
+        process: observed.process,
+        executable: observed.executable,
+    })
 }
 
 /// Read-only native ownership observations. These are not a verified endpoint or OTA authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ObservedServiceRegistration {
+pub struct ObservedServiceRegistration {
     pub home: std::path::PathBuf,
     pub port: u16,
     pub process: ProcessIdentity,
@@ -1067,7 +1218,13 @@ pub(crate) struct ObservedServiceRegistration {
     pub label: String,
 }
 
-pub(crate) fn observe_service_registration(
+fn service_registration_path(user_home: &Path, label: &str, fixture_root: Option<&Path>) -> PathBuf {
+    let directory = fixture_root.map(Path::to_path_buf)
+        .unwrap_or_else(|| user_home.join("Library/LaunchAgents"));
+    directory.join(format!("{label}.plist"))
+}
+
+pub fn observe_service_registration(
     user_home: &Path,
     home: &Path,
     port: u16,
@@ -1085,16 +1242,8 @@ pub(crate) fn observe_service_registration(
     } else {
         "com.pacer.serve"
     };
-    let path = if let Some(policy) = trust.fixture_policy() {
-        policy
-            .root
-            .join("registrations")
-            .join(format!("{label}.plist"))
-    } else {
-        user_home
-            .join("Library/LaunchAgents")
-            .join(format!("{label}.plist"))
-    };
+    let fixture_registration_dir = trust.fixture_policy().map(|policy| policy.root.join("registrations"));
+    let path = service_registration_path(&user_home, label, fixture_registration_dir.as_deref());
     if path.canonicalize().map_err(|_| OtaError::Identity)? != path {
         return Err(OtaError::Identity);
     }

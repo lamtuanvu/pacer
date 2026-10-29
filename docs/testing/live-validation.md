@@ -2,6 +2,10 @@
 
 CT-11 requires live evidence for runtime behavior changes. Use the checkout under review with a sandbox service, then exercise every affected surface. Unit tests support this check; a passing test suite alone does not establish live behavior. Docs-only, test-only and CI-only changes are exempt.
 
+OTA event traces remain in the report's evidence details. They do not assert a
+behavior verdict; the driver's outcome checks provide that verdict. Required
+behavior notes without a verdict still count as UNVERIFIED.
+
 ## Start and inspect a sandbox
 
 From the checkout root:
@@ -22,13 +26,30 @@ bun run live up --id ui-check --seed ui
 bun run live login --id ui-check
 ```
 
-`--seed ui` completes the derived setup checklist and supplies five sample tasks: waiting for review, failed with a removed worktree, partial, running, and accepted/done. It also supplies task attention entries and quota readings for two accounts, reusing the UI fixtures in `test/fixtures/ui/`. The home (`#/`), review (`#/review`), sessions (`#/sessions`) and task detail routes can then display sample work. Unknown seed names are rejected before a sandbox is created; `--seed` is valid only for `up`.
+`--seed ui` completes the derived setup checklist and supplies five sample tasks: waiting for review, failed with a removed worktree, partial, running, and accepted/done. The running task is a work-tree root with two subtasks, one accepted with 11,963 measured Codex tokens and one still running, so the Tasks tree shows a live token total without an executor. It also supplies task attention entries and quota readings for two accounts, reusing the UI fixtures in `test/fixtures/ui/`. The home (`#/`), review (`#/review`), sessions (`#/sessions`) and task detail routes can then display sample work. Unknown seed names are rejected before a sandbox is created; `--seed` is valid only for `up`.
 
-All seed files are written under the sandbox's `home/`. In this mode only, `HOME` and tool config directories also point there. Synthetic account logs and empty login markers replace native account state. Status-only `launchctl`/`systemctl` stubs satisfy the setup check and refuse mutations; executor stubs refuse execution. These represent fixture readiness, not an installed service or authenticated accounts. The running task has no executor process, child PID or resumable run; PID 1 is used only as a liveness sentinel, never as a signal target. Use an unseeded sandbox for real executor validation. D3 and D8 still apply.
+All seed files are written under the sandbox's `home/`. In this mode only, `HOME` and tool config directories also point there. Synthetic account logs and empty login markers replace native account state. Status-only `launchctl`/`systemctl` stubs satisfy the setup check and refuse mutations; executor stubs refuse execution, so new work submitted there (`delegate`, `dispatch submit`) stays queued, waiting to retry its version check. These represent fixture readiness, not an installed service or authenticated accounts. The running tasks have no executor process, child PID or resumable run; PID 1 is used only as a liveness sentinel, never as a signal target. Use an unseeded sandbox for real executor validation. D3 and D8 still apply.
 
 The service and D8 guard proxy run detached from this checkout on two different free loopback ports, neither 4317. `session.json` records the public `port`, private `innerPort`, service `pid` and `proxyPid`. All clients use the public port (`PACER_PORT`); only the service binds `innerPort` via `--port`. Startup verifies the proxy identity, inner service identity and forwarded `/health`. Inspect `logs/serve.log` and `logs/proxy.log` if startup fails. `bun run live status` lists all sandboxes, including stopped ones retained with `--keep`.
 
-To validate the Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and runs it for the service and for every guarded `pacer` call, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts`. The service is then two processes: the front door (`pid`, bound to `innerPort`) and its `pacer-core serve --internal` child on a private ephemeral port, restarted by the front door if it exits. Both write to `logs/serve.log`; core lines are the core's own output, and front-door lines start with `pacer:` (for example `pacer: core did not announce its listener`). Find the child with `pgrep -P <pid> -f 'serve --internal'`.
+### M1 runtime and artifact layout
+
+To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority.
+
+Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
+
+Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
+
+Root also directly parents the original immutable recovery helper. Its private helper-control channel accepts only bounded fixed helper requests, with role, hash, manifest/journal and static/dynamic image verification; it is not an API or environment selector. Root writes the existing bootstrap and invokes fixed `--ota-pipe`; paired mode never falls back to Core spawning an old helper. Evidence must show the old helper's unchanged bytes and actual Root parent, alongside original desktop/helper kernel audit identity.
+
+Root retains the helper's three transferred I/O/control descriptors until Core
+validates them and acknowledges receipt within the existing request deadline.
+Any positive transfer may already have handed over authority: the independent
+helper reaper and capacity permit survive receipt failure, timeout or cancellation.
+
+Handed helpers may hold durable recovery authorization and must survive control EOF, Core restart and Root service retirement. Pre-handoff failures terminate/reap; explicit abort uses SIGTERM to the owned child. The four-helper limit belongs to Root across core generations and is released only when each actual helper exits. Do not infer public update completion from a committed native journal: require fresh outcome/readiness and cleanup proof. Bounded asynchronous channel deadlines do not strictly preempt synchronous filesystem/signature validation.
+
+For `serve --port 0`, original argv retains literal zero while evidence records the actual nonzero bound port. Registration and native listener checks use the actual port and exact recorded launch identity. Do not rewrite evidence argv or bypass public guards.
 
 For unseeded sandboxes, `HOME` stays unchanged so installed executors keep their authentication and usage readers see actual usage. The harness never reads or copies native tool credentials. `PACER_HOME`, `PACER_PORT`, `PACER_BIN`, `PACER_BACKEND=direct`, `PACER_NO_UPDATE_CHECK=1` and `PACER_ORCA_USER_DATA` select sandbox state. A minimal sandbox strategy initially routes to Codex; edit only the sandbox's `home/strategy.yaml` when testing other installed executors.
 
@@ -223,15 +244,25 @@ bun run live down --id ota-check --keep
 
 `prepare` records a private resource ledger under `ota/record.json` before copying either app. It allocates separate current/candidate copies, a sandbox installation ID, and unique reserved service/recovery labels. It fingerprints both sources and the existing real service registration bytes without copying the registration into the fixture. Preparation never invokes a service manager or launches a native application. Cleanup of copies that have never been exercised does neither. Cleanup validates the ledger and canonical ownership again, removes only the recorded copies, and verifies that the sources and real registration bytes are unchanged. Unexpected resources, changed sources/registration, or unknown registration ownership preserve the sandbox for diagnosis. Generic `down` runs this validation before tearing down an OTA sandbox; `--keep` preserves the ledger and evidence.
 
-On macOS, `bun run live ota build --id <id>` can instead build the complete disposable baseline0.2.3 and candidate0.2.4 from isolated source snapshots. It reserves an immutable compile lease in phase `building`, uses a newly generated disposable Tauri key and explicit ad-hoc Apple signatures, verifies compiled identities and the version-bound updater signature, then records exact feed/artifact fingerprints before marking `prepared`. The production checkout versions are unchanged. Only the host architecture is represented; no other architecture or production signing is claimed. This command accepts no key, command, feed, version, or manager target override. Incomplete builds remain preserved and cannot authorize runtime mutations. Cleanup retains immutable build sources and removes only recorded application copies and feed artifacts after registration ownership is settled.
+For signed legacy-to-paired compatibility on macOS, run `bun run live ota build --id <id> --signer cert`. The fixed baseline uses the published bridge source recorded by the harness, compiled at synthetic version 0.2.3; the candidate uses the checkout snapshot at synthetic version 0.2.4 and contains Rust `pacer` plus compiled `pacer-core`. The build captures immutable source fingerprints and uses a disposable certificate pinned into the fixture lease and native components, plus a disposable updater key. Checkout versions remain unchanged. Exact feed/artifact fingerprints are recorded before `prepared`; incomplete builds grant no runtime mutation authority. This mode accepts no arbitrary source ref, signing key, feed, manager target or command. Cleanup retains immutable build sources and removes only recorded application copies and feed artifacts after registration ownership is settled. Only the host architecture is represented; this does not prove production signing or channel delivery.
 
-The fixed scenario names are `upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure`, `attached`, `wrong-service`, `watcher-race`, `active-work`, `invalid-signature`, `corrupt-archive`, `wrong-architecture`, `incompatible`, and `offline`. Commands, feed URLs, signing keys, and arbitrary service targets are not accepted as scenario options.
+The fixed scenario names are `upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure`, `attached`, `takeover`, `takeover-relink`, `takeover-dismiss`, `takeover-failure`, `takeover-crash`, `wrong-service`, `watcher-race`, `active-work`, `invalid-signature`, `corrupt-archive`, `wrong-architecture`, `incompatible`, and `offline`. Commands, feed URLs, signing keys, and arbitrary service targets are not accepted as scenario options.
 
-Managed native scenarios require `ota build` and a fresh harness service with recorded PID, birth and boot identity. The driver verifies immutable bundle bytes, ad-hoc signatures, exact compiled fixture policy and scoped native job inspection before handing off that one service process to the fixture desktop. It binds the native installation ID independently from signed bundle coordinates and the inspected registration, then observes the default automatic check/download and sends explicit restart through the public guarded proxy. If automatic download was already disabled, check and download also use that proxy. Only one exact recorded request is authorized while the driver incarnation remains alive. D3, unrelated D8 operations and all real service targets remain blocked. Missing or uncertain proof refuses and records UNVERIFIED. A failed baseline startup can reuse its signed fixture only when no exercise or request was armed and the former driver, source service and desktop incarnations have all exited. The native service and immutable bundle are verified again before a new driver claims the startup under the ledger lock; previous identities remain in evidence. An armed or ambiguous transaction cannot use this retry.
+Managed native scenarios require `ota build` and a fresh harness service with recorded PID, birth and boot identity. The driver verifies immutable bundle bytes, lease-pinned certificate signatures, exact compiled fixture policy and scoped native job inspection before handing off that one service process to the fixture desktop. It binds the native installation ID independently from signed bundle coordinates and the inspected registration, then follows the fixed explicit user flow through the public guarded proxy: disable automatic download for the exercise, check, download, and request restart. Evidence distinguishes each step from transaction admission and requires final public status, native readiness and cleanup. A successful signed build or idle download wait is not an upgrade result. Only one exact recorded request is authorized while the driver incarnation remains alive. D3, unrelated D8 operations and all real service targets remain blocked. Missing or uncertain proof refuses and records UNVERIFIED. A failed baseline startup can reuse its signed fixture only when no exercise or request was armed and the former driver, source service and desktop incarnations have all exited. The native service and immutable bundle are verified again before a new driver claims the startup under the ledger lock; previous identities remain in evidence. An armed or ambiguous transaction cannot use this retry.
 
-`upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure` and `attached` have fixed compiled fixture checkpoints. No command, environment variable or API parameter selects a fault. A marker is consumed durably once before the fixed effect; `interrupted-install` occurs before commit and must restore the original version. Other scenarios remain unavailable until their constrained driver is implemented. This implementation is not evidence that a native scenario passed: use the actual evidence report. Production builds compile out fixture authority and fault hooks.
+`upgrade`, `startup-failure`, `helper-crash`, `interrupted-install`, `restore-failure`, `adopt`, `adopt-failure`, `attached`, `takeover`, `takeover-relink`, `takeover-dismiss`, `takeover-failure` and `takeover-crash` have fixed compiled fixture checkpoints. No command, environment variable or API parameter selects a fault. A marker is consumed durably once before the fixed effect; `interrupted-install` occurs before commit and must restore the original version. Other scenarios remain unavailable until their constrained driver is implemented. This implementation is not evidence that a native scenario passed: use the actual evidence report. Production builds compile out fixture authority and fault hooks.
 
 The attached scenarios start from an external service instead of the bundled one. `ota build` also stages one standalone copy of the baseline CLI and its native shim under `ota/external/`, recorded by hash in the ledger. The compiled helper's fixed attach operation registers and loads that program under the lease's service label before Desktop starts, so Desktop sees an attached installation. `adopt` sends the explicit adoption through the guarded proxy and requires a committed adoption journal, a managed-branch readiness proof, the bundled CLI as the surviving service, and the expected new installation ID. `adopt-failure` fails the bundled service's readiness once through a compiled fault and requires the original registration, external service and installation to be restored. `attached` performs an app-only update and requires the exact external service incarnation and registration bytes to be unchanged. The native ledger permits the service label to switch only between its two cataloged registrations, only after the old job is absent and every recorded incarnation has exited, and keeps each superseded generation in history.
+
+To validate adoption into the Rust/Core pair, use a fresh **unseeded** sandbox and build with `bun run live ota build --id <id> --signer cert --initial-layout paired --fixture-continue-old-service`, then exercise `adopt` or `adopt-failure`. Each case needs its own fresh build. The flag is valid only for a paired OTA build; it records the fixed old-service choice in the private fixture lease so the signed fixture Desktop queues its existing "Continue current work" action when Desktop 0.2.4 meets the external service at 0.2.3. Both paired `adopt` and `adopt-failure` builds need this choice: without it, Desktop waits at the old-service choice and never offers adoption. This fixed preset starts Desktop from the verified paired candidate at 0.2.4 while the standalone external service retains the immutable baseline 0.2.3 bytes. The default `bridge` layout remains unchanged. The paired layout refuses all other scenarios before native effects and preserves the existing single adoption transaction and fault protocol. Success requires Desktop/service 0.2.4 plus exact Root/Core process, parent, incarnation and certificate evidence; restoration requires Desktop 0.2.4 with the original external service version 0.2.3 and no surviving candidate Root/Core. These checks supplement the native journal; declaring a paired layout or passing an app-only update is not paired adoption evidence. Keep first standard cleanup and the actual report with each case.
+
+### Service takeover fixture
+
+Build each takeover scenario from a fresh sandbox with `bun run live ota build --id <id> --signer cert`. The certificate SHA-1 is compiled into the lease. The build records two ordinary standalone CLIs without native OTA authority or fixture policy, signed ad hoc and hashed in the lease ledger. The fixed `--ota-fixture-attach-takeover` helper registers only `<fixture home>/.local/bin/pacer`, copied from the staged candidate CLI. The second CLI supplies a changed identity for the dismissal probe. Preflight must prove that this regular file fails the lease's static release verification before the desktop starts. Consent has `keep: false`; no symlink is seeded. The real service label, terminal command and data home are excluded.
+
+`takeover` confirms replacement of the detected service before the version gate. It requires a committed takeover journal, the bundled CLI as the registered and loaded service, the service snapshot's desktop update ownership `managed`, Settings → Updates without the replaced-service reason, unchanged `token` and `strategy.yaml`, unchanged original command bytes, and no relink. `takeover-relink` also requires a timestamped backup and a symlink to the bundled CLI. `takeover-dismiss` requires **Not now** to persist, Settings → Updates to show the replaced-service reason and **Review service replacement** (which must reopen the bundled page), a relaunch with the same executable identity to skip the offer, and a changed binary to re-offer the choice. `takeover-failure` consumes the compiled `takeover-startup` checkpoint and requires restoration of the original registration and running executable identity, then the **Kept your current service** page. `takeover-crash` consumes `takeover-switch`, exits the helper after the registration switch, and requires the in-progress page while the independent recovery job restores the original service, no desktop install, start or sign-in in that interval, then the restored page. When the source-built CLI remains the service (`takeover-dismiss`, `takeover-failure`, `takeover-crash`), the driver ends its own fixture desktop before completing, and cleanup stops only that exact verified service, because the CLI has no OTA authority to acknowledge fixture cleanup. Each journal step records `outcome` (`ok` or `failed`); restored and recovery-failed journals carry a short public reason code such as `verify:unavailable` or `interrupted:switch-registration`, which the desktop maps to plain copy. Every page check also rejects internal state names and reason codes in the page text.
+
+The driver fixes a theme per scenario (light for `takeover`, `takeover-dismiss` and `takeover-crash`, dark for the others, plus a dark relaunch in `takeover-dismiss`) and captures the offer, progress, restored and Settings pages under `evidence/`. It records a Tab-order check of the offer with default keyboard settings in `takeover-offer-tab-order.json`, and per-scenario observed values in `takeover-observed.json` and the report. No fixture fault reaches the recovery-failed page; report it as UNVERIFIED. Record native and VoiceOver surfaces not exercised as UNVERIFIED.
 
 Successful upgrade and restoration checks also require completed reservation
 release and recovery-job retirement, followed by independent observation of the
@@ -251,7 +282,7 @@ A fixture baseline that failed before becoming ready has a separate constrained 
 
 ### Certificate-signed fixtures
 
-`bun run live ota build --id <id> --signer cert` signs both fixture versions with a disposable self-signed code-signing certificate instead of ad hoc signatures. The certificate's SHA-1 is compiled into the fixture lease, so every native check also pins it, as an interim release build pins the project certificate. The private keychain is deleted after the build. Use it to exercise the interim signer's requirement strings end to end (`upgrade`, `startup-failure`, `adopt`). Cleanup diagnostics for a failed startup are unavailable for certificate-signed fixtures. A disposable certificate is not evidence for the release certificate, CI signing, Gatekeeper or the first-install flow.
+The legacy-to-paired builder requires `bun run live ota build --id <id> --signer cert`; its ad-hoc default is refused. It signs both fixture versions with one disposable self-signed code-signing certificate. The certificate's SHA-1 is compiled into the fixture lease, so every native check also pins it, as an interim release build pins the project certificate. The private keychain is deleted after the build. Use it to exercise the interim signer's requirement strings end to end (`upgrade`, `startup-failure`, `adopt`). Cleanup diagnostics for a failed startup are unavailable for certificate-signed fixtures. A disposable certificate is not evidence for the release certificate, CI signing, Gatekeeper or the first-install flow.
 
 ## Agent control commands
 
@@ -260,6 +291,29 @@ native `desktop` targets through `targets`, `inspect`, `act`, `wait`, `assert`,
 `capture`, `scenario` and `doctor`. Actions carry target generations and revisions;
 coordinate input additionally carries a recent capture ID. Delivered or uncertain
 actions attempt an automatic evidence capture and are never repeated implicitly.
+
+Native desktop control can also bind to the existing Desktop after a completed,
+committed managed OTA `upgrade` fixture. The harness rechecks its compiled lease,
+signed candidate bundle, native transaction/readiness proof, exact jobs and process
+incarnations, guarded service identity and authenticated capture windows. This
+binding stays in memory: it does not populate ordinary desktop ownership fields
+or let generic teardown stop an OTA participant. Native ledger retirement remains
+responsible for that process. Never edit session metadata or launch a second
+Desktop to make control pass.
+
+This enrollment refuses active, failed, restored, adoption and attached
+transactions, missing capture workers, uncertain identity and restarted processes.
+Resolve a new command after a legitimate restart; permissions are still required.
+Initial collection runs lazily under the command's `--timeout-ms` budget, and each
+input rechecks authority. A deadline returns `command_timeout`; a read-only native
+inspector may finish within its existing child timeout afterward, but cannot
+cause late input or restart collection under a diagnostic capture budget. Normal
+`doctor` uses the same command budget. Explicit `--request-accessibility` retains
+the existing 190-second overall ceiling (including the native prompt's 180-second
+limit); it does not bypass permission or ownership checks. Missing evidence stays
+UNVERIFIED. Enrollment does not claim atomic serialization with a concurrent
+update, and native PID/start-identity checks remain required at delivery.
+
 
 The ordinary desktop app opts in with `capture: true` on v3 `client.register`,
 receives its per-instance `capture_worker` credential, and reports its owned
@@ -308,3 +362,39 @@ consumption, native hook invocation, remote hosts or native trust approval; reco
 separate evidence for applicable launch paths. Ordinary guarded
 `integrations refresh` calls are refused under D3. Finish with `live report` and
 `live down --keep`.
+
+## Disposable core self-repair validation
+
+Run `bun run live up --id core-repair --seed ui`, then `bun run live repair --id core-repair`. This fixed mode builds a Rust front door and two compiled Bun cores in the owned sandbox. It exercises missing and mismatched core repair, checksum and version-smoke rejection, and disabled/read-only installation directories against an own-version loopback feed. Successful cases require the exact verified core bytes, an unchanged front door and no repeat download on the next invocation. Refusals require the previous core to remain unchanged; disabled/read-only cases must make zero feed requests.
+
+The command accepts only a sandbox ID and uses the updater fixture's canonical ownership and evidence checks. Each case gets a private install directory, HOME and temporary directory. It accepts no binary, command, URL or scenario override, and grants no authority to ordinary guarded commands. On macOS it refuses a real local signing identity before and after each scenario. It also compares those compiled artifacts' stdio, HTTP authentication/rejection headers, SSE and WebSocket frames using disposable services and a deterministic Unix-socket peer under the fixture's private temporary directory. Finally, the actual shell installer installs a fixed0.0.2 pair into a private prefix, and that installed front door updates both files to0.0.3 with fixed `--no-restart --no-reinstall`, preserving exact backups. The installed pair also downgrades through its updater to a fixed single-binary bridge. The bridge replaces the front door and ignores the stale `pacer-core`; that companion and its backup remain byte-identical, while `pacer.bak` retains the previous Rust front door. A fixed private preload positive control also checks that ambient runtime options cannot alter the core through the front door's version probe or command invocation. The same private fixture checks setup-help forwarding, generates and invokes a Codex hook with the Rust `PACER_BIN`, and captures the fixed service installer registrations before deliberately refusing activation and verifying rollback. Those captures do not claim a loaded manager service or successful onboarding. No executor work is delegated. This validates core repair, transport forwarding, shell installation, startup environment and CLI paired replacement; it does not certify published channel delivery, production signing, service restart or desktop OTA. Results remain under `repair/<scenario>/result.json` and the live evidence report. Run `live report` and `live down --keep` afterwards.
+
+### Private OTA request diagnostics
+
+The guard proxy appends best-effort HTTP diagnostics for the six fixed fixture
+update operations to `evidence/ota-request-trace.jsonl` in its own session. Each
+request gets a fresh random diagnostic correlation ID, operation, fixed stage
+and outcome, elapsed milliseconds, and HTTP status when available. Request IDs,
+nonces, tokens, bodies, paths and arbitrary error text are excluded. Non-update
+traffic does not produce these events. There is no diagnostics endpoint or flag.
+
+Stages cover `body` collection and JSON parsing, `initial-policy` recorded-request
+checks, `native-ownership` inspection, `final-policy` recheck, `forward` dispatch
+or D8 refusal, and `upstream` response headers or transport error. `start` without
+a terminal outcome locates the last observed boundary; it does not establish why
+execution stopped. An upstream `response` records header arrival, not completion
+of a streamed body, transaction admission, native restart, readiness or cleanup.
+Wrong-method requests to those same fixed paths can reach the upstream under the
+existing proxy policy; their forwarding traces do not establish authorization.
+
+The file is private (0600), and its session/evidence directories must be canonical,
+owned and private (0700). Symlinked, multiply linked, nonregular and incorrectly
+permissioned files are refused. A non-waiting private append lock bounds the file
+to 1 MiB; full files, lock contention, stale locks and any observer/write failure
+silently omit diagnostics without changing authorization or HTTP behavior. The
+writer rechecks directory and opened-file identities before writing; like the
+harness's other private files, it assumes no hostile concurrent same-user edits.
+Missing or capped traces remain inconclusive. Do not reset requests, leases or
+native resources to obtain a new trace. Synthetic loopback forwarding/refusal
+checks validate these diagnostics only; native update/tray/retirement acceptance
+remains UNVERIFIED until independently exercised.
