@@ -5,7 +5,7 @@ import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
 import { SetupContext } from "./screens/setup/context";
 import { render } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
@@ -40,7 +40,7 @@ function App() {
   const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
   const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
-  useEffect(() => { resetDesktopPageScroll(); }, [hash]);
+  useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
   const lastWork = useRef("#/");
