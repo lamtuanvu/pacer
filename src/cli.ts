@@ -2,6 +2,7 @@
 import { apiCommand } from "./commands/api";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
@@ -401,7 +402,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
       const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
-      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:DESKTOP_IDENTIFIERS.cli,version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
     }
     case "pause":
     case "resume": {
