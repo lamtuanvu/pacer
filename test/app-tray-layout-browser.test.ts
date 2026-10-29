@@ -240,19 +240,72 @@ browserTest("a medium squeeze empties the planner label slot before the name los
   } finally { await browser.close(); }
 }, 20000);
 
-// Ported from #286's identity checks to the board header: the pill and mode chip stay on the header row and inside the popover,
-// and a long planner name ellipsizes instead of running under them.
+// Exercise the production markup, compact density and real shared status descriptors.
 for (const width of [340, 260]) browserTest(`tray planner name never runs under the status pill at ${width}px`, async () => {
+  const build = await Bun.build({ entrypoints: ["tray-header-fixture"], target: "browser", plugins: [{
+    name: "tray-header-fixture", setup(builder) {
+      builder.onResolve({ filter: /^tray-header-fixture$/ }, () => ({ path: "tray-header-fixture", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: process.cwd(), contents: `/** @jsxImportSource preact */
+        import { render } from "preact";
+        import { Tray } from "./app/src/tray/Tray";
+        import fixture from "./test/fixtures/ui/snapshot.json";
+        const api = { call: async () => ({}) };
+        const ipc = { desktop: true, open: async () => {}, resize: async () => {}, hide: async () => {}, quit: async () => {} };
+        window.draw = state => render(<Tray snapshot={{...fixture,
+          planner: {...fixture.planner, verdict: state === "behind" ? "behind" : state === "clear" ? "on_pace" : "ahead"},
+          attention: state === "clear" ? [] : fixture.attention,
+          pause: state === "paused" ? {until:null,by:"app",reason:null} : null
+        }} api={api} ipc={ipc} />, document.getElementById("app"));
+      ` }));
+    }
+  }] });
+  expect(build.success).toBe(true);
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
-    const page = await browser.newPage({ viewport: { width, height: 300 } });
-    await page.setContent(`<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><span style="display:inline-block;width:18px;height:18px;flex:none"></span><strong>Claude Code Enterprise</strong><span class="tray-planner-label-slot"><span class="tray-planner-label-spacer"></span><span class="tray-planner-label">planner</span></span><span class="tray-grow"></span><span class="pc-pill" style="flex:none">Ahead of pace</span><span class="tray-mode">Normal</span></div></section></main></div>`);
+    const page = await browser.newPage({ viewport: { width, height: 560 } });
+    await page.setContent('<div id="app"></div>');
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") });
-    const name = (await page.locator(".tray-line strong").boundingBox())!, pill = (await page.locator(".tray-line .pc-pill").boundingBox())!, mode = (await page.locator(".tray-mode").boundingBox())!;
-    expect(pill.y).toBeLessThan(name.y + name.height);
-    expect(name.x + name.width).toBeLessThanOrEqual(pill.x);
-    expect(mode.x + mode.width).toBeLessThanOrEqual(width);
-    const ellipsized = await page.locator(".tray-line strong").evaluate(node => getComputedStyle(node).textOverflow === "ellipsis");
-    expect(ellipsized).toBe(true);
+    await page.evaluate(async source => { await import(URL.createObjectURL(new Blob([source], { type: "text/javascript" }))); }, await build.outputs[0]!.text());
+    for (const [state, label] of [["busy", "Ahead of pace"], ["behind", "Behind pace"], ["paused", "Ahead of pace"], ["clear", "On pace"]]) {
+      await page.evaluate(state => (window as any).draw(state), state);
+      const fit = await page.locator(".tray-line").evaluate(node => {
+        const name = node.querySelector("strong")!, pill = node.querySelector(".pc-pill")!, mode = node.querySelector(".tray-mode")!;
+        const glyph = pill.querySelector(".pc-glyph")!, label = pill.querySelector(".tray-pace-label")!;
+        const box = (element: Element) => { const r = element.getBoundingClientRect(); return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width }; };
+        const range = document.createRange(); range.selectNodeContents(name);
+        return { name:box(name), pill:box(pill), mode:box(mode), glyph:box(glyph), label:box(label),
+          textWidth:range.getBoundingClientRect().width, overflow:getComputedStyle(name).textOverflow,
+          labelScroll:label.scrollWidth, labelClient:label.clientWidth,
+          fullLabel:pill.getAttribute("title"), pillText:pill.textContent, glyphText:glyph.textContent,
+          modeTitle:mode.getAttribute("title"), modeText:mode.textContent };
+      });
+      expect(fit.name.width).toBeGreaterThanOrEqual(64);
+      expect(fit.overflow).toBe("ellipsis");
+      for (const item of [fit.pill, fit.mode]) {
+        expect(item.top).toBeLessThan(fit.name.bottom);
+        expect(item.bottom).toBeGreaterThan(fit.name.top);
+      }
+      expect(fit.name.right).toBeLessThanOrEqual(fit.pill.left);
+      expect(fit.pill.right).toBeLessThanOrEqual(fit.mode.left);
+      expect(fit.mode.right).toBeLessThanOrEqual(width - 14);
+      expect(fit.glyph.width).toBeGreaterThan(0);
+      expect(fit.glyph.left).toBeGreaterThanOrEqual(fit.pill.left);
+      expect(fit.glyph.right).toBeLessThanOrEqual(fit.pill.right);
+      expect(fit.glyphText?.trim().length).toBeGreaterThan(0);
+      expect(fit.fullLabel).toBe(label!);
+      expect(fit.pillText).toContain(label!);
+      expect(fit.modeTitle).toBe(fit.modeText);
+      if (width === 340) {
+        expect(Math.abs(fit.name.width - fit.textWidth)).toBeLessThan(0.02);
+        expect(fit.labelScroll).toBeLessThanOrEqual(fit.labelClient);
+      } else {
+        expect(fit.name.width).toBeLessThan(fit.textWidth);
+        expect(fit.labelScroll).toBeGreaterThan(fit.labelClient);
+      }
+      if (process.env.PACER_TRAY_SCREENSHOTS) {
+        console.log(JSON.stringify({ width, state, ...fit }));
+        await page.screenshot({ path: `${process.env.PACER_TRAY_SCREENSHOTS}/header-${width}-${state}.png` });
+      }
+    }
   } finally { await browser.close(); }
 }, 20000);

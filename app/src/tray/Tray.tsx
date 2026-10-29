@@ -15,7 +15,7 @@ import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
-import { StatusPill } from "../ds/StatusPill";
+import { Pill } from "../ds/Pill";
 import { StatusGlyph } from "../ds/StatusGlyph";
 import { executorPace, executorEligibility } from "../../../src/view-model/capacity";
 import { Icon, type IconName } from "../ds/icons";
@@ -126,7 +126,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     return () => document.removeEventListener("keydown", onKeyDown);
   });
   const planner = snapshot && plannerMeter(snapshot);
-  const tone = paceStatus(planner?.verdict ?? "unknown").tone;
+  const pace = paceStatus(planner?.verdict ?? "unknown");
+  const tone = pace.tone;
   const model = snapshot && trayModel(snapshot, activity);
   const mode = snapshot?.pause ? "Paused" : ({ normal: "Normal", relaxed: "Relaxed", strict: "Strict" } as Record<string, string>)[planner?.mode ?? snapshot?.mode?.mode ?? snapshot?.budget?.mode ?? "normal"] ?? "Normal";
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
@@ -136,7 +137,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{model.waiting} waiting for a free {nextExecutor} slot{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
     </section>
