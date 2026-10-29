@@ -1,8 +1,8 @@
-# Mesh host primitives: what the open host provides for multi-machine plugins
+# Machine peers: host primitives for multi-machine plugins
 
-Date: 2026-10-28, revised 2026-10-29 after independent architecture and security review. Status: proposed, awaiting the maintainer's approval. Applies to: `src/plugins/protocol.ts`, `src/plugins/manifest.ts`, `src/dispatch/types.ts`, the executor extension point (unmerged, draft #402), `src/engine/rank.ts`, `src/engine/slots.ts`, `src/core/dispatch.ts`, `src/dispatch/**`, `src/config/project-strategies.ts`, `src/core/project-strategies.ts`, a new `src/config/project-mesh.ts`, `src/api/ops.ts`, `src/api/caller-policy.ts`, `src/serve/http.ts`, a new `src/identity/` and `src/discovery/`, `app/`, `docs/protocol.md`, `docs/plugin-protocol.md`, `.project/rules/security.md`, `.project/rules/architecture.md`.
+Date: 2026-10-28, revised 2026-10-29 after independent architecture and security review. Status: proposed, awaiting the maintainer's approval. Applies to: `src/plugins/protocol.ts`, `src/plugins/manifest.ts`, `src/dispatch/types.ts`, the executor extension point (unmerged, draft #402), `src/engine/rank.ts`, `src/engine/slots.ts`, `src/core/dispatch.ts`, `src/dispatch/**`, `src/config/project-strategies.ts`, `src/core/project-strategies.ts`, a new `src/config/project-machines.ts`, `src/api/ops.ts`, `src/api/caller-policy.ts`, `src/serve/http.ts`, a new `src/identity/` and `src/discovery/`, `app/`, `docs/protocol.md`, `docs/plugin-protocol.md`, `.project/rules/security.md`, `.project/rules/architecture.md`.
 Builds on:
-- [plugin system](2026-10-19-plugin-system-design.md), section 4 (commercial boundary), and constitution principle P15 (the host never checks entitlements)
+- [plugin system](2026-10-19-plugin-system-design.md), section 4 (what a plugin needs from the host is added to the host in the open first)
 - [intelligent work dispatcher](2026-10-24-intelligent-work-dispatcher-design.md) and [ADR 0006](../decisions/0006-intelligent-work-dispatcher.md)
 - [per-project strategy](2026-10-20-per-project-strategy-design.md)
 - [route explanation](2026-10-28-route-explanation-design.md) (proposed; `dispatch.explain`)
@@ -13,9 +13,9 @@ Builds on:
 
 One person often runs pacer on several machines: a laptop, a desktop, a build server. Each machine has its own signed-in accounts, executors, workspaces and budgets. Today a planner on the laptop cannot see or use the desktop's executors, except through the bare SSH host runner, which uses the laptop's own accounts and leaves the desktop's pacer out.
 
-A commercial **mesh plugin**, designed separately, will pair machines owned by one person and let each one see and use the union of their tasks, accounts, executors and workspaces. Under plugin-system section 4, whatever that plugin needs from the host is added here, in the open, first. Some of it must land before the executor extension point freezes its first version.
+A plugin could pair machines owned by one person and let each one see and use the union of their tasks, accounts, executors and workspaces. Under plugin-system section 4, whatever such a plugin needs from the host is added to the host first, in the open. Some of it must land before the executor extension point freezes its first version.
 
-This spec covers only those open host pieces. It does not specify the plugin's peer protocol, transports, pairing exchange or licensing.
+This spec covers only those open host pieces. It does not specify any plugin's peer protocol, transports or pairing exchange.
 
 ## Goals
 
@@ -29,8 +29,8 @@ This spec covers only those open host pieces. It does not specify the plugin's p
 
 ## Non-goals
 
-- The plugin's peer protocol, transports, pairing exchange, federation of read models and licensing. The open host never installs pacer on another machine.
-- Team (multi-person) meshes and mobile clients.
+- A plugin's peer protocol, transports, pairing exchange and federation of read models. The open host never installs pacer on another machine.
+- Pairing machines owned by different people, and mobile clients.
 - Any change to the bare SSH host runner or to SEC-1, SEC-2 and SEC-6.
 
 ## Threat model
@@ -67,7 +67,7 @@ Activity and task records carry the machine id, which makes records from several
 - Review happens on the owner: diffs are read from it, acceptance runs there, and the verdict is recorded there with `reviewedFrom: <machine id>`. Pulling a result branch to another machine is a user action through git, not a copy of the task.
 - The owner's task record carries `requestedBy: <machine id>` for work submitted by a peer.
 
-**ARCH-7.** ARCH-7 describes SSH host runners, which keep their bundle-and-local-acceptance model. Mesh execution is a second, different model: the remote machine runs pacer and owns the task. This needs an ADR (Governance) and an amendment narrowing ARCH-7's wording to "SSH host runners".
+**ARCH-7.** ARCH-7 describes SSH host runners, which keep their bundle-and-local-acceptance model. Execution on a paired machine is a second, different model: the remote machine runs pacer and owns the task. This needs an ADR (Governance) and an amendment narrowing ARCH-7's wording to "SSH host runners".
 
 ## 3. Origin on runners and observations
 
@@ -85,7 +85,7 @@ Rules:
 
 - **Host-derived locality.** An entry with no `origin` is local only if it comes from a built-in or from a plugin without `net.p2p`. An entry from a `net.p2p` plugin with no `origin`, or with `origin.machine` equal to this machine's id, is rejected and reported by `plugin.doctor`. There is no plugin-set "re-exportable" flag; the host decides.
 - **Only local entries are published.** `capability.runners.local`, which a `net.p2p` plugin uses to read this machine's runners and observations for publishing to peers, returns only entries this machine owns *and runs itself*: the same predicate as section 5 and SEC-14, so SSH host runners (`@host`) are never published. A plugin that republishes data it holds by other means is outside host control and part of the trust placed in installed plugins.
-- **Canonical id.** A remote runner's id is `peer:<machine id>/<runner id on the owner>`, for example `peer:mf3k…q2/claude-code#claude1`. It is parsed by splitting on the first `/`: the left part is `peer:` and a machine id, the remainder is a complete runner id on the owner. A `peer:` id never parses as a local runner id (`src/config/runner-id.ts` rejects `:` and `/`). Only the owner's *local* runners are published, so the remainder never contains `@host` (section 5). Pins (section 6) may use the full id or an unambiguous machine-id prefix; machine names are never accepted in ids. Project strategy entries and global routing lists do **not** accept `peer:` ids in this version: the strict, `version: 1` strategy files would reject them on downgrade, and pins plus `mesh` cover the stated needs. Storing remote runners in strategies is an open decision.
+- **Canonical id.** A remote runner's id is `peer:<machine id>/<runner id on the owner>`, for example `peer:mf3k…q2/claude-code#claude1`. It is parsed by splitting on the first `/`: the left part is `peer:` and a machine id, the remainder is a complete runner id on the owner. A `peer:` id never parses as a local runner id (`src/config/runner-id.ts` rejects `:` and `/`). Only the owner's *local* runners are published, so the remainder never contains `@host` (section 5). Pins (section 6) may use the full id or an unambiguous machine-id prefix; machine names are never accepted in ids. Project strategy entries and global routing lists do **not** accept `peer:` ids in this version: the strict, `version: 1` strategy files would reject them on downgrade, and pins plus `machines` cover the stated needs. Storing remote runners in strategies is an open decision.
 - **Attribution.** Rankings, `dispatch.explain`, tasks and surfaces show remote runners with a host-rendered remote marker and the machine name (for example `claude-code#claude1` ⇄ `studio-mac`). Names are sanitized (control and bidirectional characters stripped, 64 characters) everywhere they are rendered.
 - **Budgets stay per machine.** A remote observation informs ranking. Slot accounting for that account belongs to its owner (section 5).
 
@@ -107,7 +107,7 @@ Within a band, configured order then breaks remaining ties. Locality never overr
 
 - **Score path.** After the rule's executors (or all configured runners when the rule lists none), the host appends every eligible remote runner whose agent appears among those local candidates, or every eligible remote runner when the rule lists none. Their configured order comes after every listed runner, in canonical-id order.
 - **Configured-selection and `priority` paths.** Remote runners are not candidates unless the request pins a machine (section 6).
-- **`mesh: local-only` and peer requests** remove them as described in sections 5 and 6.
+- **`machines: local-only` and peer requests** remove them as described in sections 5 and 6.
 
 The executor extension point (draft #402) is where plugins contribute the runners; this rule decides how the host ranks them.
 
@@ -129,24 +129,24 @@ The executor extension point (draft #402) is where plugins contribute the runner
 
 ## 6. Workspace opt-out and pinning
 
-Each workspace gains a mesh setting, stored outside the strictly parsed project-strategy file (`src/config/project-strategies.ts` uses `version: z.literal(1)` and fails closed on any parse error) in a separate `$PACER_HOME/project-mesh.json`, read and written by `src/config/project-mesh.ts` under its own lock, atomically (SEC-7):
+Each workspace gains a machine setting, stored outside the strictly parsed project-strategy file (`src/config/project-strategies.ts` uses `version: z.literal(1)` and fails closed on any parse error) in a separate `$PACER_HOME/project-machines.json`, read and written by `src/config/project-machines.ts` under its own lock, atomically (SEC-7):
 
 ```ts
-interface ProjectMeshEntry { rev: number; mesh: "any" | "local-only" } // absent entry means "any"
+interface ProjectMachinesEntry { rev: number; machines: "any" | "local-only" } // absent entry means "any"
 ```
 
-- **Separate operations.** `project.mesh.get {repo}` and `project.mesh.set {repo, mesh, expect_rev}`, where `expect_rev` is checked against the mesh entry's own `rev` (typed `conflict`, ARCH-3); `expect_rev: 0` creates an absent entry, and setting `any` keeps the entry with a new `rev`. `project.strategy.set` and its `rev` are unchanged. The project strategy view gains additive `mesh` and `meshRev` fields. CLI: `pacer project mesh set local-only` and `pacer project mesh show`.
-- **Removal.** `project.strategy.remove` leaves the mesh entry in place; `project.mesh.set {mesh: "any"}` resets it.
-- **Downgrade.** An older pacer never reads `project-mesh.json` and keeps delegating; it has no mesh support, so ignoring the setting there is safe.
-- **Failure.** If `project-mesh.json` cannot be read or parsed, remote candidates are excluded for every workspace (fail closed to `local-only`), local delegation continues, a pin to another machine fails with `mesh_local_only`, and `doctor` reports the file.
+- **Separate operations.** `project.machines.get {repo}` and `project.machines.set {repo, machines, expect_rev}`, where `expect_rev` is checked against the machines entry's own `rev` (typed `conflict`, ARCH-3); `expect_rev: 0` creates an absent entry, and setting `any` keeps the entry with a new `rev`. `project.strategy.set` and its `rev` are unchanged. The project strategy view gains additive `machines` and `machinesRev` fields. CLI: `pacer project machines set local-only` and `pacer project machines show`.
+- **Removal.** `project.strategy.remove` leaves the machines entry in place; `project.machines.set {machines: "any"}` resets it.
+- **Downgrade.** An older pacer never reads `project-machines.json` and keeps delegating; it has no support for paired machines, so ignoring the setting there is safe.
+- **Failure.** If `project-machines.json` cannot be read or parsed, remote candidates are excluded for every workspace (fail closed to `local-only`), local delegation continues, a pin to another machine fails with `machines_local_only`, and `doctor` reports the file.
 
-With `local-only`, ranking drops every non-local runner for that workspace and `dispatch.explain` reports `mesh_local_only`. For peers, `project.mesh.get` is in the `base` tier and `project.mesh.set` in `manage` (section 7).
+With `local-only`, ranking drops every non-local runner for that workspace and `dispatch.explain` reports `machines_local_only`. For peers, `project.machines.get` is in the `base` tier and `project.machines.set` in `manage` (section 7).
 
 **Pinning.** `dispatch.submit`, `task.delegate` and `routing.route` gain an optional `machine` parameter (machine id or unambiguous prefix; `local` for this machine), and the CLI gains `--on <machine>`. A pin restricts candidates to that machine's runners whose agent appears in the request's selection or rule (all of that machine's runners when there is none); it works on every ranking path. Errors, documented in `docs/protocol.md` as `CoreError` codes:
 
 | Code | When |
 |---|---|
-| `mesh_local_only` | a pin to another machine for a `local-only` workspace |
+| `machines_local_only` | a pin to another machine for a `local-only` workspace |
 | `machine_unknown` | no paired machine matches, or the prefix is ambiguous |
 | `machine_unreachable` | the pinned machine is offline; the request is not re-routed elsewhere |
 | `peer_not_local` | a peer request pins a machine other than this one |
@@ -167,8 +167,8 @@ A plugin forwards streams it has authenticated itself to the local service using
 
 | Tier | Operations and routes | Default for a personal pairing |
 |---|---|---|
-| `base` | Reads: `snapshot.get`, `version.get`, `task.list`, `task.get`, `task.log`, `task.diff`, `task.wait`, `dispatch.list`, `dispatch.tree`, `dispatch.wait`, `dispatch.events`, `dispatch.dependencies`, `dispatch.preview`, `dispatch.explain` (once it lands), `dispatch.models`, `routing.route`, `routing.status`, `runner.list`, `account.list`, `repo.list`, `project.strategy.get`, `project.strategy.list`, `project.mesh.get`, `limits.check`, and the client event stream. Work on this machine (local runners only): `dispatch.submit`, `task.delegate`, `dispatch.answer`, `dispatch.retry`, `dispatch.stop`, `dispatch.review`, `task.ask`, `task.answer`, `task.retry`, `task.stop`, `task.review`, `task.request_review`. | on |
-| `manage` | `terminal.create`, `terminal.list`, `terminal.rename`, `terminal.close` and the terminal WebSocket route; `session.create`, `session.resume`, `session.end`, `session.context`, `task.session`, `task.takeover` and the session WebSocket route; `account.signin`, `account.test`, `account.remove`; `runner.block`, `runner.unblock`, `runner.reorder`, `runner.settings.get`, `runner.settings.save`; `project.strategy.set`, `project.strategy.remove`, `project.mesh.set`; `update.check`, `update.apply`. | on, can be turned off per peer at pairing or later |
+| `base` | Reads: `snapshot.get`, `version.get`, `task.list`, `task.get`, `task.log`, `task.diff`, `task.wait`, `dispatch.list`, `dispatch.tree`, `dispatch.wait`, `dispatch.events`, `dispatch.dependencies`, `dispatch.preview`, `dispatch.explain` (once it lands), `dispatch.models`, `routing.route`, `routing.status`, `runner.list`, `account.list`, `repo.list`, `project.strategy.get`, `project.strategy.list`, `project.machines.get`, `limits.check`, and the client event stream. Work on this machine (local runners only): `dispatch.submit`, `task.delegate`, `dispatch.answer`, `dispatch.retry`, `dispatch.stop`, `dispatch.review`, `task.ask`, `task.answer`, `task.retry`, `task.stop`, `task.review`, `task.request_review`. | on |
+| `manage` | `terminal.create`, `terminal.list`, `terminal.rename`, `terminal.close` and the terminal WebSocket route; `session.create`, `session.resume`, `session.end`, `session.context`, `task.session`, `task.takeover` and the session WebSocket route; `account.signin`, `account.test`, `account.remove`; `runner.block`, `runner.unblock`, `runner.reorder`, `runner.settings.get`, `runner.settings.save`; `project.strategy.set`, `project.strategy.remove`, `project.machines.set`; `update.check`, `update.apply`. | on, can be turned off per peer at pairing or later |
 
 **Never allowed** for any peer credential: `plugin.*`; `config.set`; `host.*`; `service.install` and token operations; `desktop.*`; `repo.add`, `repo.remove`; operations that carry an endpoint key (`account.add`, `account.edit`, `account.adopt`, `account.models`), so endpoint keys are entered only on the machine that stores them; `session.file.read`; `dispatch.child` (children are created by the owner's executors, section 2); `dispatch.dependencies.waive`, `dispatch.learning.reset`, `dispatch.enforcement.*`, `dispatch.refresh`, `limits.refresh`; app session exchange and codes; every `capability.*` method; `identity.sign`.
 
@@ -200,7 +200,7 @@ It never carries the OS user name or the machine id, and the module never opens 
 
 **Operations, events and CLI.** `discovery.list`, `discovery.respond {discoveryId, action}`, `discovery.network.get` and `discovery.network.set {network, advertise, expect_rev}`; the client event `discovery.found`; CLI `pacer discovery ls`, and one verb per action: `pair`, `later`, `ignore` (Not mine) and `mute-network` (Stop on this network); `pacer discovery network` shows and changes advertising per network. `discovery.respond` is callable only by an interactive local client (app cookie session or CLI with the owner token), never with a peer credential or by a plugin.
 
-**Handing over to a plugin.** A new `pairing` extension point carries the hand-over. A plugin that declares `contributes.pairing` receives **Pair** as a host → plugin `pairing.start {discoveryId, hints}` call (deadline 5 s; result `{accepted: boolean}`). The host keeps no list of product ids. With no plugin declaring `contributes.pairing`, **Pair** opens a local page in the app that explains machine pairing in neutral terms and says that pairing is provided by plugins. It lists no products and never builds URLs from discovered values.
+**Handing over to a plugin.** A new `pairing` extension point carries the hand-over. A plugin that declares `contributes.pairing` receives **Pair** as a host → plugin `pairing.start {discoveryId, hints}` call (deadline 5 s; result `{accepted: boolean}`). The host keeps no list of plugin ids. With no plugin declaring `contributes.pairing`, **Pair** opens a local page in the app that explains machine pairing in neutral terms and says that pairing is provided by plugins. It lists no plugins and never builds URLs from discovered values.
 
 **Pairing confirmation contract.** A short authentication string (SAS) derived only from the two long-term keys can be ground by a man in the middle, because keys are cheap to generate. The pairing contract therefore requires commit-then-reveal, and the host computes and renders the SAS:
 
@@ -252,7 +252,7 @@ These are additive changes (two capabilities, the method map, the `pairing` exte
 
 ## Validation
 
-- Unit and conformance tests: origin derivation and rejection, canonical peer ids, rejection of `peer:` ids in strategy entries, locality bands (exact ties, zero and negative scores, a 100/96/92 chain), `slot_refused` bounds and back-off, `remote_lost`, `mesh: local-only`, `project-mesh.json` (conflict on a stale `expect_rev`, an older pacer ignoring it, a corrupt file failing closed for remote candidates only), pins and their error codes, peer-credential tiers and the never-allowed list, owner-token rejection on forwarded requests, domain-separated signing, clone detection, and the two capabilities. They use a fixture plugin that contributes remote-origin runners.
+- Unit and conformance tests: origin derivation and rejection, canonical peer ids, rejection of `peer:` ids in strategy entries, locality bands (exact ties, zero and negative scores, a 100/96/92 chain), `slot_refused` bounds and back-off, `remote_lost`, `machines: local-only`, `project-machines.json` (conflict on a stale `expect_rev`, an older pacer ignoring it, a corrupt file failing closed for remote candidates only), pins and their error codes, peer-credential tiers and the never-allowed list, owner-token rejection on forwarded requests, domain-separated signing, clone detection, and the two capabilities. They use a fixture plugin that contributes remote-origin runners.
 - A three-home conformance test (A, B, C) for every chain shape: A → B → C and A → B → A through listings, events, dispatch, re-routing, pins and children, plus a peer request that would reach an SSH host runner on B.
 - Pairing contract tests: a wrong commitment, a reused nonce, an uncertified transport key, a machine id or transport key different from the ones the commitment covers, and a cancelled SAS all leave the peer unconfirmed, and `capability.peerToken.create` then fails.
 - Peer-socket tests: the owner token is refused on the peer socket and `ppt_` is refused on the HTTP listener; every op not in a tier's list is denied; the long-path fallback; a pre-existing fallback directory that is a symlink, owned by another uid or not 0700 gives `peer_socket_unavailable`; the plugin refuses a socket owned by another uid.
