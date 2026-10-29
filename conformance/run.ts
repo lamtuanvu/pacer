@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CASES, type ConformanceCase, prepareHome } from "./cases";
 import { HostSession } from "./host";
 import { installFixture } from "./install";
+import { installKeychainStub } from "../scripts/live/keychain";
 
 export { CASES };
 
@@ -13,21 +14,8 @@ export { CASES };
  * keeps its Keychain items in the user's login keychain, so a host under test must never reach the real Keychain.
  */
 function sandboxKeychain(home: string): string {
-  const bin = join(home, "bin"), store = join(home, "keychain");
-  mkdirSync(bin, { recursive: true }); mkdirSync(store, { recursive: true, mode: 0o700 });
-  writeFileSync(join(bin, "security"), `#!/bin/sh
-store=${JSON.stringify(store)}
-item() { s=""; a=""; x=""; while [ $# -gt 0 ]; do case "$1" in -s) s="$2"; shift;; -a) a="$2"; shift;; -X) x="$2"; shift;; esac; shift; done; }
-run() { cmd="$1"; shift; item "$@"; f="$store/$s.$(printf %s "$a" | tr / _)"
-  case "$cmd" in
-    add-generic-password) printf %s "$x" > "$f";;
-    find-generic-password) [ -f "$f" ] || exit 44; case " $* " in *" -w "*) cat "$f"; echo;; esac;;
-    delete-generic-password) [ -f "$f" ] || exit 44; rm -f "$f";;
-    *) exit 1;;
-  esac; }
-if [ "$1" = "-i" ]; then while read -r line; do eval "run $line" || exit $?; done; else run "$@"; fi
-`);
-  chmodSync(join(bin, "security"), 0o755);
+  const bin = join(home, "bin");
+  installKeychainStub(bin, join(home, "keychain"));
   return bin;
 }
 
