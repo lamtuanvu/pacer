@@ -38,9 +38,12 @@ export function DiscoveryView({ available, enabled, name, network, networks, cur
   const change = (key: string, update: NetworkChange) => () => { if (!busy) onNetwork(key, update); };
   return <section id="discovery" aria-labelledby="discovery-h" className="u3-section">
     <SectionHeading id="discovery-h">Discovery</SectionHeading>
-    {warning && !enabled && <Alert tone="warning" title="Discovery turned itself off">{warning} <Button size="sm" aria-disabled={busy} onClick={() => { if (!busy) onToggle(true); }}>Turn on discovery</Button></Alert>}
+    {warning && !enabled && <Alert tone="warning" title="Discovery turned itself off">{warning} <Button size="sm" aria-disabled={busy} onClick={() => {
+      // The warning goes away once discovery is on, so keep keyboard focus on the switch instead of losing it.
+      if (busy) return; onToggle(true); document.getElementById("discovery-switch")?.focus();
+    }}>Turn on discovery</Button></Alert>}
     <SettingRow variant="board" label="Find machines on this network" description="pacer on your other machines can see this one on networks you allow, and this machine shows you the ones it sees. Names are unverified.">
-      <Switch checked={enabled} aria-disabled={busy} aria-busy={busy} onChange={e => toggle(e.currentTarget)} />
+      <Switch id="discovery-switch" checked={enabled} aria-disabled={busy} aria-busy={busy} onChange={e => toggle(e.currentTarget)} />
     </SettingRow>
     {name !== undefined && <SettingRow variant="board" label="Machine name" description="The name other machines see. It is shown to them as unverified.">
       <div className="u3-actions">

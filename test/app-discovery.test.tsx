@@ -193,6 +193,7 @@ test.skipIf(!browserPath)("Turn on discovery recovers from a corrupt state once,
     await page.waitForFunction(() => document.querySelector('[role="switch"]')?.getAttribute("aria-checked") === "true");
     expect(await page.getByRole("button", { name: "Turn on discovery" }).count()).toBe(0);
     expect(await page.evaluate(() => (window as any).calls)).toEqual([{ toggle: true }]);
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("discovery-switch");
   } finally { await browser.close(); }
 });
 
