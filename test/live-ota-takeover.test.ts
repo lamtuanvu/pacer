@@ -55,7 +55,7 @@ test("takeover scenarios require the candidate desktop and helper layout", () =>
 test("native takeover inspector stops accessibility parent-child cycles before descending", () => {
   const source = readFileSync(join(import.meta.dir, "../scripts/live/native/main.swift"), "utf8");
   const tree = source.slice(source.indexOf("func inspectTree("), source.indexOf("func keyCode("));
-  expect(tree).toContain("lineage.contains(where: { CFEqual($0, node) })");
-  expect(tree.indexOf("lineage.contains(where: { CFEqual($0, node) })")).toBeLessThan(tree.indexOf("elements.append(item)"));
-  expect(tree).toContain("lineage + [node]");
+  expect(tree).toContain("visited.contains(where: { CFEqual($0, node) })");
+  expect(tree.indexOf("visited.contains(where: { CFEqual($0, node) })")).toBeLessThan(tree.indexOf("elements.append(item)"));
+  expect(tree).toContain("visited.append(node)");
 });
