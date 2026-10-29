@@ -8,7 +8,8 @@ from the tray to exit; the Dock icon or Open pacer restores the window.
 ## Download and set up
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag pacer
+Choose `desktop-pacer-<version>-darwin-aarch64.dmg` for Apple silicon or
+`desktop-pacer-<version>-darwin-x86_64.dmg` for Intel. Open it and drag pacer
 into Applications. The app is signed with pacer's own certificate until pacer has
 an Apple Developer ID, so approve the first launch once in System Settings ›
 Privacy & Security › **Open Anyway**. Later versions install from Settings › Updates.

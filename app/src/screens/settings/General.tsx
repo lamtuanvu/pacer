@@ -5,6 +5,7 @@ export { ExecutorsSection } from "./Executors";
 import { PluginsSection } from "./Plugins";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
+import { LazyAssistantSettings } from "./LazyAssistantSettings";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -64,7 +65,10 @@ import {
   SettingsPageContext,
   useSettingsStyles,
 } from "./shared";
+interface AssistantStatus { available: boolean; configured: boolean; account?: string; reason?: string }
+
 export interface SettingsData {
+  assistant?: AssistantStatus;
   config?: ConfigData;
   accounts?: Account[];
   routing?: RoutingRules;
@@ -112,6 +116,9 @@ export function SettingsGeneral({
     case "notifications":
     case "appearance":
       content = <AppPreferences section={section} initialData={initialData} />;
+      break;
+    case "assistant":
+      content = <LazyAssistantSettings />;
       break;
     case "diagnostics":
       content = <DiagnosticsSection />;
@@ -207,7 +214,7 @@ function AppPreferences({ section, initialData }: { section: string; initialData
       <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you.</p></header>
       <AppearanceSection />
       <NotificationsSection initialData={initialData.notifications} />
-      <WorkspacePreferences initialData={initialData.config} />
+      <WorkspacePreferences initialData={initialData.config} initialAssistant={initialData.assistant} />
       <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
       <PluginsSection />
     </div>
@@ -623,6 +630,12 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             onValueChange={(choice) => void action.run("config.set", {key:"execution.launch_mode",value:choice})}
           />
         </Field>
+        <TaskBackendField
+          value={query.data?.keys["execution.backend"]?.value}
+          source={query.data?.keys["execution.backend"]?.source}
+          disabled={action.busy}
+          run={action.run}
+        />
         <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
           <ChoicePicker
             aria-label="Preferred terminal"
@@ -635,6 +648,31 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
       </ResourceState>
       <Feedback action={action} />
     </Section>
+  );
+}
+const BACKEND_CHOICES = [
+  { value: "direct", label: "Direct" },
+  { value: "orca", label: "Orca" },
+];
+export function TaskBackendField({ value, source, disabled, run }: {
+  value: unknown;
+  source?: string;
+  disabled?: boolean;
+  run: (op: string, params: unknown) => unknown;
+}) {
+  return (
+    <Field
+      label="Task backend"
+      help={<>Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}
+    >
+      <ChoicePicker
+        aria-label="Task backend"
+        value={value === "orca" ? "orca" : "direct"}
+        options={BACKEND_CHOICES}
+        disabled={disabled}
+        onValueChange={(choice) => void run("config.set", { key: "execution.backend", value: choice })}
+      />
+    </Field>
   );
 }
 function NotificationsSection({
@@ -718,12 +756,22 @@ function AppearanceSection() {
 }
 
 /** Shares the machine editor's terminal choices and exact config operation. */
-function WorkspacePreferences({ initialData }: { initialData?: ConfigData }) {
+function WorkspacePreferences({ initialData, initialAssistant }: { initialData?: ConfigData; initialAssistant?: AssistantStatus }) {
   const query = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(query.reload);
+  const assistant = useResource<AssistantStatus>("assistant.status", {}, initialAssistant);
   const config = query.data;
-  if (!config?.keys["terminal.open"] && !config?.terminalChoices) return null;
+  const hasTerminal = config?.keys["terminal.open"] || config?.terminalChoices;
   const { selectedTerminal, terminalChoices } = terminalPreference(config);
-  return <section className="pc-preferences-section" aria-labelledby="workspace-h"><h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2><SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow><Feedback action={action}/></section>;
+  const status = assistant.data;
+  return <section className="pc-preferences-section" aria-labelledby="workspace-h">
+    <h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2>
+    {hasTerminal && <SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow>}
+    <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Uses the account chosen in assistant settings.">
+      <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
+      <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
+    </SettingRow>
+    <Feedback action={action}/>
+  </section>;
 }
 
 function terminalPreference(config?: ConfigData) {

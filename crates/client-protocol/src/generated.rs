@@ -3896,6 +3896,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "task_retention_days",
 ///        "execution.local_max_tasks",
 ///        "execution.launch_mode",
+///        "execution.backend",
 ///        "planner",
 ///        "pacing.order",
 ///        "pacing.policy",
@@ -4013,6 +4014,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "task_retention_days",
 ///    "execution.local_max_tasks",
 ///    "execution.launch_mode",
+///    "execution.backend",
 ///    "planner",
 ///    "pacing.order",
 ///    "pacing.policy",
@@ -4047,6 +4049,8 @@ pub enum ConfigSetParamsKey {
     ExecutionLocalMaxTasks,
     #[serde(rename = "execution.launch_mode")]
     ExecutionLaunchMode,
+    #[serde(rename = "execution.backend")]
+    ExecutionBackend,
     #[serde(rename = "planner")]
     Planner,
     #[serde(rename = "pacing.order")]
@@ -4081,6 +4085,7 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
             Self::ExecutionLaunchMode => f.write_str("execution.launch_mode"),
+            Self::ExecutionBackend => f.write_str("execution.backend"),
             Self::Planner => f.write_str("planner"),
             Self::PacingOrder => f.write_str("pacing.order"),
             Self::PacingPolicy => f.write_str("pacing.policy"),
@@ -4102,6 +4107,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
             "execution.launch_mode" => Ok(Self::ExecutionLaunchMode),
+            "execution.backend" => Ok(Self::ExecutionBackend),
             "planner" => Ok(Self::Planner),
             "pacing.order" => Ok(Self::PacingOrder),
             "pacing.policy" => Ok(Self::PacingPolicy),
@@ -8363,6 +8369,177 @@ pub struct HostSuggestParams {}
 impl ::std::default::Default for HostSuggestParams {
     fn default() -> Self {
         Self {}
+    }
+}
+///`InsightsSummaryParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bucket",
+///    "from",
+///    "to"
+///  ],
+///  "properties": {
+///    "bucket": {
+///      "default": "day",
+///      "type": "string",
+///      "enum": [
+///        "day",
+///        "week"
+///      ]
+///    },
+///    "from": {
+///      "type": "number",
+///      "minimum": 0.0
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 512,
+///      "minLength": 1
+///    },
+///    "to": {
+///      "type": "number",
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct InsightsSummaryParams {
+    pub bucket: InsightsSummaryParamsBucket,
+    pub from: f64,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repo: ::std::option::Option<InsightsSummaryParamsRepo>,
+    pub to: f64,
+}
+///`InsightsSummaryParamsBucket`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "day",
+///  "type": "string",
+///  "enum": [
+///    "day",
+///    "week"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum InsightsSummaryParamsBucket {
+    #[serde(rename = "day")]
+    Day,
+    #[serde(rename = "week")]
+    Week,
+}
+impl ::std::convert::From<&Self> for InsightsSummaryParamsBucket {
+    fn from(value: &InsightsSummaryParamsBucket) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for InsightsSummaryParamsBucket {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Day => f.write_str("day"),
+            Self::Week => f.write_str("week"),
+        }
+    }
+}
+impl ::std::str::FromStr for InsightsSummaryParamsBucket {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "day" => Ok(Self::Day),
+            "week" => Ok(Self::Week),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for InsightsSummaryParamsBucket {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for InsightsSummaryParamsBucket {
+    fn default() -> Self {
+        InsightsSummaryParamsBucket::Day
+    }
+}
+///`InsightsSummaryParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 512,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct InsightsSummaryParamsRepo(::std::string::String);
+impl ::std::ops::Deref for InsightsSummaryParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<InsightsSummaryParamsRepo> for ::std::string::String {
+    fn from(value: InsightsSummaryParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for InsightsSummaryParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 512usize {
+            return Err("longer than 512 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for InsightsSummaryParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for InsightsSummaryParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`IssueImportParams`

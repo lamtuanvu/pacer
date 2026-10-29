@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
-import { SettingsGeneral } from '../app/src/screens/settings/General';
+import { SettingsGeneral, TaskBackendField } from '../app/src/screens/settings/General';
+import { Feedback, shouldNotifySuccess } from '../app/src/screens/settings/shared';
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
@@ -54,4 +55,52 @@ test('terminal picker shows Linux automatic and an existing custom template', ()
 test('General page destinations preserve scope in the href for native link actions', () => {
   const html = renderToString(<TaskContext.Provider value={{state, api:{} as any}}><SettingsGeneral query={{repo:'',scope:'repo:example'}} initialData={settings}/></TaskContext.Provider>);
   expect(html).toContain('href="#/settings/planner?repo=&amp;scope=repo%3Aexample"');
+});
+
+test('task backend picker shows the current backend and sets the chosen one', () => {
+  const orca={...settings,config:{...settings.config,keys:{...settings.config.keys,'execution.backend':{value:'orca'}}}};
+  const html=renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={orca}/></TaskContext.Provider>);
+  expect(html).toContain('Task backend');
+  expect(html).toContain("Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.");
+  expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
+  expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
+  const env={...orca,config:{...orca.config,keys:{...orca.config.keys,'execution.backend':{value:'direct',source:'env PACER_BACKEND'}}}};
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('PACER_BACKEND overrides the saved setting.');
+  const calls: unknown[][]=[], field=TaskBackendField({value:'direct',run:(...args)=>calls.push(args)}) as any;
+  field.props.children.props.onValueChange('orca');
+  expect(calls).toEqual([['config.set',{key:'execution.backend',value:'orca'}]]);
+});
+test('settings feedback shows a set warning', () => {
+  const action={busy:false,error:undefined,result:{data:{},message:'Saved.',warning:"Orca isn't running; tasks run directly until it is."},job:undefined,run:async()=>undefined,clear:()=>{}} as any;
+  expect(renderToString(<Feedback action={action}/>)).toContain("Orca isn't running; tasks run directly until it is.");
+});
+
+test('a warning save renders one inline warning without a success toast', () => {
+  const result={data:{},message:'Saved.',warning:"Orca isn't running; tasks run directly until it is."};
+  expect(shouldNotifySuccess(result)).toBe(false);
+  expect(shouldNotifySuccess({...result,warning:undefined})).toBe(true);
+  const html=renderToString(<Feedback action={{result,job:undefined,error:undefined} as any}/>);
+  expect(html).toContain("Orca isn't running");
+  expect(html).not.toContain('Changes saved');
+});
+
+test('App Workspace includes assistant status and a settings link with or without an account', () => {
+  const statuses = [
+    { available: true, configured: true, account: 'answers', label: 'Available · answers' },
+    { available: false, configured: true, account: 'answers', reason: 'Daily limit reached.', label: 'Unavailable · answers · Daily limit reached.' },
+    { available: false, configured: false, reason: 'The assistant is not set up.', label: 'Not configured · The assistant is not set up.' },
+  ];
+  for (const { label, ...assistant } of statuses) {
+    const html = renderToString(<TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, assistant }}/></TaskContext.Provider>);
+    const workspace = html.match(/<section[^>]*aria-labelledby="workspace-h"[^>]*>[\s\S]*?<\/section>/)?.[0] ?? "";
+    expect(workspace).toContain('>Assistant<');
+    expect(workspace).toContain('pc-setting-row--board');
+    expect(workspace).toContain('Open with ⌘J from anywhere. Uses the account chosen in assistant settings.');
+    expect(workspace).toContain(label);
+    expect(workspace).toMatch(/<a[^>]*href="#\/settings\/assistant"[^>]*>Choose account and limits<\/a>/);
+    expect(workspace).not.toContain('role="switch"');
+  }
+  expect(resolveRoute('#/settings/assistant')).toMatchObject({ name: 'settings', section: 'assistant' });
+  const nav = renderToString(<SettingsPanel route={resolveRoute('#/settings/app') as Route} counts={null}/>);
+  expect(nav).not.toContain('href="#/settings/assistant"');
 });

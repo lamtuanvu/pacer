@@ -917,6 +917,444 @@ Params JSON Schema:
 }
 ```
 
+### `assistant.ask`
+
+Ask the assistant one question. The answer streams from /v3/assistant/turns/<turnId>/stream; nothing runs until the user confirms a proposed action.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "conversationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dispatch"
+            },
+            "days": {
+              "default": 7,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90
+            }
+          },
+          "required": [
+            "kind",
+            "days"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "task"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "repo"
+            },
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "kind",
+            "repo"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "text",
+    "scope",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.cancel`
+
+Cancel a turn that is still being answered.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.candidates`
+
+Endpoint accounts the assistant could run on, and what it is allowed to read.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.card.record`
+
+Record the user's decision and the outcome on an action card in the conversation. The app runs the proposed op itself.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cardId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "dismissed",
+        "stale"
+      ]
+    },
+    "result": {
+      "type": "string",
+      "maxLength": 500
+    }
+  },
+  "required": [
+    "turnId",
+    "cardId",
+    "state"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.card.refresh`
+
+Rebuild a card whose task changed, with the task's current revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cardId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId",
+    "cardId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.conversation`
+
+The turns of one conversation, with action cards and their outcomes.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.conversations`
+
+A page of assistant conversations, newest first.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "before": {
+      "type": "number"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `assistant.delete`
+
+Delete one conversation, or every conversation without an id. Usage figures stay, without the text.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `assistant.settings.get`
+
+The assistant's account, limits and retention, with a revision for assistant.settings.set.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.settings.set`
+
+Choose the executor account the assistant runs on, and its limits and retention. Needs the current revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runner": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "account": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxInputTokens": {
+          "default": 32000,
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 200000
+        },
+        "maxOutputTokens": {
+          "default": 8000,
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 32000
+        },
+        "maxToolRounds": {
+          "default": 6,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "turnsPerDay": {
+          "default": 50,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "deadlineMs": {
+          "default": 120000,
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000
+        }
+      },
+      "additionalProperties": false
+    },
+    "retention": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "default": 30,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "conversations": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "runner",
+    "account",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.status`
+
+Whether the assistant is available, which account answers, why not when it is not, its limits and today's use.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.turn`
+
+One turn, for reading its final state after a stream ends.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `attention.dismiss`
 
 Dismiss a raised attention item.
@@ -1416,6 +1854,7 @@ Params JSON Schema:
         "task_retention_days",
         "execution.local_max_tasks",
         "execution.launch_mode",
+        "execution.backend",
         "planner",
         "pacing.order",
         "pacing.policy",
@@ -3713,6 +4152,48 @@ Params JSON Schema:
   },
   "required": [
     "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `insights.summary`
+
+Where the work and tokens went in a period: distinct root tasks and child tasks reached by attempts ended in the period (the union across agent rows, not their sum), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison. Acceptance and retry counts retain the first-settle cohort.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "number",
+      "minimum": 0
+    },
+    "to": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "bucket": {
+      "default": "day",
+      "type": "string",
+      "enum": [
+        "day",
+        "week"
+      ]
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "bucket"
   ],
   "additionalProperties": false
 }

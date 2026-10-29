@@ -1,6 +1,7 @@
 import { authorizeWorkOperation, submitWork, delegateChild, scopedWorkTree, scopedWorkEvents, reviewWork, retryWork, answerWork, stopWork, waitWork } from "../core/work";
 import { listWork, setWorkDependencies, waiveWorkDependency, workOptionsSchema } from "../dispatch/work";
 import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
+import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
 import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
@@ -39,6 +40,7 @@ import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { terminalOps } from "./ops-terminal";
+import { assistantOps } from "./ops-assistant";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -211,7 +213,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps,
+ ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -311,7 +313,7 @@ export const OPS: Record<string, OpDef> = {
   "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id,request_id:z.uuid().optional()}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, appTerminal(deps,p.request_id),{builtin:!!deps.appAuthenticated}) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
-  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; } }),
+  "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
@@ -493,6 +495,7 @@ export const OPS: Record<string, OpDef> = {
   "dispatch.models": op({description:"Declared model inventory and observed suggestions with authorization status.",params:z.object({}),handler:ctx=>listDispatchModels(ctx)}),
   "dispatch.refresh": op({description:"Refresh scoped model/capability/usage/health observations with backoff.",params:z.object({runner:id.optional(),force:z.boolean().optional()}),handler:(ctx,p)=>refreshObservations(ctx,p)}),
   "dispatch.analytics": op({description:"Comparable reviewed outcomes, sample sizes and uncertainty; missing usage stays unknown.",params:z.object({repo:z.string().optional(),kind:id.optional()}),handler:(ctx,p)=>dispatchAnalytics(ctx,p)}),
+  "insights.summary": op({description:"Where the work and tokens went in a period: distinct root tasks and child tasks reached by attempts ended in the period (the union across agent rows, not their sum), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison. Acceptance and retry counts retain the first-settle cohort.",params:insightsInputSchema,handler:(ctx,p)=>insightsSummary(ctx,p)}),
   "dispatch.learning.reset": op({description:"Reset derived learning for a repository without deleting work history, and optionally exclude it.",params:z.object({repo:z.string().min(1),excluded:z.boolean().default(false),expect_rev:z.number().nonnegative()}),handler:(ctx,p)=>{const revision=resetLearning(ctx,p.repo,p.excluded,p.expect_rev);return{reset:true,excluded:p.excluded,revision};}}),
   "routing.route": op({ description: "Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional(),request_id:z.uuid().optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:appTerminal(deps,p.request_id)});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command,...(result.terminalId?{terminalId:result.terminalId}:{})};})}),
@@ -536,6 +539,8 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
   authorizeWorkOperation(ctx,name,params);
+  // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
+  if (name.startsWith("assistant.") && isExecutorSession(ctx)) throw new CoreError("not_allowed", "PACER_ROLE=executor: executors cannot use the assistant or read its history.");
   if (!Object.hasOwn(OPS, name)) throw new CoreError("unknown_op", `unknown operation "${name}"`, `operations: ${opNames().join(", ")}`);
   if(name==="task.review"&&params&&typeof params==="object"&&Object.hasOwn(params,"accepted"))throw new CoreError("invalid_input","task.review requires verdict; accepted was removed in protocol 3");
   const def = OPS[name];

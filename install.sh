@@ -1,5 +1,5 @@
 #!/bin/sh
-#  signing_hash=$( { [ -x /usr/bin/security ] && /usr/bin/security find-identity -v -p codesigning 2>/dev/null; } | pacer installer. Downloads the release binary for this OS and CPU, verifies its
+# pacer installer. Downloads release executables for this OS and CPU, verifies their
 # SHA-256 checksum against the release's SHA256SUMS, and installs it.
 #
 #   PACER_RELEASE_BASE     optional release root override, e.g.
@@ -143,30 +143,86 @@ fetch "$release/$file" "$tmp/$file"
 actual=$(sha256 "$tmp/$file")
 [ "$actual" = "$expected" ] || die "checksum mismatch for $file (expected $expected, got $actual); nothing was installed"
 
+core_file=pacer-core-$os-$arch
+core_expected=$(awk -v f="$core_file" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp/SHA256SUMS")
+if [ -n "$core_expected" ]; then
+  fetch "$release/$core_file" "$tmp/$core_file"
+  core_actual=$(sha256 "$tmp/$core_file")
+  [ "$core_actual" = "$core_expected" ] || die "checksum mismatch for $core_file; nothing was installed"
+fi
+
 dir=${PACER_INSTALL_DIR:-}
 if [ -z "$dir" ]; then
   [ -n "${HOME:-}" ] || die "HOME is not set; set PACER_INSTALL_DIR"
   dir=$HOME/.local/bin
 fi
 mkdir -p "$dir" || die "cannot create $dir"
-# Stage next to the target, then rename: a running pacer is never overwritten in place.
-stage=$dir/.pacer.install.$$
-trap 'command rm -f "$stage"; command rm -rf "$tmp"' EXIT
+# Keep staging on the destination filesystem and use exclusive temporary names.
+stage=$(mktemp "$dir/.pacer.install.XXXXXX") || die "cannot stage in $dir"
+core_stage=
+core_backup=
+core_installed=0
+front_installed=0
+preserve_backup=0
+cleanup() {
+  if [ "$core_installed" = 1 ] && [ "$front_installed" = 0 ]; then
+    if [ -n "$core_backup" ]; then
+      if ! mv -f "$core_backup" "$dir/pacer-core"; then
+        preserve_backup=1
+        printf 'pacer install: core rollback failed; previous core retained at %s\n' "$core_backup" >&2
+      fi
+    else
+      command rm -f "$dir/pacer-core" || printf 'pacer install: cannot remove newly installed core\n' >&2
+    fi
+  fi
+  command rm -f "$stage"
+  [ -z "$core_stage" ] || command rm -f "$core_stage"
+  if [ "$preserve_backup" = 0 ] && [ -n "$core_backup" ]; then command rm -f "$core_backup"; fi
+  command rm -rf "$tmp"
+}
+trap cleanup EXIT
 cp "$tmp/$file" "$stage" || die "cannot write to $dir"
 chmod 755 "$stage" || die "cannot prepare staged binary in $dir"
-# Only sign the staged inode, after checksum verification and before the smoke run.
+if [ -n "$core_expected" ]; then
+  if [ -e "$dir/pacer-core" ] || [ -L "$dir/pacer-core" ]; then
+    if [ ! -f "$dir/pacer-core" ] || [ -L "$dir/pacer-core" ]; then die "pacer-core must be a regular file"; fi
+  fi
+  core_stage=$(mktemp "$dir/.pacer-core.install.XXXXXX") || die "cannot stage core in $dir"
+  cp "$tmp/$core_file" "$core_stage" || die "cannot stage core in $dir"
+  chmod 755 "$core_stage" || die "cannot prepare staged core in $dir"
+fi
+# Only sign verified staged inodes, before either smoke run or installed-file mutation.
 if [ "$os" = darwin ]; then
   signing_hash=$( { [ -x /usr/bin/security ] && /usr/bin/security find-identity -v -p codesigning 2>/dev/null; } | sed -n 's/^[[:space:]]*[0-9][0-9]*)[[:space:]]*\([A-Fa-f0-9]\{40\}\)[[:space:]]*"pacer local code signing"[[:space:]]*$/\1/p' | head -n 1)
   if [ -n "$signing_hash" ]; then
     say "Signing staged binary as dev.pacer.cli; unlock the login keychain if macOS requests authorization."
-    /usr/bin/codesign -f -s "$signing_hash" -i dev.pacer.cli --options 0 \
-      -r "=designated => identifier \"dev.pacer.cli\" and certificate leaf = H\"$signing_hash\"" "$stage" || die "cannot sign staged binary"
-    /usr/bin/codesign --verify --strict "$stage" || die "staged signature verification failed"
+    for staged in "$stage" "$core_stage"; do
+      [ -n "$staged" ] || continue
+      /usr/bin/codesign -f -s "$signing_hash" -i dev.pacer.cli --options 0 \
+        -r "=designated => identifier \"dev.pacer.cli\" and certificate leaf = H\"$signing_hash\"" "$staged" || die "cannot sign staged binary"
+      /usr/bin/codesign --verify --strict "$staged" || die "staged signature verification failed"
+    done
   fi
 fi
 installed=$("$stage" --version 2>/dev/null) || die "staged $dir/pacer does not run on this machine"
 [ "$installed" = "pacer $version" ] || die "staged $dir/pacer reported '$installed', expected 'pacer $version'"
+if [ -n "$core_stage" ]; then
+  core_version=$("$core_stage" --version 2>/dev/null) || die "staged core does not run on this machine"
+  [ "$core_version" = "pacer $version" ] || die "staged core reported '$core_version', expected 'pacer $version'"
+  if [ -f "$dir/pacer-core" ]; then
+    core_backup=$(mktemp "$dir/.pacer-core.backup.XXXXXX") || die "cannot back up core"
+    cp -p "$dir/pacer-core" "$core_backup" || die "cannot back up core"
+  fi
+  # Defer termination until the pair is committed or the core is rolled back.
+  interrupted=0
+  trap 'interrupted=1' INT TERM
+  core_installed=1
+  mv -f "$core_stage" "$dir/pacer-core" || die "cannot replace $dir/pacer-core"
+fi
 mv -f "$stage" "$dir/pacer" || die "cannot replace $dir/pacer"
+front_installed=1
+[ "${interrupted:-0}" = 0 ] || exit 130
+trap 'exit 130' INT TERM
 say "installed: $installed ($dir/pacer)"
 case ":${PATH:-}:" in
   *":$dir:"*) ;;

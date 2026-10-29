@@ -103,6 +103,9 @@ Use `pacer stop <id> --json` to cancel.
 `pacer retry <task-id> [--executor <id>] [--json]`: Re-delegate a task's stored brief.
 `--executor` picks the runner; otherwise routing chooses. Refused while the task
 already has a queued or running retry.
+`pacer ask "<question>" [--scope dispatch|task:<id>|repo:<path>] [--json]` outside an executor session asks the
+[assistant](assistant.md) once and prints the answer and its sources. Proposed actions are printed as the equivalent
+`pacer` commands and are never run.
 Executors that cannot continue run `pacer ask "<one question>"` once and stop.
 This requires an executor session with `PACER_TASK_ID`; the task settles as
 `needs_input` and raises a question under Needs you. Use
@@ -389,12 +392,13 @@ runner edits ask you to run `pacer config migrate` first. Migration saves the
 original as `<file>.pre-accounts.bak` and prints how to restore it.
 
 `config get` returns each effective value and its source: the strategy filename
-or `default`. With a key, JSON is `{value, source}`; without a key, JSON maps
+or `default` (`env PACER_BACKEND` when that override is set). With a key, JSON is `{value, source}`; without a key, JSON maps
 setting names to those objects. `config set` prints the change and an undo
 command. Account and runner list JSON are arrays (see the accounts guide).
 
 | Key | Value |
 | --- | --- |
+| execution.backend | `orca` or `direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved setting. |
 | planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
 | pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
 | pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |

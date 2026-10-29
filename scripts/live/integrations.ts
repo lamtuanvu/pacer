@@ -59,6 +59,15 @@ export async function exerciseIntegrations(session: Session): Promise<void> {
       record(session, { kind: "command", argv: ["fixture service startup"], code: child.exitCode ?? 0, stdout: output, stderr: await new Response(child.stderr).text() });
     }
   };
+  const originalNamedSkill = "pre-existing named fixture skill\n";
+  mkdirSync(join(work, "skills/pacer"), { recursive: true, mode: 0o700 });
+  writeFileSync(skill, originalNamedSkill, { mode: 0o600 });
+  const claudeSettings = join(home, ".claude", "settings.json");
+  const claudeSkill = join(home, ".claude", "skills/pacer/SKILL.md");
+  const originalClaudeSkill = "pre-existing Claude fixture skill\n";
+  mkdirSync(join(home, ".claude/skills/pacer"), { recursive: true, mode: 0o700 });
+  writeFileSync(claudeSkill, originalClaudeSkill, { mode: 0o600 });
+  writeFileSync(claudeSettings, JSON.stringify({ theme: "fixture-before", userSetting: true }), { mode: 0o600 });
   try {
     check((await cli("install", "codex")).code === 0, "default fixture connect failed");
     check((await cli("install", "codex#work")).code === 0, "named fixture connect failed");
@@ -89,7 +98,6 @@ export async function exerciseIntegrations(session: Session): Promise<void> {
     record(session, { kind: "note", behavior: "Retry after resolving customization", surface: "CLI/service", verdict: "PASS", text: "Restoring desired managed content allowed the next reconciliation to succeed without reconnecting other accounts." });
 
     check((await cli("install", "claude-code")).code === 0, "Claude fixture connect failed");
-    const claudeSettings = join(home, ".claude", "settings.json");
     const legacy = JSON.parse(readFileSync(manifestPath, "utf8"));
     const claudeFile = legacy.planners["claude-code"].files.find((file: { path: string }) => file.path === claudeSettings);
     check(claudeFile, "Claude settings ownership missing");
@@ -103,12 +111,51 @@ export async function exerciseIntegrations(session: Session): Promise<void> {
     const ownedStatusLine = JSON.parse(readFileSync(manifestPath, "utf8"));
     delete ownedStatusLine.planners["claude-code"].files.find((file: { path: string }) => file.path === claudeSettings).managed;
     writeFileSync(manifestPath, JSON.stringify(ownedStatusLine));
+    const managedStatusLine = customized.statusLine.command;
     customized.statusLine.command = "custom-status";
     writeFileSync(claudeSettings, JSON.stringify(customized));
     const statusLineConflict = await cli("integrations", "refresh", "--json");
     check(statusLineConflict.code === 1 && JSON.parse(statusLineConflict.stdout).some((row: { target: string; state: string }) => row.target === "claude-code" && row.state === "conflict"), "legacy Claude status-line edit was not protected");
     check(JSON.parse(readFileSync(claudeSettings, "utf8")).statusLine.command === "custom-status", "legacy Claude status-line edit overwritten");
     record(session, { kind: "note", behavior: "Legacy Claude settings migration", surface: "CLI", verdict: "PASS", text: "Private CLI fixture accepted unrelated Claude settings changes and recorded managed ownership; a later edited pacer-owned status line remained untouched and reported conflict." });
+
+    customized.statusLine.command = managedStatusLine;
+    writeFileSync(claudeSettings, JSON.stringify(customized));
+    check((await cli("integrations", "refresh", "--json")).code === 0, "Claude fixture conflict resolution failed");
+    const defaultSkill = join(home, ".codex/skills/pacer/SKILL.md");
+    const defaultBefore = readFileSync(defaultSkill, "utf8"), claudeBefore = readFileSync(claudeSettings, "utf8");
+    check((await cli("uninstall", "codex#work")).code === 0, "named fixture uninstall failed");
+    check(readFileSync(skill, "utf8") === originalNamedSkill, "named pre-existing skill was not restored");
+    check(JSON.parse(readFileSync(hooks, "utf8")).theme === "fixture-dark", "named user setting lost during uninstall");
+    check(readFileSync(defaultSkill, "utf8") === defaultBefore && readFileSync(claudeSettings, "utf8") === claudeBefore, "named uninstall changed another account");
+    check(!JSON.parse(readFileSync(manifestPath, "utf8")).planners["codex#work"], "named uninstall retained its record");
+    record(session, { kind: "note", behavior: "Named integration uninstall restores backups", surface: "CLI", verdict: "PASS", text: "Actual private named-target uninstall restored its pre-existing skill and preserved its unrelated setting, default Codex content and Claude settings." });
+
+    // Fixed owned-home cleanup exercises recorded-cleanup, unlike target uninstall.
+    const namedHooksBefore = readFileSync(hooks, "utf8");
+    const cleanupManifestBefore = readFileSync(manifestPath, "utf8");
+    const preview = await cli("uninstall", "--all", "--json");
+    check(preview.code === 2, "cleanup preflight did not refuse non-TTY mutation");
+    const cleanupPlan = JSON.parse(preview.stdout).plan as { kind: string; target: string; paths: string[]; action: string }[];
+    const privateHomePath = (path: string) => path === home || path.startsWith(home + "/");
+    check(Array.isArray(cleanupPlan) && cleanupPlan.length === 4 && cleanupPlan.every(row => {
+      if (row.kind === "agent") return ["codex", "claude-code"].includes(row.target) && row.paths.length > 0 && row.paths.every(privateHomePath);
+      if (row.kind === "home") return row.target === state && row.paths.length === 0;
+      // The CLI always lists a binary; this entry explicitly leaves our wrapper alone.
+      if (row.kind === "binary") return row.target === wrapper && row.paths.length === 0 && row.action === "left in place (use --binary to delete)";
+      return false; // No service manager, plugin, PATH profile or app-link effects.
+    }) && cleanupPlan.filter(row => row.kind === "agent").map(row => row.target).sort().join(",") === "claude-code,codex"
+      && cleanupPlan.filter(row => row.kind === "home").length === 1 && cleanupPlan.filter(row => row.kind === "binary").length === 1, "cleanup preflight escaped fixed private fixture scope");
+    check(readFileSync(manifestPath, "utf8") === cleanupManifestBefore, "cleanup preflight changed the manifest");
+    const removed = await cli("uninstall", "--all", "--yes", "--json");
+    check(removed.code === 0 && JSON.parse(removed.stdout).results.every((row: { status: string }) => row.status === "ok"), "recorded private-home cleanup failed");
+    check(readFileSync(claudeSkill, "utf8") === originalClaudeSkill, "recorded cleanup did not restore pre-existing Claude skill");
+    const restoredSettings = JSON.parse(readFileSync(claudeSettings, "utf8"));
+    check(restoredSettings.theme === "fixture-dark" && restoredSettings.userSetting === true && restoredSettings.statusLine === undefined, "recorded cleanup lost user settings or retained managed status line");
+    check(!existsSync(defaultSkill), "recorded cleanup retained created default skill");
+    check(readFileSync(skill, "utf8") === originalNamedSkill && readFileSync(hooks, "utf8") === namedHooksBefore, "recorded cleanup changed the already disconnected named account");
+    check(!existsSync(state), "recorded cleanup retained fixture state after successful restoration");
+    record(session, { kind: "note", behavior: "Recorded integration cleanup restores files before private state removal", surface: "CLI", verdict: "PASS", text: "Actual fixed uninstall --all restored pre-existing Claude skill and preserved unrelated Claude settings before removing private fixture state; created default skill was removed and the disconnected named account stayed byte-identical." });
   } catch (error) {
     record(session, { kind: "note", behavior: "Integration fixture", surface: "CLI/service", verdict: "FAIL", text: (error as Error).message }); throw error;
   }

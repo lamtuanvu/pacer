@@ -583,6 +583,324 @@
       },
       "additionalProperties": false
     },
+    "AssistantAskParams": {
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "dispatch"
+                },
+                "days": {
+                  "default": 7,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 90
+                }
+              },
+              "required": [
+                "kind",
+                "days"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "task"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "repo"
+                },
+                "repo": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "kind",
+                "repo"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "text",
+        "scope",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantCancelParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "turnId"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantCandidatesParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "AssistantCardRecordParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "done",
+            "failed",
+            "dismissed",
+            "stale"
+          ]
+        },
+        "result": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "turnId",
+        "cardId",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantCardRefreshParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "turnId",
+        "cardId"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantConversationParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantConversationsParams": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "AssistantDeleteParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "AssistantSettingsGetParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "AssistantSettingsSetParams": {
+      "type": "object",
+      "properties": {
+        "runner": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "account": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "maxInputTokens": {
+              "default": 32000,
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 200000
+            },
+            "maxOutputTokens": {
+              "default": 8000,
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 32000
+            },
+            "maxToolRounds": {
+              "default": 6,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "turnsPerDay": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "deadlineMs": {
+              "default": 120000,
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 120000
+            }
+          },
+          "additionalProperties": false
+        },
+        "retention": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            },
+            "conversations": {
+              "default": 200,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          "additionalProperties": false
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "runner",
+        "account",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "AssistantStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "AssistantTurnParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "turnId"
+      ],
+      "additionalProperties": false
+    },
     "AttentionDismissParams": {
       "type": "object",
       "properties": {
@@ -952,6 +1270,7 @@
             "task_retention_days",
             "execution.local_max_tasks",
             "execution.launch_mode",
+            "execution.backend",
             "planner",
             "pacing.order",
             "pacing.policy",
@@ -2687,6 +3006,38 @@
       },
       "required": [
         "alias"
+      ],
+      "additionalProperties": false
+    },
+    "InsightsSummaryParams": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "number",
+          "minimum": 0
+        },
+        "to": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "bucket": {
+          "default": "day",
+          "type": "string",
+          "enum": [
+            "day",
+            "week"
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "bucket"
       ],
       "additionalProperties": false
     },
