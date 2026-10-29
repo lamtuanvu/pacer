@@ -63,3 +63,24 @@ for (const width of [340, 260]) browserTest(`tray planner identity never runs un
     await browser.close();
   }
 }, 20000);
+
+browserTest("tray planner label gives way before the planner name", async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 340, height: 500 } });
+    await page.setContent(plannerLine.replace("Claude Code Enterprise", "Claude Code"));
+    await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") + "\n.tray-line{width:140px}" });
+    // Measure the identity group alone at a width where the role label is only partly visible.
+    await page.locator(".tray-state").evaluate(node => node.remove());
+    // The name keeps its full text width while the label still has room; clientWidth would hide a sub-pixel cut.
+    const widths = await page.locator(".tray-identity strong").evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return { box: node.getBoundingClientRect().width, text: range.getBoundingClientRect().width };
+    });
+    expect(await page.locator(".tray-planner-label").evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThan(0);
+    expect(widths.box).toBeGreaterThanOrEqual(widths.text);
+  } finally {
+    await browser.close();
+  }
+}, 20000);
