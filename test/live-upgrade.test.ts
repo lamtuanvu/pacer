@@ -1,8 +1,9 @@
 // test/live-upgrade.test.ts
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fixturePlist, guardPacerArgs, stageUpgradeRuntime, upgradePolicy, upgradeRoot, writeFeed } from "../scripts/live/upgrade";
+import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
 import { hostTarget, assetFile, sha256Hex } from "../src/update/manifest";
@@ -10,6 +11,20 @@ import { tmpDir } from "./helpers";
 
 const session = (extra: Partial<Session> = {}): Session => ({ id: "upgrade-test", root: join(liveRoot, "upgrade-test"), port: 49111, pid: 1, innerPort: 49112, createdAt: "2026-10-29T00:00:00Z", stopped: true, ...extra });
 const nonce = "0123456789abcdef0123456789abcdef";
+
+test("every upgrade CLI identity must match the sealed native fixture lease", () => {
+  const policy = upgradePolicy(session(), nonce, 501);
+  const sealed = { schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
+    innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel,
+    recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid };
+  const fixturePolicySha256 = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  for (const { version } of Object.values(UPGRADE_BUILDS)) {
+    const identity = { version, arch: "aarch64", fixture: true, otaMode: "fixture", fixturePolicySha256 };
+    expect(() => assertUpgradeFixtureLease(policy, sealed, identity, version, "aarch64")).not.toThrow();
+    expect(() => assertUpgradeFixtureLease(policy, sealed, { ...identity, fixturePolicySha256: "0".repeat(64) }, version, "aarch64")).toThrow("sealed native lease");
+    expect(() => assertUpgradeFixtureLease(policy, { ...sealed, innerPort: policy.port + 1 }, identity, version, "aarch64")).toThrow("sealed native lease");
+  }
+});
 
 test("each upgrade build stages its CLI and native shim beside one another", () => {
   const root = tmpDir(), shim = join(root, "libpacer-native.dylib");

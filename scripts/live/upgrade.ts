@@ -1,7 +1,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { compileCommand } from "../release/build";
 import { buildNativeShim } from "../release/desktop";
 import { assetFile, hostTarget, sha256Hex } from "../../src/update/manifest";
@@ -20,6 +20,19 @@ export const UPGRADE_BUILDS = {
 } as const;
 export type UpgradeBuild = keyof typeof UPGRADE_BUILDS;
 interface UpgradeRecord { schema: 1; policy: NativeFixture; builds: Record<UpgradeBuild, { path: string; shim: string; sha256: string }>; installed: boolean }
+type FixtureIdentity = { version?: unknown; arch?: unknown; fixture?: unknown; otaMode?: unknown; fixturePolicySha256?: unknown };
+
+/** Compare the sealed lease with the identity reported by the signed CLI. */
+export function assertUpgradeFixtureLease(policy: NativeFixture, sealed: Record<string, unknown>, identity: FixtureIdentity, version: string, arch: string): void {
+  const expected = { schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
+    innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel,
+    recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid };
+  const hash = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  if (Object.entries(expected).some(([key, value]) => sealed[key] !== value) ||
+      identity.version !== version || identity.arch !== arch || identity.fixture !== true ||
+      identity.otaMode !== "fixture" || identity.fixturePolicySha256 !== hash)
+    throw Error(`Upgrade fixture ${version} compiled identity differs from its sealed native lease`);
+}
 
 /** Upgrade fixtures replace the sandbox service, so the sandbox must be unseeded (real agents) and stopped. */
 export function upgradeRoot(session: Session, platform: string = process.platform): string {
@@ -132,7 +145,8 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
   mkdirSync(ota, { mode: 0o700 }); // Exclusive: never share a lease with live ota.
   for (const dir of [session.root, join(session.root, "home")]) chmodSync(dir, 0o700);
   const policy = upgradePolicy(session, randomBytes(16).toString("hex"), uid());
-  atomicWrite(join(ota, "record.json"), JSON.stringify({ schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
+  const leasePath = join(ota, "record.json");
+  atomicWrite(leasePath, JSON.stringify({ schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
     innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel, recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid }));
   for (const dir of [join(ota, "registrations"), join(root, "build"), join(root, "bin")]) mkdirSync(dir, { mode: 0o700 });
   const buildEnv = { HOME: process.env.HOME, PATH: process.env.PATH, TMPDIR: process.env.TMPDIR };
@@ -152,6 +166,8 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
     const identifiers = name === "prefeature" ? RELEASE_IDENTIFIERS : FIXTURE_IDENTIFIERS;
     await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.cli, outfile], source, buildEnv);
     await exec(session, ["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", identifiers.nativeShim, shim], source, buildEnv);
+    const identity = JSON.parse((await exec(session, [outfile, "--pacer-identity"], source, buildEnv)).stdout) as FixtureIdentity;
+    assertUpgradeFixtureLease(policy, JSON.parse(readFileSync(leasePath, "utf8")), identity, version, target.arch === "arm64" ? "aarch64" : "x86_64");
     const bytes = readFileSync(outfile);
     writeFeed(join(root, "feed"), version, bytes);
     builds[name] = { path: outfile, shim, sha256: sha256Hex(bytes) };
