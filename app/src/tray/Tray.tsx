@@ -23,7 +23,7 @@ import type { Status } from "../../../src/view-model/words";
 import { Switch } from "../ds/Controls";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
-import { actionError, actionRoute, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
+import { actionError, actionRoute, visibleFailure, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
 
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
@@ -186,7 +186,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const next = model?.queued[0];
   const nextExecutor = next?.executor ? agentInfo(runnerAgent(next.executor)).name : "executor";
   const machineWait = next?.queue ? machineWaitWords(next.queue)?.replace(/^Waiting: /, "") : undefined;
-  const error = failure && (!failure.item || model?.attention.some(item => item.id === failure.item)) ? failure.message : "";
+  const error = visibleFailure(failure, model?.attention);
   const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{machineWait ? `${model.waiting} waiting · ${machineWait}` : `${model.waiting} waiting for a free ${nextExecutor} slot`}{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">

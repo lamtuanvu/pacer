@@ -509,3 +509,13 @@ test("browser tray Answer opens the Needs you question panel", async () => {
   await performAction({ label: "Answer", op: "task.answer", params: { id: "task-1" } }, api, { ...ipc, desktop: false, open: async route => { routes.push(route); } });
   expect(routes).toEqual(["/needs-you?answer=task-1"]);
 });
+
+test("a failed row action's message clears when its attention item disappears", async () => {
+  const { visibleFailure } = await import("../app/src/tray/model");
+  const failure = { message: "pacer could not open that. Try again, or open pacer to finish there.", item: "message:t-1" };
+  expect(visibleFailure(failure, [{ id: "message:t-1" }, { id: "review:t-2" }])).toBe(failure.message);
+  expect(visibleFailure(failure, [{ id: "review:t-2" }])).toBe("");
+  expect(visibleFailure(failure, undefined)).toBe("");
+  expect(visibleFailure({ message: "Hide failed" }, [])).toBe("Hide failed");
+  expect(visibleFailure(null, [{ id: "message:t-1" }])).toBe("");
+});
