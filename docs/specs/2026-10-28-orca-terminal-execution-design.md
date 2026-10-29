@@ -57,6 +57,15 @@ Decision (2026-10-28, revised after review and live validation): pacer does not 
 - Regenerate Rust protocol types (`cargo xtask gen`).
 - Docs: `docs/cli.md` config key table, `docs/configuration.md` and `docs/executors.md` (replace the "Orca uses direct execution" text), CHANGELOG `[Unreleased]`.
 
+### 6. Interaction with the interactive default launch (#439)
+
+Decision (2026-10-29, after main adopted interactive-by-default launches, [ADR](../decisions/2026-10-28-interactive-default-launch.md)): Orca hosts interactive runs.
+
+- Backend selection resolves the launch mode exactly as the attempt does (`launchModeFor`, including strict enforcement's headless rule). When the effective backend is `orca` and the resolved mode is **interactive**, the task runs in an Orca terminal as described above. When the resolved mode is **headless** (explicit `execution.launch_mode: headless`, a runner `session: headless`, the documented headless fallbacks, or strict managed work), the task runs direct.
+- The Orca terminal command reuses the direct interactive launch for the same runner and worktree: the same argv, per-run `--settings` file (bypass-permissions acknowledgement, project MCP approval with the source checkout's rejected servers kept off, under the ADR's task-worktree conditions), and the login-shell environment rules for account folders. Only values that are paths or flags appear in the visible command; the per-run settings file is written under the task's run directory and referenced by path.
+- Claude folder trust in Orca terminals stays with `CLAUDE_CODE_SANDBOXED=1` (section 4). The ADR's `.claude.json` grant covers only worktrees under `~/.pacer/worktrees`; Orca-created worktrees are outside that scope, and this design does not widen the SEC-1 exception.
+- Interactive-only behaviour that relies on pacer's own PTY (takeover, resume, `pacer report` completion) is replaced on Orca by Orca's terminal and the worker's `worker_done`; the user watches and takes over in Orca.
+
 ## Error handling
 
 - Every failure before `worker-start` succeeds closes any terminal pacer created and falls back to direct (logged once per hour as today). After `worker-start`, existing uncertain-start and supervision rules apply; no direct fallback.
