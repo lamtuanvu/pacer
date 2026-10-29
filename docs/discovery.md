@@ -51,7 +51,7 @@ Anyone on the network can announce any name. pacer shows discovered names as tex
 
 ## Pairing needs a plugin
 
-pacer itself does not pair machines. Pair calls `pairing.start` on the first enabled plugin that provides pairing and accepts it ([plugin protocol](plugin-protocol.md)); the app then says which plugin continues. When no such plugin is installed and enabled, Pair in the app's notice opens the **Pair machines** page, which says that pairing is provided by plugins and links to Plugins settings, and the CLI says that none is installed.
+pacer itself does not pair machines. Pair calls `pairing.start` on the first enabled plugin that provides pairing and accepts it ([plugin protocol](plugin-protocol.md)); the app then says which plugin continues. When no such plugin is installed and enabled, Pair in the app's notice, in Needs you, in the tray and in desktop notifications opens the **Pair machines** page, which says that pairing is provided by plugins and links to Plugins settings, and the CLI says that none is installed.
 
 ## Turn discovery off
 

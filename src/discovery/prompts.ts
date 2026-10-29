@@ -1,6 +1,7 @@
 import type { Action } from "../attention/types";
 import { discoveryEnabled } from "../core/config";
 import { cachedIdentity, readMeta } from "../identity/store";
+import { pluginRegistry } from "../plugins";
 import type { Ctx } from "../types";
 import { isSilenced, SILENCE_LATER_S } from "./policy";
 import { radioNetwork, radioStatus } from "./radio";
@@ -10,6 +11,8 @@ import { readState } from "./state";
 export interface DiscoveryRuleInput {
   /** The network-answer revision the Allow / Not on this network actions expect. */
   networksRev: number;
+  /** Whether an enabled plugin contributes pairing; without one, Pair opens the neutral pairing page (UI-13). */
+  canPair: boolean;
   prompted: { discoveryId: string; name: string; at: number }[];
   network: { key: string; label: string; advertise: boolean | null; name: string } | null;
 }
@@ -19,8 +22,14 @@ function machineName(ctx: Ctx): string | null {
   try { return cachedIdentity(ctx)?.name ?? readMeta(ctx)?.name ?? null; } catch { return null; }
 }
 
+type Plugins = { list(ctx: Ctx): { enabled: boolean; contributes: string[] }[] };
+
+function canPair(ctx: Ctx, registry?: Plugins): boolean {
+  try { return (registry ?? pluginRegistry(ctx)).list(ctx).some(p => p.enabled && p.contributes.includes("pairing")); } catch { return false; }
+}
+
 /** Undefined when discovery is off. Prompts last as long as a Later would (7 days) and end when silenced or muted. */
-export function discoveryRuleInput(ctx: Ctx, now: number): DiscoveryRuleInput | undefined {
+export function discoveryRuleInput(ctx: Ctx, now: number, deps: { registry?: Plugins } = {}): DiscoveryRuleInput | undefined {
   if (!discoveryEnabled(ctx)) return undefined;
   const s = readState(ctx);
   const prompted = Object.values(s.seen)
@@ -30,7 +39,8 @@ export function discoveryRuleInput(ctx: Ctx, now: number): DiscoveryRuleInput | 
   const net = radioStatus().available ? radioNetwork() : null;
   const entry = net ? s.networks[net.key] : undefined;
   const name = machineName(ctx);
-  return { networksRev: s.networksRev, prompted, network: net && entry && name ? { key: net.key, label: entry.label, advertise: entry.advertise, name } : null };
+  // The plugin registry is consulted only while a found-machine prompt is open.
+  return { networksRev: s.networksRev, canPair: prompted.length > 0 && canPair(ctx, deps.registry), prompted, network: net && entry && name ? { key: net.key, label: entry.label, advertise: entry.advertise, name } : null };
 }
 
 /** Discovered names are untrusted (SEC-16): shown as unverified, never used in an op other than by discovery id. */
@@ -40,7 +50,9 @@ export function discoveryPrompts(input: DiscoveryRuleInput): DiscoveryPrompt[] {
     title: `Found pacer on ${p.name}`,
     detail: "Unverified name. Pair only if this is your machine.",
     actions: [
-      { label: "Pair", op: "discovery.respond", params: { discoveryId: p.discoveryId, action: "pair" }, style: "primary" },
+      input.canPair
+        ? { label: "Pair", op: "discovery.respond", params: { discoveryId: p.discoveryId, action: "pair" }, style: "primary" }
+        : { label: "Pair", op: "ui.open", params: { view: "settings", section: "pairing" }, style: "primary" },
       { label: "Later", op: "discovery.respond", params: { discoveryId: p.discoveryId, action: "later" } },
     ],
   }));

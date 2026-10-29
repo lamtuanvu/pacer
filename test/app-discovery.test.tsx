@@ -6,6 +6,8 @@ import { DiscoveryView, networkStateLine } from "../app/src/screens/settings/Dis
 import { resolveRoute, titleFor, type Route } from "../app/src/router";
 import { settingsNavId } from "../app/src/settings-pages";
 import { reduceStore } from "../app/src/data/store";
+import { uiHref } from "../app/src/data/actions";
+import { actionRoute } from "../app/src/tray/model";
 
 const id = "a".repeat(26);
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(m => m[1]);
@@ -70,6 +72,12 @@ test("neutral pairing page names no product and links to Plugins settings", () =
   expect(route).toMatchObject({ name: "settings", section: "pairing" });
   expect(titleFor(route)).toBe("Pair machines");
   expect(settingsNavId("pairing")).toBe("machine");
+});
+
+test("Pair from Needs you or the tray opens the neutral pairing page when no plugin can pair (UI-13)", () => {
+  const pair = { label: "Pair", op: "ui.open", params: { view: "settings", section: "pairing" }, style: "primary" as const };
+  expect(uiHref(pair.params)).toBe("#/settings/pairing");
+  expect(actionRoute(pair)).toBe("/settings/pairing");
 });
 
 test("network state line", () => {
