@@ -52,7 +52,7 @@ When pacer loads an identity and finds `machine.json` but the private key is mis
 This home looks copied from another machine. Run pacer machine rotate --yes to give it its own identity.
 ```
 
-Run `pacer machine rotate --yes` on the copy. If you moved a home on purpose and no other machine still uses the old copy, rotating is still the simplest way to clear the warning.
+Until then plugins cannot sign with the machine key (see [Plugin signatures](#plugin-signatures)). Run `pacer machine rotate --yes` on the copy. If you moved a home on purpose and no other machine still uses the old copy, rotating is still the simplest way to clear the warning.
 
 ## Machine id in records
 
@@ -66,4 +66,8 @@ A plugin granted the `identity.sign` capability can ask pacer to sign a payload 
 "pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload
 ```
 
-so a signature made for one plugin and purpose cannot be reused as another's. The plugin id `pacer` is reserved for pacer's own signatures. Every signature is recorded in the plugin's log with its purpose and the SHA-256 of the payload, never the payload itself. See [plugin protocol](plugin-protocol.md#capabilityidentitysign) for the request format.
+so a signature made for one plugin and purpose cannot be reused as another's. The plugin id `pacer` is reserved for pacer's own signatures. See [plugin protocol](plugin-protocol.md#capabilityidentitysign) for the request format.
+
+Every signature, including pacer's own rotation signature, and every refused signing request is recorded in `$PACER_HOME/logs/identity-audit.jsonl` (mode 0600, directory 0700). Each line is a JSON object with the time (`at`, Unix seconds), `pluginId`, `purpose`, `sha256` of the payload, `outcome` (`signed` or `refused`), the `reason` for a refusal and the signing `machineId`. The payload itself is never recorded. pacer only appends to this file, and plugins cannot write to it: `capability.log` writes to the plugin's own log under `logs/plugins/`.
+
+While the home looks copied (`cloneSuspected`), pacer refuses every `identity.sign` request with `capability_denied` and tells the user to run `pacer machine rotate --yes`. A copied home on the file backend still holds the source machine's private key, so a signature from it could be taken for the other machine's. Rotation gives the home its own key and signing works again.

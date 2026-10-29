@@ -7,6 +7,7 @@ import { base32, fromBase32, publicKeyFromRaw } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR } from "./key-store";
 import { ensureIdentity } from "./store";
+import { auditSignature } from "./audit";
 
 export const SIG_DOMAIN = "pacer-machine-sig/v1";
 export const PURPOSE = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -29,16 +30,22 @@ function readTks(ctx: Ctx): Record<string, string> {
 export function currentTransportKey(ctx: Ctx, pluginId: string): string | null { return readTks(ctx)[pluginId] ?? null; }
 export function clearTransportKeys(ctx: Ctx): void { writePrivateFile(tkPath(ctx), "{}\n"); }
 
+/** Sign under the domain-separated format. Every signature and every refusal is recorded in the identity audit log. */
 export async function signFor(ctx: Ctx, pluginId: string, purpose: string, payload: Uint8Array): Promise<{ signature: Uint8Array; machineId: string }> {
-  if (!PURPOSE.test(purpose)) throw new CoreError("invalid_input", "Signing purpose must be 2-64 lowercase letters, digits and hyphens");
+  const refuse = (reason: string, message: string) => {
+    auditSignature(ctx, { pluginId, purpose, payload, outcome: "refused", reason });
+    return new CoreError("invalid_input", message);
+  };
+  if (!PURPOSE.test(purpose)) throw refuse("invalid purpose", "Signing purpose must be 2-64 lowercase letters, digits and hyphens");
   if (purpose === "transport-key") {
     const p = Buffer.from(payload);
     if (p.length !== TK_PREFIX.length + 32 || !p.subarray(0, TK_PREFIX.length).equals(TK_PREFIX)) {
-      throw new CoreError("invalid_input", "transport-key payload must be \"transport-key/v1\" 0x00 followed by a 32-byte key");
+      throw refuse("invalid transport-key payload", "transport-key payload must be \"transport-key/v1\" 0x00 followed by a 32-byte key");
     }
   }
   const id = await ensureIdentity(ctx);
   const signature = new Uint8Array(sign(null, signedMessage(pluginId, purpose, payload), id.privateKey));
+  auditSignature(ctx, { pluginId, purpose, payload, outcome: "signed", machineId: id.id });
   if (purpose === "transport-key") {
     const tks = readTks(ctx);
     tks[pluginId] = base32(Buffer.from(payload).subarray(TK_PREFIX.length));

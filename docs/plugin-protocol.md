@@ -4108,7 +4108,7 @@ Result:
 
 ### `capability.identity.sign`
 
-Sign a payload with this machine's key under the domain-separated format "pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload. purpose must be declared in the manifest scopes for identity.sign. The transport-key purpose requires the payload "transport-key/v1" 0x00 followed by a 32-byte key and records it as the plugin's current transport key. payload and signature are base64.
+Sign a payload with this machine's key under the domain-separated format "pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload. purpose must be declared in the manifest scopes for identity.sign. The transport-key purpose requires the payload "transport-key/v1" 0x00 followed by a 32-byte key and records it as the plugin's current transport key. payload and signature are base64. Refused with capability_denied while the home looks copied from another machine, until the user rotates the machine key. Every signature and refusal is recorded in the host-owned identity audit log.
 
 Params:
 
