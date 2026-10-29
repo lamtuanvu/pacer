@@ -134,9 +134,9 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
  expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executor.id);
  // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
- expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [a-z]+<\/span><\/summary>/g)).toHaveLength(2);
- expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for empty</span></summary>');
- expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+ expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [^<]+<\/span><\/summary>/g)).toHaveLength(2);
+ expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
+ expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
@@ -209,7 +209,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
  const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Uncertain fallback');expect(general).toContain('Historical usage');expect(general).toContain('Observation time unknown');
+ expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · refresh to use');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
@@ -219,13 +219,13 @@ test('Settings and host executors share uncertainty; retained account usage is h
 test('Agents copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('Unavailable executors are skipped; warning states may still receive work.');
+ expect(html).toContain('Agents marked Skipped, Cannot take work or Off receive no new work.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Agents',()=>{
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
- expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
+ expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Skipped<\/span>/);
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
 test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
@@ -260,7 +260,7 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
  expect(html).toContain('$3.20 of $5 this week');
- expect(html).toContain('Historical usage · Observation time unknown');
+ expect(html).toContain('Stale reading · refresh to use');
 });
 
 test('Updates identifies the service and preserves failed-check status', () => {
@@ -280,7 +280,7 @@ test('eligible executors retain recent task failures separately from their passe
  const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
  const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
- expect(html).toContain('Eligible');
+ expect(html).toContain('Ready');
  expect(html).toContain('Recent task failures');
  expect(html).toContain('2 recent failures');
  expect(html).not.toContain('Failing');

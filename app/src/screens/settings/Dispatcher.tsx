@@ -107,7 +107,7 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
   if(item.probeMode!=="off"&&item.nextEligibleAt>t)parts.push(`next eligible: in ${formatDuration(item.nextEligibleAt,t)}`);
   if(item.probesToday>0)parts.push(`probes today: ${item.probesToday}`);
   // A measured delta carries full float precision; one decimal is all a reader needs.
-  if(item.lastCostPct!==null)parts.push(`last probe cost: ${item.lastCostPct.toFixed(1)}% of account window`);
+  if(item.lastCostPct!==null)parts.push(`last probe cost: ${Math.round(item.lastCostPct)}% of account window`);
   const consentText=consentLabel(item.consent);
   if(consentText)parts.push(consentText);
   // Why renewal is not happening, in the doctor's words. A pause is Pacer's own

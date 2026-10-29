@@ -96,7 +96,7 @@ test("guided setup shows who may work as sortable lists beside the executor pool
   expect(html).toContain('aria-selected="true"');
   expect(html).toContain('<h3 class="pc-section-heading">Available executors');
   expect(html).toContain("pc-executor-rank");
-  expect(html).toContain("pc-executor-id");
+  expect(html).not.toContain("pc-executor-id"); // Plain agent names need no repeated id.
   expect(html).toContain("pc-sortable--icons");
   expect(html).toContain("+ Set up a new executor");
   expect(html).not.toContain("unsaved change");
@@ -227,16 +227,16 @@ test("saved SaveBar shows a good status dot and keeps its scope", () => {
 
 test("executor snapshot supplies account status and unavailable pool recovery", () => {
   const snapshot = { tasks: [], executors: [
-    { id: "codex", agent: "codex", account: "work", state: "blocked", reason: "Maintenance" },
-    { id: "opencode", agent: "opencode", account: "local", state: "down", reason: "host_offline" },
+    { id: "codex", agent: "codex", account: "work", enabled: true, state: "blocked", reason: "Maintenance" },
+    { id: "opencode", agent: "opencode", account: "local", enabled: true, state: "down", reason: "host_offline" },
   ], accounts: [] };
   const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot }, api: { call: async () => ({}) } } as any}>
     <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex", "opencode"] }} onSaved={() => {}} onDirtyChange={() => {}} />
   </TaskContext.Provider>);
-  expect(html).toContain("Blocked until unblocked");
+  expect(html).toContain("Blocked by you");
   expect(html).toContain("work");
-  expect(html).toContain("Not working");
-  expect(html).not.toContain("host_offline");
+  expect(html).toContain("Agent needs attention");
+  expect(html.replace(/<span role="tooltip"[^>]*>[\s\S]*?<\/span>/g, "")).not.toContain("host_offline");
   expect(html).toContain(">Fix</a>");
   expect(html).not.toContain('aria-label="Add OpenCode"');
 });
@@ -247,8 +247,8 @@ test("a full executor pool uses the board empty copy", () => {
 });
 
 test("pool reasons use eligibility copy for known and unknown codes", () => {
-  for (const [code, copy] of [["authentication_failed", "Sign-in is required"], ["new_internal_code", "Execution evidence needs attention"]]) {
-    const snapshot = { tasks: [], executors: [{ id: "opencode", agent: "opencode", account: "local", state: "down", reason: code,
+  for (const [code, copy] of [["authentication_failed", "Sign-in is required"], ["new_internal_code", "Agent needs attention"]]) {
+    const snapshot = { tasks: [], executors: [{ id: "opencode", agent: "opencode", account: "local", enabled: true, state: "down", reason: code,
       eligibility: { state: "ineligible", reasons: [{ code, evidenceIds: [] }], evaluatedAt: 0, validUntil: null, evidenceAgeS: null, availability: "unavailable", budget: "unknown", spendingRisk: "unknown" } }], accounts: [] };
     const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot }, api: { call: async () => ({}) } } as any}>
       <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex", "opencode"] }} onSaved={() => {}} onDirtyChange={() => {}} />

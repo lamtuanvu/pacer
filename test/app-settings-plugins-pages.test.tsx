@@ -291,3 +291,16 @@ browserTest('narrow card actions align at the right with and without Settings',a
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   } finally {await page.close();}
 });
+
+test('bundled plugin cards use host display copy and render actual versions', () => {
+  const html = draw(<PluginsPage initialData={{plugins:[
+    {...pluginFixture,id:'pacer-agent-session',bundled:true,version:'2.3.4',publisher:'pacer'},
+    {...pluginFixture,id:'pacer-assistant',bundled:true,version:'bundled',publisher:'pacer'},
+    {...pluginFixture,id:'third-party',bundled:false},
+    {...pluginFixture,id:'pacer-assistant',bundled:false},
+  ]}}/>);
+  for (const text of ['Agent sessions','Live terminal sessions for delegated tasks','Assistant','The always-on assistant behind ⌘J','2.3.4 · by pacer','bundled · by pacer','third-party']) expect(html).toContain(text);
+  expect(html).toContain('aria-label="Enable Agent sessions"');
+  expect(html).toContain('<b>pacer-assistant</b>');
+  expect(html).not.toContain('<b>pacer-agent-session</b>');
+});

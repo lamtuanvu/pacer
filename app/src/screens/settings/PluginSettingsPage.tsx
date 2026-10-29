@@ -17,7 +17,7 @@ import { Icon } from "../../ds/icons";
 import { useTaskContext, ErrorMessage } from "../task-shared";
 import { useResource, Feedback } from "./shared";
 import { usePluginToggle } from "./Plugins";
-import { pluginIcon, capabilityWords } from "./plugin-presentation";
+import { pluginIcon, capabilityWords, pluginPresentation } from "./plugin-presentation";
 import { usePluginSettingsStyles } from "./plugin-styles";
 export interface PluginSettingsData { id: string; title: string; schema: SettingsSchema; values: Record<string,unknown>; rev: number }
 type FieldErrors = Record<string,string>;
@@ -122,7 +122,7 @@ export function PluginSettingsPage({ section = "", plugin: pluginProp, initialDa
   const off = info?.state === "disabled";
   return <DensityContext.Provider value="settings"><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings pc-plugin-settings--editor">
     <header className="pc-settings-board__header"><h1>{data?.title ?? surfaces.find(s => s.plugin === plugin && s.surface === "settings")?.title ?? "Plugin settings"}</h1></header>
-    {info && <div className="pc-plugin-provenance"><span className="pc-plugin-provenance__icon" aria-hidden="true"><Icon name={pluginIcon(plugin,surfaces ?? [])}/></span><span className="pc-plugin-grow">Added by the plugin <b>{info.id} {info.version}</b> from {info.publisher}{info.capabilities.length > 0 && ` · may ${joinWords(capabilityWords(info).map(word => word[0]!.toLowerCase()+word.slice(1)))}`}</span><AppLink to={routes.settings("plugins")}>Manage plugin</AppLink>{info.state !== "refused" && <Button size="sm" aria-disabled={toggle.busy} onClick={() => void turn()}>{info.enabled ? "Turn off" : "Turn on"}</Button>}</div>}
+    {info && <div className="pc-plugin-provenance"><span className="pc-plugin-provenance__icon" aria-hidden="true"><Icon name={pluginIcon(plugin,surfaces ?? [])}/></span><span className="pc-plugin-grow">Added by the plugin <b>{pluginPresentation(info).name} {info.version}</b> from {info.publisher}{info.capabilities.length > 0 && ` · may ${joinWords(capabilityWords(info).map(word => word[0]!.toLowerCase()+word.slice(1)))}`}</span><AppLink to={routes.settings("plugins")}>Manage plugin</AppLink>{info.state !== "refused" && <Button size="sm" aria-disabled={toggle.busy} onClick={() => void turn()}>{info.enabled ? "Turn off" : "Turn on"}</Button>}</div>}
     {off ? <p role="status">This plugin is off.</p> : missing ? <p>This plugin has no settings page.</p> : unavailable ? <p>This plugin is turned off or needs attention. <AppLink to={routes.settings("plugins")}>Open Plugins settings</AppLink></p> : <>
       {!data && !error && <LoadingState label="Loading plugin settings…"/>}
       {data && <section aria-label={`${data.title} settings`}>{Object.entries(data.schema.fields).map(([name,field]) => <SettingRow key={name} variant="board" headingLevel={3} label={field.title} description={field.description}><div className="pc-plugin-field"><SchemaField name={name} field={field} value={values[name]} onChange={value => update(name,value)} disabled={busy} error={errors[name]} repos={state.snapshot?.repos ?? []}/>{errors[name] && <span id={`plugin-field-${name}-error`} className="pc-plugin-field__error" role="alert">{errors[name]}</span>}</div></SettingRow>)}
