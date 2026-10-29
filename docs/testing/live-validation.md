@@ -335,6 +335,8 @@ reported as UNVERIFIED.
 
 ## Service upgrade with running work
 
+When the pre-feature fixture is installed, do not use the fixture app's Update, Install, or service actions. Its old service code can target the normal service label. Use only the live upgrade harness commands and its guarded CLI allow-list.
+
 These scenarios validate runner handover, session-host survival and the upgrade report with real agents (Claude Code and Codex). They need macOS. They also need an **unseeded** sandbox (agents use your accounts) that you stop first, because the fixture service takes over the sandbox's home and inner port:
 
 ```sh
@@ -343,9 +345,9 @@ bun run live down --id upgrade-check --keep
 bun run live upgrade build --id upgrade-check   # 0.11.0 (pre-feature), 0.13.0 and 0.13.1 fixture builds + file feed
 ```
 
-The builds are compiled with a native fixture lease, so the service registers under `com.pacer.live.<nonce>.service`, never `com.pacer.serve`. `live upgrade pacer -- <args>` runs the installed fixture CLI with the fixture home and feed. It refuses `service`, `install`, `uninstall`, `init`, `setup` and `open`, and any `update` without `--no-reinstall`. From the pre-feature build it also requires `--no-restart`, because that release's own service code targets the real label. `live upgrade kickstart` then restarts the fixture job. `live upgrade identity --task <id>` (or `--terminal <id>`) records the runner, wrapper or host and agent process identities. Record one before and one after each upgrade: an unchanged agent identity proves that the agent never restarted. Finish with `live upgrade cleanup`, `live report` and `live down --keep`.
+The feature builds are compiled with a native fixture lease, so the service registers under `com.pacer.live.<nonce>.service`, never `com.pacer.serve`. `live upgrade pacer -- <args>` runs the installed fixture CLI with the fixture home and feed. The pre-feature build permits only `status`, `delegate`, `task`, `help`, `version` and `update` with both `--no-restart` and `--no-reinstall`; it refuses API, app, dashboard and service commands. Its old service code targets the real label, so `live upgrade kickstart` restarts the fixture job after its guarded update. The feature builds refuse service and installation commands and require `--no-reinstall` for updates. `live upgrade identity --task <id>` (or `--terminal <id>`) records the runner, wrapper or host and agent process identities. Record one before and one after each upgrade: an unchanged agent identity proves that the agent never restarted. Finish with `live upgrade cleanup`, `live report` and `live down --keep`.
 
-Configure accounts once inside the fixture home, for example `bun run live upgrade pacer --id upgrade-check -- account add claude live-claude --home "$HOME/.claude"`, and do the same for Codex.
+Configure accounts once inside the fixture home while a feature build is installed, for example `bun run live upgrade pacer --id upgrade-check -- account add claude live-claude --home "$HOME/.claude"`, and do the same for Codex.
 
 | Scenario | Start | Steps | Pass when |
 | --- | --- | --- | --- |

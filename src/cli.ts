@@ -209,7 +209,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    const work = await runningWork(ctx).then(runningWorkLines, () => [] as string[]);
+    const work = await runningWork(ctx).then(runningWorkLines, () => ["running work: unavailable"]);
     return { code: 0, out: [renderText(st), ...work, updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.

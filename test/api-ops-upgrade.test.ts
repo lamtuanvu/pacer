@@ -68,3 +68,13 @@ test("recovery completes a running update.apply only after the handover reports"
   expect(done.state).toBe("passed");
   expect(done.steps.at(-1)).toEqual({ name: "Restart", state: "passed", detail: `Updated to v${currentVersion()}. 1 task and 0 sessions kept running; 0 stayed on the previous runner.` });
 });
+
+test("recovery marks update.apply failed when handover rejects", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 }), dir = join(ctx.pacerHome, "state", "jobs");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "job-failed.json"), JSON.stringify({ id: "job-failed", kind: "update.apply", target: "pacer", state: "running", startedAt: ctx.now, pid: 4194302, cancellable: false,
+    steps: [{ name: "Restart", state: "running", detail: currentVersion() }] }));
+  recoverJobs(ctx, undefined, async () => { throw new Error("handover failed"); });
+  await Bun.sleep(10);
+  expect(getJob(ctx, "job-failed")).toMatchObject({ state: "failed", error: { message: expect.stringContaining("handover failed") }, steps: [{ name: "Restart", state: "failed" }] });
+});

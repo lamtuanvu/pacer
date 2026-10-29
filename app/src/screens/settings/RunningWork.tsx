@@ -13,11 +13,12 @@ export interface ServiceWork {
 export function RunningWorkList({ work }: { work: ServiceWork }) {
   const runners = work.tasks.filter(task => task.older), hosts = work.sessions.filter(session => session.older);
   if (!runners.length && !hosts.length) return null;
-  const lines = [
-    ...runners.map(task => `Task ${task.task_id} on ${task.runner_pacer ? `runner ${task.runner_pacer}` : "a runner from an older release"}`),
-    ...hosts.map(session => `${session.kind === "terminal" ? `Terminal ${session.id.slice(0, 8)}` : `Session ${session.id}`} on ${session.pacer ? `host ${session.pacer}` : "a host from an older release"}${session.reopen_to_update ? " (Reopen to update)" : ""}`),
-  ];
-  return <SettingRow variant="board" label="Still on an older version" description={`They keep running until they finish. ${lines.join("; ")}.`}>{null}</SettingRow>;
+  return <SettingRow variant="board" label="Still on an older version" description="This work keeps running until it finishes.">
+    <ul className="pc-running-work-list">
+      {runners.map(task => <li key={task.task_id}>Task <a className="pc-inline-link" href={`#/tasks/${encodeURIComponent(task.task_id)}`} title={task.task_id}>{task.task_id}</a> · {task.runner_pacer ? `pacer ${task.runner_pacer}` : "started on an older pacer"}</li>)}
+      {hosts.map(session => <li key={`${session.kind}-${session.id}`}>{session.kind === "terminal" ? "Terminal" : "Session"} <span title={session.id}>{session.id}</span> · {session.pacer ? `pacer ${session.pacer}` : "started on an older pacer"}{session.reopen_to_update ? " · Reopen to update" : ""}</li>)}
+    </ul>
+  </SettingRow>;
 }
 
 function RunningWorkResource() {

@@ -1,16 +1,20 @@
 // test/upgrade-compat.test.ts
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { cpSync, existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ViewerHub } from "../src/session/viewers";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
 import { clientHello } from "../src/session/protocol";
 import { socketFrameMessage, viewerMessageFrames } from "../src/serve/session-ws";
 import { readRun } from "../src/supervisor/run";
-import { Recording } from "../src/session/recording";
+import { Recording, readRecording } from "../src/session/recording";
+import { readTask } from "../src/tasks/store";
+import { superviseTask } from "../src/tasks/api";
+import { runningWork } from "../src/service/running-work";
+import { sessionInfo } from "../src/session/service";
 import { SessionClient } from "../app/src/term/client";
-import { tmpDir } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 
 const VERSIONS = ["0.10.0", "0.11.0", "0.12.0"];
 const fixture = (version: string, ...path: string[]) => join(import.meta.dir, "fixtures/upgrade", version, ...path);
@@ -49,10 +53,11 @@ for (const version of VERSIONS) {
     expect(states.some(s => s.status === "error")).toBe(false);
   });
 
-  test(`${version} CLI hello attaches to a new host`, () => {
+  test(`${version} CLI hello attaches to a new host`, async () => {
+    const { oldCliHello } = await import(fixture(version, "cli-hello.ts"));
     const hub = new ViewerHub(snapshot, () => null, fn => fn(), () => {}, () => {}, undefined, { pacer: "0.13.1", versions: [1, 1] });
     const peer = new Peer(); hub.add(peer as never);
-    peer.emit("data", wire(FrameType.hello, { v: 1, client: "cli", label: "xterm", cols: 80, rows: 24 }));
+    peer.emit("data", wire(FrameType.hello, oldCliHello()));
     const frames = peer.frames.flatMap(b => new WireDecoder().push(b));
     expect(frames.map(f => f.type)).toEqual([FrameType.snapshot, FrameType.control]);
     expect(JSON.parse(frames[1].data.toString()).versions).toBeUndefined();
@@ -84,11 +89,25 @@ for (const version of VERSIONS) {
     expect(readFileSync(join(headless, "stdout"), "utf8")).toContain("fixture-output");
     expect(readFileSync(fixture(version, "run-interactive", "session.host"), "utf8")).toBe("builtin");
     expect(existsSync(fixture(version, "run-interactive", "session.version"))).toBe(false);
+    const old = readRecording(fixture(version, "run-interactive"));
+    expect(old.checkpoint).toBeDefined();
+    expect(old.frames).toBeArray();
   });
 
-  test(`${version} task record and its sweep result`, () => {
+  test(`${version} task record and its sweep result`, async () => {
     const record = JSON.parse(readFileSync(fixture(version, "task-running.json"), "utf8"));
     expect(record).toMatchObject({ state: "running", run: { attempt: 1, executor: "codex" } });
+    const ctx = fakeCtx();
+    const dir = join(ctx.pacerHome, "tasks"); mkdirSync(dir, { recursive: true });
+    const oldRun = join(ctx.pacerHome, "runs", record.id, "1");
+    cpSync(fixture(version, "run-interactive"), oldRun, { recursive: true });
+    writeFileSync(join(dir, `${record.id}.json`), JSON.stringify({ ...record, brief: { ...record.brief, repo: ctx.home }, run: { ...record.run, dir: oldRun } }));
+    expect(readTask(ctx, record.id)?.state).toBe("running");
+    expect((await runningWork(ctx)).tasks.some(task => task.taskId === record.id)).toBe(true);
+    expect((await sessionInfo(ctx, record.id, false, false)).host).toBe("builtin");
+    const spawned: string[] = [];
+    await superviseTask(ctx, record.id, (_ctx, id) => { spawned.push(id); return 4194302; });
+    expect(spawned).toEqual([record.id]);
     expect(JSON.parse(readFileSync(fixture(version, "rollback-sweep.json"), "utf8"))).toEqual({ spawned: 1, state: "running", handoverKept: true });
   });
 }

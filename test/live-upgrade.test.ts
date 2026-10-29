@@ -43,4 +43,7 @@ test("the pre-feature build never reaches its own launchd code", () => {
   expect(() => guardPacerArgs("candidate", ["update", "--to", "0.13.0", "--no-reinstall"])).not.toThrow();
   for (const cmd of ["service", "uninstall", "install", "init", "setup", "open"]) expect(() => guardPacerArgs("candidate", [cmd])).toThrow("live upgrade refuses");
   expect(() => guardPacerArgs("prefeature", ["delegate", "--goal", "x"])).not.toThrow();
+  for (const args of [["api", "call", "update.apply"], ["dashboard"], ["login"], ["app"], ["update", "--no-restart", "--no-reinstall", "--to", "0.13.1", "--and-service"]])
+    expect(() => guardPacerArgs("prefeature", args)).toThrow();
+  expect(() => guardPacerArgs("prefeature", ["status"])).not.toThrow();
 });

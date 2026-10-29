@@ -122,12 +122,14 @@ export function recoverJobs(ctx: Ctx, onChange?: OnChange, afterRestart?: (job: 
     const restart=job.kind==='update.apply' ? job.steps.find(s=>s.name==='Restart' && s.state==='running') : undefined;
     if(restart?.detail===currentVersion()) {
       if(afterRestart) {
-        const finish=(detail:string)=>{
+        const finish=(detail:string,error?:unknown)=>{
           const latest=getJob(ctx,job.id);if(latest.state!=="running")return;
-          const step=latest.steps.find(s=>s.name==='Restart');if(step){step.state='passed';step.detail=detail;}
-          latest.state='passed';latest.endedAt=Date.now()/1000;save(ctx,latest,onChange);
+          const step=latest.steps.find(s=>s.name==='Restart');if(step){step.state=error?'failed':'passed';step.detail=detail;}
+          latest.state=error?'failed':'passed';latest.endedAt=Date.now()/1000;
+          if(error)latest.error={code:'interrupted',message:detail};
+          save(ctx,latest,onChange);
         };
-        void afterRestart(job).then(finish,error=>finish(`${currentVersion()} · running work was not handed over: ${error instanceof Error?error.message:String(error)}`));
+        void afterRestart(job).then(detail=>finish(detail),error=>finish(`${currentVersion()} · running work was not handed over: ${error instanceof Error?error.message:String(error)}`,error));
         continue;
       }
       restart.state='passed';job.state='passed';job.endedAt=ctx.now;save(ctx,job,onChange);continue;

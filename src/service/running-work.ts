@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { listTasksWhere } from "../tasks/store";
 import { listTerminals, terminalDirectory } from "../terminal/workspace";
@@ -7,7 +7,7 @@ import { hostVersionView, readSessionVersion } from "../session/protocol";
 import { processIdentity, sameProcess } from "../update/desktop/process-identity";
 import { pidAlive } from "../link/store";
 import { taskStop } from "../tasks/api";
-import { compareVersions, currentVersion } from "../update/version";
+import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { Ctx } from "../types";
 
 export interface RunningTask { taskId: string; runnerPacer: string | null; older: boolean }
@@ -54,23 +54,36 @@ export function runningWorkLines(work: RunningWork): string[] {
   const c = workCounts(work);
   if (!c.tasks && !c.sessions) return [];
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const safe = (value: string) => value.replace(/[\x00-\x1f\x7f-\x9f]/g, "?");
+  const version = (value: string | null) => value && isVersion(value) ? value : "from an older release";
   return [
     `running work: ${plural(c.tasks, "task")}, ${plural(c.sessions, "session")}`,
-    ...work.tasks.filter(t => t.older).map(t => `  task ${t.taskId} on runner ${t.runnerPacer ?? "from an older release"} (older)`),
-    ...work.sessions.filter(s => s.older).map(s => `  ${s.kind === "terminal" ? "terminal" : "session"} ${s.kind === "terminal" ? s.id.slice(0, 8) : s.id} on host ${s.pacer ?? "from an older release"} (older${s.reopenToUpdate ? "; Reopen to update" : ""})`),
+    ...work.tasks.filter(t => t.older).map(t => `  task ${safe(t.taskId)} on runner ${version(t.runnerPacer)} (older)`),
+    ...work.sessions.filter(s => s.older).map(s => `  ${s.kind === "terminal" ? "terminal" : "session"} ${safe(s.id)} on host ${version(s.pacer)} (older${s.reopenToUpdate ? "; Reopen to update" : ""})`),
   ];
 }
 
 export interface StopReport { stopped: string[]; skipped: { id: string; reason: string }[] }
 
+/** A terminal's shell must still be a child of its recorded session host. */
+export function terminalChildBelongsToHost(childPid: number, hostPid: number): boolean {
+  if (!Number.isSafeInteger(childPid) || childPid <= 1 || childPid === process.pid) return false;
+  try {
+    const p = Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(childPid)], { stdout: "pipe", stderr: "ignore" });
+    return p.exitCode === 0 && Number(p.stdout.toString().trim()) === hostPid;
+  } catch { return false; }
+}
+
 /** Stop only work whose process identity is confirmed or whose runner still supervises it. */
 export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
   const report: StopReport = { stopped: [], skipped: [] };
   for (const t of listTasksWhere(ctx, { states: ["queued", "running"] })) {
-    const verified = !t.childPid || (!!t.childIdentity && sameProcess(processIdentity(t.childPid), t.childIdentity));
+    const verified = !!t.childPid && !!t.childIdentity && sameProcess(processIdentity(t.childPid), t.childIdentity);
     const supervised = !!t.runnerPid && pidAlive(t.runnerPid);
-    if (!verified && !supervised) { report.skipped.push({ id: t.id, reason: "its process identity could not be confirmed and no runner supervises it" }); continue; }
-    taskStop(ctx, t.id, { signal: verified });
+    if (!verified && !supervised && t.state === "running") { report.skipped.push({ id: t.id, reason: "its process identity could not be confirmed and no runner supervises it" }); continue; }
+    const stopped = taskStop(ctx, t.id, { signal: false });
+    if (verified && stopped && stopped.childPid === t.childPid && sameProcess(stopped.childIdentity ?? null, t.childIdentity ?? null))
+      (await import("../update/desktop/process-identity")).signalSameProcess(t.childIdentity!, "SIGTERM");
     report.stopped.push(t.id);
   }
   for (const terminal of await listTerminals(ctx)) {
@@ -79,7 +92,12 @@ export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
     if (!host?.identity || pid === null || host.identity.pid !== pid || !sameProcess(processIdentity(pid), host.identity)) {
       report.skipped.push({ id: terminal.id, reason: "its session host identity could not be confirmed" }); continue;
     }
-    await stopRun(dir, { graceMs: 2000 });
+    let childPid = 0;
+    try { childPid = Number(readFileSync(join(dir, "child"), "utf8").trim()); } catch { /* no shell to signal */ }
+    const child = processIdentity(childPid);
+    if (!child || !terminalChildBelongsToHost(childPid, pid)) { report.skipped.push({ id: terminal.id, reason: "its shell identity could not be confirmed" }); continue; }
+    await stopRun(dir, { graceMs: 2000, expectedIdentities: { host: host.identity, child } });
+    if (readRun(dir).exit === null) { report.skipped.push({ id: terminal.id, reason: "the checked shell did not stop" }); continue; }
     report.stopped.push(terminal.id);
   }
   return report;

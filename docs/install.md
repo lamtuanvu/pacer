@@ -201,7 +201,7 @@ The guarantee starts with the first upgrade *from* a version that contains it. T
 
 On Linux the generated unit sets `KillMode=process`, and upgrades rewrite an older unit and run `systemctl --user daemon-reload` before restarting. As a result, `systemctl --user stop` no longer stops runners and session hosts either. `pacer status` lists that work.
 
-`pacer service uninstall` lists running tasks and sessions and asks before removing the service; the work keeps running. `pacer service uninstall --stop-work` stops each task and terminal it can identify, signalling only processes whose recorded identity still matches. `--yes` skips the question in scripts.
+`pacer service uninstall` lists running tasks and sessions and asks before removing the service; the work keeps running. `pacer service uninstall --stop-work` marks tasks stopped and signals only executor or terminal shell processes whose identities still match when signalled. It skips a terminal if its shell identity cannot be confirmed; a supervised task can stop through its runner without a direct signal. No process is force-killed unless its identity still matches. `--yes` skips the question in scripts. `pacer uninstall --all` also refuses delegated callers and asks about running work before removing the service.
 
 `pacer update --check --json` reports versions without installing. Disable checks with
 `PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.

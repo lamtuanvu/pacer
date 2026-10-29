@@ -307,3 +307,5 @@
 /* The account policy stacks by its page width, not the viewport. */
 #accounts{container-type:inline-size;container-name:accounts-page}
 @container accounts-page (max-width:640px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}}
+.pc-running-work-list{max-width:100%;min-width:0;margin:0;padding-inline-start:var(--space-5);overflow-wrap:anywhere}
+.pc-running-work-list li+li{margin-block-start:var(--space-2)}

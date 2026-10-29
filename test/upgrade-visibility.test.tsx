@@ -8,6 +8,8 @@ import { createTerminal, getTerminal } from "../src/terminal/workspace";
 import { createTask, updateTask } from "../src/tasks/store";
 import { ReopenToUpdate } from "../app/src/screens/session/ReopenToUpdate";
 import { RunningWorkList, type ServiceWork } from "../app/src/screens/settings/RunningWork";
+import { runningWorkLines } from "../src/service/running-work";
+import { SessionView } from "../app/src/screens/session/SessionView";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const old = JSON.stringify({ pacer: "0.7.0", versions: [1, 1] });
@@ -33,6 +35,13 @@ test("Reopen to update appears only outside the support window", () => {
   expect(renderToString(<ReopenToUpdate host={null} />)).toBe("");
 });
 
+test("an ended session does not claim it keeps running", () => {
+  const html = renderToString(<SessionView task={{ id: "t-20261029-000000-aaaa", state: "done" } as never}
+    session={{ host: "builtin", live: false, hostVersion: { pacer: "0.7.0", older: true, supported: false }, attach: { ws: "ws://localhost" }, capabilities: { control: false, resize: false }, cols: 80, rows: 24 } as never}
+    active={false} footer={null} takeRequested={false} onTakeSent={() => {}} onFiles={() => {}} />);
+  expect(html).not.toContain("Reopen to update");
+});
+
 test("Settings lists tasks and sessions still on an older runner or host, by version only", () => {
   const work: ServiceWork = { pacer: "0.13.1",
     tasks: [{ task_id: "t-20261029-000000-aaaa", runner_pacer: "0.13.0", older: true }, { task_id: "t-20261029-000000-bbbb", runner_pacer: "0.13.1", older: false }],
@@ -40,9 +49,18 @@ test("Settings lists tasks and sessions still on an older runner or host, by ver
     counts: { tasks: 2, sessions: 2, older_runners: 1, older_sessions: 2, reopen_to_update: 1 } };
   const html = renderToString(<RunningWorkList work={work} />);
   expect(html).toContain("Still on an older version");
-  expect(html).toContain("Task t-20261029-000000-aaaa on runner 0.13.0");
+  expect(html).toContain("<ul");
+  expect(html.match(/<li/g)).toHaveLength(3);
+  expect(html).toContain('href="#/tasks/t-20261029-000000-aaaa"');
+  expect(html).toContain("pacer 0.13.0");
   expect(html).not.toContain("t-20261029-000000-bbbb");
-  expect(html).toContain("Terminal 0123abcd on a host from an older release");
-  expect(html).toContain("Session t-20261029-000000-cccc on host 0.7.0 (Reopen to update)");
+  expect(html).toContain('title="0123abcd-0000-4000-8000-000000000000"');
+  expect(html).toContain("pacer 0.7.0");
   expect(renderToString(<RunningWorkList work={{ ...work, tasks: [work.tasks[1]], sessions: [] }} />)).toBe("");
+});
+
+test("status never prints control characters from work records", () => {
+  const lines = runningWorkLines({ pacer: "0.13.1", tasks: [{ taskId: "t-20261029-000000-aaaa\u001b[2J", runnerPacer: "0.1.0\u001b[2J", older: true }],
+    sessions: [{ kind: "terminal", id: "abc\u001b[2J", pacer: "0.2.0\u001b[2J", older: true, reopenToUpdate: false }] });
+  for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f]/);
 });

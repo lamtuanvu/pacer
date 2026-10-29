@@ -4,6 +4,6 @@ import { Alert } from "../../ds/Alert";
 export function ReopenToUpdate({ host }: { host?: { pacer: string | null; supported: boolean } | null }) {
   if (!host || host.supported) return null;
   return <Alert tone="warning" title="Reopen to update">
-    {`This session runs on ${host.pacer ? `pacer ${host.pacer}` : "an older pacer"}, outside this service's support window. It keeps running. Start a new session to use this version.`}
+    {`This session started on ${host.pacer ? `pacer ${host.pacer}` : "an older pacer"}. It keeps running, but cannot update in place. Reopen it to use the current version.`}
   </Alert>;
 }

@@ -26,7 +26,7 @@ export function SessionView({
   if (session?.host === "builtin")
     return (
       <>
-      <ReopenToUpdate host={session.hostVersion} />
+      {session.live && <ReopenToUpdate host={session.hostVersion} />}
       <LinkedTerminal
         id={task.id}
         attempt={session.attempt ?? null}

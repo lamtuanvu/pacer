@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { compareVersions, currentVersion } from "../update/version";
+import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { ProcessIdentity } from "../update/desktop/process-identity";
 
 /** The hello frame itself keeps v: 1 for older hosts. */
@@ -15,7 +15,7 @@ export interface HostVersionView { pacer: string | null; older: boolean; support
 
 const range = z.tuple([z.number().int().positive(), z.number().int().positive()]).refine(([min, max]) => min <= max);
 const stored = z.object({
-  pacer: z.string().min(1).max(64), versions: range,
+  pacer: z.string().min(1).max(64).refine(isVersion), versions: range,
   identity: z.object({ pid: z.number().int().positive(), bootId: z.string().min(1), birth: z.string().min(1) }).optional(),
 });
 

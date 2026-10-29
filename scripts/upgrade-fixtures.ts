@@ -84,7 +84,9 @@ for (const tag of process.argv.slice(2)) {
     writeFileSync(join(target, name), source);
   }
   const attach = await sh(["git", "show", `${tag}:src/session/attach.ts`], root);
-  if (!attach.includes('wire(FrameType.hello,{v:1,client:"cli"')) throw Error(`${tag} CLI hello changed; update test/upgrade-compat.test.ts`);
+  const cliHello = attach.match(/send\(wire\(FrameType\.hello,(\{v:1,client:"cli"[^\n]+?\})\)\);/);
+  if (!cliHello) throw Error(`${tag} CLI hello changed; update test/upgrade-compat.test.ts`);
+  writeFileSync(join(target, "cli-hello.ts"), `// Captured from ${tag}:src/session/attach.ts by scripts/upgrade-fixtures.ts.\nexport const oldCliHello = (stdout: {columns?: number; rows?: number} = {}) => (${cliHello[1]});\n`);
   const scratch = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "pacer-upgrade-fixture-"));
   const tree = join(scratch, "tree");
   try {

@@ -51,6 +51,8 @@ test("session.version is owner-only, renamed into place and read strictly", () =
   writeFileSync(join(dir, "session.version"), "{\"pacer\":1}");
   expect(readSessionVersion(dir)).toBeNull();
   expect(hostVersionView(dir, "0.12.0")).toEqual({ pacer: null, older: true, supported: true });
+  writeFileSync(join(dir, "session.version"), JSON.stringify({ pacer: "0.1.0\u001b[2J", versions: [1, 1] }));
+  expect(readSessionVersion(dir)).toBeNull();
 });
 
 test("a host replies with its range only on the first control frame of a client that sent versions", () => {

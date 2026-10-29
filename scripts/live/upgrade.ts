@@ -56,9 +56,15 @@ export function writeFeed(feed: string, version: string, bytes: Uint8Array): voi
 /** Release 0.11.0 targets the real launchd label from its own service code, so it must never run those paths. */
 export function guardPacerArgs(installed: UpgradeBuild, args: string[]): void {
   const [cmd] = args;
+  if (cmd === "update" && installed === "prefeature" && !args.includes("--no-restart")) throw Error("the pre-feature build updates only with --no-restart; then run live upgrade kickstart");
+  if (installed === "prefeature") {
+    const safe = cmd === "status" || cmd === "delegate" || cmd === "task" || cmd === "help" || cmd === "version" ||
+      (cmd === "update" && args.includes("--no-reinstall") && args.includes("--no-restart") &&
+        args.every(arg => ["update", "--no-reinstall", "--no-restart", "--to", "--check", "--json"].includes(arg) || /^\d+\.\d+\.\d+$/.test(arg)));
+    if (!safe) throw Error(`live upgrade refuses "${cmd}" for the pre-feature build`);
+  }
   if (["service", "uninstall", "install", "init", "setup", "open"].includes(cmd ?? "")) throw Error(`live upgrade refuses "${cmd}"; use live upgrade start, install, kickstart or cleanup`);
   if (cmd === "update" && !args.includes("--no-reinstall")) throw Error("live upgrade update needs --no-reinstall");
-  if (cmd === "update" && installed === "prefeature" && !args.includes("--no-restart")) throw Error("the pre-feature build updates only with --no-restart; then run live upgrade kickstart");
 }
 
 const uid = () => process.getuid!();

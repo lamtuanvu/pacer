@@ -18,6 +18,10 @@ function ctxWith(running: boolean) {
 }
 function stub(routes: Record<string, unknown>, calls: Call[]): UpgradeDeps {
   return { sleep: async () => {}, healthTimeoutMs: 50, fetch: (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/health")) {
+      calls.push({ op: "health", body: null, auth: new Headers(init?.headers).get("authorization") });
+      return Response.json({ ok: true, pid: 12345 }, { headers: { "X-Pacer": "1" } });
+    }
     const op = url.split("/v3/ops/")[1]!;
     calls.push({ op, body: JSON.parse(String(init?.body ?? "{}")), auth: new Headers(init?.headers).get("authorization") });
     const result = routes[op];
@@ -32,8 +36,9 @@ test("work is read before the restart, then the healthy new service hands it ove
   const deps = stub({ "version.get": { pacer: "0.13.1" }, "service.handover": { pacer: "0.13.1", tasks: 1, sessions: 0, handed_over: 1, kept_on_previous_runner: 0, summary: "ignored" } }, calls);
   const r = await restartAroundWork(ctx, async () => { expect(calls).toHaveLength(0); return true; }, { expectedVersion: "0.13.1", prefix: v => `Updated to v${v}.`, deps });
   expect(r).toEqual({ restarted: true, summary: "Updated to v0.13.1. 1 task and 0 sessions kept running; 0 stayed on the previous runner." });
-  expect(calls.map(c => c.op)).toEqual(["version.get", "service.handover"]);
-  expect(calls[1]).toMatchObject({ body: { wait_s: 60 }, auth: "Bearer tok" });
+  expect(calls.map(c => c.op)).toEqual(["health", "version.get", "service.handover"]);
+  expect(calls[0].auth).toBeNull();
+  expect(calls[2]).toMatchObject({ body: { wait_s: 60 }, auth: "Bearer tok" });
 });
 
 test("with nothing running no service call is made", async () => {
@@ -50,6 +55,26 @@ test("a failed health check or an older service leaves work on its runners with 
   expect(older.summary).toBeNull();
   expect(older.warning).toStartWith("running work was not handed over: ");
   expect(await restartAroundWork(ctxWith(true), async () => false, { prefix: v => v, deps: stub({}, []) })).toEqual({ restarted: false, summary: null });
+});
+
+test("an unverified health responder never receives the operator token", async () => {
+  const calls: Call[] = [];
+  const deps = stub({ "version.get": { pacer: "0.13.1" } }, calls);
+  deps.fetch = async (url, init) => {
+    calls.push({ op: url, body: null, auth: new Headers(init?.headers).get("authorization") });
+    return Response.json({ ok: true, pid: 12345 });
+  };
+  const result = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => v, deps });
+  expect(result.warning).toContain("health check");
+  expect(calls.every(call => call.auth === null)).toBe(true);
+});
+
+test("a health pid that differs from the service manager never receives the token", async () => {
+  const calls: Call[] = [];
+  const deps = { ...stub({ "version.get": { pacer: "0.13.1" } }, calls), expectedPid: 99999 };
+  const result = await restartAroundWork(ctxWith(true), async () => true, { expectedVersion: "0.13.1", prefix: v => v, deps });
+  expect(result.warning).toContain("health check");
+  expect(calls.every(call => call.auth === null)).toBe(true);
 });
 
 test("delegated tasks cannot update, install, restart or uninstall the service", async () => {

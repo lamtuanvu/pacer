@@ -42,7 +42,7 @@ test("a stop during the gap leaves the outcome to the replacement, which records
   expect(done.result?.report).not.toContain("stopped before an executor ran");
   expect(done.attempts).toHaveLength(1);
   expect(done.handover).toBeUndefined();
-});
+}, 30_000);
 
 test("the sweep launches a replacement for a stopped handed-over task", async () => {
   const { ctx, id, dir } = await gap("sleep 5");

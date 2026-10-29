@@ -5,6 +5,7 @@ import { serviceCli } from "../src/service/cli";
 import { plist, servicePath, type ServiceDeps } from "../src/service";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { processIdentity } from "../src/update/desktop/process-identity";
+import { terminalChildBelongsToHost } from "../src/service/running-work";
 import { fakeCtx, tmpDir } from "./helpers";
 
 function installed() {
@@ -57,6 +58,10 @@ test("--stop-work stops only processes whose identity still matches", async () =
     expect(stale.child.exitCode).toBeNull();
     expect(readTask(ctx, stale.id)?.state).toBe("running");
   } finally { good.child.kill("SIGKILL"); stale.child.kill("SIGKILL"); await Promise.all([good.child.exited, stale.child.exited]); }
+});
+
+test("a terminal child file cannot point at the operator process", () => {
+  expect(terminalChildBelongsToHost(process.pid, process.pid)).toBe(false);
 });
 
 test("in a terminal, uninstall asks and can be cancelled", async () => {
