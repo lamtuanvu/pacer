@@ -17,15 +17,20 @@ export function networkStateLine(network: DiscoveryNetwork | null): string {
   if (!network) return "Network not identified";
   return `${network.advertise ? "Advertising" : "Not advertising"} on ${network.label}`;
 }
-/** A saved answer; while discovery is off nothing is advertised, so an allowed network reads as paused. */
-const advertising = (n: KnownNetwork, enabled: boolean) => n.advertise === null ? "Not asked yet" : !n.advertise ? "Not advertising" : enabled ? "Advertising" : "Allowed (paused)";
+/**
+ * A saved answer. An allowed network reads as advertising only while the radio runs:
+ * paused while discovery is off, not running while discovery is unavailable in this mode.
+ */
+const advertising = (n: KnownNetwork, enabled: boolean, available: boolean) => n.advertise === null ? "Not asked yet" : !n.advertise ? "Not advertising"
+  : !enabled ? "Allowed (paused)" : available ? "Advertising" : "Allowed (not running)";
 
 /** The operation the Discovery switch runs. The switch is machine-local discovery state, so it works before setup. */
 export const discoverySwitchCall = (on: boolean): [string, { enabled: boolean }] => ["discovery.set", { enabled: on }];
 
 /**
  * Discovery on this machine: on/off, the advertised name, the current network and the networks answered so far.
- * While a change runs, controls are aria-disabled and ignore input rather than natively disabled, so keyboard focus stays put.
+ * While a change runs, controls are aria-disabled and ignore input rather than natively disabled, so keyboard focus stays put;
+ * Rename stays focusable the same way once the saved name matches the field.
  */
 export function DiscoveryView({ available, enabled, name, network, networks, current, busy, warning, onToggle, onNetwork, onRename }: {
   available: boolean; enabled: boolean; name?: string; network: DiscoveryNetwork | null; networks: KnownNetwork[]; current: string | null; busy: boolean; warning?: string;
@@ -47,14 +52,14 @@ export function DiscoveryView({ available, enabled, name, network, networks, cur
     </SettingRow>
     {name !== undefined && <SettingRow variant="board" label="Machine name" description="The name other machines see. It is shown to them as unverified.">
       <div className="u3-actions">
-        <TextInput value={draft} maxLength={64} disabled={busy} onInput={e => setDraft(e.currentTarget.value)} />
-        <Button disabled={!next || next === name} aria-disabled={busy} onClick={() => { if (!busy) onRename(next); }}>Rename</Button>
+        <TextInput value={draft} maxLength={64} readOnly={busy} aria-disabled={busy} onInput={e => { if (!busy) setDraft(e.currentTarget.value); }} />
+        <Button aria-disabled={busy || !next || next === name} onClick={() => { if (!busy && next && next !== name) onRename(next); }}>Rename</Button>
       </div>
     </SettingRow>}
     <p className="u3-muted" role="status">{!enabled ? "Discovery is off" : available ? networkStateLine(network) : "Discovery isn’t available in this mode"}</p>
     <SettingRow variant="board" layout="stacked" label="Networks" description="pacer asks once on each new network before advertising there.">
       {networks.length ? <div>{networks.map(n => <ListRow key={n.key} content={<><strong>{n.label}</strong>{n.key === current && <span className="u3-muted"> · This network</span>}</>}
-        meta={[advertising(n, enabled), n.muted && "Prompts muted"].filter(Boolean).join(" · ")}
+        meta={[advertising(n, enabled, available), n.muted && "Prompts muted"].filter(Boolean).join(" · ")}
         actions={<>
           {n.advertise ? <Button size="sm" aria-label={`Stop advertising on ${n.label}`} aria-disabled={busy} onClick={change(n.key, { advertise: false })}>Stop</Button>
             : <Button size="sm" aria-label={`Allow advertising on ${n.label}`} aria-disabled={busy} onClick={change(n.key, { advertise: true })}>Allow</Button>}

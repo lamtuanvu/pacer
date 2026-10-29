@@ -98,7 +98,9 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 }
 /* Compact desktop chrome; narrow screens retain their touch layout. */
 .pc-app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:0}
-.pc-app{--frame-top:var(--size-36);--frame-status:var(--size-28)}
+:root{--frame-top:var(--size-36);--frame-status:var(--size-28)}
+/* The fixed bottom-right notices render outside .pc-app (hence the frame tokens on :root) and clear the status bar when it shows. */
+html:has(.pc-app--with-status) .pc-update-notice{bottom:calc(var(--frame-status) + var(--space-4));max-height:calc(100dvh - var(--frame-status) - var(--space-4) * 2)}
 .pc-app--with-status{padding-bottom:var(--frame-status)}
 /* A sticky SaveBar clears the fixed status bar and the narrow bottom navigation that the shell owns. */
 .pc-app--with-status .pc-save-bar{bottom:var(--frame-status)}

@@ -125,6 +125,28 @@ test("discovery settings when the radio is unavailable or discovery is off", () 
   expect(settings({ networks: [] })).toContain("No networks yet");
 });
 
+test("an allowed network does not claim advertising while discovery is unavailable (Q1)", () => {
+  const html = settings({ available: false, network: null });
+  expect(html).not.toMatch(/>Advertising</);
+  expect(html).toContain("Allowed (not running)");
+  expect(settings({ available: false, enabled: false, network: null })).toContain("Allowed (paused)");
+  expect(settings()).toMatch(/>Advertising</);
+});
+
+test("busy or unchanged Rename and the name field stay focusable instead of natively disabled (Q2)", () => {
+  const rename = (html: string) => /<button[^>]*>Rename<\/button>/.exec(html)![0];
+  const field = (html: string) => /<input[^>]*maxLength="64"[^>]*>|<input[^>]*maxlength="64"[^>]*>/.exec(html)![0];
+  for (const html of [settings(), settings({ busy: true })]) {
+    expect(rename(html)).not.toMatch(/\sdisabled/);
+    expect(rename(html)).toContain('aria-disabled="true"');
+  }
+  const busy = settings({ busy: true });
+  expect(field(busy)).not.toMatch(/\sdisabled/);
+  expect(field(busy)).toContain('aria-disabled="true"');
+  expect(field(busy)).toMatch(/readonly/i);
+  expect(field(settings())).not.toMatch(/readonly|aria-disabled="true"/i);
+});
+
 test("a discovery.found event refreshes discovery resources", () => {
   const state = { snapshot: { seq: 1 } as never, connected: true, sessionEnded: false, needsSnapshot: false, invalidations: {}, version: null, features: { readModel: true, ops: new Set<string>() }, jobs: {}, activity: [] };
   const next = reduceStore(state, { type: "event", event: { seq: 2, at: 0, type: "discovery.found", data: { discoveryId: id, name: "x", version: "1" } } });
@@ -177,7 +199,8 @@ test.skipIf(!browserPath)("keyboard focus stays on the Discovery switch and row 
     await allow.focus();
     await page.keyboard.press("Enter");
     await page.getByRole("button", { name: "Stop advertising on home-wifi" }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('[aria-disabled="true"]'));
+    // Rename stays aria-disabled while the name is unchanged; only the switch and row buttons settle.
+    await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-disabled="true"], [aria-label][aria-disabled="true"]'));
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Stop advertising on home-wifi");
     expect(await page.evaluate(() => (window as any).calls)).toEqual([{ toggle: false }, { key: "k1", advertise: true }]);
   } finally { await browser.close(); }
@@ -196,6 +219,86 @@ test.skipIf(!browserPath)("Turn on discovery recovers from a corrupt state once,
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("discovery-switch");
   } finally { await browser.close(); }
 });
+
+test.skipIf(!browserPath)("keyboard rename saves once and keeps focus on Rename (Q2)", async () => {
+  const { browser, page } = await mountSwitch();
+  try {
+    const field = page.getByRole("textbox", { name: "Machine name" });
+    const rename = page.getByRole("button", { name: "Rename" });
+    expect(await rename.getAttribute("aria-disabled")).toBe("true");
+    await field.focus();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("studio-mac");
+    expect(await rename.getAttribute("aria-disabled")).toBe("false");
+    await page.keyboard.press("Tab");
+    expect(await rename.evaluate(node => document.activeElement === node)).toBe(true);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector('input[maxlength="64"]')?.getAttribute("aria-disabled") === "true");
+    expect(await rename.evaluate(node => document.activeElement === node)).toBe(true);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector('input[maxlength="64"]')?.getAttribute("aria-disabled") !== "true");
+    expect(await field.inputValue()).toBe("studio-mac");
+    expect(await rename.getAttribute("aria-disabled")).toBe("true");
+    expect(await rename.evaluate(node => document.activeElement === node)).toBe(true);
+    await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => (window as any).calls)).toEqual([{ rename: "studio-mac" }]);
+  } finally { await browser.close(); }
+});
+
+async function mountNotice(width: number, height: number) {
+  const result = await Bun.build({ entrypoints: ["test/fixtures/ui/discovery-notice.tsx"], target: "browser", format: "iife" });
+  if (!result.success) throw Error(result.logs.join("\n"));
+  const css = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n");
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  const page = await browser.newPage({ viewport: { width, height } });
+  page.setDefaultTimeout(5000);
+  await page.route("http://localhost/discovery-notice", route => route.fulfill({ contentType: "text/html", body: `<style>${css}</style><div id="app"></div>` }));
+  await page.goto("http://localhost/discovery-notice");
+  await page.addScriptTag({ content: await result.outputs[0]!.text() });
+  return { browser, page };
+}
+test.skipIf(!browserPath)("the found-machine notice actions work by keyboard and return focus to the main content (Q6)", async () => {
+  const { browser, page } = await mountNotice(1440, 900);
+  try {
+    const answers = [["Pair", "pair"], ["Later", "later"], ["Not mine", "ignore"], ["Stop on this network", "mute-network"]] as const;
+    for (const [i, [label, action]] of answers.entries()) {
+      await page.getByText(`machine-${i + 1}`).waitFor();
+      const button = page.getByRole("complementary", { name: "Machine found" }).getByRole("button", { name: label, exact: true });
+      await page.locator("#work").focus();
+      // Tab from the page into the notice, as a keyboard user would, rather than focusing the button directly.
+      for (let step = 0; step < 12 && !(await button.evaluate(node => document.activeElement === node)); step++) await page.keyboard.press("Tab");
+      expect(await button.evaluate(node => document.activeElement === node)).toBe(true);
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(n => (window as any).calls.length === n, i + 1);
+      expect(await button.getAttribute("aria-disabled")).toBe("true");
+      expect(await button.evaluate(node => document.activeElement === node)).toBe(true);
+      await page.keyboard.press("Enter");
+      expect(await page.evaluate(() => (window as any).calls.length)).toBe(i + 1);
+      await page.evaluate(() => (window as any).finish());
+      await page.getByText(`machine-${i + 1}`).waitFor({ state: "detached" });
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe("main-content");
+      expect(await page.evaluate(n => (window as any).calls[n], i)).toEqual({ op: "discovery.respond", params: { discoveryId: "abcd"[i]!.repeat(26), action } });
+    }
+    expect(await page.getByRole("complementary", { name: "Machine found" }).count()).toBe(0);
+    // Pair with no plugin to hand over to opens the neutral pairing page.
+    expect(await page.evaluate(() => location.hash)).toBe("#/settings/pairing");
+  } finally { await browser.close(); }
+}, 30_000);
+
+test.skipIf(!browserPath)("the shared notice sits above the status bar and the narrow bottom navigation (Q3)", async () => {
+  for (const [width, height] of [[1440, 900], [1024, 700], [375, 700]] as const) {
+    const { browser, page } = await mountNotice(width, height);
+    try {
+      const notice = await page.getByRole("complementary", { name: "Machine found" }).boundingBox();
+      expect(notice!.x).toBeGreaterThanOrEqual(0);
+      expect(notice!.x + notice!.width).toBeLessThanOrEqual(width);
+      expect(notice!.y).toBeGreaterThanOrEqual(0);
+      // Wide layouts clear the status bar; narrow ones clear the 56 px bottom navigation (no status bar there).
+      const floor = width < 560 ? height - 56 : (await page.getByRole("contentinfo", { name: "Status bar" }).boundingBox())!.y;
+      expect(notice!.y + notice!.height).toBeLessThanOrEqual(floor);
+    } finally { await browser.close(); }
+  }
+}, 30_000);
 
 test("a corrupt discovery state shows its warning with a way to turn discovery on (F2)", () => {
   const warning = "The discovery state file could not be read, so discovery is off. Turn it on again to start over.";
