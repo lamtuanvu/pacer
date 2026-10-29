@@ -868,3 +868,9 @@ a.pc-btn{text-decoration:none}
 .pc-icon-button--bad.pc-btn--quiet.pc-icon-button:hover{color:var(--bad-fg)}
 
 .pc-settings-nav__plugin{font-size:var(--type-count-badge-size);font-weight:var(--type-label-weight);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary)}
+
+/* Insights board geometry; other segmented controls retain their density. */
+.pc-segmented--insights{padding:var(--size-3);border-radius:var(--radius-md);background:var(--surface-card)}
+.pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
+.pc-segmented--insights [aria-pressed=true]{background:var(--surface-lane);color:var(--ink)}
+@media(max-width:560px),(pointer:coarse){.pc-segmented--insights .pc-btn{min-height:var(--control-touch)}}

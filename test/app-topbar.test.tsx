@@ -3,6 +3,7 @@ import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { TopBar } from "../app/src/shell/TopBar";
+import { pageOwnsTitle, resolveRoute, type Route } from "../app/src/router";
 
 const snap = fixture as unknown as ClientSnapshot;
 const planner = snap.planner!;
@@ -59,4 +60,11 @@ test("setup leaves the step's page heading and actions to the setup flow", () =>
   expect(html).not.toContain("Setup");
   expect(html).not.toContain(">New task<");
   expect(html).not.toContain("pc-meter");
+});
+
+test("a screen that renders its own h1 gets a top bar without one, so the title appears once", () => {
+  expect(renderToString(<TopBar {...base} />)).toContain("<h1");
+  for (const narrow of [false, true]) expect(renderToString(<TopBar {...base} narrow={narrow} pageTitle={false} />)).not.toContain("<h1");
+  expect(pageOwnsTitle(resolveRoute("#/insights") as Route)).toBe(true);
+  expect(pageOwnsTitle(resolveRoute("#/") as Route)).toBe(false);
 });
