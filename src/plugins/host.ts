@@ -1,4 +1,5 @@
 // src/plugins/host.ts
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -34,6 +35,17 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
       return { value: await assistantSecret(ctx, plugin.id, ref) };
     }
     case "config.get": return { config: effectiveConfig(ctx, plugin.id) as never };
+    case "identity.sign": {
+      const p = parsed.data as { purpose: string; payload: string };
+      const declared = plugin.manifest.capabilities.find(c => c.name === "identity.sign")?.scopes ?? [];
+      if (!declared.includes(p.purpose)) throw new CoreError("capability_denied", `identity.sign purpose ${p.purpose} is not declared in the manifest`);
+      const payload = Buffer.from(p.payload, "base64");
+      const { signFor } = await import("../identity/sign");
+      const r = await signFor(ctx, plugin.id, p.purpose, payload);
+      // Audit what was signed without recording the payload itself.
+      appendPluginLog(ctx, plugin.id, "info", `identity.sign purpose=${p.purpose} sha256=${createHash("sha256").update(payload).digest("hex")}`);
+      return { signature: Buffer.from(r.signature).toString("base64"), machineId: r.machineId };
+    }
     default: throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   }
 }

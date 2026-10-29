@@ -12,6 +12,8 @@ export interface HostClient {
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
+  /** Sign `payload` with the machine key under a purpose declared in the manifest scopes for `identity.sign` (host >= 1.4.0). */
+  identitySign(purpose: string, payload: Uint8Array): Promise<{ signature: Uint8Array; machineId: string }>;
   /** Ask the host to re-render one ui surface, or all of them. Fire and forget; the host coalesces. */
   invalidate(id?: string): void;
 }
@@ -67,6 +69,10 @@ export async function serve(o: ServeOptions): Promise<void> {
     async log(level, message) { await host.call("capability.log", { level, message }); },
     invalidate(id) { send({ method: "ui.invalidate", params: id === undefined ? {} : { id } }); },
     async config() { return (await host.call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
+    async identitySign(purpose, payload) {
+      const r = await host.call<{ signature: string; machineId: string }>("capability.identity.sign", { purpose, payload: Buffer.from(payload).toString("base64") });
+      return { signature: new Uint8Array(Buffer.from(r.signature, "base64")), machineId: r.machineId };
+    },
   };
   const builtin: Record<string, Handler> = {
     "diagnostic.ping": () => ({ ok: true, uptimeS: startedAt === null ? 0 : Math.max(0, now() - startedAt) }),

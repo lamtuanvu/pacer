@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CASES, type ConformanceCase, prepareHome } from "./cases";
@@ -7,6 +7,29 @@ import { HostSession } from "./host";
 import { installFixture } from "./install";
 
 export { CASES };
+
+/**
+ * A `security` stand-in that keeps generic passwords in the case's home. The machine identity
+ * uses one Keychain item per user, so a host under test must never reach the real Keychain.
+ */
+function sandboxKeychain(home: string): string {
+  const bin = join(home, "bin"), store = join(home, "keychain");
+  mkdirSync(bin, { recursive: true }); mkdirSync(store, { recursive: true, mode: 0o700 });
+  writeFileSync(join(bin, "security"), `#!/bin/sh
+store=${JSON.stringify(store)}
+item() { s=""; a=""; x=""; while [ $# -gt 0 ]; do case "$1" in -s) s="$2"; shift;; -a) a="$2"; shift;; -X) x="$2"; shift;; esac; shift; done; }
+run() { cmd="$1"; shift; item "$@"; f="$store/$s.$a"
+  case "$cmd" in
+    add-generic-password) printf %s "$x" > "$f";;
+    find-generic-password) [ -f "$f" ] || exit 44; case " $* " in *" -w "*) cat "$f"; echo;; esac;;
+    delete-generic-password) [ -f "$f" ] || exit 44; rm -f "$f";;
+    *) exit 1;;
+  esac; }
+if [ "$1" = "-i" ]; then while read -r line; do eval "run $line" || exit $?; done; else run "$@"; fi
+`);
+  chmodSync(join(bin, "security"), 0o755);
+  return bin;
+}
 
 /** Run one case against a host argv with a fresh home under root. Throws on failure. */
 export async function runCase(c: ConformanceCase, hostArgv: string[], root: string): Promise<void> {
@@ -17,8 +40,9 @@ export async function runCase(c: ConformanceCase, hostArgv: string[], root: stri
   const scope = join(home, "node_modules", "@pacer");
   mkdirSync(scope, { recursive: true });
   symlinkSync(resolve(import.meta.dir, "../packages/plugin-sdk"), join(scope, "plugin"), "dir");
+  const bin = sandboxKeychain(home);
   const sessions: HostSession[] = [];
-  const env = { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}) };
+  const env = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}) };
   try {
     await c.run({
       home, pluginsDir,
