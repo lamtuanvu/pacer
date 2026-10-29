@@ -628,7 +628,7 @@ a.pc-btn{text-decoration:none}
 .pc-aurora-reply__body .pc-prose{display:flex;flex-direction:column;gap:var(--space-2)}
 .pc-aurora-reply__body .pc-prose ul{margin:0;padding-left:var(--space-5)}
 .pc-aurora-reply__actions{display:flex;flex-wrap:wrap;gap:var(--space-1\.5)}
-.pc-aurora-avatar{flex:none;display:inline-block;width:var(--size-26);height:var(--size-26);border-radius:var(--radius-full);background:radial-gradient(circle at 30% 30%,var(--aurora-3),var(--aurora-1) 55%,var(--aurora-2))}
+.pc-aurora-avatar{flex:none;display:inline-block;width:var(--size-26);height:var(--size-26);border-radius:var(--radius-full);background:conic-gradient(from 200deg,var(--aurora-1),var(--aurora-3),var(--aurora-2),var(--aurora-1))}
 .pc-aurora-avatar--sm{width:var(--size-20);height:var(--size-20)}
 .pc-aurora-thinking{display:inline-flex;align-items:center;gap:var(--space-1\.5);color:var(--ink-secondary)}
 .pc-aurora-thinking .pc-icon,.pc-aurora-thinking svg{width:var(--size-16);height:var(--size-16)}
@@ -641,7 +641,7 @@ a.pc-btn{text-decoration:none}
 .pc-aurora-launcher{position:absolute;right:var(--space-5);bottom:var(--space-4);height:var(--size-40);padding:0 var(--space-4) 0 var(--space-1\.5);border:0;border-radius:var(--radius-full);display:inline-flex;align-items:center;gap:var(--space-2);font:inherit;font-weight:var(--type-body-strong-weight);cursor:pointer;color:var(--ink);background:var(--surface-card);box-shadow:0 0 0 var(--size-1) color-mix(in srgb,var(--aurora-1) 50%,var(--line)),0 var(--space-1\.5) var(--space-6) calc(-1*var(--space-1\.5)) color-mix(in srgb,var(--aurora-3) 55%,transparent);z-index:var(--layer-overlay)}
 .pc-aurora-launcher:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-aurora-launcher .pc-aurora-avatar{width:var(--size-28);height:var(--size-28)}
-.pc-aurora-launcher .pc-kbd{font-weight:var(--type-body-weight)}
+.pc-aurora-launcher .pc-kbd{font-size:var(--type-label-size);font-weight:var(--type-body-weight);color:var(--ink-muted)}
 @media (forced-colors:active){.pc-aurora-launcher{border:var(--stroke-icon) solid currentColor}}
 .pc-aurora-card{display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-2\.5) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
 .pc-aurora-card--link{padding:0;border:0;background:transparent}

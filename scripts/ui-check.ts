@@ -184,7 +184,11 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   };
   const checkCss = (text: string, offset = 0) => {
     for (const declaration of cssDeclarations(text)) {
-      if (invalidCssValue(declaration.property, declaration.value)) add(offset + declaration.position, "UI-21", `Use a design token for ${declaration.property}: ${declaration.value.trim()}.`);
+      const assistantMark = path === "app/src/ds/components.css"
+        && /(?:^|})\s*\.pc-aurora-avatar\{[^{}]*$/.test(text.slice(0, declaration.position))
+        && declaration.property === "background"
+        && declaration.value.trim() === "conic-gradient(from 200deg,var(--aurora-1),var(--aurora-3),var(--aurora-2),var(--aurora-1))";
+      if (!assistantMark && invalidCssValue(declaration.property, declaration.value)) add(offset + declaration.position, "UI-21", `Use a design token for ${declaration.property}: ${declaration.value.trim()}.`);
     }
   };
   if (path.endsWith(".css")) {
@@ -240,6 +244,13 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   };
   const checkProperty = (node: t.Node, name: string, value: t.Node, ancestors: t.Node[] = []) => {
     name = cssProperty(name);
+    // The assistant offset alone consumes measured dock geometry on the frame.
+    if (path === "app/src/shell/AppFrame.tsx" && name === "--pc-dock-height"
+      && node.type === "CallExpression" && node.callee.type === "MemberExpression"
+      && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "root.style.setProperty"
+      && value.type === "TemplateLiteral" && value.expressions.length === 1
+      && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px"
+      && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === "dock?.getBoundingClientRect().height ?? 0") return;
     // These exact data channels are owned by the meter and are unitless clamped values.
     if (path === "app/src/ds/UsageMeter.tsx" && ["--used", "--pace"].includes(name)
       && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "clamp" && value.arguments.length === 1

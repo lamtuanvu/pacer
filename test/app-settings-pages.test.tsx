@@ -95,10 +95,13 @@ test('App Workspace includes assistant status and a settings link with or withou
     const workspace = html.match(/<section[^>]*aria-labelledby="workspace-h"[^>]*>[\s\S]*?<\/section>/)?.[0] ?? "";
     expect(workspace).toContain('>Assistant<');
     expect(workspace).toContain('pc-setting-row--board');
-    expect(workspace).toContain('Open with ⌘J from anywhere. Uses the account chosen in assistant settings.');
+    expect(workspace).toContain('Open with ⌘J from anywhere. Runs on one endpoint account you choose; until then the button opens the setup.');
     expect(workspace).toContain(label);
     expect(workspace).toMatch(/<a[^>]*href="#\/settings\/assistant"[^>]*>Choose account and limits<\/a>/);
-    expect(workspace).not.toContain('role="switch"');
+    expect(workspace.match(/role="switch"/g)).toHaveLength(2);
+    expect(workspace.match(/pc-switch--sm/g)).toHaveLength(2);
+    expect(workspace).toContain("Show the button");
+    expect(workspace).toContain("Still aurora");
   }
   expect(resolveRoute('#/settings/assistant')).toMatchObject({ name: 'settings', section: 'assistant' });
   const nav = renderToString(<SettingsPanel route={resolveRoute('#/settings/app') as Route} counts={null}/>);

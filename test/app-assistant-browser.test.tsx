@@ -11,12 +11,12 @@ const webkitTest = test.skipIf(!process.env.PACER_TEST_WEBKIT);
 async function build() {
   const result = await Bun.build({ entrypoints: ["test/fixtures/app-assistant-browser.tsx"], target: "browser", splitting: false });
   expect(result.success).toBe(true);
-  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css"].map(path => Bun.file(path).text()))].join("\n");
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/shell/assistant/assistant.css"].map(path => Bun.file(path).text()))].join("\n");
   return { source: await result.outputs[0]!.text(), css };
 }
-async function open(page: Page, built: { source: string; css: string }) {
+async function open(page: Page, built: { source: string; css: string }, search = "") {
   await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>assistant</title><div id="app"></div>' }));
-  await page.goto("http://pacer.test/#/dispatch");
+  await page.goto(`http://pacer.test/${search}#/dispatch`);
   await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
   await page.locator("#main-content").waitFor();
@@ -24,7 +24,7 @@ async function open(page: Page, built: { source: string; css: string }) {
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 });
 /** The sheet loads lazily after first paint: wait for its launcher before using the shortcut. */
 async function openSheet(page: Page) {
-  await page.getByRole("button", { name: "Ask pacer assistant" }).waitFor();
+  await page.getByRole("button", { name: "Open assistant" }).waitFor();
   await page.keyboard.press("Meta+j");
   await focused(page, 'input[aria-label="Ask pacer"]');
 }
@@ -36,7 +36,7 @@ browserTest("assistant_opens_with_meta_j_focuses_input_and_escape_returns_focus"
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await open(page, built);
-    const launcher = page.getByRole("button", { name: "Ask pacer assistant" });
+    const launcher = page.getByRole("button", { name: "Open assistant" });
     await launcher.waitFor();
     await expect(launcher.getAttribute("aria-expanded")).resolves.toBe("false");
     // The sheet stays mounted but inert and hidden while closed.
@@ -47,7 +47,8 @@ browserTest("assistant_opens_with_meta_j_focuses_input_and_escape_returns_focus"
     await expect(page.getByRole("button", { name: "Close assistant" }).getAttribute("aria-expanded")).resolves.toBe("true");
     await expect(page.getByRole("region", { name: "Assistant" }).isVisible()).resolves.toBe(true);
     await page.keyboard.press("Escape");
-    await focused(page, '[aria-label="Ask pacer assistant"]');
+    await focused(page, '[aria-label="Open assistant"]');
+    expect(await page.evaluate(() => (window as any).pageEscapes)).toBe(0);
     expect(await page.locator(".pc-aurora").getAttribute("data-state")).toBe("closed");
     // Ctrl-J toggles through the shortcut registry; Meta-J again closes.
     await page.keyboard.press("Control+j");
@@ -163,6 +164,11 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
     const sheet = await page.locator(".pc-aurora").evaluate(el => ({ opacity: getComputedStyle(el).opacity, property: getComputedStyle(el).transitionProperty }));
     expect(sheet.opacity).toBe("1");
     expect(sheet.property).not.toContain("opacity");
+    // The decorative glow is nonmodal: page content outside the column stays clickable.
+    expect(await page.locator('.pc-aurora').evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return !!document.elementFromPoint(box.right - 20, box.bottom - 30)?.closest('.pc-aurora-layer');
+    })).toBe(false);
     // Before any conversation the menu offers only the context choice.
     const plus = page.getByRole("button", { name: "Conversation options" });
     await plus.click();
@@ -249,3 +255,145 @@ webkitTest("assistant_plus_menu_items_work_with_the_mouse_in_webkit", async () =
     await expect(page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").count()).resolves.toBe(0);
   } finally { await browser.close(); }
 }, 30_000);
+
+browserTest("unconfigured entry offers explicit account setup without a fade mask and focuses setup", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, await build(), "?unconfigured");
+    const pill = page.getByRole("button", { name: "Open assistant", exact: true });
+    await pill.waitFor(); await pill.focus(); await page.keyboard.press("Meta+j");
+    const use = page.getByRole("button", { name: "Use Local model", exact: true });
+    await use.waitFor(); await focused(page, '[data-assistant-setup]');
+    expect(await page.getByRole('heading', { name: 'Choose where the assistant runs', level: 2 }).count()).toBe(1);
+    expect(await page.locator('.pc-assistant-setup .pc-agent-mark').count()).toBe(2);
+    expect(await page.locator(".pc-aurora__log").evaluate(el => getComputedStyle(el).maskImage)).toBe("none");
+    expect(await page.evaluate(() => (window as any).settingsCalls)).toEqual([]);
+    await use.click(); await focused(page, 'input[aria-label="Ask pacer"]');
+    expect(await page.evaluate(() => (window as any).settingsCalls)).toEqual([{ account: "localmodel", runner: null, expect_rev: 4 }]);
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("hidden button retains shortcut and configured refusal shows reason and hint", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => localStorage.setItem("pacer.assistant.preferences", JSON.stringify({ showButton: false, stillAurora: true })));
+    await open(page, await build());
+    await page.waitForSelector(".pc-aurora", { state: "attached" });
+    expect(await page.locator(".pc-aurora-launcher").count()).toBe(0);
+    await page.evaluate(() => { (window as any).assistantStatus = { available: false, configured: true, reason: "No capacity left.", hint: "Try tomorrow." }; });
+    await page.keyboard.press("Meta+j");
+    await page.getByText("No capacity left. Try tomorrow.", { exact: true }).waitFor();
+    expect(await page.getByLabel("Ask pacer").isDisabled()).toBe(true);
+    await focused(page, '[data-assistant-refusal]');
+    expect(await page.locator(".pc-aurora__log").evaluate(el => getComputedStyle(el).maskImage)).toBe("none");
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("pill stays 18px above the status bar or resized dock and exposes only measured dock height", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, await build());
+    await page.getByRole("button", { name: "Open assistant", exact: true }).waitFor();
+    const bodyDoesNotScroll = async () => {
+      const body = await page.locator('.pc-body').evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight }));
+      expect(body.top).toBe(0);
+      expect(body.height).toBe(body.client);
+    };
+    const geometry = () => page.evaluate(() => {
+      const pill = document.querySelector('.pc-aurora-launcher')!.getBoundingClientRect();
+      const edge = (document.querySelector('.pc-dock') ?? document.querySelector('.pc-statusbar'))!.getBoundingClientRect();
+      return { gap: edge.top - pill.bottom, height: pill.height, dockHeight: getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') };
+    });
+    expect((await geometry()).gap).toBe(18);
+    await bodyDoesNotScroll();
+    expect((await geometry()).height).toBe(40);
+    expect((await geometry()).dockHeight).toBe('0px');
+    await page.keyboard.press('Control+Backquote');
+    await page.locator('.pc-dock').waitFor();
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') !== '0px');
+    expect((await geometry()).gap).toBe(18);
+    await bodyDoesNotScroll();
+    await page.keyboard.press('Meta+j');
+    await focused(page, 'input[aria-label="Ask pacer"]');
+    await bodyDoesNotScroll();
+    const openGeometry = await page.evaluate(() => {
+      const pill = document.querySelector('.pc-aurora-launcher')!.getBoundingClientRect();
+      return { top: pill.top, bottom: pill.bottom, sheetTop: document.querySelector('.pc-aurora')!.getBoundingClientRect().top, frameTop: document.querySelector('.pc-body')!.getBoundingClientRect().top };
+    });
+    expect(openGeometry.top).toBeGreaterThanOrEqual(openGeometry.frameTop + 36 + 8);
+    expect(openGeometry.bottom).toBeLessThanOrEqual(openGeometry.sheetTop);
+    await page.keyboard.press('Meta+j');
+    await bodyDoesNotScroll();
+    // Replacing the dock while it remains open must move the observer to the new node.
+    await page.locator('.pc-dock').evaluate(el => { (window as any).originalDock = el; el.replaceWith(el.cloneNode(true)); });
+    await page.locator('.pc-dock').evaluate(el => (el as HTMLElement).style.height = '220px');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-dock-height') === '220px');
+    expect((await geometry()).gap).toBe(18);
+    await bodyDoesNotScroll();
+    await page.locator('.pc-dock').evaluate(el => el.replaceWith((window as any).originalDock));
+    await page.keyboard.press('Control+Backquote');
+    await page.locator('.pc-dock').waitFor({ state: 'detached' });
+    expect((await geometry()).dockHeight).toBe('0px');
+    expect((await geometry()).gap).toBe(18);
+    await bodyDoesNotScroll();
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("Still aurora suppresses generating animation with normal system motion", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ reducedMotion: "no-preference" });
+    await page.addInitScript(() => localStorage.setItem("pacer.assistant.preferences", JSON.stringify({ stillAurora: true })));
+    await open(page, await build()); await openSheet(page);
+    await page.keyboard.type("how is the budget"); await page.keyboard.press("Enter");
+    await page.getByText("Thinking…").first().waitFor();
+    expect((await animating(page)).every(name => name === "none")).toBe(true);
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("setup selection with the dock open never scrolls the frame body", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    for (const height of [700, 900]) {
+      const page = await browser.newPage({ viewport: { width: 1440, height } });
+      await open(page, await build(), "?unconfigured");
+      await page.getByRole('button', { name: 'Open assistant', exact: true }).waitFor();
+      await page.keyboard.press('Control+Backquote');
+      await page.locator('.pc-dock').waitFor();
+      // The existing rail overflows the frame at 700px even without the assistant.
+      const baselineHeight = await page.locator('.pc-body').evaluate(el => el.scrollHeight);
+      if (height === 900) expect(baselineHeight).toBe(await page.locator('.pc-body').evaluate(el => el.clientHeight));
+      const assertBody = async () => {
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const body = await page.locator('.pc-body').evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight }));
+        expect(body.top).toBe(0);
+        expect(body.height).toBe(baselineHeight);
+      };
+      await assertBody();
+      await page.keyboard.press('Meta+j');
+      await focused(page, '[data-assistant-setup]');
+      const heading = (await page.getByRole('heading', {name: 'Choose where the assistant runs'}).boundingBox())!;
+      const log = (await page.locator('.pc-aurora__log').boundingBox())!;
+      expect(heading.y).toBeGreaterThanOrEqual(log.y);
+      expect(heading.y + heading.height).toBeLessThanOrEqual(log.y + log.height);
+      await assertBody();
+      const choose = page.getByRole('button', { name: 'Use Local model', exact: true });
+      // Reveal the row by scrolling the log, as a person must in a short window.
+      // Playwright's generic scrollIntoView also scrolls the pre-existing rail overflow.
+      await choose.evaluate(el => {
+        const log = el.closest('.pc-aurora__log')!;
+        log.scrollTop += Math.max(0, el.getBoundingClientRect().bottom - log.getBoundingClientRect().bottom);
+      });
+      await assertBody();
+      await choose.click();
+      await focused(page, 'input[aria-label="Ask pacer"]');
+      await assertBody();
+      await page.keyboard.press('Escape');
+      await assertBody();
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);

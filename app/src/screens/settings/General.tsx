@@ -1,3 +1,4 @@
+import { assistantPreferences, setAssistantPreferences, watchAssistantPreferences } from "../../shell/assistant-entry";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { PluginsSection } from "./Plugins";
@@ -24,6 +25,7 @@ import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
 import {
   Checkbox,
+  Switch,
   Disclosure,
   Range,
   TextInput,
@@ -480,10 +482,14 @@ function WorkspacePreferences({ initialData, initialAssistant }: { initialData?:
   const hasTerminal = config?.keys["terminal.open"] || config?.terminalChoices;
   const { selectedTerminal, terminalChoices } = terminalPreference(config);
   const status = assistant.data;
+  const [preferences, setPreferences] = useState(assistantPreferences);
+  useEffect(() => watchAssistantPreferences(() => setPreferences(assistantPreferences())), []);
   return <section className="pc-preferences-section" aria-labelledby="workspace-h">
     <h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2>
     {hasTerminal && <SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow>}
-    <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Uses the account chosen in assistant settings.">
+    <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Runs on one endpoint account you choose; until then the button opens the setup.">
+      <div className="pc-assistant-preferences"><Switch size="sm" label="Show the button" aria-label="Show assistant button" checked={preferences.showButton} onChange={event => setAssistantPreferences({ showButton: event.currentTarget.checked })} />
+      <Switch size="sm" label="Still aurora" aria-label="Reduce assistant motion" checked={preferences.stillAurora} onChange={event => setAssistantPreferences({ stillAurora: event.currentTarget.checked })} /></div>
       <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
       <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
     </SettingRow>
