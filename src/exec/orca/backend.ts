@@ -232,9 +232,10 @@ export async function liveAgentProblem(c: OrcaClient, live: LiveWorker): Promise
 }
 
 /**
- * A stopped interactive lane gives back what it created in Orca: its new-child worktree, when it holds no work (no
- * uncommitted changes, no commits beyond its base), and then its `--group` parent once no lane is left under it. A
- * worktree with work stays for review and `pacer clean`. Returns whether the worktree was removed. Never throws.
+ * A stopped interactive lane, or a settled one when `settled` is set, gives back what it created in Orca: its new-child
+ * worktree, when it holds no work (no uncommitted changes, no commits beyond its base), and then its `--group` parent
+ * once no lane is left under it. A worktree with work stays for review and `pacer clean`. ADR 0014 §3 lists the callers.
+ * Returns whether the worktree was removed. Never throws.
  */
 async function releaseStoppedLane(
   ctx: Ctx, c: OrcaClient, task: TaskRecord, w: OwnedWorktree | null, log: (line: string) => void, sleep?: (ms: number) => Promise<void>, settled = false,
@@ -244,7 +245,7 @@ async function releaseStoppedLane(
     if (!w || !current || (current.state !== "stopped" && !settled) || current.interactionMode !== "conversation") return false;
     const unchanged = await worktreeUnchanged(ctx, w.path, current.baseSha ?? current.baseBranch);
     if (unchanged !== true) {
-      log(`kept the stopped lane's Orca worktree ${w.id}: ${unchanged === false ? "it holds work" : "git could not tell whether it holds work"}; pacer clean removes it after review`);
+      log(`kept the lane's Orca worktree ${w.id}: ${unchanged === false ? "it holds work" : "git could not tell whether it holds work"}; pacer clean removes it after review`);
       return false;
     }
     await discardCreatedWorktree(ctx, c, task.id, w, log, sleep ? { sleep } : {});
@@ -257,10 +258,10 @@ async function releaseStoppedLane(
       if (gone(t.worktree)) delete t.worktree;
       if (t.result && gone(t.result.worktree)) delete t.result.worktree;
     });
-    taskActivity(ctx, current, "message", `Removed the stopped lane's unused Orca worktree ${w.path}`);
+    taskActivity(ctx, current, "message", `Removed the lane's unused Orca worktree ${w.path}`);
     return true;
   } catch (e) {
-    log(`releasing the stopped lane's worktree failed: ${String(e instanceof Error ? e.message : e)}`);
+    log(`releasing the lane's worktree failed: ${String(e instanceof Error ? e.message : e)}`);
     return false;
   }
 }
