@@ -25,8 +25,15 @@ fn plugin_decision_and_agent_session_methods_have_their_own_generated_areas() {
     assert!(!decision.contains("pub struct AgentSessionPrepareParams"));
     assert!(session.contains("pub struct AgentSessionPrepareParams"));
     assert!(!session.contains("pub struct DecisionDecideParams"));
+    let version = core
+        .lines()
+        .find(|line| line.starts_with("pub const VERSION: &str ="))
+        .expect("entry crate declares the protocol version");
     for code in [&core, &decision, &session] {
-        assert!(code.contains("pub const VERSION: &str = \"1.2.0\";"));
+        assert!(
+            code.contains(version),
+            "every area carries the entry crate's protocol version"
+        );
         assert!(code.lines().count() <= 10_000, "CRATE-3 generated budget");
     }
 }

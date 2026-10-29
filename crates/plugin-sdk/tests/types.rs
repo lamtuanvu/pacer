@@ -1,6 +1,6 @@
 //! `pacer_plugin::types` covers every generated protocol crate (CRATE-3 area split).
 use pacer_plugin::types::{
-    AgentSessionPrepareParams, DecisionDecideParams, Manifest, PacerPluginProtocol120, VERSION,
+    AgentSessionPrepareParams, DecisionDecideParams, Manifest, PacerPluginProtocol130, VERSION,
     error::ConversionError,
 };
 
@@ -14,7 +14,7 @@ fn types_name_decision_agent_session_and_entry_crate_items() {
         named::<AgentSessionPrepareParams>().starts_with("pacer_plugin_agent_session_protocol::")
     );
     assert!(named::<Manifest>().starts_with("pacer_plugin_protocol::"));
-    assert!(named::<PacerPluginProtocol120>().starts_with("pacer_plugin_protocol::"));
+    assert!(named::<PacerPluginProtocol130>().starts_with("pacer_plugin_protocol::"));
     assert!(named::<ConversionError>().starts_with("pacer_plugin_protocol::"));
     assert_eq!(VERSION, pacer_plugin_protocol::VERSION);
 }

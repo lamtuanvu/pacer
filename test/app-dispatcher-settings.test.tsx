@@ -331,6 +331,16 @@ test("consent details follow the board row outside its control column",()=>{
   expect(html).toContain('<div class="u3-setting-consent pc-stack pc-stack--compact">');
   expect(html).not.toMatch(/pc-setting-row__control(?:(?!<\/div>).)*u3-setting-consent/s);
 });
+// Moving the row off the settings grid dropped the cap that bounded this paragraph,
+// leaving the quota-spend disclosure to run the full width of the card. The class is the
+// only hook the component hands CSS, so the rule that caps it is pinned here.
+test("the cost disclosure keeps a readable measure",async()=>{
+  const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("unasked")} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("spend <strong>claude1</strong>'s quota");
+  expect(html).toContain('class="u3-setting-consent');
+  const css=await Bun.file(new URL("../app/src/screens/settings/settings.css",import.meta.url)).text();
+  expect(css).toMatch(/\.u3-settings \.u3-setting-consent\{[^}]*max-width:var\(--size-680\)/);
+});
 test("renders consent controls only when the consent operation is available",()=>{
   const props={reading:consentRunner("unasked"),canProbe:false,probing:null,onProbe:()=>{},onConsent:()=>{}};
   const without=renderToString(<DispatcherEnforcementRows {...props} canConsent={false}/>);
@@ -366,4 +376,38 @@ test("a paused schedule says why, as plain state, and probing turned off does no
   const off=render({...row,probeMode:"off",scheduleReason:"certification probing is turned off"});
   expect(off).toContain("scheduled probing: off");
   expect(off).not.toContain("not probing now");
+});
+
+test("cross-repository schedule uses a label and maps unsupported copy in the muted line", () => {
+  const reading = consentRunner("granted");
+  const runner = { ...reading.runners[0], probeMode: "auto" as const,
+    scheduleRepo: "team/project", schedulePaused: false,
+    scheduleReason: null as string | null,
+    scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary" as string | null };
+  const render = (row: typeof runner) => renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [row] }}
+    canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  const html = render(runner);
+  expect(html).toMatch(/<div class="u3-muted">scheduled probing targets team\/project, not this repository ·/);
+  expect(html).toContain("not probing now: verification is not available in team/project");
+  // The executor-level sentence belongs to a genuinely unverifiable executor on another
+  // row of this same card; repeating it here would say two things with one sentence.
+  expect(html).not.toContain("Verification is not available for this executor yet");
+  expect(html).not.toContain("Project-level native control overrides");
+  expect(html).not.toContain("exact-environment canary");
+  const paused = render({ ...runner, scheduleUnsupportedReason: null,
+    scheduleReason: "the last probe cost 12% of the account window", schedulePaused: true });
+  expect(paused).toMatch(/<div class="u3-muted">scheduled probing targets team\/project, not this repository ·[^<]*probing paused: the last probe cost/);
+  expect(paused).not.toContain('role="alert"');
+});
+
+test("a routing hold takes precedence over scheduled repository probe support", () => {
+  const reading = consentRunner("granted");
+  const scheduleReason = "claude-code is not listed in a routing rule or project selection";
+  const runner = { ...reading.runners[0], probeMode: "auto" as const,
+    scheduleRepo: "team/project", schedulePaused: false, scheduleReason,
+    scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary" };
+  const html = renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [runner] }}
+    canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain(`not probing now: ${scheduleReason}`);
+  expect(html).not.toContain("Verification is not available for this executor yet");
 });
