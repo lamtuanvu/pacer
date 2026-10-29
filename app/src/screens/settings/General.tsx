@@ -656,7 +656,7 @@ export function TaskBackendField({ value, source, disabled, run }: {
   return (
     <Field
       label="Task backend"
-      help={<>Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}
+      help={<>Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}
     >
       <ChoicePicker
         aria-label="Task backend"

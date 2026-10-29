@@ -553,9 +553,9 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
      Remote hosts 1 needs setup │   Task backend              ‹ Direct ›                                               
-     Routing                    │                             Orca runs tasks as supervised workers in Orca terminals; 
-     Project strategies         │                             tasks run directly when Orca isn't running or the agent  
-     Strategies                 │                             isn't supported.                                         
+     Routing                    │                             Orca runs interactive tasks as supervised workers in Orca
+     Project strategies         │                             terminals. Headless tasks, and any task when Orca isn't  
+     Strategies                 │                             running or the agent isn't supported, run directly.      
      Updates                    │ 
      Notifications              │ 
      Appearance                 │ 
@@ -597,10 +597,10 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
                              Shared by all executors that run on this machine. 
                              1–16.                                             
    Task backend              ‹ Direct ›                                        
-                             Orca runs tasks as supervised workers in Orca     
-                             terminals; tasks run directly when Orca isn't     
-                             running or the agent isn't supported.             
- 
+                             Orca runs interactive tasks as supervised workers 
+                             in Orca terminals. Headless tasks, and any task   
+                             when Orca isn't running or the agent isn't        
+                             supported, run directly.                          
  
  
  
@@ -1425,11 +1425,11 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
      Remote hosts 1 needs setup │   Task backend              ‹ Direct ›  Set by PACER_BACKEND                         
-     Routing                    │                             Orca runs tasks as supervised workers in Orca terminals; 
-     Project strategies         │                             tasks run directly when Orca isn't running or the agent  
-     Strategies                 │                             isn't supported. PACER_BACKEND overrides the saved       
-     Updates                    │                             setting. Unset PACER_BACKEND to change it here.          
-     Notifications              │ 
+     Routing                    │                             Orca runs interactive tasks as supervised workers in Orca
+     Project strategies         │                             terminals. Headless tasks, and any task when Orca isn't  
+     Strategies                 │                             running or the agent isn't supported, run directly.      
+     Updates                    │                             PACER_BACKEND overrides the saved setting. Unset         
+     Notifications              │                             PACER_BACKEND to change it here.                         
      Appearance                 │ 
                                 │ 
                                 │ 
@@ -1469,12 +1469,12 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
                              Shared by all executors that run on this machine. 
                              1–16.                                             
    Task backend              ‹ Direct ›  Set by PACER_BACKEND                  
-                             Orca runs tasks as supervised workers in Orca     
-                             terminals; tasks run directly when Orca isn't     
-                             running or the agent isn't supported.             
-                             PACER_BACKEND overrides the saved setting. Unset  
-                             PACER_BACKEND to change it here.                  
- 
+                             Orca runs interactive tasks as supervised workers 
+                             in Orca terminals. Headless tasks, and any task   
+                             when Orca isn't running or the agent isn't        
+                             supported, run directly. PACER_BACKEND overrides  
+                             the saved setting. Unset PACER_BACKEND to change  
+                             it here.                                          
  
  
  

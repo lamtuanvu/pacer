@@ -150,7 +150,8 @@ The launch mode and `execution.backend` combine as follows:
 
 An interactive task in an Orca terminal uses the same agent command as a direct
 interactive launch, with pacer's per-run Claude settings file (no bypass-permissions
-acknowledgement), and finishes when the worker reports `worker_done`. You watch and
+acknowledgement and, in an Orca worktree pacer created for the task, the project MCP
+answers described below), and finishes when the worker reports `worker_done`. You watch and
 take over the agent in Orca; pacer's own take over and `pacer report` completion do
 not apply there.
 
@@ -308,11 +309,17 @@ configuration. The variable is
 undocumented by Anthropic. If a Claude release ignores it, the trust prompt
 keeps the agent from becoming idle and pacer runs the task directly instead.
 With the variable set, Claude also applies the repository's own `.claude/`
-permission settings, runs its project hooks and starts the MCP servers in its
-`.mcp.json` without asking. This matches direct execution, where `claude -p`
-already skips the trust prompt. The agent runs with
+permission settings and runs its project hooks without asking. This matches direct
+execution, where `claude -p` already skips the trust prompt. The agent runs with
 `--dangerously-skip-permissions`, so only delegate repositories whose
-`.claude/` settings, hooks and `.mcp.json` you trust. Codex keeps its per-invocation trust argument.
-Orca worktrees are not pacer task worktrees, so pacer neither pre-approves Claude
-folder trust in `.claude.json` for them nor carries the source checkout's MCP
-answers into their per-run settings.
+`.claude/` settings and hooks you trust. Codex keeps its per-invocation trust argument.
+Pacer never writes `.claude.json` for Orca worktrees.
+
+Project MCP servers in an Orca worktree pacer created for the task (a new worktree
+named `pacer-<task>-<executor>`, checked after Orca creates it) are handled as in a
+pacer task worktree: the run's `--settings` file approves them and carries your
+`disabledMcpjsonServers` and `enabledMcpjsonServers` from the source checkout's
+`.claude/settings.local.json` and the account's `.claude.json`, so a server you
+rejected stays off. If either file exists but cannot be read or parsed, pacer
+approves nothing and the attempt log says Claude's MCP prompt may appear. A task in
+an existing Orca worktree (current placement or a retry) keeps Claude's MCP prompt.

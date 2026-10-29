@@ -537,7 +537,8 @@ test("Settings › This machine shows a PACER_BACKEND override and offers no tog
     const text = renderDashboard(s, width, height, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state });
     bounded(text, width, height);
     expect(text.replace(/\s+/g, " ")).toContain("Task backend ‹ Direct › Set by PACER_BACKEND");
-    expect(text.replace(/[\s│]+/g, " ")).toContain("Unset PACER_BACKEND to change it here.");
+    // The wrapped help may share a line with a section name in the left column.
+    expect(text.replace(/[\s│]+/g, " ")).toMatch(/Unset (?:\w+ )?PACER_BACKEND to change it here\./);
     expect(text).toMatchSnapshot();
   }
 });

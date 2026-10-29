@@ -61,7 +61,7 @@ test('task backend picker shows the current backend and sets the chosen one', ()
   const orca={...settings,config:{...settings.config,keys:{...settings.config.keys,'execution.backend':{value:'orca'}}}};
   const html=renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={orca}/></TaskContext.Provider>);
   expect(html).toContain('Task backend');
-  expect(html).toContain("Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.");
+  expect(html).toContain("Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.");
   expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
   expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
   const env={...orca,config:{...orca.config,keys:{...orca.config.keys,'execution.backend':{value:'direct',source:'env PACER_BACKEND'}}}};

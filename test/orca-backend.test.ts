@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import {join} from "node:path";
-import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
+import {chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
 import {DEFAULT_EXECUTION, type ExecutionCfg} from "../src/config/execution";
 import {validateStrategy} from "../src/config/strategy";
 import {selectBackend} from "../src/exec/backend";
@@ -296,20 +297,61 @@ test("Claude terminal commands set CLAUDE_CODE_SANDBOXED and write no Claude con
   }
 });
 
-test("the Orca backend never edits Claude folder trust or reads Claude's project MCP answers", () => {
+test("the Orca backend never edits Claude folder trust", () => {
   // Folder trust in Orca terminals stays with CLAUDE_CODE_SANDBOXED; the direct launch's .claude.json grant covers pacer's own task worktrees only.
   const files = (dir: string): string[] => readdirSync(dir).flatMap(f => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
-  const offenders = files(join(import.meta.dir, "..", "src", "exec", "orca")).filter(f => /hasTrustDialogAccepted|trusted\.json|claude-trust|grantClaudeFolderTrust|projectMcpChoices/.test(readFileSync(f, "utf8")));
+  const offenders = files(join(import.meta.dir, "..", "src", "exec", "orca")).filter(f => /hasTrustDialogAccepted|trusted\.json|grantClaudeFolderTrust/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });
 
-test("the Claude terminal reuses the direct interactive launch's per-run settings file without pacer's PTY hooks or MCP approval", async () => {
+const MCP_KEYS = ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"];
+const claudeSettings = (x: ReturnType<typeof setup>) => JSON.parse(readFileSync(join(x.ctx.pacerHome, "runs", x.task.id, "1-orca", "claude-settings.json"), "utf8"));
+const attemptLog = (out: {attempt: {log: string}}) => readFileSync(out.attempt.log, "utf8");
+
+test("the Claude terminal reuses the direct interactive launch's per-run settings file without pacer's PTY hooks", async () => {
   const x = setup();
   await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
   const settings = join(x.ctx.pacerHome, "runs", x.task.id, "1-orca", "claude-settings.json");
   expect(commandOf(x.f.calls)).toContain(`CLAUDE_CODE_SANDBOXED=1 claude --settings ${settings} --dangerously-skip-permissions`);
-  expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({skipDangerousModePermissionPrompt: true});
+  expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true});
   expect(statSync(settings).mode & 0o777).toBe(0o600);
+});
+
+test("a new-child Orca run carries the source checkout's MCP answers, so a rejected server stays off, and never writes .claude.json", async () => {
+  const x = setup();
+  const config = join(x.ctx.home, ".claude.json");
+  const text = JSON.stringify({primaryApiKey: "secret", projects: {[repo]: {disabledMcpjsonServers: ["rejected"], enabledMcpjsonServers: ["approved", "rejected"], allowedTools: ["x"]}}});
+  writeFileSync(config, text, {mode: 0o600});
+  const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  expect(out.backend).toBe("orca");
+  expect(claudeSettings(x)).toEqual({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true, disabledMcpjsonServers: ["rejected"], enabledMcpjsonServers: ["approved"]});
+  expect(readFileSync(config, "utf8")).toBe(text);
+  expect(commandOf(x.f.calls)).toContain("CLAUDE_CODE_SANDBOXED=1");
+  expect(attemptLog(out)).not.toContain("secret");
+  expect(attemptLog(out)).not.toContain("claude project MCP servers");
+});
+
+test("a new-child Orca run approves nothing when the account's Claude config is unreadable, and the attempt log says so", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "pacer-orca-claude-"));
+  const config = join(folder, ".claude.json");
+  writeFileSync(config, "{}", {mode: 0o600});
+  chmodSync(config, 0o000);
+  try {
+    const x = setup([], {}, {terminalEnv: async ctx => ({env: {...ctx.env, CLAUDE_CONFIG_DIR: folder}, source: "login-shell", shell: "/bin/zsh", umask: {mask: "022"}, profileKeys: ["CLAUDE_CONFIG_DIR"], folder: []})});
+    const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+    expect(out.backend).toBe("orca");
+    for (const key of MCP_KEYS) expect(claudeSettings(x)).not.toHaveProperty(key);
+    expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (the Claude config file is unreadable); Claude may ask whether to use this project's MCP servers");
+  } finally { chmodSync(config, 0o600); rmSync(folder, {recursive: true, force: true}); }
+});
+
+test("an in-place Orca run reads no MCP answers and keeps Claude's MCP prompt", async () => {
+  const x = setup([], {worktree: "current"});
+  writeFileSync(join(x.ctx.home, ".claude.json"), JSON.stringify({projects: {[repo]: {enabledMcpjsonServers: ["approved"]}}}), {mode: 0o600});
+  const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  expect(out.backend).toBe("orca");
+  expect(claudeSettings(x)).toEqual({skipDangerousModePermissionPrompt: true});
+  expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (only pacer-created task worktrees are)");
 });
 
 test("the Codex terminal command carries no per-run settings or hook overrides", async () => {

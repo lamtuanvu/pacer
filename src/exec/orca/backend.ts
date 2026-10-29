@@ -4,6 +4,7 @@ import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { shellCommand } from "../../install/fsx";
+import { claudeConfigFile, type McpChoices, projectMcpChoices } from "../claude-trust";
 import { launchArgvFor, providerEnv } from "../launch";
 import { recordDefaultFolder } from "../account-folder";
 import { profileKeys, terminalEnv, type TerminalEnv } from "../login-env";
@@ -15,7 +16,7 @@ import { readTask, tasksDir, listTasksWhere, updateTask } from "../../tasks/stor
 import { resolvePlacement, type ResolvedPlacement, type TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { Backend } from "../backend";
-import { type AttemptOutcome, REPORT_CHARS, runAttempt as directAttempt, runDir, tail } from "../direct";
+import { type AttemptOutcome, mcpNotApproved, REPORT_CHARS, runAttempt as directAttempt, runDir, tail } from "../direct";
 import { detectLimit } from "../limits";
 import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
@@ -56,6 +57,7 @@ interface Ready {
   run: string;
   placement: Placement;
   top: string;
+  main: string;
   base: string;
   sub: string;
   notes: string[];
@@ -103,7 +105,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
     : { kind: "existing", selector: `path:${git.top}` };
   return {
     ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,
-    placement, top: git.top, base, sub: git.sub, notes, resolved,
+    placement, top: git.top, main: git.main, base, sub: git.sub, notes, resolved,
   };
 }
 
@@ -306,11 +308,22 @@ async function runOrcaAttempt(
     const profileHome = !(home in accountEnv) && profileKeys(base).includes(home) ? base.env[home] : undefined;
     const folders: Record<string, string> = {...(profileHome?.startsWith("/") ? {[home]: profileHome} : {}), ...accountEnv};
     const unset = home in folders ? [] : ["-u", home];
+    // As in a direct launch in a pacer task worktree, a worktree pacer created for this task (new-child, identity
+    // verified above) carries the source checkout's MCP answers, so project servers are approved and rejected ones stay
+    // off. Read-only, from the account Claude uses in this terminal; .claude.json is never written (trust is
+    // CLAUDE_CODE_SANDBOXED). An existing or retry placement keeps Claude's MCP prompt.
+    let mcp: McpChoices | undefined;
+    if (agent === "claude-code") {
+      const answers = created
+        ? projectMcpChoices(claudeConfigFile({...base.env, CLAUDE_CONFIG_DIR: folders.CLAUDE_CONFIG_DIR}, ctx.home), [task.brief.repo, p.top, p.main])
+        : {reason: "only pacer-created task worktrees are"};
+      if ("reason" in answers) log(mcpNotApproved(answers.reason));
+      else mcp = answers;
+    }
     // The direct interactive launch for this runner and worktree, with its per-run settings file (bypass-permissions
-    // acknowledgement). pacer's PTY session hooks stay out: Orca supervises this terminal. The worktree is Orca's,
-    // outside pacer's task worktrees, so project MCP answers are not read and Claude's own MCP handling applies.
+    // acknowledgement, MCP answers). pacer's PTY session hooks stay out: Orca supervises this terminal.
     const launch = prepareInteractive(agent, `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`,
-      {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false}).argv;
+      {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false, ...(mcp ? {mcp} : {})}).argv;
     const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
     const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);

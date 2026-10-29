@@ -209,7 +209,7 @@ const machine: Build = (ctx, width) => {
   const toggle = env ? undefined : set(ctx, "Task backend", "execution.backend", backend === "orca" ? "direct" : "orca");
   items.push({ id: "setting:backend", actions: [], keys: toggle ? { left: toggle, right: toggle } : {} });
   rows.push(...fieldRows(field(ctx, width, "Task backend", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(backend === "orca" ? "Orca" : "Direct", { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], env ? "Set by PACER_BACKEND" : undefined), "setting:backend"));
-  rows.push(...fieldRows(field(ctx, width, "", [span(`Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.${env ? " PACER_BACKEND overrides the saved setting. Unset PACER_BACKEND to change it here." : ""}`, { fg: "muted" })])));
+  rows.push(...fieldRows(field(ctx, width, "", [span(`Orca runs interactive tasks as supervised workers in Orca terminals. Headless tasks, and any task when Orca isn't running or the agent isn't supported, run directly.${env ? " PACER_BACKEND overrides the saved setting. Unset PACER_BACKEND to change it here." : ""}`, { fg: "muted" })])));
   return { rows, items, hints: ["← → adjust"] };
 };
 
