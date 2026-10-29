@@ -36,7 +36,7 @@ Tokens: `project/ds/pacer/tokens.css` (light values on `:root`, dark under `pref
 - **Page frame:** every page fills the window: `main` padding `24px 32px 40px`, no `max-width`, h1 28/34 weight 650 at the same position on every screen. Settings pages sit right of the 240px settings menu.
 - **Top bar:** 36px tall. Pacer mark, centred search 420×26 (radius 6), planner chip 24px, a Layout group of three 28px toggles (left panel, terminal, right panel) on every screen, then a 26px New task link.
 - **Type scale:** 11, 12, 13, 14, 16, 22, 28px only. **Radii:** 4, 6, 8, 12, 99px only (36px is the phone frame).
-- **Controls:** icon buttons 28px (24px in panel strips, 40px in the activity bar, 44px on touch); segmented controls 30px; switches 36×20; design-system buttons `sm` = 32px.
+- **Controls:** design-system buttons are `sm` (32px) on desktop boards; `md` (44px) only on phone boards. App density: Comfortable (default) = 32px controls, Compact = 28px. Icon buttons 28px (24px in panel strips, 40px in the activity bar, 44px on touch); segmented controls 30px; switches 36×20.
 - **Section headings:** 16/22 weight 650, sentence case, on content pages. Settings uses 11px uppercase group labels.
 - **Terminal:** one design everywhere (board 5's panel, also used by 5b and 18): 6px resize sash on the top edge, 30px tab strip, kill ×, `+` with a location menu, Find / Split / Kill / More / Maximize / Hide icons, find widget on ⌘F, colours from the theme (no hard-coded dark).
 - **Live session (5b and 18 are one design):** the global top bar, then a 40px session header (title, repo · branch, status pill, Dispatch trace, End session), a 272px Sessions panel, and a 300px right panel with Details | Changes tabs.

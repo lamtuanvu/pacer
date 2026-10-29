@@ -56,8 +56,8 @@ kbd{font-family:var(--font-mono);font-size:11px;padding:0 5px;border:1px solid v
 <span class="cap">Describe the outcome. pacer plans it, sends it to the best available agent, and checks the result before you see it.</span>
 </div>
 <span class="cap" style="display: flex; align-items: center; gap: 6px;">{{savedNote}}</span>
-<x-import component-from-global-scope="Pacer.Button">Save draft</x-import>
-<a href="Main.dc.html" class="pc-btn pc-btn--ghost pc-btn--md" style="text-decoration: none; color: var(--ink);">Cancel</a>
+<x-import component-from-global-scope="Pacer.Button" size="sm">Save draft</x-import>
+<a href="Main.dc.html" class="pc-btn pc-btn--ghost pc-btn--sm" style="text-decoration: none; color: var(--ink);">Cancel</a>
 </header>
 
 <sc-if value="{{isError}}" hint-placeholder-val="{{ false }}">
@@ -212,7 +212,7 @@ kbd{font-family:var(--font-mono);font-size:11px;padding:0 5px;border:1px solid v
 </details>
 
 <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px;">
-<a href="Tasks.dc.html" class="pc-btn pc-btn--primary pc-btn--md" style="text-decoration: none; display: block; width: 100%; color: var(--ink-on-ink);">{{submitLabel}} <kbd style="margin-left: 8px; color: inherit; border-color: currentColor; opacity: .7;">⌘↵</kbd></a>
+<a href="Tasks.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; display: block; width: 100%; color: var(--ink-on-ink);">{{submitLabel}} <kbd style="margin-left: 8px; color: inherit; border-color: currentColor; opacity: .7;">⌘↵</kbd></a>
 <span class="cap" style="text-align: center;">{{submitNote}}</span>
 </div>
 </aside>
