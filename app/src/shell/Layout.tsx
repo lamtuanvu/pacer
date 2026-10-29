@@ -27,6 +27,14 @@ import { AppFrame } from "./AppFrame";
 import { panelCommands, usePanelState } from "./panels";
 import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
+import { activeRepo } from "./narrow";
+
+/** The sheet loads after first paint so it stays out of the main bundle. Older services never load it. */
+function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | null; repoLabel: string | null; onNewTask: () => void }) {
+  const [View, setView] = useState<typeof import("./assistant/AssistantHost").default>();
+  useEffect(() => { void import("./assistant/AssistantHost").then(m => setView(() => m.default), () => undefined); }, []);
+  return View ? <View {...props} /> : null;
+}
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
@@ -127,6 +135,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     if (dockOpen) document.getElementById(DOCK_ID)?.focus();
     else { (opener.current?.isConnected ? opener.current : document.getElementById("main-content"))?.focus(); opener.current = null; }
   }, [dockOpen]);
+  const repo = activeRepo(route.query), repoLabel = state.snapshot?.repos?.find(r => r.key === repo)?.label ?? null;
+  const assistantAvailable = !!context && route.name !== "setup" && route.name !== "loading" && !state.sessionEnded && state.features.ops.has("assistant.status");
   if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
@@ -147,6 +157,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
     mainClass={`pc-main${!loading && !outdated && ["insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
+    overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
   />{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;
