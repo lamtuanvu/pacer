@@ -10,6 +10,8 @@ import type { Candidate, DispatchPreview } from "../dispatch/types";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { installHandoverHandler, registerRunnerLease } from "./handover";
+import { appendActivity } from "../activity/log";
+import { currentVersion } from "../update/version";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
@@ -98,7 +100,9 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
+    delete t.childIdentity;
     delete t.runnerPid;
+    delete t.handover;
   });
   if (finished.state === "done") {
     const seen = new Set<string>([id]);
@@ -166,10 +170,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
       if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
-      started=true;t.runnerPid=process.pid;delete t.queue;
+      started=true;t.runnerPid=process.pid;t.runnerPacer=currentVersion();delete t.queue;
       if (dispatched) t.attemptStartedAt = Date.now()/1000;
     }));
   });
+  const handedOver = started && task.handover?.state === "handed-over" && !!task.run && task.run.attempt > task.attempts.length ? task.handover : undefined;
+  if (handedOver) appendActivity({ ...ctx, now: Date.now() / 1000 }, { kind: "update", level: "info", text: `Reattached on v${currentVersion()}`, taskId: id });
   if(duplicate)return finish(ctx,id,{status:"failed",executor:null,model:null,files:"",report:`same brief is already active in ${duplicate}; use --force only when concurrent work is intended`,backend:"direct"});
   if (!started) {
     return TERMINAL_STATES.includes(task.state)
@@ -474,7 +480,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           why: candidate.reason };
         task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
       }
-      if(work?.options.delegationEnforcement==="strict"){
+      if(work?.options.delegationEnforcement==="strict"&&!(resuming&&handedOver)){
         const checkedCtx={...ctx,now:Date.now()/1000};
         const checkedRepo=task.repo?.path??task.brief.repo;
         let reason=await enforcementExclusion(checkedCtx,s,pick,checkedRepo,task.interactionMode==="conversation");
@@ -500,12 +506,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
       let executionCtx=ctx;
       if(work?.options.delegationEnforcement==="strict"){
-        const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
-        const markerDir=join(ctx.pacerHome,"guard-failures");mkdirSync(markerDir,{recursive:true,mode:0o700});
-        const marker=join(markerDir,`${id}-${task.attempts.length+1}`);rmSync(marker,{force:true});
-        executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        const markerDir=join(ctx.pacerHome,"guard-failures"),marker=join(markerDir,`${id}-${task.attempts.length+1}`);
+        if(resuming&&handedOver){
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_GUARD_FAILURE_MARKER:marker}};
+        } else {
+          const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          rmSync(marker,{force:true});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        }
       }
-      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
+      if(work?.options.allowDelegation&&!(resuming&&handedOver)){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {

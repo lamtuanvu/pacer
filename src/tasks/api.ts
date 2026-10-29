@@ -225,11 +225,15 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
     if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
-      if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
+      const firstReplacement = t.handover?.state === "handed-over" && t.handover.replacementAt === undefined;
+      if (firstReplacement || !t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
         let lease: string;
         try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
         catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
-        updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
+        updateTask(ctx, id, x => {
+          x.resumeSpawnedAt = ctx.now;
+          if (x.handover?.state === "handed-over" && x.handover.replacementAt === undefined) x.handover.replacementAt = ctx.now;
+        });
         try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
       }
       return readTask(ctx, id)!;
