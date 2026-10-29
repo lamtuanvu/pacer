@@ -562,7 +562,7 @@ fn cached_reports(engine: &mut Engine, t0: Instant, from_s: u64, to_s: u64) -> V
 
 #[test]
 fn a_cached_peer_is_reported_every_five_minutes_until_its_ttl_expires() {
-    // Known-answer suppression: after the first answer the peer sends nothing more.
+    // Only the first answer arrives; every later report comes from the cache.
     let t0 = Instant::now();
     let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
     a.set_advert(t0, Some(advert("peer")));

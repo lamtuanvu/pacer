@@ -19,9 +19,10 @@ const BROWSE_MAX: Duration = Duration::from_secs(600);
 /// RFC 6762 §6: each record is multicast at most once per second.
 const ANSWER_GAP: Duration = Duration::from_secs(1);
 /// An unchanged peer is reported again once its last report is this old, so the core keeps seeing
-/// peers that are still there. It is half the browse interval, so every browse answer counts, and
-/// `refresh` repeats it from the cache while the peer's records are valid, because a peer that
-/// sees its PTR among a query's known answers does not answer at all (RFC 6762 §7.1).
+/// peers that are still there. `refresh` repeats the report from the cache while the peer's
+/// records are valid. Re-reporting only on an answer left gaps of up to about 900 s: browse
+/// answers can be `BROWSE_MAX` apart, and one arriving just under `REFRESH` after the last
+/// report did not count.
 const REFRESH: Duration = Duration::from_secs(300);
 /// The most peers remembered for de-duplicating resolutions.
 const KNOWN_MAX: usize = 256;
