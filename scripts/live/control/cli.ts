@@ -51,7 +51,7 @@ export async function executeControl(session: import("../core").Session, input: 
   const request = requestSchema.parse(input);
   const provenance = recordProvenance(session);
   let result: ControlResult;
-  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session, requestAccessibility); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return result; }
+  if (request.command === "doctor" && request.surface === "desktop") { result = await desktopDoctor(session, requestAccessibility, request.timeout_ms); result.provenance = provenance; result.run_id = session.id; recordStep(session, result); return result; }
   if (request.surface === "web" || request.surface === "tray") result = await (await import("./worker")).browserCommand(session, request);
     else if (request.surface === "tui") {
       const lease = await acquireLease(`tui-${session.id}`, { run_id: session.id });

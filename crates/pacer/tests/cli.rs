@@ -36,12 +36,14 @@ fn commands_exec_core_with_arguments_and_environment() {
     let fake = dir.path().join("core.sh");
     fs::write(
         &fake,
-        "#!/bin/sh\nprintf '%s|' \"$@\"; printf 'BIN=%s' \"$PACER_BIN\"\nexit 7\n",
+        "#!/bin/sh\nprintf '%s|' \"$@\"; printf 'BIN=%s;PRELOAD=%s|%s' \"$PACER_BIN\" \"$BUN_OPTIONS\" \"$NODE_OPTIONS\"\nexit 7\n",
     )
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     for bin in [None, Some("/x/pacer")] {
         let mut cmd = pacer();
+        cmd.env("BUN_OPTIONS", "injected-bun-preload")
+            .env("NODE_OPTIONS", "injected-node-preload");
         cmd.env(
             "PACER_CORE_ARGV",
             serde_json::to_string(&[fake.to_str().unwrap(), "prefix"]).unwrap(),
@@ -62,7 +64,7 @@ fn commands_exec_core_with_arguments_and_environment() {
         });
         assert_eq!(
             String::from_utf8(o.stdout).unwrap(),
-            format!("prefix|route|--json|a b|$(literal)|BIN={expected}")
+            format!("prefix|route|--json|a b|$(literal)|BIN={expected};PRELOAD=|")
         );
     }
 }
@@ -79,7 +81,11 @@ fn bad_core_argv_is_usage_error() {
 }
 #[test]
 fn missing_core_explains_itself() {
-    let o = pacer().arg("route").output().unwrap();
+    let o = pacer()
+        .env("PACER_NO_SELF_REPAIR", "1")
+        .arg("route")
+        .output()
+        .unwrap();
     assert_eq!(o.status.code(), Some(1));
     assert!(
         String::from_utf8(o.stderr)
@@ -285,6 +291,7 @@ fn canonical_executable_sibling_and_pacer_bin_are_used() {
         let o = Command::new(links.join("pacer"))
             .env_remove("PACER_CORE_ARGV")
             .env_remove("PACER_BIN")
+            .env("PACER_NO_SELF_REPAIR", "1")
             .args(&args)
             .output()
             .unwrap();

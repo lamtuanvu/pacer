@@ -3,6 +3,7 @@ import { apiCommand } from "./commands/api";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
@@ -74,7 +75,7 @@ const USAGE = `usage: pacer <command>
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
-           [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
+           [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
@@ -285,14 +286,18 @@ function renderTask(t: TaskRecord): string {
   }
   if (r) {
     lines.push(`files:\n${r.files || "(none)"}`);
-    if (r.acceptance) lines.push(`acceptance: ${r.acceptance.cmd} -> ${r.acceptance.passed ? "pass" : "FAIL"}`);
+    if (r.acceptance) {
+      const detail = [r.acceptance.exitCode !== undefined ? `exit ${r.acceptance.exitCode}` : undefined, r.acceptance.shell].filter(Boolean).join(", ");
+      lines.push(`acceptance: ${r.acceptance.cmd} -> ${r.acceptance.passed ? "pass" : "FAIL"}${detail ? ` (${detail})` : ""}`);
+      if (r.acceptance.hint) lines.push(`  hint: ${r.acceptance.hint}`);
+    }
     lines.push(`report:\n${r.report.slice(-1500)}`);
   }
   return lines.join("\n");
 }
 
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts } = parseFlags(args, ["wait", "json", "force"]);
+  const { opts } = parseFlags(args, ["wait", "json", "force", "acceptance-pipefail"]);
   try {
     if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
     if(opts["brief-file"]===true)throw new DelegateError("--brief-file needs a path or -");
@@ -301,6 +306,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
     for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
@@ -366,6 +372,13 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 }
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+  let nativeBootstrap;
+  try {
+    nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
+    if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
+      return {code:2,out:"",err:"Native bootstrap requires the internal service"};
+    }
+  } catch (error) { return {code:2,out:"",err:explain(error)}; }
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
@@ -567,7 +580,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
+          const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, ...(pairedNative ? {pairedNative} : {}) });
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {

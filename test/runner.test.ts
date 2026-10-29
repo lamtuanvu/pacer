@@ -52,6 +52,18 @@ function deps(plan: Record<string, AttemptOutcome>, st: Status = status(), accep
 const newTask = (ctx: ReturnType<typeof fakeCtx>, extra: { requestedExecutor?: string | null; acceptance?: string } = {}) =>
   createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: extra.acceptance }, kind: null, requestedExecutor: extra.requestedExecutor ?? null, timeoutS: 60 });
 
+test("brief.pipefail reaches verifyRepo's pipefail argument", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: "true", pipefail: true }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const calls: unknown[][] = [];
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  d.verifyRepo = async (...args) => { calls.push(args); return { files: "", acceptance: { cmd: "true", passed: true, tail: "" } }; };
+  await runTask(ctx, task.id, d);
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1]).toBe("true");
+  expect(calls[0][4]).toBe(true);
+});
+
 test("conversation exit skips delegated acceptance and result review", async () => {
   const ctx = fakeCtx(), task = newTask(ctx, {acceptance: "must-not-run"});
   updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});

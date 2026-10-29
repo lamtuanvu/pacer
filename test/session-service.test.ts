@@ -58,9 +58,10 @@ test('terminal.open is editable and malformed template settings are rejected',as
 test.skipIf(process.platform !== 'darwin')('session viewers honor a legacy macOS terminal.app choice', () => {
  const ctx=fakeCtx({env:{TERM_PROGRAM:'Apple_Terminal'}});mkdirSync(ctx.pacerHome,{recursive:true});
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\nterminal: {app: Ghostty}\n');
- expect(terminalSetting(ctx)).toBe('ghostty');
+ expect(terminalSetting(ctx,'darwin')).toBe('ghostty');
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\nterminal: {app: Ghostty, open: auto}\n');
- expect(terminalSetting(ctx)).toBe('terminal-app');
+ expect(terminalSetting(ctx,'darwin')).toBe('terminal-app');
+ expect(terminalSetting(ctx,'linux')).toBeNull();
 });
 test('terminal viewers return promptly while keeping a long-lived process alive',async()=>{
  const { launchViewer }=await import('../src/session/targets');

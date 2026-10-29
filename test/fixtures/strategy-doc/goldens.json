@@ -1,0 +1,1120 @@
+[
+  {
+    "id": "scalar-inline-comment",
+    "classes": [
+      "flow-map",
+      "number",
+      "inline-comment"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "pacing",
+      "planner_reserve"
+    ],
+    "value": 20,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 20} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-plain",
+    "classes": [
+      "scalar",
+      "string",
+      "plain"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "opencode",
+    "after": "# example strategy\nplanner: opencode # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-ambiguous",
+    "classes": [
+      "scalar",
+      "string",
+      "ambiguous"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "true",
+    "after": "# example strategy\nplanner: \"true\" # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-colon",
+    "classes": [
+      "scalar",
+      "string",
+      "colon"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "remote: runner",
+    "after": "# example strategy\nplanner: \"remote: runner\" # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-hash",
+    "classes": [
+      "scalar",
+      "string",
+      "hash"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "runner # one",
+    "after": "# example strategy\nplanner: \"runner # one\" # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-unicode",
+    "classes": [
+      "scalar",
+      "string",
+      "unicode"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "runner-λ",
+    "after": "# example strategy\nplanner: runner-λ # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-multiline",
+    "classes": [
+      "scalar",
+      "string",
+      "multiline"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "line one\nline two\n",
+    "after": "# example strategy\nplanner: |\n         line one\n         line two # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "quote-single",
+    "classes": [
+      "quoted-scalar",
+      "single"
+    ],
+    "before": "# example strategy\nplanner: 'codex' # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "planner"
+    ],
+    "value": "runner: next",
+    "after": "# example strategy\nplanner: 'runner: next' # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "quote-double",
+    "classes": [
+      "quoted-scalar",
+      "double"
+    ],
+    "before": "# example strategy\nplanner: \"codex\" # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "planner"
+    ],
+    "value": "runner: next",
+    "after": "# example strategy\nplanner: \"runner: next\" # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-boolean",
+    "classes": [
+      "boolean"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "pacing",
+      "planner_reserve"
+    ],
+    "value": false,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: false} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-null",
+    "classes": [
+      "null"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "pacing",
+      "planner_reserve"
+    ],
+    "value": null,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: null} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "scalar-float",
+    "classes": [
+      "float"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "pacing",
+      "planner_reserve"
+    ],
+    "value": 1.25,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 1.25} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "flow-insert",
+    "classes": [
+      "flow-map",
+      "insert"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "pacing",
+      "fill_threshold"
+    ],
+    "value": 95,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "empty-flow-insert",
+    "classes": [
+      "empty-map",
+      "flow-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "value": "priority",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "block-insert",
+    "classes": [
+      "block-map",
+      "nested-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "accounts",
+      "local"
+    ],
+    "value": {
+      "kind": "endpoint",
+      "usage": "unmetered"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\n  local: { kind: endpoint, usage: unmetered }\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "missing-ancestors",
+    "classes": [
+      "missing-parent",
+      "nested-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "hosts",
+      "remote",
+      "repos",
+      "example"
+    ],
+    "value": "/workspace/example",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nhosts: { remote: { repos: { example: /workspace/example } } }\n"
+  },
+  {
+    "id": "no-final-newline",
+    "classes": [
+      "no-final-newline",
+      "insert"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route",
+    "op": "setIn",
+    "path": [
+      "new_key"
+    ],
+    "value": [
+      "codex"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnew_key: [ codex ]\n"
+  },
+  {
+    "id": "flow-parent-nested-map",
+    "classes": [
+      "flow-map",
+      "nested-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "pacing",
+      "limits"
+    ],
+    "value": {
+      "tasks": 2
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, limits: { tasks: 2 }} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "add-account",
+    "classes": [
+      "accounts",
+      "block-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "addMappingEntry",
+    "path": [
+      "accounts",
+      "local"
+    ],
+    "value": {
+      "kind": "endpoint",
+      "usage": "unmetered"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\n  local: { kind: endpoint, usage: unmetered }\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "add-runner",
+    "classes": [
+      "runners",
+      "block-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "addMappingEntry",
+    "path": [
+      "runners",
+      "local"
+    ],
+    "value": {
+      "agent": "opencode",
+      "account": "local",
+      "model": "local/model"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\n  local: { agent: opencode, account: local, model: local/model }\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "add-duplicate",
+    "classes": [
+      "error",
+      "duplicate"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "addMappingEntry",
+    "path": [
+      "accounts",
+      "codex"
+    ],
+    "value": {},
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "accounts.codex already exists"
+  },
+  {
+    "id": "remove-account",
+    "classes": [
+      "last-map-entry"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "removeMappingEntry",
+    "path": [
+      "accounts",
+      "codex"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  {}\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "remove-runner",
+    "classes": [
+      "block-map",
+      "remove"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  local: {enabled: true}\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "removeMappingEntry",
+    "path": [
+      "runners",
+      "local"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "flow-delete-first",
+    "classes": [
+      "flow-map",
+      "remove",
+      "first"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {planner_reserve: 15, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "flow-delete-middle",
+    "classes": [
+      "flow-map",
+      "remove",
+      "middle"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "planner_reserve"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "flow-delete-last",
+    "classes": [
+      "flow-map",
+      "remove",
+      "last"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, fill_threshold: 95} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "fill_threshold"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "delete-absent",
+    "classes": [
+      "no-op"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "missing"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "delete-null",
+    "classes": [
+      "null",
+      "block-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  local: # empty\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "local"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\ncodex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "list-flow-append",
+    "classes": [
+      "flow-seq",
+      "append",
+      "comment"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "routing",
+      0,
+      "default"
+    ],
+    "value": [
+      "local",
+      "codex"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [local, codex] # route\n"
+  },
+  {
+    "id": "list-flow-padding",
+    "classes": [
+      "flow-seq",
+      "padding"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [ codex ] # route\n",
+    "op": "setList",
+    "path": [
+      "routing",
+      0,
+      "default"
+    ],
+    "value": [
+      "codex",
+      "local"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [ codex, local ] # route\n"
+  },
+  {
+    "id": "list-block-survivor-comment",
+    "classes": [
+      "block-seq",
+      "comment"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing:\n  order:\n    - codex # default runner\n  policy: priority # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "pacing",
+      "order"
+    ],
+    "value": [
+      "codex",
+      "opencode"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing:\n  order:\n    - codex # default runner\n    - opencode\n  policy: priority # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "list-duplicate-reorder",
+    "classes": [
+      "flow-seq",
+      "duplicates",
+      "reorder"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {order: [codex, local, codex], policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "pacing",
+      "order"
+    ],
+    "value": [
+      "local",
+      "codex",
+      "codex"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {order: [local, codex, codex], policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "list-missing",
+    "classes": [
+      "insert",
+      "flow-seq"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "pacing",
+      "order"
+    ],
+    "value": [
+      "codex"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15, order: [ codex ]} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "list-replace-scalar",
+    "classes": [
+      "scalar-to-seq"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "planner"
+    ],
+    "value": [
+      "codex",
+      "local"
+    ],
+    "after": "# example strategy\nplanner: [ codex, local ] # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "list-empty",
+    "classes": [
+      "empty-seq"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "routing",
+      0,
+      "default"
+    ],
+    "value": [],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [] # route\n"
+  },
+  {
+    "id": "set-index",
+    "classes": [
+      "seq-index"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setScalar",
+    "path": [
+      "routing",
+      0,
+      "default",
+      0
+    ],
+    "value": "local",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [local] # route\n"
+  },
+  {
+    "id": "rename-routing-key",
+    "classes": [
+      "rename",
+      "seq-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "renameKey",
+    "path": [
+      "routing",
+      0,
+      "default"
+    ],
+    "value": "executors",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - executors: [codex] # route\n"
+  },
+  {
+    "id": "rename-quoted-key",
+    "classes": [
+      "rename",
+      "quoted-key"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "renameKey",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "value": "policy: next",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {\"policy: next\": priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "rename-conflict",
+    "classes": [
+      "error",
+      "rename"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "renameKey",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "value": "planner_reserve",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "cannot rename strategy key"
+  },
+  {
+    "id": "rename-missing",
+    "classes": [
+      "error",
+      "rename"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "renameKey",
+    "path": [
+      "pacing",
+      "missing"
+    ],
+    "value": "next",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "missing strategy key"
+  },
+  {
+    "id": "replace-routing-append",
+    "classes": [
+      "replace-node",
+      "block-seq",
+      "append"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "routing"
+    ],
+    "value": {
+      "kind": "append",
+      "value": {
+        "default": [
+          "local"
+        ]
+      }
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [ codex ] # route\n  - default:\n      - local\n"
+  },
+  {
+    "id": "replace-routing-remove",
+    "classes": [
+      "replace-node",
+      "block-seq",
+      "remove"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "routing"
+    ],
+    "value": {
+      "kind": "removeAt",
+      "index": 0
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  []\n"
+  },
+  {
+    "id": "replace-migration-map",
+    "classes": [
+      "replace-node",
+      "migration",
+      "map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\nproviders:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "providers"
+    ],
+    "value": {
+      "kind": "setEntries",
+      "entries": {
+        "local": {
+          "kind": "endpoint",
+          "usage": "unmetered"
+        }
+      }
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\nproviders:\n  codex: { kind: codex } # default budget\n  local:\n    kind: endpoint\n    usage: unmetered\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "replace-block-node",
+    "classes": [
+      "replace-node",
+      "flow-to-block",
+      "comment"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "pacing"
+    ],
+    "value": {
+      "kind": "yaml",
+      "yaml": "# leading replacement\npolicy: priority\norder:\n  - codex # survivor\n"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: \n  # leading replacement\n  policy: priority\n  order:\n    - codex # survivor # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "replace-flow-parent",
+    "classes": [
+      "replace-node",
+      "flow-parent",
+      "map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {limits: {}, policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "pacing",
+      "limits"
+    ],
+    "value": {
+      "kind": "yaml",
+      "yaml": "max_tasks: 4\nenabled: true\n"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {limits: { max_tasks: 4, enabled: true }, policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n"
+  },
+  {
+    "id": "replace-block-scalar",
+    "classes": [
+      "block-scalar",
+      "literal"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: |\n  old\n  notes\n",
+    "op": "setScalar",
+    "path": [
+      "notes"
+    ],
+    "value": "new\nlines\n",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: |\n       new\n       lines\n"
+  },
+  {
+    "id": "replace-folded-scalar",
+    "classes": [
+      "block-scalar",
+      "folded"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: >-\n  old folded\n  notes\n",
+    "op": "setScalar",
+    "path": [
+      "notes"
+    ],
+    "value": "new folded text",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: >-\n       new folded text\n"
+  },
+  {
+    "id": "get-map",
+    "classes": [
+      "read",
+      "map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "getIn",
+    "path": [
+      "accounts"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "result": {
+      "found": true,
+      "value": {
+        "codex": {
+          "kind": "codex"
+        }
+      }
+    }
+  },
+  {
+    "id": "get-scalar",
+    "classes": [
+      "read",
+      "scalar"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "getIn",
+    "path": [
+      "planner"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "result": {
+      "found": true,
+      "value": "codex"
+    }
+  },
+  {
+    "id": "get-missing",
+    "classes": [
+      "read",
+      "undefined"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "getIn",
+    "path": [
+      "missing"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "result": {
+      "found": false
+    }
+  },
+  {
+    "id": "set-empty-path",
+    "classes": [
+      "error"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [],
+    "value": 1,
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "a strategy key is required"
+  },
+  {
+    "id": "set-nonmap-parent",
+    "classes": [
+      "error",
+      "parent"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setIn",
+    "path": [
+      "planner",
+      "name"
+    ],
+    "value": "local",
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "strategy key is not a mapping: planner"
+  },
+  {
+    "id": "invalid-yaml",
+    "classes": [
+      "error",
+      "parse"
+    ],
+    "before": "planner: [unterminated\n",
+    "op": "setIn",
+    "path": [
+      "planner"
+    ],
+    "value": "local",
+    "after": "planner: [unterminated\n",
+    "error": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 1:\n\nplanner: [unterminated\n\n^\n"
+  },
+  {
+    "id": "crlf-scalar",
+    "classes": [
+      "crlf",
+      "scalar"
+    ],
+    "before": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n",
+    "op": "setScalar",
+    "path": [
+      "planner"
+    ],
+    "value": "local",
+    "after": "# example strategy\r\nplanner: local # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n"
+  },
+  {
+    "id": "crlf-list",
+    "classes": [
+      "crlf",
+      "list"
+    ],
+    "before": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n",
+    "op": "setList",
+    "path": [
+      "routing",
+      0,
+      "default"
+    ],
+    "value": [
+      "local",
+      "codex"
+    ],
+    "after": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [local, codex] # route\r\n"
+  },
+  {
+    "id": "crlf-insert",
+    "classes": [
+      "crlf",
+      "insert"
+    ],
+    "before": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n",
+    "op": "setIn",
+    "path": [
+      "hosts",
+      "remote"
+    ],
+    "value": {
+      "ssh": "example-host"
+    },
+    "after": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\nhosts: { remote: { ssh: example-host } }\r\n"
+  },
+  {
+    "id": "crlf-delete",
+    "classes": [
+      "crlf",
+      "delete"
+    ],
+    "before": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {policy: priority, planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "after": "# example strategy\r\nplanner: codex # planner stays here\r\naccounts:\r\n  codex: {kind: codex} # default budget\r\nrunners:\r\n  codex: {agent: codex, account: codex}\r\npacing: {planner_reserve: 15} # pace\r\nrouting:\r\n  - default: [codex] # route\r\n"
+  },
+  {
+    "id": "replace-routing-insert-before-default",
+    "classes": [
+      "replace-node",
+      "block-seq",
+      "insert",
+      "comment"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "routing"
+    ],
+    "value": {
+      "kind": "insertAt",
+      "index": 0,
+      "value": {
+        "kinds": [
+          "review"
+        ],
+        "executors": [
+          "local"
+        ]
+      }
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - kinds:\n      - review\n    executors:\n      - local\n  - default: [ codex ] # route\n"
+  },
+  {
+    "id": "replace-missing-key",
+    "classes": [
+      "error",
+      "replace-node"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "replaceNode",
+    "path": [
+      "absent"
+    ],
+    "value": {
+      "kind": "yaml",
+      "yaml": "value\n"
+    },
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "missing strategy key: absent"
+  },
+  {
+    "id": "delete-nonmap-parent",
+    "classes": [
+      "error",
+      "delete"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "deleteIn",
+    "path": [
+      "planner",
+      "name"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "error": "strategy key is not a mapping"
+  },
+  {
+    "id": "get-null",
+    "classes": [
+      "read",
+      "null"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: null\n",
+    "op": "getIn",
+    "path": [
+      "notes"
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\nnotes: null\n",
+    "result": {
+      "found": true,
+      "value": null
+    }
+  },
+  {
+    "id": "flow-delete-only",
+    "classes": [
+      "flow-map",
+      "last-map-entry"
+    ],
+    "before": "pacing: {policy: priority} # keep\n",
+    "op": "deleteIn",
+    "path": [
+      "pacing",
+      "policy"
+    ],
+    "after": "pacing: {} # keep\n"
+  },
+  {
+    "id": "replace-leading-and-inline-comments",
+    "classes": [
+      "replace-node",
+      "comment",
+      "block-map"
+    ],
+    "before": "pacing:\n  # before node\n  limits:\n    max_tasks: 2 # tasks\n  policy: priority # after node\n",
+    "op": "replaceNode",
+    "path": [
+      "pacing",
+      "limits"
+    ],
+    "value": {
+      "kind": "setEntries",
+      "entries": {
+        "max_tasks": 4
+      }
+    },
+    "after": "pacing:\n  # before node\n  limits:\n    max_tasks: 4 # tasks\n  policy: priority # after node\n"
+  },
+  {
+    "id": "crlf-replace-block-map",
+    "classes": [
+      "crlf",
+      "replace-node",
+      "block-map"
+    ],
+    "before": "pacing:\r\n  # before node\r\n  limits:\r\n    max_tasks: 2 # tasks\r\n  policy: priority # after node\r\n",
+    "op": "replaceNode",
+    "path": [
+      "pacing",
+      "limits"
+    ],
+    "value": {
+      "kind": "setEntries",
+      "entries": {
+        "max_tasks": 4
+      }
+    },
+    "after": "pacing:\r\n  # before node\r\n  limits:\r\n    max_tasks: 4 # tasks\r\n  policy: priority # after node\r\n"
+  },
+  {
+    "id": "list-quoted-comment-survivor",
+    "classes": [
+      "flow-seq",
+      "quoted-scalar",
+      "comment"
+    ],
+    "before": "pacing:\n  order:\n    - \"codex\" # retained\n    - local # removed\n",
+    "op": "setList",
+    "path": [
+      "pacing",
+      "order"
+    ],
+    "value": [
+      "codex",
+      "new"
+    ],
+    "after": "pacing:\n  order:\n    - \"codex\" # retained\n    - new\n"
+  },
+  {
+    "id": "set-list-rule-objects",
+    "classes": [
+      "block-seq",
+      "nested-map"
+    ],
+    "before": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - default: [codex] # route\n",
+    "op": "setList",
+    "path": [
+      "routing"
+    ],
+    "value": [
+      {
+        "kinds": [
+          "review"
+        ],
+        "executors": [
+          "local"
+        ]
+      },
+      {
+        "default": [
+          "codex"
+        ]
+      }
+    ],
+    "after": "# example strategy\nplanner: codex # planner stays here\naccounts:\n  codex: {kind: codex} # default budget\nrunners:\n  codex: {agent: codex, account: codex}\npacing: {policy: priority, planner_reserve: 15} # pace\nrouting:\n  - kinds:\n      - review\n    executors:\n      - local\n  - default:\n      - codex\n"
+  },
+  {
+    "id": "crlf-list-block-survivor",
+    "classes": [
+      "crlf",
+      "block-seq",
+      "comment"
+    ],
+    "before": "pacing:\r\n  order:\r\n    - codex # default runner\r\n  policy: priority # pace\r\n",
+    "op": "setList",
+    "path": [
+      "pacing",
+      "order"
+    ],
+    "value": [
+      "codex",
+      "local"
+    ],
+    "after": "pacing:\r\n  order:\r\n    - codex # default runner\r\n    - local\r\n  policy: priority # pace\r\n"
+  }
+]

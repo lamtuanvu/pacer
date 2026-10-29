@@ -45,7 +45,7 @@ command under Sign out; run it in a terminal.
 | --- | --- |
 | Setup | Complete required steps, connect agents with a file preview and consent, add an executor, try or skip a first delegation. |
 | Dispatch | Start a new task, check the planner budget and where the next task goes, read the period's figures (Today, 7 days or 30 days), see where the tokens went, act on what needs you, follow live dispatch, and start an interactive session. The figures come from task insights; with an older service the strip says so instead of showing numbers. |
-| Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
+| Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. Back from a task restores the list’s scroll position. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, block or unblock, test endpoints and remove executors. |
 | Add executor | Choose an agent and account; for a model endpoint, enter connection details, discover models and test. Endpoint Ready state requires a passing test. After success, **OK** clears setup and returns to Executors; **Add another executor** resets all choices and starts at agent selection. |
@@ -147,6 +147,7 @@ run to see its result, checks, changes and delivery information before the
 collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
+Attention actions in the native tray open the same task detail route.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when
