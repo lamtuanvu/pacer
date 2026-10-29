@@ -1,7 +1,8 @@
 //! The non-internal startServer.fetch authentication checks, in wire order.
 use axum::{
-    http::{Request, StatusCode},
-    response::{IntoResponse, Response},
+    body::Body,
+    http::{HeaderValue, Request, StatusCode},
+    response::Response,
 };
 use pacer_foundation::Ctx;
 use std::{
@@ -56,7 +57,16 @@ pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
 }
 
 fn reject(status: StatusCode, body: &'static str, app_message: Option<&'static str>) -> Decision {
-    let mut response = (status, body).into_response();
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    // The Bun listener's Host rejection has no Content-Type. Its other string
+    // responses use Bun's exact default, rather than axum's spaced parameter.
+    if status != StatusCode::MISDIRECTED_REQUEST {
+        response.headers_mut().insert(
+            "content-type",
+            HeaderValue::from_static("text/plain;charset=utf-8"),
+        );
+    }
     if let Some(message) = app_message {
         response.extensions_mut().insert(AppPage { message });
     }

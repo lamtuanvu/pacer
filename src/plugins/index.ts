@@ -6,15 +6,23 @@ import { fileURLToPath } from "node:url";
 
 const registries = new Map<string, PluginRegistry>();
 
+/** Preserve front/wrapper routing while binding development children to this source core. */
+export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:string;bunVersion?:string} = {executable:process.execPath,bunVersion:process.versions.bun}) {
+  const source = Boolean(runtime.bunVersion) && /(^|\/)bun(?:\.exe)?$/.test(runtime.executable);
+  const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+  const argv = !c.env.PACER_BIN && source ? [runtime.executable, cli] : pacerArgv(c.env);
+  // Never copy or evaluate the ambient selector. A source front needs only the
+  // already-running host's fixed runtime and module, not arbitrary child env.
+  const env = source && c.env.PACER_BIN && c.env.PACER_CORE_ARGV !== undefined
+    ? {PACER_CORE_ARGV:JSON.stringify([runtime.executable,cli])} : {};
+  return {argv:[...argv,"plugin","run",id],cwd:c.pacerHome,env};
+}
+
 /** One registry per pacer home in this process; plugins spawn lazily on first call. */
 export function pluginRegistry(ctx: Ctx): PluginRegistry {
   let r = registries.get(ctx.pacerHome);
   if (!r) {
-    r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: (c, id) => {
-      const argv = !c.env.PACER_BIN && /(^|\/)bun(?:\.exe)?$/.test(process.execPath)
-        ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : pacerArgv(c.env);
-      return {argv: [...argv, "plugin", "run", id], cwd: c.pacerHome, env: {}};
-    } });
+    r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
     registries.set(ctx.pacerHome, r);
   }
   return r;

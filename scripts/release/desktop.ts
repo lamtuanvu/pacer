@@ -75,6 +75,16 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   if (!asset || asset.size !== cliBytes.length || asset.sha256 !== digest || parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(file) !== digest) {
     throw new Error("Desktop CLI checksum/size mismatch");
   }
+  const companion = asset.companions?.[0];
+  const core = companion ? join(dir, companion.file) : null;
+  if (core && companion) {
+    const bytes = regular(core), hash = sha256Hex(bytes);
+    if (bytes.length !== companion.size || hash !== companion.sha256
+        || parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(companion.file) !== hash) {
+      throw new Error("Desktop core checksum/size mismatch");
+    }
+    verifyDesktopExecutable(bytes, arch);
+  }
   const shell = join(app, "Contents/MacOS/pacer");
   for (const binary of [cli, helper, shell]) verifyDesktopExecutable(regular(binary), arch);
   const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
@@ -84,8 +94,8 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     throw new Error("Desktop bundle identity/version mismatch");
   }
   const run = options.run ?? runBinary;
-  for (const binary of [cli, helper, shell]) {
-    const expected = binary === cli ? `pacer ${version}` : version;
+  for (const binary of [cli, ...(core ? [core] : []), helper, shell]) {
+    const expected = binary === cli || binary === core ? `pacer ${version}` : version;
     if ((await run([binary, "--version"])).trim() !== expected) throw new Error("Desktop component version mismatch");
   }
   const stage = mkdtempSync(join(dir, ".desktop-stage-"));
@@ -104,6 +114,12 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     rmSync(join(target, "Contents/_CodeSignature"), { recursive: true, force: true });
     const resources = join(target, "Contents/Resources");
     mkdirSync(resources, { recursive: true });
+    if (core) {
+      copyFileSync(core, join(resources, "pacer-core"));
+      chmodSync(join(resources, "pacer-core"), 0o755);
+    } else if (existsSync(join(resources, "pacer-core"))) {
+      throw new Error("Legacy desktop input contains an unverified core");
+    }
     copyFileSync(cli, join(resources, "pacer"));
     copyFileSync(helper, join(resources, "pacer-update-helper"));
     chmodSync(join(resources, "pacer"), 0o755);
@@ -112,7 +128,7 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     mkdirSync(frameworks, { recursive: true });
     if (readdirSync(frameworks).length) throw new Error("Unsupported nested signing payload");
     await buildNativeShim(root, join(frameworks, "libpacer-native.dylib"), arch, run);
-    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId: "dev.pacer.desktop", version, arch, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true }, null, 2) + "\n");
+    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId: "dev.pacer.desktop", version, arch, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, ...(core ? { cliLayout: "paired" } : {}) }, null, 2) + "\n");
     return stage;
   } catch (error) { rmSync(stage, { recursive: true, force: true }); throw error; }
 }

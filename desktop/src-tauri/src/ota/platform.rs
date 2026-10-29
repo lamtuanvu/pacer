@@ -1,5 +1,33 @@
 //! Native platform effects. Loaded job descriptions are checked conservatively;
 //! unsupported macOS dictionary shapes refuse instead of guessing ownership.
+#[cfg(any(test, feature = "ota-fixture"))]
+#[path = "platform_retirement_diagnostics.rs"]
+mod retirement_diagnostics;
+// The value is evaluated exactly once; non-fixture builds have no diagnostics.
+macro_rules! fixture_retire_step {
+    ($enabled:expr, $role:expr, $stage:ident, $value:expr) => {{
+        let result = $value;
+        #[cfg(feature = "ota-fixture")]
+        let result = if $enabled {
+            retirement_diagnostics::step($role, retirement_diagnostics::Stage::$stage, result)
+        } else {
+            result
+        };
+        result
+    }};
+}
+macro_rules! fixture_retire_transition {
+    ($enabled:expr, $role:expr, $live:expr, $prior_live:expr, $value:expr) => {{
+        let result = $value;
+        #[cfg(feature = "ota-fixture")]
+        let result = if $enabled {
+            retirement_diagnostics::transition($role, $live, $prior_live, result)
+        } else {
+            result
+        };
+        result
+    }};
+}
 #[cfg(target_os = "macos")]
 #[path = "platform_adoption.rs"]
 mod adoption_native;
@@ -223,6 +251,13 @@ impl OwnedJob {
             }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
+        // Bootout completion must use the state after exact exit and retirement,
+        // not a manager snapshot captured immediately after launchctl returned.
+        let after = if change == JobChange::Bootout {
+            self.observe(trust)?
+        } else {
+            after
+        };
         match change {
             JobChange::Bootstrap if after.is_none() => Err(OtaError::Identity),
             JobChange::Bootout if after.is_some() => Err(OtaError::Identity),
@@ -596,7 +631,7 @@ impl OwnedJob {
         let Some(policy) = trust.fixture_policy() else {
             return Ok(());
         };
-        policy.validate_live().map_err(|_| OtaError::Identity)?;
+        fixture_retire_step!(next == "retired", self.role, LedgerPolicy, policy.validate_live().map_err(|_| OtaError::Identity))?;
         ensure([&policy.service_label, &policy.recovery_label].contains(&&self.definition.label))?;
         let expected = policy
             .root
@@ -633,7 +668,7 @@ impl OwnedJob {
             {
                 // Adoption replaces the service registration in place. Only a
                 // stopped job whose recorded incarnations all exited may switch.
-                ensure(copy_user_job(&self.definition.label)?.is_none())?;
+                fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
                 let prior: Vec<ProcessIdentity> = serde_json::from_value(row["processes"].clone())
                     .map_err(|_| OtaError::Invalid)?;
                 let mut gone = Vec::new();
@@ -652,6 +687,8 @@ impl OwnedJob {
         }
         let mut processes = Vec::new();
         let mut exited = Vec::new();
+        #[cfg(feature = "ota-fixture")]
+        let mut prior_still_live = false;
         if next == "loaded" {
             if let Some(pid) = pid {
                 let details = native::process_details(pid)
@@ -666,8 +703,8 @@ impl OwnedJob {
             }
         }
         if next == "retired" {
-            ensure(copy_user_job(&self.definition.label)?.is_none())?;
-            let inventory = super::control::native_process_inventory()?;
+            fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
+            let inventory = fixture_retire_step!(true, self.role, GlobalInventory, super::control::native_process_inventory())?;
             processes = inventory
                 .into_iter()
                 .filter(|details| details.executable == Path::new(&self.definition.arguments[0]))
@@ -682,12 +719,15 @@ impl OwnedJob {
             let prior: Vec<ProcessIdentity> =
                 serde_json::from_value(row["processes"].clone()).map_err(|_| OtaError::Invalid)?;
             for process in prior {
-                if original_process_gone(&process)? {
+                if fixture_retire_step!(true, self.role, PriorIdentity, original_process_gone(&process))? {
                     exited.push(process);
+                } else {
+                    #[cfg(feature = "ota-fixture")]
+                    { prior_still_live = true; }
                 }
             }
         }
-        registration_transition(
+        fixture_retire_transition!(next == "retired", self.role, !processes.is_empty(), prior_still_live, registration_transition(
             &mut record,
             &self.definition.label,
             &self.plist_path,
@@ -695,9 +735,9 @@ impl OwnedJob {
             next,
             &processes,
             &exited,
-        )?;
+        ))?;
         let after = serde_json::to_vec_pretty(&record).map_err(|_| OtaError::Invalid)?;
-        root.replace_exact("record.json", &before, &after)
+        fixture_retire_step!(next == "retired", self.role, LedgerReplace, root.replace_exact("record.json", &before, &after))
     }
 }
 
@@ -1379,6 +1419,12 @@ impl NativePlatform {
                 65536,
             )?)
             .map_err(|_| OtaError::Invalid)?;
+        let layout = metadata.get("cliLayout")
+            .map(|value| serde_json::from_value::<crate::packaging::CliLayout>(value.clone()))
+            .transpose().map_err(|_| OtaError::Invalid)?;
+        if matches!(layout, Some(crate::packaging::CliLayout::Paired)) {
+            self.trust.verify_static(&path.join("Contents/Resources/pacer-core"), CodeRole::Cli)?;
+        }
         ensure(
             metadata["schema"] == 1
                 && metadata["version"] == version

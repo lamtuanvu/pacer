@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -65,6 +65,16 @@ test("the rust front door runs the Rust binary and points it at the checkout cor
   expect(pacerArgv({})).toEqual(core);
   expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
   expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("native OTA source ownership follows the selected service executable", () => {
+  const rust = join(import.meta.dir, "..", "target", "debug", "pacer");
+  const canonicalize = (path: string) => path;
+  expect(sourceServiceMatchesExecutable(rust, { frontDoor: "rust" }, canonicalize)).toBe(true);
+  expect(sourceServiceMatchesExecutable(process.execPath, { frontDoor: "rust" }, canonicalize)).toBe(false);
+  expect(sourceServiceMatchesExecutable(process.execPath, {}, canonicalize)).toBe(true);
+  expect(sourceServiceMatchesExecutable(rust, {}, canonicalize)).toBe(false);
+  expect(sourceServiceMatchesExecutable(null, { frontDoor: "rust" }, canonicalize)).toBe(false);
 });
 
 test("up refuses an unknown front door before creating a sandbox", async () => {

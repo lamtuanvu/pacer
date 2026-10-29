@@ -1,8 +1,9 @@
 # Install pacer
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag
-`pacer.app` into Applications. Intel builds are paused for now. The
+Choose `desktop-pacer-<version>-darwin-aarch64.dmg` for Apple silicon or
+`desktop-pacer-<version>-darwin-x86_64.dmg` for Intel, open it, and drag
+`pacer.app` into Applications. The
 `.app.tar.gz` on the same page holds the identical app as the in-app update
 package; extracting it and moving `pacer.app` to Applications also works.
 

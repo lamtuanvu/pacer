@@ -6,6 +6,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- pacer now ships as a Rust front door, `pacer`, paired with its TypeScript core, `pacer-core`. The front door owns the CLI, stdio, loopback HTTP/SSE/WebSocket and the desktop's native listener. Operations and routes it does not handle itself go to the core with the same requests, results, errors, authentication and events, so the API stays the same. Keep both files together: the install script, npm, Homebrew and the desktop app install and update them as a pair. See [Distribution](docs/distribution.md).
+- When `pacer-core` is missing or reports a different version, the front door repairs it automatically; `pacer self-repair` does the same on demand. It downloads the core for its own version from the release, checks its size and SHA-256 against the release manifest, runs a version smoke test and only then replaces the file. A read-only installation directory is left unchanged, and `PACER_NO_SELF_REPAIR=1` turns off the automatic repair. The desktop app is never repaired piecemeal: reinstall the complete app instead.
+- Desktop can take over a separately installed, compatible `pacer` service: **Use the desktop service** switches its login registration to the app's bundled `pacer`/`pacer-core` pair after active work finishes. If the new service fails its startup check, the original registration is restored and verified.
+- Rust plugin SDK crates on crates.io: `pacer-plugin` (the SDK) and the generated protocol crates `pacer-plugin-protocol`, `pacer-plugin-decision-protocol` and `pacer-plugin-agent-session-protocol`. The SDK re-exports them all as `pacer_plugin::types`.
+- Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add the Insights screen and the read operation `insights.summary`: root tasks handled, subtasks, retries, accepted first try, tokens with coverage, the spread per agent, a daily series, task kinds by agent and the dispatcher's ladder rules and skip reasons, compared with the previous period. Workload counts use distinct roots and child tasks from attempts ended in the period, matching the union of the agent rows. Acceptance and retry counts retain the first-settle cohort. Narrow chart labels no longer collide; Insights table columns, frame and period control follow the board.
 
 - Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.
@@ -35,6 +40,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- `pacer --version` and `pacer status --line` are answered by the Rust front door without starting the core, so shell prompts and status bars that call them return faster.
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
 - Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
 
@@ -74,6 +80,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Open current task details from native tray attention actions after the Tasks route migration.
+- Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
+- Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
+- Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
+- Wait for a remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
+- Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate; transfer both startup descriptors together and retain them until Core confirms receipt.
 - Show Ark CLI authentication failures as unknown subscription status instead of no active subscription, with sign-in and refresh guidance in Settings › Accounts.
 - The desktop shows the live service version before loading older service screens and no longer restarts a mismatched service automatically.
 

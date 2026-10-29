@@ -5,6 +5,8 @@ import { isAbsolute, join, relative } from "node:path";
 import { record, type Session } from "./core";
 import { authorizeSeedRepair } from "./repair";
 import { authorizeFixtureRequest } from "./ota-request";
+import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
+import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
 export const BLOCKED_OPS: Readonly<Record<string, string>> = {
@@ -104,12 +106,15 @@ export function startProxy(session: Session) {
       if (req.method === "GET" && url.pathname === "/__live/health") {
         return Response.json({ pid: process.pid }, { headers: { "x-pacer-live-proxy": "1" } });
       }
+      const traceOp = FIXTURE_UPDATE_OPS.find(operation => url.pathname === `/v3/ops/${operation}`);
+      const trace = traceOp ? createOtaRequestTrace(session, traceOp) : undefined;
       const op = refusedOp(req.method, url.pathname);
       const unsafeTerminal = req.method === "POST" && url.pathname === "/v3/ops/terminal.create" && !await safeTerminalCreate(session, req);
-      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req))) {
+      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req, trace))) {
         const blocked = unsafeTerminal ? "terminal.create" : op!;
         const message = `Live validation D8: ${blocked} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${blocked}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
+        emitOtaRequestTrace(trace, { stage: "forward", outcome: "refused", status: 403 });
         return Response.json({ error: { code: "forbidden", message } }, { status: 403 });
       }
       const headers = upstreamHeaders(req.headers, session.port, session.innerPort!);
@@ -204,12 +209,15 @@ export function startProxy(session: Session) {
           upstream.close();
           return new Response("WebSocket upgrade required", { status: 426 });
         }
+        emitOtaRequestTrace(trace, { stage: "forward", outcome: "start" });
         const response = await fetch(target, {
           method: req.method, headers: transportHeaders(headers), body: req.body,
           redirect: "manual", signal: req.signal, decompress: false,
         });
+        emitOtaRequestTrace(trace, { stage: "upstream", outcome: "response", status: response.status });
         return new Response(response.body, { status: response.status, statusText: response.statusText, headers: transportHeaders(response.headers) });
       } catch {
+        emitOtaRequestTrace(trace, { stage: "upstream", outcome: "error" });
         return new Response("Live validation upstream unavailable\n", { status: 502 });
       }
     },

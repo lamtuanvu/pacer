@@ -1,3 +1,4 @@
+import { prepareManualCandidate } from "./ota-candidate";
 /** Fixed live managed-update scenarios. Every update write crosses the guarded public API. */
 import { constants, closeSync, fstatSync, openSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -7,8 +8,9 @@ import type { SnapshotV3 } from "../../src/api/read-model/types";
 import type { UpdateStatus } from "../../src/update/desktop/types";
 import { enumerateNativeProcesses } from "../../src/update/desktop/native-os";
 import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
-import { healthy, loadSession, record } from "./core";
-import { readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
+import { recordOtaEvent } from "./ota-evidence";
+import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
@@ -37,6 +39,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   if (!(MANAGED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("UNVERIFIED: this fixed scenario has no native exercise driver");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
+  assertFixtureLayoutScenario(state, scenario);
   const resuming = resumableStartup(state.runtime, state.exercise, incarnationExited);
   if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || (state.runtime && !resuming) || state.exercise || session.stopped || !session.serviceIdentity || (!resuming && !sameProcess(session.serviceIdentity, processIdentity(session.pid)))) throw Error("UNVERIFIED: fresh native fixture and exact source service ownership required");
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
@@ -48,7 +51,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   } else {
     if (before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture registration is already active or uncertain");
     const source = enumerateNativeProcesses().find(item => sameProcess(item.process, session.serviceIdentity!));
-    if (!source || source.executable !== realpathSync(process.execPath) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
+    if (!source || !sourceServiceMatchesExecutable(source.executable, session) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
     state = updateOtaDriverRecord(id, state, { exercise: null, runtime: { schema: 1, driver, sourceService: session.serviceIdentity, desktop: null, state: "starting", request: null } }, options);
     // Exact recorded incarnation is rechecked immediately before this one signal.
     if (!sameProcess(processIdentity(session.pid), session.serviceIdentity)) throw Error("Source service changed before handoff");
@@ -97,7 +100,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     state = updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, state: "managed" }, exercise: { ...newExercise(scenario, driver, installationId), state: "running" } }, options);
     const initial = await client.snapshot();
     unsubscribe = client.subscribe(initial.seq, event => {
-      if (event.type === "desktop.update") record(session, { kind: "note", behavior: `OTA ${scenario} event`, surface: "API SSE", text: JSON.stringify(event) });
+      recordOtaEvent(session, scenario, event);
     });
     async function status(): Promise<UpdateStatus> { return client.call("desktop.update.status", { installationId }); }
     async function mutate(action: "check" | "download" | "restart" | "configure", extra: Record<string, unknown> = {}): Promise<void> {
@@ -123,21 +126,11 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       throw Error(`Fixture outcome not established (${last?.phase ?? "unavailable"})`);
     }
-    const manualCandidate = async () => {
-      await waitStatus(value => value.actions.includes("check"), 60000);
-      await mutate("check");
-      const checked = await waitStatus(value => value.target === "0.2.4" && (value.phase === "ready" || value.actions.includes("download")), 60000);
-      if (checked.phase !== "ready") {
-        await mutate("download");
-        await waitStatus(value => value.phase === "ready", 90000);
-      }
-    };
     for (let attempt = 0; ; attempt++) {
       try {
-        // Exercise default automatic downloads without racing them with a
-        // configuration write and another exclusive native fixture inspection.
-        if (attempt === 0 && (await status()).autoDownload) await waitStatus(value => value.phase === "ready" && value.target === "0.2.4", 120000);
-        else await manualCandidate();
+        // This scenario proves the explicit check/download/restart path from
+        // the immutable bridge. Default automatic behavior is reported separately.
+        await prepareManualCandidate({ mutate, waitStatus });
         break;
       } catch (error) {
         // A check or download can fail before any transaction exists, for example when the

@@ -182,7 +182,7 @@ checks as the update archive and to match that archive's app file for file.
 Immutable GitHub release assets are:
 
 - `desktop-pacer-VERSION-darwin-aarch64.app.tar.gz` and `.sig`, and `desktop-pacer-VERSION-darwin-aarch64.dmg`
-- `desktop-pacer-VERSION-darwin-x86_64.app.tar.gz` and `.sig`, and `desktop-pacer-VERSION-darwin-x86_64.dmg` (Intel builds are paused)
+- `desktop-pacer-VERSION-darwin-x86_64.app.tar.gz` and `.sig`, and `desktop-pacer-VERSION-darwin-x86_64.dmg`
 - `desktop-release-VERSION.json`, with changelog notes and the release commit date
 
 The `desktop-` prefix keeps existing CLI download patterns unchanged. Publication

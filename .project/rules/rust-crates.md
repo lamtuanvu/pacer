@@ -41,8 +41,10 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 0 | `pacer-plugin-ops-protocol` (`crates/plugin-ops-protocol`) | Generated plugin operation types (`plugin.*` client ops) from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-session-protocol` (`crates/session-protocol`) | Generated interactive-session operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-terminal-protocol` (`crates/terminal-protocol`) | Generated terminal and host-terminal operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
+| 0 | `pacer-plugin-decision-protocol` (`crates/plugin-decision-protocol`) | Generated plugin `decision.*` method types from the plugin schema; CRATE-3 area split; re-exported through `pacer_plugin::types` | ≤ 10,000 generated | none |
+| 0 | `pacer-plugin-agent-session-protocol` (`crates/plugin-agent-session-protocol`) | Generated plugin `agentSession.*` method types from the plugin schema; CRATE-3 area split; re-exported through `pacer_plugin::types` | ≤ 10,000 generated | none |
 | 0 | `pacer-assistant-protocol` (`crates/assistant-protocol`) | Generated assistant operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
-| 0 | `pacer-plugin-protocol` (`crates/plugin-protocol`) | Generated plugin-protocol types | 1,500–2,500 generated | none |
+| 0 | `pacer-plugin-protocol` (`crates/plugin-protocol`) | Generated plugin-protocol types (manifest, handshake, observation, UI, diagnostic, capability); entry crate of the plugin protocol, whose definitions win name clashes in `pacer_plugin::types` | ≤ 10,000 generated | none |
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
@@ -59,7 +61,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
 | 9 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
 | 10 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
-| SDK | `pacer-plugin` (`crates/plugin-sdk`) | Rust plugin SDK; features `testing`, `install`, `exec`, `wasm`; depends on `pacer-plugin-protocol` only | 1,200 core, 3,500–4,000 with features | `wit-bindgen` (feature `wasm`) |
+| SDK | `pacer-plugin` (`crates/plugin-sdk`) | Rust plugin SDK; features `testing`, `install`, `exec`, `wasm`; depends on the plugin protocol crates (`pacer-plugin-protocol`, `pacer-plugin-decision-protocol`, `pacer-plugin-agent-session-protocol`) only; `pacer_plugin::types` re-exports all three | 1,200 core, 3,500–4,000 with features | `wit-bindgen` (feature `wasm`) |
 | SDK | `pacer-fixtures` (`crates/fixtures`) | Conformance fixture plugins | 300–400 | none |
 | Plugins | `plugins-rs/<id>` | One bundled plugin each | 100–2,500 each | per plugin, listed in `xtask/crates.toml` |
 | Tool | `xtask` | Generation, `loc`, `deps`, goldens | 600–900 | `typify`, `syn` |

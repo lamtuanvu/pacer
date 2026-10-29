@@ -95,6 +95,72 @@ func pressKey(_ key: String) throws {
     down.flags = flags; up.flags = flags
     down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
 }
+// Read-only diagnostic projection. Never changes input eligibility or requests access.
+func focusDiagnostic(_ system: AXUIElement, _ name: String, _ ownedWindow: AXUIElement?) -> [String: Any] {
+    var value: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(system, name as CFString, &value)
+    var result: [String: Any] = ["attribute_status": Int(status.rawValue)]
+    guard status == .success, let value = value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return result }
+    let node = value as! AXUIElement // Type checked above, never accepts an arbitrary CF value.
+    var pid: pid_t = 0
+    let pidStatus = AXUIElementGetPid(node, &pid)
+    result["pid_status"] = Int(pidStatus.rawValue)
+    if pidStatus == .success && pid > 0 { result["pid"] = Int(pid) }
+    var roleValue: CFTypeRef?
+    let roleStatus = AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &roleValue)
+    result["role_status"] = Int(roleStatus.rawValue)
+    if roleStatus == .success, let roleName = roleValue as? String {
+        let allowed = ["AXApplication", "AXWindow", "AXButton", "AXTextField", "AXTextArea", "AXWebArea", "AXScrollArea", "AXGroup"]
+        result["role"] = allowed.contains(roleName) ? roleName : "other"
+    }
+    if let ownedWindow = ownedWindow {
+        var windowValue: CFTypeRef?
+        let windowAttribute = name == kAXFocusedApplicationAttribute ? kAXFocusedWindowAttribute : kAXWindowAttribute
+        let windowStatus = AXUIElementCopyAttributeValue(node, windowAttribute as CFString, &windowValue)
+        result["window_status"] = Int(windowStatus.rawValue)
+        if windowStatus == .success, let windowValue = windowValue, CFGetTypeID(windowValue) == AXUIElementGetTypeID() {
+            result["owned_window_match"] = CFEqual(windowValue, ownedWindow)
+        }
+    }
+    return result
+}
+func inputDiagnostics(_ request: [String: Any]) -> [String: Any] {
+    var ownedWindow: AXUIElement?
+    var ownedVerified = false
+    let rawPID = request["pid"] as? Int
+    let identity = request["start_identity"] as? String
+    if let rawPID = rawPID, rawPID > 1 && rawPID <= Int(Int32.max), let identity = identity {
+        do {
+            let pid = pid_t(rawPID)
+            try verifyProcess(pid, identity)
+            ownedVerified = true
+            if let id = request["diagnostic_window_id"] as? String, let windowID = UInt32(id),
+                let info = try? locateWindow(pid, windowID) { ownedWindow = try? axRoot(pid, info) }
+        } catch { /* Diagnostics cannot change doctor success or authority. */ }
+    }
+    let system = AXUIElementCreateSystemWide()
+    var result: [String: Any] = ["schema": 1, "helper_pid": Int(getpid()),
+        "post_event_access": CGPreflightPostEventAccess(),
+        "frontmost_pid": Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0),
+        "selected_window_available": ownedWindow != nil,
+        "focused_application": focusDiagnostic(system, kAXFocusedApplicationAttribute, ownedWindow),
+        "focused_element": focusDiagnostic(system, kAXFocusedUIElementAttribute, ownedWindow)]
+    if ownedVerified, let rawPID = rawPID, let identity = identity {
+        do { try verifyProcess(pid_t(rawPID), identity) } catch { ownedVerified = false }
+    }
+    // All equality fields are observations only; false means their owned snapshot is stale/unavailable.
+    result["owned_target_verified"] = ownedVerified
+    if !ownedVerified {
+        result["selected_window_available"] = false
+        for field in ["focused_application", "focused_element"] {
+            if var node = result[field] as? [String: Any] {
+                node.removeValue(forKey: "owned_window_match")
+                result[field] = node
+            }
+        }
+    }
+    return result
+}
 @main struct NativeControl {
     static func main() async {
         do {
@@ -116,7 +182,7 @@ func pressKey(_ key: String) throws {
             if request["request_accessibility"] as? Bool == true {
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
             }
-            return ["accessibility": AXIsProcessTrusted(), "screen_capture":CGPreflightScreenCaptureAccess(), "screens":NSScreen.screens.count]
+            return ["accessibility": AXIsProcessTrusted(), "screen_capture":CGPreflightScreenCaptureAccess(), "screens":NSScreen.screens.count, "input_diagnostics": inputDiagnostics(request)]
         }
         guard let rawPid = request["pid"] as? Int, rawPid > 1 else { try fail("invalid_input", "Exact owned PID required") }
         let pid = pid_t(rawPid)

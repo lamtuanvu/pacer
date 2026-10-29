@@ -1,7 +1,13 @@
 [package]
 name = "pacer-plugin-protocol"
-version = "0.0.0"
-publish = false
+version = "0.1.0"
+publish = true
+description = "Generated wire types for the pacer plugin protocol."
+readme = "README.md"
+repository.workspace = true
+keywords = ["pacer", "plugin", "protocol", "json-rpc"]
+categories = ["development-tools"]
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock"]
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

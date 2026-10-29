@@ -427,6 +427,67 @@ test("opted-in hosts launch _session and mirror native recordings without script
   expect(a.snapshot()).toEqual(b.snapshot());a.dispose();b.dispose();
 },15000);
 
+test("native completion drains recordings when REPORT observed the launch marker first", async () => {
+  const { ctx, home, remote, local } = setup();
+  const release = join(home, "release-session");
+  const binary = join(tmpDir(), "pacer");
+  // START sees the real owned process before _session has initialized its PTY.
+  writeFileSync(binary, `#!/bin/sh
+printf '%s' "$$" > "$2/pid"
+while [ ! -e '${release}' ]; do sleep 0.01; done
+exec '${process.execPath}' '${new URL("../src/cli.ts", import.meta.url).pathname}' "$@"
+`, { mode: 0o755 });
+  const run = ctx.run;
+  let firstReport = true;
+  ctx.run = async (argv, ms, options) => {
+    if (firstReport && argv.at(-1)?.includes("admission_complete=%s")) {
+      firstReport = false;
+      // REPORT reads session.host before exit. Force the valid interleaving:
+      // capture full, let the real session complete, then observe exit 7.
+      const observed = readFileSync(join(remote, "session.host"), "utf8");
+      expect(observed).toBe("full");
+      writeFileSync(release, "");
+      const deadline = Date.now() + 8000;
+      while (!existsSync(join(remote, "exit")) && Date.now() < deadline) await Bun.sleep(10);
+      expect(existsSync(join(remote, "exit"))).toBe(true);
+      const result = await run(argv, ms, options);
+      return { ...result, stdout: result.stdout.replace(/^session=.*$/m, `session=${observed}`) };
+    }
+    return run(argv, ms, options);
+  };
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local, { binary });
+  try {
+    expect(await io.start(["sh", "-c", "printf done; exit 7"], home, {}, "")).toHaveProperty("pid");
+    expect((await exited(io)).exit).toBe(7);
+    expect(readFileSync(join(remote, "session.host"), "utf8")).toBe("builtin");
+    expect(readFileSync(join(local, "session.log"))).toEqual(readFileSync(join(remote, "session.log")));
+  } finally {
+    writeFileSync(release, "");
+  }
+}, 15000);
+
+test("a pending full launch can settle to pipe fallback without losing or repeating bytes", async () => {
+  const local = tmpDir();
+  let reports = 0, chunks = 0;
+  const ctx = fakeCtx({ run: async (argv) => {
+    const command = argv.at(-1) ?? "";
+    if (command.includes("admission_complete=%s")) {
+      return { code: 0, stdout: `__PACER_BEGIN__\nsession=${++reports === 1 ? "full" : "none"}\npid=123\nalive=0\nexit=7\nstarted=1\nout=4\nerr=0\n`, stderr: "" };
+    }
+    if (command.includes("tail -c")) {
+      chunks++;
+      return { code: 0, stdout: `__PACER_BEGIN__\n${Buffer.from("done").toString("hex")}`, stderr: "" };
+    }
+    throw new Error("unexpected fake-host command");
+  } });
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, "~/fixture", local);
+  expect(await io.read()).toMatchObject({ exit: null, alive: true, stdoutBytes: 4 });
+  expect(await io.read()).toMatchObject({ exit: 7, alive: false, stdoutBytes: 4 });
+  expect(readFileSync(join(local, "stdout"), "utf8")).toBe("done");
+  expect(reports).toBe(2);
+  expect(chunks).toBe(1);
+});
+
 for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote protocol supports exact snapshots and control (forward refused=${refused})`,async()=>{
   const {ctx,home,local,remote,log}=setup();
   if(refused) ctx.env.PACER_FAKE_FORWARD_REFUSED="1";

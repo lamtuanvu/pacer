@@ -18,12 +18,14 @@ export function installationFingerprint(identity: Omit<Installation, "id" | "ver
 export const BUNDLE_ID = "dev.pacer.desktop";
 export const BUNDLE_RELEASE_PATH = "Contents/Resources/pacer-release.json";
 export const BUNDLED_CLI_PATH = "Contents/Resources/pacer";
+export const BUNDLED_CORE_PATH = "Contents/Resources/pacer-core";
 export const BUNDLED_HELPER_PATH = "Contents/Resources/pacer-update-helper";
 const bundleReleaseSchema = z.object({
   schema: z.literal(1), bundleId: z.literal(BUNDLE_ID), version: z.string().refine(isVersion),
   arch: z.enum(["aarch64", "x86_64"]),
   protocolMajors: z.array(z.number().int().positive()).min(1),
   admissionProtocol: z.literal(1), rollbackCompatible: z.literal(true), nativeTransportAbi: z.literal(1),
+  cliLayout: z.literal("paired").optional(),
 });
 /** Packaging writes this before signing. Its declarations are trusted only after native signature verification. */
 export type BundleRelease = z.infer<typeof bundleReleaseSchema>;
@@ -89,6 +91,7 @@ export async function inspectInstallation(ctx: Ctx, appPath: string): Promise<In
     }
     bundleFile(app, "Contents/MacOS/pacer", uid, true);
     const cli = bundleFile(app, BUNDLED_CLI_PATH, uid, true);
+    if (release.cliLayout === "paired") bundleFile(app, BUNDLED_CORE_PATH, uid, true);
     bundleFile(app, BUNDLED_HELPER_PATH, uid, true);
     const pacerHome = realpathSync(ctx.pacerHome), home = realpathSync(ctx.home);
     owned(pacerHome, uid, "directory");

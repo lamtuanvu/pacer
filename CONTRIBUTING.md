@@ -64,6 +64,12 @@ The workflow then does the rest:
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.
 
+### Plugin SDK registry publishing
+
+Plugin SDK releases require the repository Actions secret `CARGO_REGISTRY_TOKEN`, created on crates.io with permission to publish `pacer-plugin-protocol`, `pacer-plugin-decision-protocol`, `pacer-plugin-agent-session-protocol` and `pacer-plugin` (including their first publication). Never put the token in a file or PR. Their crate versions are independent of the application version and are bumped by hand when the SDK or plugin protocol changes. Tag releases package and publish the protocol crates before the SDK. For an existing version, the registry archive's checksum is verified, then its source and metadata are compared to the local package; generated VCS provenance and Cargo.lock are excluded from that comparison so unrelated application releases do not require SDK version bumps. Different library inputs require a new crate version.
+
+Run `cargo publish --dry-run -p <crate>` for each protocol crate before publishing. The SDK's first registry dry run requires those protocol versions to be published and indexed; workspace tests verify its path dependency beforehand. `bun scripts/release/crates.ts` runs package/dry-run checks without uploading; `--publish` is reserved for the tag workflow.
+
 ### One-time setup: `RELEASE_TOKEN`
 
 GitHub doesn't run workflows for pushes and PRs made with the built-in `GITHUB_TOKEN`, so the release PR and tag use a fine-grained personal access token:

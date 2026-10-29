@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   nativeSocketPath,
   compiledAppleTeamId,
@@ -436,7 +437,7 @@ test("coexisting known CLI outside service and enrolled work blocks native mutat
   ).toThrow();
 });
 
-async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
+async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop", paired = false) {
   const { writeFileSync } = await import("node:fs"),
     { dirname, join } = await import("node:path"),
     { plist, servicePath } = await import("../src/service");
@@ -456,6 +457,7 @@ async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
   mkdirSync(dirname(desktop), { recursive: true });
   for (const path of [cli, desktop, join(dirname(cli), "pacer-update-helper")])
     writeFileSync(path, "fixture", { mode: 0o755 });
+  if (paired) writeFileSync(join(dirname(cli), "pacer-core"), "fixture core", { mode: 0o755 });
   writeFileSync(
     join(dirname(cli), "pacer-release.json"),
     JSON.stringify({
@@ -467,6 +469,7 @@ async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
       admissionProtocol: 1,
       nativeTransportAbi: 1,
       rollbackCompatible: true,
+      ...(paired ? { cliLayout: "paired" } : {}),
     }),
   );
   writeFileSync(
@@ -478,6 +481,7 @@ async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
   let resolve!: () => void,
     closed = false;
   const sent: any[] = [];
+  const verifiedStatic: string[] = [];
   const peer = {
     auditToken: new Uint8Array(32),
     closed: new Promise<void>((r) => (resolve = r)),
@@ -500,7 +504,7 @@ async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
         auditToken: new Uint8Array(32),
         role,
       }),
-      verifyStatic: () => {},
+      verifyStatic: path => { verifiedStatic.push(path); },
     },
     verifyService: async () => {},
   });
@@ -522,8 +526,16 @@ async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop") {
     sent,
     closed: () => closed,
     version: currentVersion(),
+    app,
+    verifiedStatic,
   };
 }
+test("native desktop admission verifies the paired core's signing role", async () => {
+  const f = await nativeBridgeFixture("desktop", true);
+  try {
+    expect(f.verifiedStatic).toContain(join(f.app, "Contents/Resources/pacer-core"));
+  } finally { f.bridge.stop(); }
+});
 test("native session appears only after signed channel readiness and is revoked on replay", async () => {
   const f = await nativeBridgeFixture();
   try {

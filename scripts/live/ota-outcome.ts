@@ -33,18 +33,22 @@ const proofIdentity = (value: unknown): ProcessIdentity => {
   return { pid: p.pid, bootId: p.bootId, birth: p.birth };
 };
 /** Adoption evidence: the journal, its manifest and the branch-specific readiness proof must agree. */
-export function verifyAdoptionOutcome(scenario: string, installationId: string, transactionId: string, phase: string | undefined, manifestBytes: Buffer, journal: any): { branch: "managed" | "original"; resultingInstallationId: string; service: ProcessIdentity; desktop: ProcessIdentity } {
+export function verifyAdoptionOutcome(scenario: string, installationId: string, transactionId: string, phase: string | undefined, manifestBytes: Buffer, journal: any, initialLayout: "bridge" | "paired" = "bridge"): { branch: "managed" | "original"; resultingInstallationId: string; service: ProcessIdentity; desktop: ProcessIdentity } {
   if (scenario !== "adopt" && scenario !== "adopt-failure") throw Error("Unknown fixed adoption scenario");
   const expected = scenario === "adopt" ? "committed" : "restored", branch = scenario === "adopt" ? "managed" : "original";
+  if (initialLayout !== "bridge" && initialLayout !== "paired") throw Error("Unknown initial fixture layout");
+  const desktopVersion = initialLayout === "paired" ? "0.2.4" : "0.2.3";
+  const serviceVersion = branch === "managed" ? desktopVersion : "0.2.3";
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  if (phase !== expected || journal.state !== expected || journal.transactionKind !== "adoption" || manifest.transactionKind !== "adoption" ||
+  if (manifest.source?.target?.version !== desktopVersion || manifest.source?.serviceVersion !== "0.2.3" ||
+      phase !== expected || journal.state !== expected || journal.transactionKind !== "adoption" || manifest.transactionKind !== "adoption" ||
       manifest.binding?.transactionId !== transactionId || manifest.binding?.installationId !== installationId ||
       journal.manifestSha256 !== createHash("sha256").update(manifestBytes).digest("hex")) throw Error("Adoption journal differs from public outcome");
   const proof = expected === "committed" ? journal.verificationProof : journal.restorationProof;
   const resulting = branch === "managed" ? manifest.expectedNewInstallationId : installationId;
   if (!proof || proof.installationId !== installationId || proof.transactionId !== transactionId || proof.branch !== branch ||
       proof.resultingInstallationId !== resulting || proof.desktopSignedIn !== true || proof.validStateRead !== true ||
-      proof.desktopVersion !== "0.2.3" || proof.serviceVersion !== "0.2.3") throw Error("Adoption readiness proof is for another branch, installation or version");
+      proof.desktopVersion !== desktopVersion || proof.serviceVersion !== serviceVersion) throw Error("Adoption readiness proof is for another branch, installation or version");
   return { branch, resultingInstallationId: resulting, service: proofIdentity(proof.service), desktop: proofIdentity(proof.desktop) };
 }
 /** After recovery retirement the proven service and Desktop must still be the live participants. */

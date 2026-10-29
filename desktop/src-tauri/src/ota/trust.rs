@@ -5,6 +5,12 @@ use super::native::{ProcessDetails, ProcessIdentity};
 use super::OtaError;
 use std::path::Path;
 
+#[cfg(all(test, target_os = "macos"))]
+thread_local! {
+    // Diagnostic-only: set only by the synchronous owned-child trust test.
+    static TRUST_TEST_SPAWN_STARTED: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
 pub const APP_ID: &str = "dev.pacer.desktop";
 pub const CLI_ID: &str = "dev.pacer.cli";
 pub const NATIVE_SHIM_ID: &str = "dev.pacer.desktop.native-shim";
@@ -249,9 +255,23 @@ impl ReleaseTrust {
             Flags, GuestAttributes, SecCode, SecRequirement,
         };
         let before = super::native::process_details(expected.pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!(
+                    "trust-test dynamic before-process-details errno={:?} kind={:?}",
+                    _error.raw_os_error(),
+                    _error.kind()
+                );
+                OtaError::Identity
+            })?
+            .ok_or_else(|| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic before-process-absent");
+                OtaError::Identity
+            })?;
         if &before.identity != expected || before.uid != unsafe { libc::geteuid() } {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic before-identity-or-uid");
             return Err(OtaError::Identity);
         }
         if self
@@ -259,26 +279,63 @@ impl ReleaseTrust {
             .as_ref()
             .is_some_and(|fixture| !fixture.permits_path(&before.executable))
         {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic fixture-path");
             return Err(OtaError::Identity);
         }
         let requirement: SecRequirement = self
             .requirement(role)
-            .parse()
-            .map_err(|_| OtaError::Identity)?;
+            .parse::<SecRequirement>()
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic requirement osstatus={}", _error.code());
+                OtaError::Identity
+            })?;
         let mut attributes = GuestAttributes::new();
         attributes.set_pid(i32::try_from(expected.pid).map_err(|_| OtaError::Identity)?);
         let token = audit_token.map(|bytes| CFData::from_buffer(bytes));
         if let Some(token) = token.as_ref() {
             attributes.set_audit_token(token.as_concrete_TypeRef());
         }
-        let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
-            .map_err(|_| OtaError::Identity)?;
+        #[cfg(test)]
+        let guest_started = std::time::Instant::now();
+        #[cfg(test)]
+        let spawn_to_guest_us = TRUST_TEST_SPAWN_STARTED.with(|start| {
+            start
+                .get()
+                .map(|start| guest_started.duration_since(start).as_micros())
+        });
+        let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE).map_err(
+            |_error| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic guest-lookup osstatus={} spawn_to_guest_us={spawn_to_guest_us:?} guest_us={}", _error.code(), guest_started.elapsed().as_micros());
+                OtaError::Identity
+            },
+        )?;
         code.check_validity(Flags::NONE, &requirement)
-            .map_err(|_| OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic validity osstatus={}", _error.code());
+                OtaError::Identity
+            })?;
         let after = super::native::process_details(expected.pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!(
+                    "trust-test dynamic after-process-details errno={:?} kind={:?}",
+                    _error.raw_os_error(),
+                    _error.kind()
+                );
+                OtaError::Identity
+            })?
+            .ok_or_else(|| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic after-process-absent");
+                OtaError::Identity
+            })?;
         if before != after {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic after-details-changed");
             return Err(OtaError::Identity);
         }
         Ok(VerifiedProcess { details: after })
@@ -293,6 +350,10 @@ impl ReleaseTrust {
         Err(OtaError::Unavailable)
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "trust_test_search.rs"]
+mod test_search;
 
 #[cfg(test)]
 mod tests {
@@ -365,7 +426,10 @@ mod tests {
     }
     #[test]
     fn fixture_requirement_adds_the_leases_certificate_pin_only_when_present() {
-        assert_eq!(fixture_requirement(CLI_ID, None), "identifier \"dev.pacer.cli\"");
+        assert_eq!(
+            fixture_requirement(CLI_ID, None),
+            "identifier \"dev.pacer.cli\""
+        );
         assert_eq!(
             fixture_requirement(CLI_ID, Some(CERT)),
             format!("identifier \"dev.pacer.cli\" and certificate leaf = H\"{CERT}\"")
@@ -399,14 +463,36 @@ mod tests {
     /// Disposable self-signed code-signing identity in a private keychain.
     #[cfg(target_os = "macos")]
     struct SelfSigner {
-        dir: tempfile::TempDir,
+        dir: Option<tempfile::TempDir>,
+        search: Option<super::test_search::Entry>,
+        hosted: bool,
+        _writer: std::sync::MutexGuard<'static, ()>,
         keychain: std::path::PathBuf,
         sha1: String,
+        openssl: &'static str,
     }
     #[cfg(target_os = "macos")]
     impl SelfSigner {
         fn new() -> Option<Self> {
+            Self::with_openssl("openssl")
+        }
+        fn with_openssl(openssl: &'static str) -> Option<Self> {
+            let hosted = super::test_search::hosted();
+            let result = Self::build(openssl, hosted);
+            if hosted {
+                assert!(result.is_some(), "hosted signer setup failed");
+            }
+            result
+        }
+        fn directory(&self) -> &Path {
+            self.dir
+                .as_ref()
+                .expect("fixture directory retained")
+                .path()
+        }
+        fn build(openssl: &'static str, hosted: bool) -> Option<Self> {
             use std::process::Command;
+            let writer = super::test_search::lock();
             let ok = |c: &mut Command| c.output().ok().filter(|o| o.status.success());
             let dir = tempfile::tempdir().ok()?;
             let p = |name: &str| dir.path().join(name);
@@ -415,38 +501,230 @@ mod tests {
                 "[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=pacer trust test\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n",
             )
             .ok()?;
-            ok(Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]).arg("-keyout").arg(p("key.pem")).arg("-out").arg(p("cert.pem")).arg("-config").arg(p("cs.cnf")))?;
-            ok(Command::new("openssl").args(["pkcs12", "-export", "-legacy", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12")))
-                .or_else(|| ok(Command::new("openssl").args(["pkcs12", "-export", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12"))))?;
-            let keychain = p("test.keychain-db");
-            ok(Command::new("security").args(["create-keychain", "-p", "test"]).arg(&keychain))?;
-            let mut signer = Self { dir, keychain, sha1: String::new() };
-            ok(Command::new("security").args(["unlock-keychain", "-p", "test"]).arg(&signer.keychain))?;
-            ok(Command::new("security").arg("import").arg(signer.dir.path().join("id.p12")).arg("-k").arg(&signer.keychain).args(["-P", "test", "-T", "/usr/bin/codesign"]))?;
-            ok(Command::new("security").args(["set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", "test"]).arg(&signer.keychain))?;
-            let fingerprint = ok(Command::new("openssl").args(["x509", "-noout", "-fingerprint", "-sha1", "-in"]).arg(signer.dir.path().join("cert.pem")))?;
+            ok(Command::new(openssl)
+                .args([
+                    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+                ])
+                .arg("-keyout")
+                .arg(p("key.pem"))
+                .arg("-out")
+                .arg(p("cert.pem"))
+                .arg("-config")
+                .arg(p("cs.cnf")))?;
+            ok(Command::new(openssl)
+                .args(["pkcs12", "-export", "-legacy", "-passout", "pass:test"])
+                .arg("-inkey")
+                .arg(p("key.pem"))
+                .arg("-in")
+                .arg(p("cert.pem"))
+                .arg("-out")
+                .arg(p("id.p12")))
+            .or_else(|| {
+                ok(Command::new(openssl)
+                    .args(["pkcs12", "-export", "-passout", "pass:test"])
+                    .arg("-inkey")
+                    .arg(p("key.pem"))
+                    .arg("-in")
+                    .arg(p("cert.pem"))
+                    .arg("-out")
+                    .arg(p("id.p12")))
+            })?;
+            let keychain = dir.path().canonicalize().ok()?.join("test.keychain-db");
+            let search =
+                hosted.then(|| super::test_search::Entry::new(keychain.clone(), dir.path()));
+            let mut signer = Self {
+                dir: Some(dir),
+                keychain,
+                sha1: String::new(),
+                openssl,
+                search,
+                hosted,
+                _writer: writer,
+            };
+            if hosted {
+                use std::io::Write;
+                use std::os::unix::fs::OpenOptionsExt;
+                let mut intent = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(signer.directory().join("cleanup.intent"))
+                    .expect("hosted cleanup intent");
+                intent
+                    .write_all(b"owned fixture keychain; verify search absence before deleting\n")
+                    .expect("hosted cleanup intent write");
+                intent.sync_all().expect("hosted cleanup intent sync");
+            }
+            ok(Command::new("/usr/bin/security")
+                .args(["create-keychain", "-p", "test"])
+                .arg(&signer.keychain))?;
+            ok(Command::new("security")
+                .args(["unlock-keychain", "-p", "test"])
+                .arg(&signer.keychain))?;
+            ok(Command::new("security")
+                .arg("import")
+                .arg(signer.directory().join("id.p12"))
+                .arg("-k")
+                .arg(&signer.keychain)
+                .args(["-P", "test", "-T", "/usr/bin/codesign"]))?;
+            ok(Command::new("security")
+                .args([
+                    "set-key-partition-list",
+                    "-S",
+                    "apple-tool:,apple:",
+                    "-s",
+                    "-k",
+                    "test",
+                ])
+                .arg(&signer.keychain))?;
+            let fingerprint = ok(Command::new(openssl)
+                .args(["x509", "-noout", "-fingerprint", "-sha1", "-in"])
+                .arg(signer.directory().join("cert.pem")))?;
             let text = String::from_utf8(fingerprint.stdout).ok()?;
             signer.sha1 = text.trim().rsplit('=').next()?.replace(':', "");
+            if hosted {
+                signer
+                    .search
+                    .as_mut()
+                    .unwrap()
+                    .install()
+                    .expect("hosted own search entry setup");
+            }
             Some(signer)
         }
+        // Failure-only public metadata, always restricted to this fixture keychain/certificate.
+        fn signing_diagnostic(&self, stage: &str, command: &mut std::process::Command) {
+            match command.output() {
+                Ok(output) => {
+                    let redact = |bytes: &[u8]| {
+                        let mut text = String::from_utf8_lossy(bytes)
+                            .replace(&*self.directory().to_string_lossy(), "<fixture>")
+                            .replace(
+                                &*self.keychain.parent().unwrap().to_string_lossy(),
+                                "<fixture>",
+                            );
+                        if let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty())
+                        {
+                            text = text.replace(&*home.to_string_lossy(), "<home>");
+                        }
+                        let mut end = text.len().min(4096);
+                        while !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        text.truncate(end);
+                        text
+                    };
+                    eprintln!(
+                        "trust-test {stage} status={} stdout={:?} stderr={:?}",
+                        output.status,
+                        redact(&output.stdout),
+                        redact(&output.stderr)
+                    );
+                }
+                Err(error) => eprintln!(
+                    "trust-test {stage} spawn errno={:?} kind={:?}",
+                    error.raw_os_error(),
+                    error.kind()
+                ),
+            }
+        }
+        fn diagnose_signing_failure(&self) {
+            use std::process::Command;
+            // Without -v, find-identity includes invalid identities; no search-list query.
+            self.signing_diagnostic(
+                "fixture-identities",
+                Command::new("/usr/bin/security")
+                    .args(["find-identity", "-p", "codesigning"])
+                    .arg(&self.keychain),
+            );
+            self.signing_diagnostic(
+                "fixture-certificate",
+                Command::new(self.openssl)
+                    .args(["x509", "-noout", "-fingerprint", "-sha1", "-subject", "-in"])
+                    .arg(self.directory().join("cert.pem")),
+            );
+            self.signing_diagnostic(
+                "openssl-path",
+                Command::new("/usr/bin/which").arg(self.openssl),
+            );
+            self.signing_diagnostic("openssl-version", Command::new(self.openssl).arg("version"));
+        }
         fn sign(&self, file: &Path, identifier: &str) -> bool {
-            std::process::Command::new("/usr/bin/codesign")
-                .args(["--force", "--timestamp=none", "--sign", &self.sha1, "--keychain"])
+            let result = std::process::Command::new("/usr/bin/codesign")
+                .args([
+                    "--force",
+                    "--timestamp=none",
+                    "--sign",
+                    &self.sha1,
+                    "--keychain",
+                ])
                 .arg(&self.keychain)
                 .args(["--identifier", identifier])
                 .arg(file)
-                .output()
-                .is_ok_and(|o| o.status.success())
+                .output();
+            match result {
+                Ok(output) => {
+                    if !output.status.success() {
+                        let redacted = String::from_utf8_lossy(&output.stderr)
+                            .replace(&*self.directory().to_string_lossy(), "<fixture>")
+                            .replace(
+                                &*self.keychain.parent().unwrap().to_string_lossy(),
+                                "<fixture>",
+                            );
+                        let mut end = redacted.len().min(4096);
+                        while !redacted.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        let stderr = &redacted[..end];
+                        eprintln!(
+                            "trust-test codesign status={} stderr={stderr:?}",
+                            output.status
+                        );
+                        self.diagnose_signing_failure();
+                    }
+                    output.status.success()
+                }
+                Err(error) => {
+                    eprintln!(
+                        "trust-test codesign spawn errno={:?} kind={:?}",
+                        error.raw_os_error(),
+                        error.kind()
+                    );
+                    false
+                }
+            }
         }
     }
     #[cfg(target_os = "macos")]
     impl Drop for SelfSigner {
         fn drop(&mut self) {
-            let _ = std::process::Command::new("security")
-                .arg("delete-keychain")
-                .arg(&self.keychain)
-                .output();
+            let delete = || {
+                std::process::Command::new("/usr/bin/security")
+                    .arg("delete-keychain")
+                    .arg(&self.keychain)
+                    .output()
+                    .is_ok_and(|output| output.status.success())
+            };
+            let cleaned = if let Some(entry) = self.search.as_mut() {
+                entry.cleanup(delete).is_ok()
+            } else {
+                delete()
+            };
+            super::test_search::finish_cleanup(self.hosted, cleaned, &mut self.dir);
         }
+    }
+    // Diagnostic control: same fixture recipe, only the OpenSSL executable differs.
+    // Keep the original PATH-resolved test below unchanged to retain its failure.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_openssl_fixture_signing_control() {
+        let signer = SelfSigner::with_openssl("/usr/bin/openssl")
+            .expect("system OpenSSL fixture creation must succeed");
+        let binary = signer.directory().join("system-openssl-control");
+        std::fs::copy("/usr/bin/true", &binary).unwrap();
+        assert!(signer.sign(&binary, CLI_ID));
+        let trust = ReleaseTrust::from_production(&public_key(), None, Some(&signer.sha1)).unwrap();
+        assert!(trust.verify_static(&binary, CodeRole::Cli).is_ok());
     }
     #[cfg(target_os = "macos")]
     #[test]
@@ -455,7 +733,7 @@ mod tests {
             eprintln!("skipped: openssl or security unavailable");
             return;
         };
-        let pinned = signer.dir.path().join("pinned");
+        let pinned = signer.directory().join("pinned");
         std::fs::copy("/usr/bin/true", &pinned).unwrap();
         assert!(signer.sign(&pinned, CLI_ID));
         let trust = ReleaseTrust::from_production(&public_key(), None, Some(&signer.sha1)).unwrap();
@@ -464,9 +742,10 @@ mod tests {
         let other = ReleaseTrust::from_production(&public_key(), None, Some(CERT)).unwrap();
         assert!(other.verify_static(&pinned, CodeRole::Cli).is_err());
         let bridge =
-            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), Some(&signer.sha1)).unwrap();
+            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), Some(&signer.sha1))
+                .unwrap();
         assert!(bridge.verify_static(&pinned, CodeRole::Cli).is_ok());
-        let impostor = signer.dir.path().join("impostor");
+        let impostor = signer.directory().join("impostor");
         std::fs::copy("/usr/bin/true", &impostor).unwrap();
         assert!(std::process::Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-", "--identifier", CLI_ID])
@@ -495,6 +774,36 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn fixture_signature_authority_is_scoped_to_compiled_live_lease() {
+        // Re-signed platform /bin/sleep traps on hosted macOS15. Execute only
+        // this user-target fixture; retain the same five-second child lifetime.
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("owned.rs");
+        let binary = temp.path().join("owned-fixture");
+        std::fs::write(
+            &source,
+            "fn main() { std::thread::sleep(std::time::Duration::from_secs(5)); }\n",
+        )
+        .unwrap();
+        let output = std::process::Command::new("rustc")
+            .args([
+                "--edition=2021",
+                "--crate-name",
+                "pacer_owned_trust_fixture",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "owned fixture compiler failed: {}",
+            output.status
+        );
+        fixture_signature_case(&binary);
+    }
+    #[cfg(target_os = "macos")]
+    fn fixture_signature_case(binary_source: &Path) {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let base = temp
@@ -527,7 +836,7 @@ mod tests {
         )
         .unwrap();
         let binary = root.join("fixture-helper");
-        std::fs::copy("/bin/sleep", &binary).unwrap();
+        std::fs::copy(binary_source, &binary).unwrap();
         let result = std::process::Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-", "--identifier", HELPER_ID])
             .arg(&binary)
@@ -552,19 +861,24 @@ mod tests {
         for role in [CodeRole::Desktop, CodeRole::Cli, CodeRole::Helper] {
             assert!(trust.verify_static(&shim, role).is_err());
         }
-        assert!(ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
-            .unwrap()
-            .verify_native_shim(&shim)
-            .is_err());
+        assert!(
+            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
+                .unwrap()
+                .verify_native_shim(&shim)
+                .is_err()
+        );
 
         assert!(trust.verify_static(&binary, CodeRole::Cli).is_err());
         assert!(trust
             .verify_static(Path::new("/bin/sleep"), CodeRole::Helper)
             .is_err());
-        assert!(ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
-            .unwrap()
-            .verify_static(&binary, CodeRole::Helper)
-            .is_err());
+        assert!(
+            ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None)
+                .unwrap()
+                .verify_static(&binary, CodeRole::Helper)
+                .is_err()
+        );
+        TRUST_TEST_SPAWN_STARTED.with(|start| start.set(Some(std::time::Instant::now())));
         let mut child = std::process::Command::new(&binary)
             .arg("5")
             .spawn()
@@ -574,6 +888,23 @@ mod tests {
             .unwrap()
             .identity;
         let verified = trust.verify_process(&identity, CodeRole::Helper);
+        TRUST_TEST_SPAWN_STARTED.with(|start| start.set(None));
+        if verified.is_err() {
+            use std::os::unix::process::ExitStatusExt;
+            match child.try_wait() {
+                Ok(None) => eprintln!("trust-test fixture-child state=running"),
+                Ok(Some(status)) => eprintln!(
+                    "trust-test fixture-child state=exited code={:?} signal={:?}",
+                    status.code(),
+                    status.signal()
+                ),
+                Err(error) => eprintln!(
+                    "trust-test fixture-child state=unavailable errno={:?} kind={:?}",
+                    error.raw_os_error(),
+                    error.kind()
+                ),
+            }
+        }
         child.kill().unwrap();
         child.wait().unwrap();
         assert!(verified.is_ok());

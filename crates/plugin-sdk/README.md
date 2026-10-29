@@ -2,6 +2,8 @@
 
 The Rust plugin SDK for pacer, implementing the `@pacer/plugin` wire contract.
 
+Version 0.1 supports plugin protocol 1.x. SDK and protocol crate versions are independent of the pacer application version.
+
 ## Install
 
 Add the crate to your Rust plugin binary:

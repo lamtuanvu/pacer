@@ -57,6 +57,30 @@ test("staging retains only the declared native permission helper and validates i
   }
 });
 
+test("paired desktop staging verifies and installs the private core before running components", async () => {
+  for (const corrupt of [false, true]) {
+    const f = fixture();
+    const bytes = readFileSync(join(f.dir, "pacer-darwin-arm64"));
+    const file = "pacer-core-darwin-arm64";
+    writeFileSync(join(f.dir, file), corrupt ? Buffer.alloc(bytes.length) : bytes, { mode: 0o755 });
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const manifest = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
+    manifest.assets[0].companions = [{ name: "pacer-core", file, sha256: hash, size: bytes.length }];
+    writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(manifest));
+    writeFileSync(join(f.dir, "SHA256SUMS"), readFileSync(join(f.dir, "SHA256SUMS"), "utf8") + `${hash}  ${file}\n`);
+    if (corrupt) {
+      await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run })).rejects.toThrow("core");
+      expect(f.calls).toEqual([]);
+    } else {
+      const run = async (argv: string[]) => argv[0].endsWith(file) ? "pacer 1.2.3\n" : f.run(argv);
+      const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run });
+      const resources = join(stage, "pacer.app/Contents/Resources");
+      expect(readFileSync(join(resources, "pacer-core"))).toEqual(bytes);
+      expect(JSON.parse(readFileSync(join(resources, "pacer-release.json"), "utf8")).cliLayout).toBe("paired");
+    }
+  }
+});
+
 test("staging refuses mismatched architecture before running a binary", async () => {
   const f = fixture();
   const bad = readFileSync(join(f.dir, "pacer-update-helper")); bad.writeUInt32LE(0x01000007, 4);

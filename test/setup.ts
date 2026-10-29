@@ -24,6 +24,11 @@ const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
     throw new Error("bun test refuses real user PACER_HOME");
   }
 };
+// Compiled release tests must reuse the provisioned Rust toolchain and targets
+// after HOME changes. Keep caller overrides; otherwise capture the original defaults.
+const toolchainHome = process.env.HOME ?? userInfo().homedir;
+process.env.CARGO_HOME ??= join(toolchainHome, ".cargo");
+process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
 const isolatedHome = mkdtempSync(join(tmpdir(), "pacer-test-home-"));
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");

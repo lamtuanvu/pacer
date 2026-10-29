@@ -11,6 +11,10 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "helper_parent.rs"]
+mod parent_proof;
+
 #[cfg(target_os = "macos")]
 #[path = "helper_adoption.rs"]
 mod adoption;
@@ -62,7 +66,7 @@ impl Bootstrap {
     }
     fn verify_parent(&self, trust: &ReleaseTrust) -> Result<(), OtaError> {
         let parent = unsafe { libc::getppid() };
-        if parent <= 1 || parent as u32 != self.service.pid {
+        if parent <= 1 {
             return Err(OtaError::Identity);
         }
         let verified = trust.verify_process(&self.service, CodeRole::Cli)?;
@@ -73,6 +77,12 @@ impl Bootstrap {
             .map_err(|_| OtaError::Identity)?
             != self.executable
         {
+            return Err(OtaError::Identity);
+        }
+        if parent as u32 != self.service.pid {
+            #[cfg(target_os = "macos")]
+            parent_proof::verify(verified.details(), parent as u32, trust)?;
+            #[cfg(not(target_os = "macos"))]
             return Err(OtaError::Identity);
         }
         if let Some(fixture) = trust.fixture_policy() {

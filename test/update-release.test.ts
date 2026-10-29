@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildRelease, parseBuildArgs, writeRelease } from "../scripts/release/build";
-import { type Platform, assetFile, hostTarget, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
+import { type Platform, assetFile, companionFile, hostTarget, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -16,6 +16,7 @@ function fakeBinaries(outRoot: string, version: string, platforms: Platform[]): 
     const f = join(dir, assetFile(p));
     writeFileSync(f, `#!/bin/sh\n# ${p.os}-${p.arch}\necho "pacer ${version}"\n`);
     chmodSync(f, 0o755);
+    writeFileSync(join(dir, companionFile(p)), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
   }
 }
 
@@ -74,7 +75,9 @@ test.skipIf(!HOST)("bun run release --host compiles a working binary with the ve
   expect(stdout).toContain(`release ${PKG_VERSION}: ${dir}`);
   const bin = readFileSync(join(dir, file));
   const manifest = parseManifest(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
-  expect(manifest).toEqual({ version: PKG_VERSION, assets: [{ os: HOST!.os, arch: HOST!.arch, file, sha256: sha256Hex(bin), size: bin.length }] });
+  const core = readFileSync(join(dir, companionFile(HOST!)));
+  expect(manifest).toEqual({ version: PKG_VERSION, assets: [{ os: HOST!.os, arch: HOST!.arch, file, sha256: sha256Hex(bin), size: bin.length, companions: [{ name: "pacer-core", file: companionFile(HOST!), sha256: sha256Hex(core), size: core.length }] }] });
+  expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(companionFile(HOST!))).toBe(sha256Hex(core));
   expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(file)).toBe(sha256Hex(bin));
   expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8"))).toEqual({ version: PKG_VERSION });
   expect(statSync(join(dir, file)).mode & 0o111).not.toBe(0);
