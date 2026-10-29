@@ -307,7 +307,7 @@
       },
       {
         "name": "tray-count",
-        "fontSize": "20px",
+        "fontSize": "22px",
         "lineHeight": "26px",
         "fontWeight": 650,
         "provisional": "Tray board value; not yet in the design system."

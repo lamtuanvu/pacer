@@ -4,7 +4,7 @@ export interface TrayHost {
 }
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 export function appHref(route: string): string { return `/app/#${route.replace(/^#/, "") || "/"}`; }
-/** Only these four commands cross the desktop boundary. A browser needs no shell. */
+/** Only these commands cross the desktop boundary. A browser needs no shell. */
 export function createTrayIpc(host: TrayHost | undefined = typeof window === "undefined" ? undefined : window as unknown as TrayHost) {
   const invoke = host?.__TAURI__?.core?.invoke ?? host?.__TAURI__?.tauri?.invoke ?? host?.__TAURI__?.invoke;
   return {
@@ -15,6 +15,12 @@ export function createTrayIpc(host: TrayHost | undefined = typeof window === "un
     resize: async (height: number) => { if (invoke) await invoke("tray_resize", { height: Math.max(1, Math.min(560, Math.ceil(height))) }); },
     hide: async () => { if (invoke) await invoke("tray_hide"); },
     quit: async () => { if (invoke) await invoke("app_quit"); },
+    loginItem: async (enabled?: boolean): Promise<boolean> => {
+      if (!invoke) throw new Error("Login items require the desktop app");
+      const result = await invoke("tray_login_item", enabled === undefined ? {} : { enabled });
+      if (typeof result !== "boolean") throw new Error("Could not read login item");
+      return result;
+    },
     desktop: !!invoke,
   };
 }

@@ -171,7 +171,7 @@ test("tray shows unknown and unavailable capacity from the same rows", () => {
   const unavailableSnapshot = { ...snapshot, executors: [unavailable] };
   const popover = renderToString(<Tray snapshot={unavailableSnapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
   expect(anchorRows(popover, 'tray-executor--off')).toHaveLength(1);
-  expect(popover).toContain(">off</span>");
+  expect(popover).toContain(">1 off</a>");
   expect(popover).not.toContain(">free</span>");
 });
 

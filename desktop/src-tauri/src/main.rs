@@ -339,6 +339,30 @@ fn tray_hide(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())
 }
 #[tauri::command]
+fn tray_login_item(
+    window: WebviewWindow,
+    app: AppHandle,
+    enabled: Option<bool>,
+) -> Result<bool, String> {
+    authorized_tray(&window, &app)?;
+    #[cfg(feature = "ota-fixture")]
+    {
+        let _ = enabled;
+        Err("Launch at login is unavailable in isolated fixtures".into())
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    {
+        if let Some(enabled) = enabled {
+            launch_at_login(&app, enabled)?;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(enabled) = approvals::launch_at_login_enabled() {
+            return Ok(enabled);
+        }
+        app.autolaunch().is_enabled().map_err(|e| e.to_string())
+    }
+}
+#[tauri::command]
 fn app_quit(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     authorized_tray(&window, &app)?;
     app.exit(0);
@@ -868,6 +892,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
             .permission("allow-client-control")
             .permission("allow-tray-open")
             .permission("allow-tray-hide")
+            .permission("allow-tray-login-item")
             .permission("allow-app-quit")
             .permission("allow-session-expired"),
         )
@@ -1280,6 +1305,7 @@ fn main() {
             tray_resize,
             tray_open,
             tray_hide,
+            tray_login_item,
             app_quit,
             session_expired,
             session_ready,
