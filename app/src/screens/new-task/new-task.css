@@ -110,3 +110,5 @@
 .pc-issue-picker__body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:var(--size-240);overflow:auto;font:inherit;margin:0}
 
 .pc-issue-source{overflow-wrap:anywhere}
+/* Inside the phone sheet these compact buttons keep a 44 px target (UI-16). */
+.pc-sheet .pc-new-task-sheet__choice .pc-new-task__add-check,.pc-sheet .pc-request-box__tool.pc-btn{height:auto;min-height:var(--control-touch)}

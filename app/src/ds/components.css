@@ -575,6 +575,8 @@ a.pc-btn{text-decoration:none}
 .pc-sheet__title{flex-grow:1;margin:0;font-size:var(--type-sheet-title-size);line-height:var(--type-sheet-title-line);font-weight:var(--type-sheet-title-weight)}
 .pc-sheet__body{flex-grow:1;min-height:0;overflow:auto}
 .pc-sheet__foot{flex:none;display:flex;flex-direction:column;gap:var(--space-1\.5);padding:var(--space-3) var(--space-4) max(var(--size-28),env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface-card)}
+/* A Sheet is the phone layout: every control inside it keeps a 44 px target (UI-16). */
+.pc-sheet .pc-radio-chip,.pc-sheet .pc-value-box,.pc-sheet .pc-btn,.pc-sheet .pc-search-picker__trigger,.pc-sheet .pc-choice-picker__trigger{height:auto;min-height:var(--control-touch)}
 .pc-attachment-picker--tool .pc-attachment-picker__trigger{gap:var(--space-1\.5);min-height:var(--control-compact);padding:0 var(--space-2);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--ink-secondary)}
 .pc-attachment-picker--tool:hover .pc-attachment-picker__trigger{background:var(--surface-lane);color:var(--ink)}
 /* AuroraSheet: assistant sheet. Solid at the bottom edge, masked to transparent at the top. Decoration moves only while generating and never under reduced motion. */

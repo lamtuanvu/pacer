@@ -196,6 +196,11 @@ browserTest("new_task_375_sheet_rows_open_sheets", async () => {
     await expect(kindRow.textContent()).resolves.toContain("Feature");
     await kindRow.click();
     const kind = page.getByRole("dialog", { name: "Kind" });
+    await kind.getByRole("radio", { name: "Docs" }).waitFor();
+    // Every control in a phone sheet keeps a 44 px target (UI-16).
+    const short = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".pc-sheet button, .pc-sheet [role=radio], .pc-sheet a[href]")]
+      .filter(el => el.getClientRects().length && el.getBoundingClientRect().height < 44).map(el => el.textContent?.trim() || el.getAttribute("aria-label")));
+    expect(short).toEqual([]);
     await kind.getByRole("radio", { name: "Docs" }).click();
     await kind.getByRole("button", { name: "Done" }).click();
     await expect(kind.count()).resolves.toBe(0);
