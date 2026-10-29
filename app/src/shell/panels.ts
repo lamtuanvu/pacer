@@ -24,6 +24,6 @@ export function panelCommands(toggleLeft?: () => void, toggleDock?: () => void, 
   return [
     ...(toggleLeft ? [{ id: "view.panel.left", title: "Toggle left panel", shortcutLabel: "Side panel", group: "View", icon: "panel-left" as const, keywords: "sidebar left", keys: "Mod-b", run: toggleLeft }] : []),
     ...(toggleRight ? [{ id: "view.panel.right", title: "Toggle details panel", shortcutLabel: "Details panel", group: "View", icon: "panel-right" as const, keywords: "session details changes", keys: "Ctrl-B", run: toggleRight }] : []),
-    ...(toggleDock ? [{ id: "view.panel.terminal", title: "Toggle terminal panel", shortcutLabel: "Terminal panel", group: "View", icon: "terminal" as const, keywords: "dock shell", keys: "Ctrl-`", allowInControl: true, run: toggleDock }] : []),
+    ...(toggleDock ? [{ id: "view.panel.terminal", title: "Toggle terminal panel", shortcutLabel: "Terminal panel", group: "View", icon: "command-terminal" as const, keywords: "dock shell", keys: "Ctrl-`", allowInControl: true, run: toggleDock }] : []),
   ];
 }

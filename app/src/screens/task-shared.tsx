@@ -27,19 +27,29 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   }
   return JSON.stringify(state.invalidations);
 }
-export function useQuery<T>(op: string, params: unknown, revision = "") {
+export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = false) {
   const { api, state } = useTaskContext();
   const [published, setResult] = useState<{ key: string; state: QueryState<T> }>();
   const [version, reload] = useState(0);
   const serialized = JSON.stringify(params);
   const invalidation = queryRevision(state, op, params);
-  const query = useMemo(() => createQuery<T>((op, params) => api.call<T>(op, params), (state, key) => setResult({ state, key })), [api]);
+  const query = useMemo(() => createQuery<T>((op, params) => api.call<T>(op, params), (state, key) => setResult({ state, key }), keepPreviousData), [api, keepPreviousData]);
   useEffect(() => () => query.dispose(), [query]);
   useEffect(() => {
     query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, version]));
   }, [query, op, serialized, revision, invalidation, state.connected, version]);
-  const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true };
+  const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true, ...(keepPreviousData && published && JSON.parse(published.key)[0] === op ? { data: published.state.data } : {}) };
   return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => reload(v => v + 1) };
+}
+/** Delay refresh feedback so fast reads do not blink. No animation is required. */
+export function useDelayedBusy(pending: boolean) {
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!pending) { setBusy(false); return; }
+    const timer = setTimeout(() => setBusy(true), 150);
+    return () => clearTimeout(timer);
+  }, [pending]);
+  return pending && busy;
 }
 export function useAction() {
   const runner = useActions();

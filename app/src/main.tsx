@@ -89,10 +89,10 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "dispatch", keys: "g o", run: go("#/") }),
-      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
-      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
-      commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
+      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "command-nav", keys: "g o", run: go("#/") }),
+      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "command-nav", keys: "g r", run: go("#/needs-you") }),
+      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "command-nav", keys: "g t", run: go("#/tasks") }),
+      commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "command-terminal", keys: "g e", run: go("#/terminal") }),
       commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
       commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
       commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "Mod-n", shortcutLabel: "New task", run: () => openNewTask() }),

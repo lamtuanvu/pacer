@@ -141,8 +141,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     const fail = (error: unknown) => notifications?.notify({ key: "dispatch-command", tone: "error", title: "Could not change dispatching", message: error instanceof Error ? error.message : undefined });
     const offs = [
       ...(state.connected && ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
-        ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
-        : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
+        ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "play", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
+        : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "command-pause", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
       ...(state.connected && ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
       commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
     ];

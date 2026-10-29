@@ -1,10 +1,16 @@
 /** A query keeps its last result while refreshing and coalesces changes during a request. */
 export interface QueryState<T> { data?: T; error?: unknown; loading: boolean }
-export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>, publish: (state: QueryState<T>, key: string) => void) {
+export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>, publish: (state: QueryState<T>, key: string) => void, keepPreviousData = false) {
   type Entry = { op: string; params: unknown; revision: string; pending: boolean; dirty: boolean; state: QueryState<T> };
   const entries = new Map<string, Entry>();
   let current: Entry | undefined, disposed = false;
-  const emit = (entry: Entry) => { if (!disposed && current === entry) publish({ ...entry.state }, JSON.stringify([entry.op, JSON.stringify(entry.params)])); };
+  let previous: { op: string; data: T } | undefined;
+  const emit = (entry: Entry) => {
+    if (disposed || current !== entry) return;
+    if (entry.state.data !== undefined) previous = { op: entry.op, data: entry.state.data };
+    const fallback = keepPreviousData && previous?.op === entry.op ? previous : undefined;
+    publish({ ...entry.state, ...(entry.state.data === undefined && fallback ? { data: fallback.data } : {}) }, JSON.stringify([entry.op, JSON.stringify(entry.params)]));
+  };
   async function fetch(entry: Entry) {
     entry.pending = true;
     entry.dirty = false;

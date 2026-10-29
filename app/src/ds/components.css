@@ -487,7 +487,7 @@ a.pc-btn{text-decoration:none}
 .pc-settings-nav__heading{margin:0;padding:var(--space-3) var(--space-2\.5) var(--space-1\.5);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
 .pc-settings-nav__list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-half)}
 .pc-settings-nav__item{display:flex;align-items:center;gap:var(--space-2\.5);height:var(--size-34);padding:0 var(--space-2\.5);border-radius:var(--radius-md);color:var(--ink-secondary);font-weight:var(--type-body-strong-weight);text-decoration:none}
-.pc-settings-nav__item svg{flex:none;width:var(--size-16);height:var(--size-16)}
+.pc-settings-nav__item svg{flex:none;width:var(--size-17);height:var(--size-17)}
 .pc-settings-nav__label{flex:1}
 .pc-settings-nav__item:hover{background:var(--surface-lane);color:var(--ink-secondary);text-decoration:none}
 .pc-settings-nav__item.on{background:var(--surface-lane);color:var(--ink);text-decoration:none}
@@ -1059,3 +1059,6 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-topbar .pc-command-trigger .pc-kbd{padding:0 var(--size-5)}
 .pc-topbar .pc-command-trigger{line-height:var(--type-body-line)}
 .pc-dispatch__controls .pc-kbd{font-size:var(--type-label-size);border-radius:var(--radius-4);opacity:.7}
+
+/* Refresh feedback changes paint only; no transition, including reduced motion. */
+.pc-query-refreshing{opacity:.65}

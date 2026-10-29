@@ -38,7 +38,7 @@ import type { AgentDetection } from "../../../../src/install/detection";
 import type { SetupChecklist } from "../../../../src/setup/checklist";
 import { SetupContext } from "../setup/context";
 import { SetupBanner } from "../setup/SetupBanner";
-import { ErrorMessage, useAction, useQuery, useTaskContext } from "../task-shared";
+import { ErrorMessage, useAction, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 
 const styledDocuments = new WeakSet<Document>();
 function useDispatchStyles() {
@@ -110,7 +110,8 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
 }
 
 /** Active work and recent decisions in the board's seven-column dispatch ledger. */
-function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, workError, onWorkReload, narrow = false }: { narrow?: boolean; snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery; workRows: WorkRow[]; workLoading?: boolean; workError?: unknown; onWorkReload?: () => void }) {
+function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, workUpdating, workError, onWorkReload, narrow = false }: { narrow?: boolean; snapshot: ClientSnapshot; scope: Scope; now: number; runner: ActionRunner; query: RouteQuery; workRows: WorkRow[]; workLoading?: boolean; workUpdating?: boolean; workError?: unknown; onWorkReload?: () => void }) {
+  const busy = useDelayedBusy(!!workUpdating);
   const nodes = scopedTaskTree(snapshot, scope, { now, extra: workTasks(workRows) });
   // A missing parent never turns a known subtask into a Dispatch row.
   const subtasks = new Set(workRows.filter(row => row.parentId).map(row => row.id));
@@ -121,7 +122,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
   if (narrow) return <section className="pc-narrow-running" aria-labelledby="running-title"><SectionHeading variant="headline" id="running-title">Running</SectionHeading>
     {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : roots.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label} · {node.repo}</span></span></ListRowLink>)}
   </section>;
-  return <section className="pc-card-section pc-live-dispatch" aria-labelledby="live-dispatch">
+  return <section aria-busy={busy || undefined} className={`pc-card-section pc-live-dispatch${busy ? " pc-query-refreshing" : ""}`} aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading variant="headline" id="live-dispatch">Live dispatch</SectionHeading>
       <Pill tone="info">{runningNow} running</Pill><Pill tone="neutral">{queued} queued</Pill><span className="grow" /><span className="pc-dispatch-caption">Kind · routed to · why · tokens</span></div>
     {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : workLoading ? <LoadingState label="Loading dispatch…" /> : visible.length > 0 ? <ul className="pc-dispatch-ledger" aria-label="Running work and recent dispatch decisions">{visible.map(node => {
@@ -233,7 +234,7 @@ function AgentUsage({ snapshot, query }: { snapshot: ClientSnapshot; query: Rout
 }
 
 /** `insights.summary` for the period (which carries the period before it) and for today. */
-export interface InsightsState { supported: boolean; loading: boolean; error?: unknown; current?: InsightsSummary; today?: InsightsSummary }
+export interface InsightsState { supported: boolean; loading: boolean; updating?: boolean; reload?: () => void; error?: unknown; current?: InsightsSummary; today?: InsightsSummary }
 
 const KPI_ICON: Record<KpiTile["id"], IconName> = { handled: "stack", tokens: "bolt", outside: "fork", accepted: "check-circle" };
 const KPI_TONE: Record<KpiTile["id"], string> = { handled: "info", tokens: "neutral", outside: "good", accepted: "good" };
@@ -242,7 +243,8 @@ function Glance({ period, insights }: { period: Period; insights: InsightsState 
   const measured = insights.current ? kpiTiles(insights.current, period, { today: insights.today ?? null }) : [];
   const labels: Record<KpiTile["id"], string> = { handled: "Root tasks handled", tokens: "Tokens spent", outside: "Ran outside planner", accepted: "Accepted first try" };
   const tiles: KpiTile[] = insights.current ? (Object.keys(labels) as KpiTile["id"][]).map(id => measured.find(tile => tile.id === id) ?? { id, label: labels[id], value: "Not measured", note: id === "outside" ? "Needs planner token attribution" : "No measured data for this period" }) : [];
-  return <section className="pc-glance-strip" aria-label={periodHeading(period)} id="glance">
+  const busy = useDelayedBusy(!!insights.updating);
+  return <section aria-busy={busy || undefined} className={`pc-glance-strip${busy ? " pc-query-refreshing" : ""}`} aria-label={periodHeading(period)} id="glance">
     {tiles.length ? <ul className="pc-glance" role="list">{tiles.map(tile => <li key={tile.id} className="pc-glance__tile">
       <span className={`pc-glance__icon pc-glance__icon--${KPI_TONE[tile.id]}`}><Icon name={KPI_ICON[tile.id]} /></span>
       <div className="pc-glance__body"><span className="pc-glance__label">{tile.label}</span><span className="pc-glance__value">{tile.value}</span>
@@ -251,6 +253,7 @@ function Glance({ period, insights }: { period: Period; insights: InsightsState 
       : <p className="pc-glance-strip__state muted">{!insights.supported ? "These figures need a newer pacer service with task insights."
         : insights.loading ? <LoadingState label="Loading figures…" />
         : "Could not load these figures. They are checked again on the next update."}</p>}
+    {insights.current && insights.error && <div role="alert">Could not refresh figures. Showing the previous reading. <Button size="sm" onClick={insights.reload}>Try again</Button></div>}
   </section>;
 }
 
@@ -338,9 +341,10 @@ export interface DispatchProps {
   /** The routing preview for new work; null when the service cannot preview routing. */
   routing?: RoutingPreview | null;
   period?: Period; onPeriod?: (period: Period) => void;
+  contentRepo?: string | null;
   insights?: InsightsState; startWork?: ComponentChildren;
   /** Work rows supply parent links and token roll-ups absent from the snapshot. */
-  workRows?: WorkRow[]; workLoading?: boolean; workError?: unknown; onWorkReload?: () => void;
+  workRows?: WorkRow[]; workLoading?: boolean; workUpdating?: boolean; workError?: unknown; onWorkReload?: () => void;
   /** False while the service is not answering; the live line then says so. */
   connected?: boolean;
   /** The planner account's 5-hour window, when its reading reports one. */
@@ -350,15 +354,15 @@ export interface DispatchProps {
 const dispatchScope = (query: RouteQuery, narrow: boolean): Scope => ({ repo: narrow ? activeRepo(query) : query.repo || null });
 const NO_INSIGHTS: InsightsState = { supported: false, loading: false };
 /** The Dispatch home in the board's order: planner budget and next task, the period's figures, tokens and Needs you, then live work. Phones lead with Needs you and live work. */
-export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workError, onWorkReload, firstRun, sampleTask }: DispatchProps) {
+export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workUpdating, workError, onWorkReload, firstRun, sampleTask, contentRepo }: DispatchProps) {
   useDispatchStyles();
   const narrow = useNarrow(query);
-  const scope = dispatchScope(query, narrow);
+  const scope = dispatchScope(contentRepo === undefined ? query : { ...query, repo: contentRepo }, narrow);
   const plannerAndNext = <PlannerAndNext snapshot={snapshot} now={now} routing={routing} query={query} shortWindowPct={shortWindowPct} />;
   const glance = <Glance period={period} insights={insights} />, share = <TokenShare summary={insights.current} planner={snapshot.planner?.agent ?? null} />;
   const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />;
   const empty = snapshot.tasks.length === 0 && !(snapshot.attention?.length) && workRows.length === 0 && !workLoading && !workError;
-  const liveWork = <LiveDispatch narrow={narrow} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
+  const liveWork = <LiveDispatch narrow={narrow} workUpdating={workUpdating} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
     <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
@@ -414,7 +418,7 @@ export function insightsReads(period: Period, anchor: number, repo: string | nul
 export interface HeldInsights { key: string; current?: InsightsSummary; today?: InsightsSummary }
 /**
  * Keeps the last figures for this period and repo while a moved range loads, so the strip neither blanks nor reflows;
- * figures from another period or repo are never shown.
+ * parameter changes retain their previous reading through the query hook until revalidation finishes.
  */
 export function holdInsights(held: HeldInsights, period: Period, repo: string | null, current: { data?: InsightsSummary; loading: boolean; error?: unknown }, today: { data?: InsightsSummary }): { held: HeldInsights; state: InsightsState } {
   const key = `${period}|${repo ?? ""}`;
@@ -422,7 +426,7 @@ export function holdInsights(held: HeldInsights, period: Period, repo: string | 
   if (current.data) next.current = current.data;
   if (today.data && period !== "today") next.today = today.data;
   const shown = current.data ?? next.current;
-  return { held: next, state: { supported: true, loading: current.loading && !shown, error: shown ? undefined : current.error, current: shown, today: period === "today" ? undefined : today.data ?? next.today } };
+  return { held: next, state: { supported: true, loading: current.loading && !shown, error: current.error, current: shown, today: period === "today" ? undefined : today.data ?? next.today } };
 }
 
 function useInsights(period: Period, repo: string | null): InsightsState {
@@ -434,12 +438,12 @@ function useInsights(period: Period, repo: string | null): InsightsState {
   useEffect(() => { setAnchor(Math.floor(Date.now() / 1000)); }, [settled]);
   useEffect(() => { const t = setInterval(() => setAnchor(Math.floor(Date.now() / 1000)), REANCHOR_S * 1000); return () => clearInterval(t); }, []);
   const reads = insightsReads(period, anchor, repo, supported);
-  const current = useQuery<InsightsSummary>(reads.current.op, reads.current.params), today = useQuery<InsightsSummary>(reads.today.op, reads.today.params);
+  const current = useQuery<InsightsSummary>(reads.current.op, reads.current.params, "", true), today = useQuery<InsightsSummary>(reads.today.op, reads.today.params, "", true);
   const held = useRef<HeldInsights>({ key: "" });
   if (!supported) return NO_INSIGHTS;
   const result = holdInsights(held.current, period, repo, current, period === "today" ? {} : today);
   held.current = result.held;
-  return result.state;
+  return { ...result.state, updating: current.updating || (period !== "today" && today.updating), error: current.error ?? today.error, reload: () => { current.reload(); today.reload(); } };
 }
 
 /** The planner account's 5-hour window from its own usage reading; nothing when the reading has none or is stale. */
@@ -453,10 +457,10 @@ export function plannerShortWindow(accounts: Account[] | undefined, runner: stri
 function useDispatchWork(repo: string | null) {
   const { api } = useTaskContext();
   type WorkPage = { tasks: WorkRow[]; next: string | null };
-  const page = useQuery<WorkPage>("dispatch.list", { relation: "all", limit: 100, ...(repo ? { repo } : {}) });
-  const [complete, setComplete] = useState<{ source: WorkPage; rows: WorkRow[]; error?: unknown }>();
+  const page = useQuery<WorkPage>("dispatch.list", { relation: "all", limit: 100, ...(repo ? { repo } : {}) }, "", true);
+  const [complete, setComplete] = useState<{ source: WorkPage; repo: string | null; rows: WorkRow[]; error?: unknown }>();
   useEffect(() => {
-    if (!page.data || page.loading) return;
+    if (!page.data || page.loading || page.error) return;
     const source = page.data;
     let cancelled = false;
     void (async () => {
@@ -469,15 +473,15 @@ function useDispatchWork(repo: string | null) {
           rows.push(...older.tasks);
           next = older.next;
         }
-        if (!cancelled) setComplete({ source, rows });
+        if (!cancelled) setComplete({ source, repo, rows });
       } catch (error) {
-        if (!cancelled) setComplete({ source, rows: [], error });
+        if (!cancelled) setComplete(previous => previous ? { ...previous, source, error } : { source, repo, rows: [], error });
       }
     })();
     return () => { cancelled = true; };
   }, [api, page.data, page.loading, repo]);
-  const current = complete?.source === page.data ? complete : undefined;
-  return { rows: current?.rows, loading: page.loading || !current, error: page.error ?? current?.error, reload: page.reload };
+  const current = complete;
+  return { repo: current?.repo, rows: current?.rows, loading: !current, updating: !!current && !page.error && !current.error && (page.loading || current.source !== page.data), error: page.error ?? current?.error, reload: page.reload };
 }
 
 export function DispatchHome({ query }: { query: RouteQuery }) {
@@ -492,8 +496,8 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const canExplain = supported && state.features.ops.has("dispatch.explain") && repo !== null;
   const revision = JSON.stringify([state.snapshot?.executors?.map(e => [e.id, e.state]),
     state.snapshot?.tasks.filter(t => t.state === "running").length, state.snapshot?.tasks.filter(t => t.state === "queued").length]);
-  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {}, supported ? revision : "");
-  const explain = useQuery<RouteExplanationView>(canExplain ? "dispatch.explain" : "version.get", canExplain ? { repo, goal: "New task" } : {}, revision);
+  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {}, supported ? revision : "", true);
+  const explain = useQuery<RouteExplanationView>(canExplain ? "dispatch.explain" : "version.get", canExplain ? { repo, goal: "New task" } : {}, revision, true);
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const work = useDispatchWork(scope.repo);
   const insights = useInsights(period, scope.repo);
@@ -501,7 +505,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   return <><LazyWorkPanels query={query} /><DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
     sampleTask={state.features.ops.has("onboarding.try") && checklist?.complete && state.snapshot.executors?.some(e => e.rank !== "planner" && e.enabled && e.state === "ready") ? <SampleTask query={query} /> : undefined}
     firstRun={isFirstRun(state.snapshot, checklist) ? <FirstRunData snapshot={state.snapshot} query={query} /> : undefined}
-    period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workError={work.error} onWorkReload={work.reload}
+    contentRepo={work.repo} period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workUpdating={work.updating} workError={work.error} onWorkReload={work.reload}
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} /></>;
 }
 

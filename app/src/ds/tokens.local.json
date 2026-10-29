@@ -301,6 +301,12 @@
         "value": "24px",
         "usage": "Touch switch visible track inside its larger target.",
         "provisional": "Shared switch geometry retained on touch screens."
+      },
+      {
+        "name": "size-17",
+        "value": "17px",
+        "usage": "Settings navigation icon geometry.",
+        "provisional": "SettingsNav design canvas icon size; not yet in the design system."
       }
     ]
   },

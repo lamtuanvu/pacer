@@ -609,3 +609,28 @@ read-only layout measurements; the open launcher clamps below that header.
 Neither channel accepts user input or changes the closed launcher's spacing.
 
 Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.
+
+### Canvas shell icons and refresh feedback
+
+`Icon` retains the 24-unit viewBox and 1.8 stroke. Activity navigation uses
+`activity-dispatch`, `needs-you`, `task-checklist`, `activity-insights` and
+`activity-terminal` from
+`docs/design/project/ActivityBar.dc.html`. Rail icons remain 20px through the
+existing size token; `add-plugin` remains 18px. The plugin check-square uses
+`plugin-checklist` in the rail and `settings-release` in SettingsNav because
+those canvases specify different outlines. TopBar uses `topbar-search` and
+`topbar-left/bottom/right`; StatusBar uses the unframed `status-terminal`.
+Existing review, session, search and panel symbols keep their other meanings.
+SettingsNav icons use the canvas’s 17px local token. Command navigation uses
+`command-nav`, task results use `stack`, terminal actions use `command-terminal`,
+and pause uses `command-pause`, matching CommandMenu’s separate symbols.
+All icons are decorative (`aria-hidden`); their controls own accessible names,
+keyboard behavior and current-page state.
+
+Filtered Dispatch, Insights and Tasks reads opt into `useQuery`'s fourth
+`keepPreviousData` argument. Other queries, particularly task identities, retain
+key isolation. Refreshing regions use `useDelayedBusy` to apply `aria-busy` and
+`pc-query-refreshing` only after 150ms. The shared class changes opacity only,
+without animation or transitions, including under reduced motion. Existing
+content and controls remain mounted while the replacement request is pending;
+refresh errors retain data and expose feedback. No new upstream code is used.
