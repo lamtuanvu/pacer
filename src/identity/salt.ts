@@ -37,8 +37,10 @@ export async function writeSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<s
 
 export const saltHash = (salt: string) => createHash("sha256").update(salt).digest("hex");
 
+/** True when this home was recorded as copied, or its install salt is missing or does not match. */
 export async function cloneSuspected(ctx: Ctx, platform?: NodeJS.Platform): Promise<boolean> {
   const meta = readMeta(ctx);
+  if (meta?.cloneDetected) return true;
   if (!meta?.saltHash) return false;
   const salt = await readSalt(ctx, platform);
   return !salt || saltHash(salt) !== meta.saltHash;

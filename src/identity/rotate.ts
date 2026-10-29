@@ -12,7 +12,7 @@ import { writeSalt, saltHash } from "./salt";
 export async function rotateIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}) {
   if (ctx.readOnly) throw new CoreError("not_allowed", "pacer is read-only here");
   const old = await ensureIdentity(ctx, deps);
-  const meta = readMeta(ctx)!;
+  const { cloneDetected: _c, cloneDetectedAt: _at, ...meta } = readMeta(ctx)!;
   const privateKey = generateKeyPairSync("ed25519").privateKey;
   const newId = base32(rawPublicKey(createPublicKey(privateKey)));
   const payload = new TextEncoder().encode(`${old.id}\0${newId}`);

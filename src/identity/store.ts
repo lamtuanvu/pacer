@@ -7,8 +7,14 @@ import { base32, rawPublicKey } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBackend } from "./key-store";
 
-/** `publicId` is the public machine id, kept here so records can be stamped without reading the private key. */
-export interface MachineMeta { rev: number; name: string; createdAt: number; backend: KeyBackend; publicId?: string; rotatedFrom?: string; saltHash?: string }
+/**
+ * `publicId` is the public machine id, kept here so records can be stamped without reading the private key.
+ * `cloneDetected` records that this home looked copied (its key or install salt was missing); only rotation clears it.
+ */
+export interface MachineMeta {
+  rev: number; name: string; createdAt: number; backend: KeyBackend; publicId?: string; rotatedFrom?: string; saltHash?: string;
+  cloneDetected?: boolean; cloneDetectedAt?: number;
+}
 export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject }
 
 const cache = new Map<string, MachineIdentity>();
@@ -51,12 +57,23 @@ export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   const platform = identityPlatform(deps.platform);
   const backend = meta?.backend ?? keyBackend(platform);
   let privateKey = await readPrivateKey(ctx, backend);
+  const { readSalt, writeSalt, saltHash } = await import("./salt");
+  if (meta && !meta.cloneDetected) {
+    // Check before creating anything: a copied home finds no key or salt under its own per-home tag.
+    const salt = meta.saltHash ? await readSalt(ctx, platform) : undefined;
+    const saltBad = salt !== undefined && (!salt || saltHash(salt) !== meta.saltHash);
+    if (!privateKey || saltBad) {
+      meta = { ...meta, cloneDetected: true, cloneDetectedAt: ctx.now };
+      writeMeta(ctx, meta);
+    }
+  }
   if (!privateKey || !meta) {
     privateKey = generateKeyPairSync("ed25519").privateKey;
     await writePrivateKey(ctx, backend, privateKey);
-    const { writeSalt, saltHash } = await import("./salt");
     const salt = await writeSalt(ctx, platform);
-    meta = { rev: 1, name: meta?.name ?? defaultName(), createdAt: ctx.now, backend, saltHash: saltHash(salt) };
+    meta = meta
+      ? { ...meta, rev: meta.rev + 1, createdAt: ctx.now, saltHash: saltHash(salt) }
+      : { rev: 1, name: defaultName(), createdAt: ctx.now, backend, saltHash: saltHash(salt) };
   }
   const identity = build(meta, privateKey);
   if (meta.publicId !== identity.id) writeMeta(ctx, { ...meta, publicId: identity.id });
