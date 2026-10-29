@@ -92,51 +92,83 @@ function cliBaseName(word: string): string {
   return slash === -1 ? word : word.slice(slash + 1);
 }
 
-const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=("((?:[^"\\]|\\.)*)"|'([^']*)'|(\S*))\s*/;
-/** Leading `VAR=value` assignments before a simple command's program name, skipping a bare `env`/`exec`
- * prefix with no flags (so `env PACER_ROLE=executor claude ...` reads the same as the bare form). Shell
- * quoting beyond simple single/double quotes is not evaluated: this is a best-effort pattern match, not a
- * shell parser. `argsText` is everything left after the program word, for the `bash -c`/`sh -c` recursion below. */
-function parseLeadingAssignments(segment: string): { assignments: Record<string, string>; program: string | null; argsText: string } {
-  const assignments: Record<string, string> = {};
-  let rest = segment.replace(/^\s+/, "");
-  for (;;) {
-    const skip = /^(?:env|exec)\s+(?!-)/.exec(rest);
-    if (!skip) break;
-    rest = rest.slice(skip[0].length);
+/** One shell word with quoting removed. `assign` is the index of a `=` that makes the word a `NAME=value`
+ * assignment (the name and the `=` were unquoted), or -1. */
+interface ShellWord { text: string; assign: number }
+type ShellToken = ShellWord | { op: ";" | "&&" | "||" | "|" | "&" };
+const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Splits a command into words and control operators, honouring single/double quotes, backslash escapes and
+ * `#` comments, so that operators and comments inside quoted text stay part of a word. Redirections such as
+ * `2>&1`, `&>file` and `>|file` stay inside their word. Best effort: no expansion, heredocs or grouping. */
+function tokenizeShell(command: string): ShellToken[] {
+  const tokens: ShellToken[] = [];
+  let word: ShellWord | null = null;
+  let quoted = false;
+  const push = (ch: string) => {
+    word ??= { text: "", assign: -1 };
+    if (ch === "=" && !quoted && word.assign === -1 && NAME.test(word.text)) word.assign = word.text.length;
+    word.text += ch;
+  };
+  const end = () => { if (word) tokens.push(word); word = null; quoted = false; };
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!, next = command[i + 1];
+    if (ch === "'") {
+      const close = command.indexOf("'", i + 1), stop = close === -1 ? command.length : close;
+      word ??= { text: "", assign: -1 };
+      quoted = true;
+      word.text += command.slice(i + 1, stop);
+      i = stop;
+    } else if (ch === '"') {
+      word ??= { text: "", assign: -1 };
+      quoted = true;
+      for (i++; i < command.length && command[i] !== '"'; i++) {
+        const escaped = command[i + 1];
+        if (command[i] === "\\" && escaped !== undefined && '$`"\\\n'.includes(escaped)) {
+          i++;
+          if (escaped !== "\n") word.text += escaped;
+        } else word.text += command[i];
+      }
+    } else if (ch === "\\") {
+      if (next === "\n") { i++; continue; }
+      if (next !== undefined) { word ??= { text: "", assign: -1 }; quoted = true; word.text += next; i++; }
+    } else if (ch === "#" && !word) {
+      while (i + 1 < command.length && command[i + 1] !== "\n") i++;
+    } else if (ch === " " || ch === "\t") {
+      end();
+    } else if (ch === "\n" || ch === ";") {
+      end(); tokens.push({ op: ";" });
+    } else if (ch === "&" && next === "&") {
+      end(); tokens.push({ op: "&&" }); i++;
+    } else if (ch === "|" && next === "|") {
+      end(); tokens.push({ op: "||" }); i++;
+    } else if ((ch === "&" || ch === "|") && word && /[<>]$/.test(word.text)) {
+      push(ch);
+    } else if (ch === "&" && next === ">") {
+      push(ch);
+    } else if (ch === "|") {
+      end(); tokens.push({ op: "|" });
+      if (next === "&") i++;
+    } else if (ch === "&") {
+      end(); tokens.push({ op: "&" });
+    } else push(ch);
   }
-  for (;;) {
-    const m = ASSIGNMENT.exec(rest);
-    if (!m) break;
-    assignments[m[1]!] = m[3] ?? m[4] ?? m[5] ?? "";
-    rest = rest.slice(m[0].length);
-  }
-  const word = /^(\S+)/.exec(rest)?.[1];
-  return { assignments, program: word ? cliBaseName(word) : null, argsText: rest.slice(word?.length ?? 0) };
+  end();
+  return tokens;
 }
 
-/** A pure `export VAR=value ...` segment with nothing else following: its assignments persist to later
- * segments joined by `;`, `&&`, `||` or a newline (the same shell, so the export is still in effect), unlike
- * a bare (non-exported) `VAR=value` statement, which only affects the shell and is not inherited. */
-function parseExportOnly(segment: string): Record<string, string> | null {
-  const withoutExport = /^\s*export\s+/.exec(segment);
-  if (!withoutExport) return null;
-  let rest = segment.slice(withoutExport[0].length);
+/** A simple command's leading `NAME=value` assignments and program, skipping a bare `env`/`exec` prefix with
+ * no flags (so `env PACER_ROLE=executor claude ...` reads the same as the bare form). */
+function parseSimpleCommand(words: ShellWord[]): { assignments: Record<string, string>; program: number } {
   const assignments: Record<string, string> = {};
-  for (;;) {
-    const m = ASSIGNMENT.exec(rest);
-    if (!m) break;
-    assignments[m[1]!] = m[3] ?? m[4] ?? m[5] ?? "";
-    rest = rest.slice(m[0].length);
+  let i = 0;
+  for (; i < words.length; i++) {
+    const w = words[i]!;
+    if (w.assign !== -1) { assignments[w.text.slice(0, w.assign)] = w.text.slice(w.assign + 1); continue; }
+    if ((w.text === "env" || w.text === "exec") && w.assign === -1 && words[i + 1] && !words[i + 1]!.text.startsWith("-")) continue;
+    break;
   }
-  return rest.trim() === "" ? assignments : null;
-}
-
-/** The quoted script argument of a leading `-c`, as in `bash -c '...'`/`sh -c "..."`. Other flags before
- * `-c`, and multiple `-c` scripts joined with further arguments, are not modeled. */
-function dashCScript(argsText: string): string | null {
-  const m = /^\s*-c\s+("((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/.exec(argsText);
-  return m ? m[2] ?? m[3] ?? m[4] ?? "" : null;
+  return { assignments, program: i };
 }
 
 function expandHome(value: string, home: string): string {
@@ -161,39 +193,74 @@ function managedHomes(ctx: Ctx, kind: "claude" | "codex"): string[] {
 }
 
 export interface ShellLaunch { cli: string }
+const MAX_SHELL_DEPTH = 8;
 /**
  * Detects a command that starts one of the known executor CLIs (claude, codex, pi, opencode) while either
  * setting PACER_ROLE=executor, or pointing CLAUDE_CONFIG_DIR/CODEX_HOME at a pacer-managed (non-default) account
  * home — the shell-tool equivalent of the Agent/Task subagent guard (issue #451). An inline assignment,
- * `env`/`exec`, an `export VAR=val; ...` earlier in the same command, and `bash -c '...'`/`sh -c "..."` are all
- * recognized. Best effort, not a shell parser: a variable exported in an *earlier, separate* Bash tool call, a
- * launch hidden behind a script file, `env`/`bash -c` with other flags in front, parenthesized/subshell
- * grouping (e.g. `(export ... && claude ...)`), and heredoc bodies (which can false-positive, since they are
- * not recognized as inert text) are not caught here.
+ * `env`/`exec`, an `export` earlier in the same command, and `bash -c '...'`/`sh -c "..."`/`zsh -c` (which
+ * inherit the environment in effect where they start) are all recognized; quoted and commented text is inert.
+ * Best effort, not a shell parser: a variable exported in an *earlier, separate* Bash tool call, a launch hidden
+ * behind a script file, variable expansion, `env`/`bash -c` with other flags in front, parenthesized/subshell
+ * grouping (e.g. `(export ... && claude ...)`), `unset`, and heredoc bodies (which can false-positive, since they
+ * are not recognized as inert text) are not caught here.
  */
-export function detectShellExecutorLaunch(ctx: Ctx, command: string): ShellLaunch | null {
-  // `|` starts a subshell for its left side, so an export there does not reach the next pipeline stage;
-  // treat each pipeline independently and carry `export`ed assignments forward only within one.
-  for (const pipeline of command.split("|")) {
-    const exported: Record<string, string> = {};
-    for (const segment of pipeline.split(/&&|\|\||;|\n/)) {
-      const exportOnly = parseExportOnly(segment);
-      if (exportOnly) { Object.assign(exported, exportOnly); continue; }
-      const { assignments, program, argsText } = parseLeadingAssignments(segment);
-      if (!program) continue;
-      if (["bash", "sh", "zsh"].includes(program)) {
-        const script = dashCScript(argsText);
-        const nested = script !== null ? detectShellExecutorLaunch(ctx, script) : null;
+export function detectShellExecutorLaunch(ctx: Ctx, command: string, inherited: Record<string, string> = {}, depth = 0): ShellLaunch | null {
+  if (depth > MAX_SHELL_DEPTH) return null;
+  // Exported variables (inherited by child processes) and plain shell variables of this shell.
+  const exported: Record<string, string> = { ...inherited };
+  const shellVars: Record<string, string> = { ...inherited };
+  const tokens = tokenizeShell(command);
+  let start = 0;
+  while (start < tokens.length) {
+    // One pipeline: commands joined by `|`, ended by `;`, `&&`, `||`, `&` or a newline.
+    const stages: ShellWord[][] = [[]];
+    let i = start;
+    for (; i < tokens.length; i++) {
+      const t = tokens[i]!;
+      if (!("op" in t)) { stages[stages.length - 1]!.push(t); continue; }
+      if (t.op === "|") { stages.push([]); continue; }
+      break;
+    }
+    const terminator = tokens[i] as { op: string } | undefined;
+    start = i + 1;
+    // A multi-stage pipeline or a background job runs in a subshell: its exports do not reach later commands.
+    const persists = stages.length === 1 && terminator?.op !== "&";
+    for (const words of stages) {
+      if (words.length === 0) continue;
+      const env = persists ? exported : { ...exported };
+      const vars = persists ? shellVars : { ...shellVars };
+      if (words[0]!.text === "export" && words[0]!.assign === -1) {
+        for (const w of words.slice(1)) {
+          if (w.assign !== -1) { const name = w.text.slice(0, w.assign); env[name] = vars[name] = w.text.slice(w.assign + 1); }
+          else if (NAME.test(w.text) && vars[w.text] !== undefined) env[w.text] = vars[w.text]!;
+        }
+        continue;
+      }
+      const { assignments, program } = parseSimpleCommand(words);
+      const programWord = words[program];
+      if (!programWord) {
+        // A bare `NAME=value` statement sets a shell variable, and updates it in the environment if exported.
+        for (const [name, value] of Object.entries(assignments)) {
+          vars[name] = value;
+          if (env[name] !== undefined) env[name] = value;
+        }
+        continue;
+      }
+      const merged = { ...env, ...assignments };
+      const name = cliBaseName(programWord.text);
+      if (["bash", "sh", "zsh"].includes(name)) {
+        const script = words[program + 1]?.text === "-c" ? words[program + 2]?.text : undefined;
+        const nested = script !== undefined ? detectShellExecutorLaunch(ctx, script, merged, depth + 1) : null;
         if (nested) return nested;
         continue;
       }
-      if (!(EXECUTOR_CLIS as readonly string[]).includes(program)) continue;
-      const merged = { ...exported, ...assignments };
-      if ((merged.PACER_ROLE ?? "").trim() === "executor") return { cli: program };
-      const dirVariable = DIR_VARIABLE[program as (typeof EXECUTOR_CLIS)[number]];
+      if (!(EXECUTOR_CLIS as readonly string[]).includes(name)) continue;
+      if ((merged.PACER_ROLE ?? "").trim() === "executor") return { cli: name };
+      const dirVariable = DIR_VARIABLE[name as (typeof EXECUTOR_CLIS)[number]];
       if (!dirVariable || merged[dirVariable] === undefined) continue;
       const target = resolve(expandHome(merged[dirVariable], ctx.home));
-      if (managedHomes(ctx, program as "claude" | "codex").includes(target)) return { cli: program };
+      if (managedHomes(ctx, name as "claude" | "codex").includes(target)) return { cli: name };
     }
   }
   return null;
