@@ -69,7 +69,7 @@ const USAGE = `usage: pacer <command>
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
   route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
-  route --explain [--repo <r>] [--kind <k>] [--goal <text> | --goal-file <path>] [--executor <id>] [--json]
+  route --explain [--repo <r>] [--kind <k>] [--goal <text> | --goal-file <path>] [--executor <id>] [--via delegate|dispatch] [--json]
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
@@ -224,7 +224,7 @@ async function routeExplain(opts: Record<string, string | true | undefined>, pos
   const goalFile = str(opts["goal-file"]);
   const goal = goalFile ? readFileSync(goalFile === "-" ? 0 : goalFile, "utf8") : str(opts.goal);
   if (!goal?.trim()) throw new Error("--explain needs --goal <text> or --goal-file <path>");
-  const params = { repo: str(opts.repo) ?? currentRepoKey(ctx) ?? realpathSync(process.cwd()), goal, ...(str(opts.kind) ?? pos[0] ? { kind: str(opts.kind) ?? pos[0] } : {}), ...(str(opts.executor) ? { executor: str(opts.executor) } : {}) };
+  const params = { via: str(opts.via) ?? "delegate", repo: str(opts.repo) ?? currentRepoKey(ctx) ?? realpathSync(process.cwd()), goal, ...(str(opts.kind) ?? pos[0] ? { kind: str(opts.kind) ?? pos[0] } : {}), ...(str(opts.executor) ? { executor: str(opts.executor) } : {}) };
   const client = await connectTaskClient(ctx);
   let r: RouteExplanation;
   try { r = client.kind === "inprocess" ? await callOp(ctx, "dispatch.explain", params) as RouteExplanation : await client.call<RouteExplanation>("dispatch.explain", params); }

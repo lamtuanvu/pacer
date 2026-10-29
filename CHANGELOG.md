@@ -29,6 +29,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Make `dispatch.explain` choose by the additive `via` entry point: `delegate` (the default) explains executor ranking, while `dispatch` explains the managed ladder even without a dispatch block. CLI route previews pass `delegate` and support `--via dispatch`; ranking reports ignored model inputs, follows conversation planner eligibility and identifies strategy/project policy sources. Both paths remain read-only.
+
 - Executor sessions now match a terminal more closely: the login shell's `umask` applies to the agent, direnv and mise apply for the task folder as their own trust allows (pacer never allows or trusts a folder), interactive sessions keep `NO_COLOR`/`FORCE_COLOR` from your profile, and the default account honours `CLAUDE_CONFIG_DIR`/`CODEX_HOME` from your profile (not from direnv or mise) for the run, its folder trust and usage readers. Managed work under strict native control runs with the service environment it was certified with. Backend selection now uses the same launch mode as the attempt under strict enforcement. See [Session environment](docs/executors.md#session-environment).
 - The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
 
