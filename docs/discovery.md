@@ -30,7 +30,7 @@ To change an answer later:
 
 ## Found machines
 
-When pacer first sees another pacer on the network, it shows **Found pacer on {name}** in Needs you, in the app's notice and as a desktop notification:
+When pacer sees another pacer on the network, it shows **Found pacer on {name}** in Needs you, in the app's notice and as a desktop notification:
 
 - **Pair** hands the machine to a pairing plugin (see below).
 - **Later** silences that machine for 7 days.
@@ -39,7 +39,7 @@ When pacer first sees another pacer on the network, it shows **Found pacer on {n
 
 The app's notice and `pacer discovery pair|later|ignore|mute-network` offer all four. Needs you and desktop notifications offer Pair and Later, and Linux notifications have no buttons. Limits keep the prompts quiet:
 
-- A machine is offered once, when it is first seen. Its prompt stays open for up to 7 days, until you answer it.
+- A machine is offered once per silence period: when it is first seen, and again only if it is still being seen after its last prompt is 7 days old and it is not silenced, for example once a Later has expired. Its prompt stays open for up to 7 days, until you answer it. A machine that was not offered because of the hourly limit is offered the next time it is seen.
 - At most 3 prompts are raised per hour in total, however many machines appear.
 - A muted network raises none.
 

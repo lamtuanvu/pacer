@@ -10,6 +10,14 @@ export function isSilenced(s: DiscoveryState, id: string, now: number): boolean 
   return v === "forever" || (typeof v === "number" && v > now);
 }
 
+/**
+ * One prompt per discovery id per silence period: a machine is offered when first seen, and again once its
+ * last prompt is older than a Later silence and it is not silenced (for example after a Later expires).
+ */
+export function promptDue(s: DiscoveryState, id: string, promptedAt: number | undefined, now: number): boolean {
+  return (promptedAt === undefined || promptedAt <= now - SILENCE_LATER_S) && !isSilenced(s, id, now);
+}
+
 /** Returns true and records the prompt when one may be shown now. */
 export function takePrompt(s: DiscoveryState, now: number): boolean {
   s.prompts = s.prompts.filter(t => t > now - 3600);

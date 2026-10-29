@@ -4,7 +4,7 @@ import { discoveryEnabled } from "../core/config";
 import { ensureIdentity } from "../identity/store";
 import { currentVersion } from "../update/version";
 import { currentNetwork, type NetworkInfo } from "./network";
-import { DISCOVERY_ID, isSilenced, takePrompt } from "./policy";
+import { DISCOVERY_ID, promptDue, takePrompt } from "./policy";
 import { sanitizeText } from "./sanitize";
 import { ensureNetwork, readState, updateState } from "./state";
 
@@ -70,7 +70,7 @@ export async function recordObservations(ctx: Ctx, batch: Observation[], deps: {
         network: network?.key ?? "", firstSeen: prev?.firstSeen ?? now, lastSeen: now,
       };
       accepted++;
-      if (!prev && !muted && !isSilenced(s, id, now) && takePrompt(s, now)) { seen.promptedAt = now; prompted.push(id); }
+      if (!muted && promptDue(s, id, prev?.promptedAt, now) && takePrompt(s, now)) { seen.promptedAt = now; prompted.push(id); }
     }
   });
   if (prompted.length) await publish(ctx, prompted.map(id => ({ type: "discovery.found" as const, data: { discoveryId: id, name: s.seen[id].name, version: s.seen[id].version } })));

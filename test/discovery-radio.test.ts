@@ -6,6 +6,7 @@ import * as config from "../src/core/config";
 import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
 import { buildRadioConfig, recordObservations, radioStatus, resetRadioForTests } from "../src/discovery/radio";
 import { readState, updateState, ensureNetwork } from "../src/discovery/state";
+import { SILENCE_LATER_S } from "../src/discovery/policy";
 import { currentVersion } from "../src/update/version";
 
 beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
@@ -93,6 +94,37 @@ test("a silenced machine raises no prompt", async () => {
   await updateState(ctx, s => { s.silenced["f".repeat(26)] = "forever"; s.silenced["g".repeat(26)] = 500; });
   const r = await recordObservations(ctx, ["f", "g"].map(ch => ({ id: ch.repeat(26), name: "x", v: "1", h: "" })), { now: 100, network: home });
   expect(r).toEqual({ accepted: 2, prompted: [] });
+});
+
+test("after a Later silence expires, a machine still being seen is prompted again, once per silence period", async () => {
+  const ctx = fakeCtx();
+  const id = "j".repeat(26), obs = [{ id, name: "studio", v: "1", h: "" }];
+  const t0 = 1_800_000_000, later = t0 + 3600;
+  expect((await recordObservations(ctx, obs, { now: t0, network: home })).prompted).toEqual([id]);
+  await updateState(ctx, s => { s.silenced[id] = later + SILENCE_LATER_S; });
+  expect((await recordObservations(ctx, obs, { now: later + SILENCE_LATER_S - 1, network: home })).prompted).toEqual([]);
+  const after = later + SILENCE_LATER_S + 1;
+  expect((await recordObservations(ctx, obs, { now: after, network: home })).prompted).toEqual([id]);
+  expect(readState(ctx).seen[id]).toMatchObject({ firstSeen: t0, promptedAt: after });
+  expect((await recordObservations(ctx, obs, { now: after + 60, network: home })).prompted).toEqual([]);
+});
+
+test("a re-prompt still counts against the hourly cap", async () => {
+  const ctx = fakeCtx();
+  const id = "k".repeat(26), obs = [{ id, name: "studio", v: "1", h: "" }];
+  const t0 = 1_800_000_000;
+  await recordObservations(ctx, obs, { now: t0, network: home });
+  const after = t0 + SILENCE_LATER_S + 10;
+  await updateState(ctx, s => { s.silenced[id] = after - 1; s.prompts = [after - 30, after - 20, after - 10]; });
+  expect((await recordObservations(ctx, obs, { now: after, network: home })).prompted).toEqual([]);
+  expect((await recordObservations(ctx, obs, { now: after + 3600, network: home })).prompted).toEqual([id]);
+});
+
+test("a machine never answered is not prompted again while its prompt is open", async () => {
+  const ctx = fakeCtx();
+  const id = "m".repeat(26), obs = [{ id, name: "studio", v: "1", h: "" }];
+  await recordObservations(ctx, obs, { now: 1000, network: home });
+  expect((await recordObservations(ctx, obs, { now: 1000 + SILENCE_LATER_S - 1, network: home })).prompted).toEqual([]);
 });
 
 test("a muted network records machines but raises no prompt", async () => {
