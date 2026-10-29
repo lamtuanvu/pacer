@@ -59,8 +59,8 @@ a non-final pipeline stage's exit code too. Commands such as `bun test | tail -n
 If `acceptance_pipefail` is set but bash is missing and `sh` cannot `set -o pipefail`,
 the check fails without running the command.
 
-The task result (`task.wait`, `task.get`, `pacer tasks <id>`) reports the acceptance
-command's exit code and which shell/options ran it. A 141 (possibly SIGPIPE) or an
+The task result (`task.wait`, `task.get`, `pacer tasks <id>`) reports which shell/options
+ran the acceptance command and, when the command ran, its exit code. A 141 (possibly SIGPIPE) or an
 instant, empty-output failure comes with a hint, since both often mean a piped command
 raced past an earlier stage rather than the task actually failing.
 
