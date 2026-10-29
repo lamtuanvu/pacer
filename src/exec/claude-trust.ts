@@ -59,8 +59,11 @@ function readConfig(file: string): Read {
     const code = (error as NodeJS.ErrnoException).code;
     return {reason: code === "ENOENT" || code === "ENOTDIR" ? "the Claude config file does not exist yet" : "the Claude config file is unreadable"};
   }
+  // Linux resolves the real path of a file it cannot read, so a permission error can surface only here.
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch { return {reason: "the Claude config file is unreadable"}; }
   try {
-    const config: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const config: unknown = JSON.parse(text);
     return isObject(config) ? {path, config} : {reason: "the Claude config file is not a JSON object"};
   } catch { return {reason: "the Claude config file is not valid JSON"}; }
 }
