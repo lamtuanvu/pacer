@@ -48,6 +48,7 @@
   --aurora-2: #f0abfc;
   --aurora-3: #99f6e4;
   --ink-on-fill: #ffffff;
+  --shadow-tray-menu-tint: rgb(9 9 11 / .16);
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -216,7 +217,7 @@
   --size-236: 236px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
-  --shadow-tray-menu: 0 8px 24px rgb(9 9 11 / .16);
+  --shadow-tray-menu: 0 8px 24px var(--shadow-tray-menu-tint);
   --layer-base: 1;
   --layer-sticky: 5;
   --layer-overlay: 10;
@@ -276,6 +277,7 @@
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
   --ink-on-fill: #18181b;
+  --shadow-tray-menu-tint: rgb(0 0 0 / .55);
 }
 }
 :root[data-theme="dark"] {
@@ -326,4 +328,5 @@
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
   --ink-on-fill: #18181b;
+  --shadow-tray-menu-tint: rgb(0 0 0 / .55);
 }
