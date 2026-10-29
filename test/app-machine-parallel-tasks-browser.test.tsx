@@ -22,7 +22,7 @@ beforeAll(async()=>{
   const op=path.slice(5),params=await req.json();
   if(op==='config.get'&&failGet)return Response.json({code:'internal',message:'config read failed'},{status:500});
   if(op==='config.get')return Response.json({keys:{...Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'user'}])),'execution.launch_mode':{value:'interactive',source:'default'},'terminal.open':{value:'',source:'default'},'terminal.app':{value:'Terminal',source:'default'}},terminalChoices:[{value:'auto',label:'Automatic'}],planners:[]});
-  if(op==='config.set'&&failSet)return Response.json({code:'forbidden',message:'config.set refused'},{status:403});
+  if(op==='config.set'&&failSet){await Bun.sleep(400);return Response.json({code:'forbidden',message:'config.set refused'},{status:403});}
   if(op==='config.set'){sets.push(params);const key=params.key as keyof Values,previous=values[key];values={...values,[key]:params.value};return Response.json({key,value:params.value,previous,diff:'',undo:`pacer config set ${key} ${previous}`});}
   return Response.json({});
  }});
@@ -220,8 +220,9 @@ browserTest('a refused Save keeps the draft and focus on Save for a retry',async
   failSet=true;
   await save(page).focus();
   await page.keyboard.press('Enter');
+  // The slow refusal lets the browser drop focus from the busy, disabled Save before it re-enables.
   await page.getByText('config.set refused').waitFor({timeout:5000});
-  await page.waitForFunction(()=>!(document.activeElement as HTMLButtonElement|null)?.disabled,undefined,{timeout:5000});
+  await page.waitForFunction(()=>document.activeElement?.textContent==='Save changes',undefined,{timeout:5000});
   expect(await focused(page)).toBe('button::Save changes');
   expect(await field(page).inputValue()).toBe('9');
  }finally{await page.close();}

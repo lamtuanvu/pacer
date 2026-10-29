@@ -135,11 +135,12 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   useEffect(() => { setForm(f => rebaseMachine(f, saved)); }, [savedKey]);
   const edit = (patch: Partial<MachineDraft>) => setForm(f => ({ ...f, draft: { ...f.draft, ...patch } }));
   // Discard and Save disable themselves; the save status keeps keyboard focus in the form.
-  const status = useRef<HTMLSpanElement>(null);
+  const status = useRef<HTMLSpanElement>(null), saveButton = useRef<HTMLButtonElement>(null);
   const keepFocus = (wrote: boolean) => {
-    const el = document.activeElement;
-    // A failed write leaves Save enabled for a retry, so focus stays there unless it was lost.
-    if (!el || el === document.body || (wrote && el.closest(".u3-save-bar"))) status.current?.focus();
+    const el = document.activeElement, lost = !el || el === document.body;
+    if (wrote) { if (lost || el.closest(".u3-save-bar")) status.current?.focus(); return; }
+    // A failed write leaves Save enabled for a retry; it was disabled while busy, so focus returns once it re-renders.
+    if (lost || el === saveButton.current) setTimeout(() => (saveButton.current?.disabled ? status.current : saveButton.current)?.focus());
   };
   const [readError, setReadError] = useState<unknown>();
   const reset = () => { setReadError(undefined); setForm({ base: saved, draft: saved }); status.current?.focus(); };
@@ -209,7 +210,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
       <span ref={status} className="u3-save-status" tabIndex={-1} role="status" aria-live="polite">{dirty ? "Unsaved changes" : conflict ? <span aria-hidden="true">Settings changed elsewhere</span> : "All changes saved"}</span>
       <div className="u3-actions">
         <Button disabled={!(dirty || conflict) || action.busy} onClick={reset}>Discard</Button>
-        <Button variant="primary" busy={action.busy} disabled={!dirty || conflict || action.busy || !!capError || !!loadError} onClick={() => void save()}>Save changes</Button>
+        <Button ref={saveButton} variant="primary" busy={action.busy} disabled={!dirty || conflict || action.busy || !!capError || !!loadError} onClick={() => void save()}>Save changes</Button>
       </div>
     </div>
     <ErrorMessage error={readError} />
