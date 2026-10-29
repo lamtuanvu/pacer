@@ -6,6 +6,7 @@ import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
 import { OrcaClient, type TerminalRow } from "./client";
+import { laneWorktreeName } from "./names";
 import { realpathSafe } from "./setup";
 import { loadOrcaState, type StrandedWorktree, type StrayRisk, type UncertainStart, updateOrcaState, withLock } from "./state";
 
@@ -161,7 +162,7 @@ export async function cleanOrcaTask(ctx: Ctx, t: TaskRecord, o: HostCleanOpts, o
   if (!path || realpathSafe(path) === realpathSafe(t.brief.repo)) return { kept: "Orca worktree path could not be resolved" };
   if (o.shared(t.worktree)) return { kept: "worktree is shared with an active or unreviewed task" };
   if (!o.force && await worktreeDirty(ctx, path) !== false) return { kept: "uncommitted changes; use --force" };
-  const owned = await verifyOwned(c, `path:${path}`, { name: `pacer-${t.id}-${t.result.executor}`, path });
+  const owned = await verifyOwned(c, `path:${path}`, { name: laneWorktreeName(t.id, t.result.executor ?? ""), path });
   if ("error" in owned) return { kept: owned.error };
   if (o.dryRun) return { removed: true };
   const failure = await removeOwned(ctx, c, owned.id, path, !!o.force, deps);

@@ -23,6 +23,7 @@ import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
+import { laneWorktreeName } from "./names";
 import { OrcaClient, type Placement, type TerminalRow, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
 import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordStrayRisk, recordUnclosed, type WorkerLookup, worktreeTerminals } from "./cleanup";
 import { ensureCoordinator, ensureGroupWorktree, ensureRepo, gitInfo, realpathSafe } from "./setup";
@@ -98,7 +99,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   if (resolved.mode !== "current" && git.dirty) {
     notes.push(`note: ${git.top} has uncommitted changes; the worker's new worktree starts from ${base} without them`);
   }
-  // New-child worktree names pacer-<taskId>-<providerId> also identify executor hook sessions.
+  // New-child worktree names (laneWorktreeName) also identify executor hook sessions.
   // A --group lane is still a new-child worktree, nested under the group's shared parent worktree.
   let parentWorktree: string | undefined;
   if (!(task.retryOf && task.worktree) && resolved.mode !== "current" && task.group) {
@@ -109,7 +110,7 @@ async function prepare(ctx: Ctx, c: OrcaClient, cfg: ProviderCfg, task: TaskReco
   const placement: Placement = task.retryOf && task.worktree
     ? { kind: "existing", selector: `path:${task.worktree}` }
     : resolved.mode !== "current"
-    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: `pacer-${task.id}-${cfg.id}`, ...(parentWorktree ? { parentWorktree } : {}) }
+    ? { kind: "new-child", repoId, baseBranch: resolvedBase.sha ?? base, name: laneWorktreeName(task.id, cfg.id), ...(parentWorktree ? { parentWorktree } : {}) }
     : { kind: "existing", selector: `path:${git.top}` };
   return {
     ok: true, agent: mapped.agent, model: mapped.model, coordinator: coord.coordinator, run: coord.run,

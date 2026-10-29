@@ -1132,3 +1132,26 @@ test("a live answer Orca fails to deliver is not swallowed: the worker is releas
   const {entries} = readActivity(x.ctx, {taskId: retry.id, kinds: ["message"]});
   expect(entries.map(e => e.text)).toContainEqual(expect.stringContaining("the answer could not be delivered (terminal_gone)"));
 });
+
+/** Orca stores a new worktree under its sanitized name (Tbe in Orca 1.4): `#`, `@` and other symbols become `-`. */
+const orcaSanitized = (name: string) => name.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/-+/g, "-").replace(/\.{2,}/g, ".").replace(/^[.-]+|[.-]+$/g, "");
+const sanitizingCreate = [O("worktree", "create"), (a: string[]) => {
+  const name = orcaSanitized(arg(a, "--name"));
+  return envelope({worktree: {id: `repo-1::/work/${name}`, path: `/work/${name}`, displayName: arg(a, "--name")}});
+}] as Route;
+
+test("a runner id with an account (codex#work) names its lane worktree the way Orca stores it, so the lane runs in Orca", async () => {
+  const x = setup([sanitizingCreate]);
+  const home = join(x.ctx.home, ".codex-work");
+  mkdirSync(home, {recursive: true});
+  writeFileSync(join(x.ctx.pacerHome, "strategy.yaml"), JSON.stringify({planner: "claude-code",
+    accounts: {main: {kind: "claude"}, codex: {kind: "codex"}, work: {kind: "codex", home}}, routing: [{default: ["codex#work"]}]}));
+  const cfg = {...x.cfg, id: "codex#work"};
+  const out = await x.backend.runAttempt(x.ctx, cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(x.direct).toBe(0);
+  const create = x.f.calls.find(a => a[1] === "worktree" && a[2] === "create")!;
+  expect(arg(create, "--name")).toBe(`pacer-${x.task.id}-codex-work`);
+  expect(out.worktree).toBe(`/work/pacer-${x.task.id}-codex-work`);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
+});
