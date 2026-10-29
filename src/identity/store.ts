@@ -35,11 +35,13 @@ export function setIdentityPlatformForTests(p?: NodeJS.Platform): void { testPla
 export function identityPlatform(p?: NodeJS.Platform): NodeJS.Platform { return p ?? testPlatform ?? process.platform; }
 
 const metaPath = (ctx: Ctx) => join(ctx.pacerHome, IDENTITY_DIR, "machine.json");
-// Control characters, and bidirectional controls U+202A-U+202E, U+2066-U+2069, U+200E, U+200F.
-const STRIP = /[\u0000-\u001f\u007f-\u009f\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+// Control characters; bidirectional controls U+061C, U+200E, U+200F, U+202A-U+202E, U+2066-U+2069;
+// line and paragraph separators U+2028, U+2029; zero-width U+200B-U+200D and U+FEFF.
+const STRIP = /[\u0000-\u001f\u007f-\u009f\u061C\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 export function sanitizeName(raw: string): string {
-  const name = raw.replace(STRIP, "").trim().slice(0, 64);
+  // Cut by code points so a surrogate pair is never split.
+  const name = Array.from(raw.replace(STRIP, "").trim()).slice(0, 64).join("").trim();
   if (!name) throw new CoreError("invalid_input", "Machine name is empty", "Use 1-64 visible characters.");
   return name;
 }
@@ -93,6 +95,8 @@ async function load(ctx: Ctx, deps: { platform?: NodeJS.Platform }): Promise<Mac
     }
   }
   if (!privateKey || !meta) {
+    // Transport keys certified by another machine's key are not this machine's.
+    if (meta) (await import("./sign")).clearTransportKeys(ctx);
     privateKey = generateKeyPairSync("ed25519").privateKey;
     await writePrivateKey(ctx, backend, privateKey);
     const salt = await writeSalt(ctx, platform);

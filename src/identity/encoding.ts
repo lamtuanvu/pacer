@@ -14,15 +14,23 @@ export function base32(bytes: Uint8Array): string {
   return out;
 }
 
+/** Strict: rejects a length no byte count produces and non-zero trailing bits, so each byte string has one spelling. */
 export function fromBase32(text: string): Uint8Array {
   const out: number[] = []; let bits = 0, value = 0;
   for (const ch of text) {
     const i = ALPHABET.indexOf(ch);
     if (i < 0) throw new Error("invalid base32");
-    value = (value << 5) | i; bits += 5;
+    value = ((value << 5) | i) & 0xffff; bits += 5;
     if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
   }
+  if (bits >= 5 || (value & ((1 << bits) - 1)) !== 0) throw new Error("invalid base32");
   return Uint8Array.from(out);
+}
+
+/** The raw public key of a machine id: exactly 52 canonical base32 characters. */
+export function parseMachineId(id: string): Uint8Array {
+  if (id.length !== 52) throw new Error("machine ids are 52 base32 characters");
+  return fromBase32(id);
 }
 
 export function rawPublicKey(key: KeyObject): Uint8Array {

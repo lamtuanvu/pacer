@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
-import { base32, fromBase32, publicKeyFromRaw } from "./encoding";
+import { base32, parseMachineId, publicKeyFromRaw } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR } from "./key-store";
 import { ensureIdentity } from "./store";
@@ -55,6 +55,6 @@ export async function signFor(ctx: Ctx, pluginId: string, purpose: string, paylo
 }
 
 export function verifyFrom(machineId: string, pluginId: string, purpose: string, payload: Uint8Array, signature: Uint8Array): boolean {
-  try { return verify(null, signedMessage(pluginId, purpose, payload), publicKeyFromRaw(fromBase32(machineId)), Buffer.from(signature)); }
+  try { return verify(null, signedMessage(pluginId, purpose, payload), publicKeyFromRaw(parseMachineId(machineId)), Buffer.from(signature)); }
   catch { return false; }
 }

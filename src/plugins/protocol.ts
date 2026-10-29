@@ -32,6 +32,11 @@ export const manifestSchema = z.object({
   tier: z.enum(["free", "commercial"]).default("free"),
 }).superRefine((m, ctx) => {
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
+  m.capabilities.forEach((c, i) => {
+    if (c.name === "identity.sign") (c.scopes ?? []).forEach((scope, j) => {
+      if (!PLUGIN_ID.test(scope)) ctx.addIssue({ code: "custom", path: ["capabilities", i, "scopes", j], message: "identity.sign scopes are signing purposes: 2-64 lowercase letters, digits and hyphens" });
+    });
+  });
   const raw = m.contributes.ui;
   if (raw === undefined) return;
   const ui = uiContributionSchema.safeParse(raw);
@@ -119,11 +124,16 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
   "capability.identity.sign": method({
     description: "Sign a payload with this machine's key under the domain-separated format \"pacer-machine-sig/v1\" 0x00 plugin_id 0x00 purpose 0x00 payload. purpose must be declared in the manifest scopes for identity.sign. The transport-key purpose requires the payload \"transport-key/v1\" 0x00 followed by a 32-byte key and records it as the plugin's current transport key. payload and signature are base64. Refused with capability_denied while the home looks copied from another machine, until the user rotates the machine key. Every signature and refusal is recorded in the host-owned identity audit log.",
-    params: z.object({ purpose: z.string().regex(PLUGIN_ID), payload: z.string().max(87384).regex(/^[A-Za-z0-9+/]*={0,2}$/, "payload is base64") }),
+    params: z.object({ purpose: z.string().regex(PLUGIN_ID), payload: z.string().max(87384).regex(/^[A-Za-z0-9+/]*={0,2}$/, "payload is base64").refine(isCanonicalBase64, "payload is canonical base64") }),
     result: z.object({ signature: z.string(), machineId: z.string() }),
-    deadlineMs: 2000,
+    deadlineMs: 15000,
   }),
 };
+
+/** Padded base64 that decodes and re-encodes to the same text, so the host signs exactly the bytes the plugin meant. */
+function isCanonicalBase64(s: string): boolean {
+  return s.length % 4 === 0 && Buffer.from(s, "base64").toString("base64") === s;
+}
 
 export function capabilityOf(method: string): Capability | null {
   if (!method.startsWith("capability.")) return null;

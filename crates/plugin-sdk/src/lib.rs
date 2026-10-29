@@ -17,6 +17,6 @@ pub mod types {
 }
 
 pub use error::PluginError;
-pub use host::Host;
+pub use host::{Host, MachineSignature};
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};
 pub use tokio_util::sync::CancellationToken;

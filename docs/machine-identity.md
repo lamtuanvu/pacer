@@ -13,7 +13,7 @@ pacer machine rename "Studio Mac"
 pacer machine rotate --yes    # replace the key, and with it the machine id
 ```
 
-Add `--json` for machine-readable output. The same actions are available to clients as the `machine.get`, `machine.set {name, expect_rev}` and `machine.rotate` operations ([protocol](protocol.md)). `machine.set` fails with `conflict` when `expect_rev` is stale, for example when another client renamed the machine first; read again and retry. Executor sessions can read the identity but cannot rename or rotate it.
+Add `--json` for machine-readable output. The same actions are available to clients as the `machine.get`, `machine.set {name, expect_rev}` and `machine.rotate` operations ([protocol](protocol.md)). `machine.set` fails with `conflict` when `expect_rev` is stale, for example when another client renamed the machine first; read again and retry. Through the API, executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
 
 Rotation asks for `--yes` because it replaces the machine id. Paired machines that cannot be told have to pair again. Rotation also invalidates every transport key that plugins had certified.
 
@@ -46,7 +46,7 @@ The private key is never returned by an operation, event or log.
 
 When pacer creates an identity it also records an install salt outside `$PACER_HOME` (see the table). Both the private key and the salt are tied to the path of the home, so a home copied to another path or machine finds neither under its own tag. The home was then most likely copied: restored from a backup, synced between machines with dotfiles, or part of a cloned VM, and two machines could share one id.
 
-When pacer loads an identity and finds `machine.json` but the private key is missing, or the salt is missing or different, it records the copy in `machine.json` (`cloneDetected`) before it changes anything. If the key is missing, pacer then creates a new key and salt so the machine keeps working, keeping the name and raising the revision. The record stays until you rotate. `pacer machine show` reports it (`cloneSuspected: true` in JSON) and says:
+When pacer loads an identity and finds `machine.json` but the private key is missing, or the salt is missing or different, it records the copy in `machine.json` (`cloneDetected`) before it changes anything. If the key is missing, pacer then creates a new key and salt so the machine keeps working, keeping the name and raising the revision. It also forgets the transport keys that plugins had certified with the old key. The record stays until you rotate. `pacer machine show` reports it (`cloneSuspected: true` in JSON) and says:
 
 ```text
 This home looks copied from another machine. Run pacer machine rotate --yes to give it its own identity.

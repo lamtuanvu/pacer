@@ -445,7 +445,7 @@ Every pacer home has a machine identity: a long-lived key, an id derived from it
 - `pacer machine rename <name> [--json]` changes the name. Names are display-only (1–64 characters; control and bidirectional characters are removed) and never change the id. A rename that races another client fails with `conflict`.
 - `pacer machine rotate --yes [--json]` replaces the key, prints the old and new ids, and forgets every plugin's recorded transport key. Machines paired with the old id must be told or pair again. Without `--yes` it refuses and exits 2.
 
-The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Executor sessions can read the identity but cannot rename or rotate it.
+The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Through the API, executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
 
 ## Pause and resume delegation
 
