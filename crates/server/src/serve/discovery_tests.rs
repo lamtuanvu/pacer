@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-use super::discovery::{InterfaceScope, observation_from, scope_to, seen_on, validate_config};
+use super::discovery::{
+    AdvertAction, InterfaceScope, advert_action, observation_from, scope_to, seen_on,
+    validate_config,
+};
 use mdns_sd::{IfKind, InterfaceId, ScopedIp, ScopedIpV4};
 use serde_json::json;
 use std::{
@@ -172,4 +175,72 @@ fn observations_above_any_bound_are_dropped() {
     assert!(observation_from(&base("h", "x".repeat(201))).is_none());
     // Unknown keys are not forwarded, but they still count towards the record budget.
     assert!(observation_from(&base("pad", "x".repeat(380))).is_none());
+}
+
+fn config(rev: u64, txt: serde_json::Value) -> super::discovery::Config {
+    let mut raw = advert(txt);
+    raw["rev"] = json!(rev);
+    validate_config(&raw).unwrap()
+}
+
+#[test]
+fn a_new_rev_with_the_same_advert_keeps_the_registration() {
+    let txt = json!({"id": "a".repeat(26), "name": "n", "v": "1"});
+    let previous = config(1, txt.clone());
+    let next = config(2, txt);
+    assert_eq!(
+        advert_action(Some(&previous), true, &next),
+        AdvertAction::Keep
+    );
+    let mut quiet = next.clone();
+    quiet.listen = false;
+    assert_eq!(
+        advert_action(Some(&previous), true, &quiet),
+        AdvertAction::Keep
+    );
+}
+
+#[test]
+fn a_changed_advert_or_interface_registers_again() {
+    let txt = json!({"id": "a".repeat(26), "name": "n", "v": "1"});
+    let previous = config(1, txt.clone());
+    let renamed = config(1, json!({"id": "a".repeat(26), "name": "m", "v": "1"}));
+    assert_eq!(
+        advert_action(Some(&previous), true, &renamed),
+        AdvertAction::Register
+    );
+    let mut moved = previous.clone();
+    moved.advertise.as_mut().unwrap().port = 10;
+    assert_eq!(
+        advert_action(Some(&previous), true, &moved),
+        AdvertAction::Register
+    );
+    let mut wifi = previous.clone();
+    wifi.iface = Some("en1".to_string());
+    assert_eq!(
+        advert_action(Some(&previous), true, &wifi),
+        AdvertAction::Register
+    );
+    assert_eq!(
+        advert_action(None, false, &previous),
+        AdvertAction::Register
+    );
+    // A registration that failed is retried on the next poll.
+    assert_eq!(
+        advert_action(Some(&previous), false, &config(2, txt)),
+        AdvertAction::Register
+    );
+}
+
+#[test]
+fn a_null_advert_unregisters() {
+    let previous = config(1, json!({"id": "a".repeat(26), "name": "n", "v": "1"}));
+    let mut next = previous.clone();
+    next.rev = 2;
+    next.advertise = None;
+    assert_eq!(
+        advert_action(Some(&previous), true, &next),
+        AdvertAction::Unregister
+    );
+    assert_eq!(advert_action(Some(&next), false, &next), AdvertAction::Keep);
 }

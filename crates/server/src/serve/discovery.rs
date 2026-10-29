@@ -176,6 +176,27 @@ fn props_of(txt: &TxtProperties) -> Option<HashMap<String, String>> {
         .collect()
 }
 
+/// What the radio does with its advert after a poll.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AdvertAction {
+    Keep,
+    /// Withdraw any previous advert, then register the next one.
+    Register,
+    Unregister,
+}
+
+/// Decides from the effective advert alone. `rev` moves with every batch of observations, so it
+/// must not cause goodbye packets and a re-announce, which mDNS answers with conflict suffixes.
+pub fn advert_action(previous: Option<&Config>, advertised: bool, next: &Config) -> AdvertAction {
+    let same = previous.is_some_and(|p| p.iface == next.iface && p.advertise == next.advertise);
+    match (&next.advertise, advertised) {
+        (None, true) => AdvertAction::Unregister,
+        (None, false) => AdvertAction::Keep,
+        (Some(_), true) if same => AdvertAction::Keep,
+        (Some(_), _) => AdvertAction::Register,
+    }
+}
+
 pub struct RadioOptions {
     pub poll: Duration,
     pub disabled: bool,
@@ -198,7 +219,7 @@ struct State {
 }
 
 impl State {
-    fn apply(&mut self, next: Config, refused: bool) {
+    async fn apply(&mut self, next: Config, refused: bool) {
         if refused && self.refused_rev != Some(next.rev) {
             eprintln!("pacer: discovery: advert outside the TXT bounds; not advertising");
             self.refused_rev = Some(next.rev);
@@ -244,12 +265,19 @@ impl State {
         let Some(mdns) = self.mdns.as_mut() else {
             return;
         };
-        let previous = self.config.as_ref();
-        if previous.is_none_or(|p| p.rev != next.rev || p.advertise != next.advertise) {
-            if let Some(fullname) = mdns.advertised.take() {
-                let _ = mdns.daemon.unregister(&fullname);
+        let action = advert_action(self.config.as_ref(), mdns.advertised.is_some(), &next);
+        if action != AdvertAction::Keep {
+            // Wait for the goodbye so the next registration does not collide with the old name.
+            if let Some(fullname) = mdns.advertised.take()
+                && let Ok(status) = mdns.daemon.unregister(&fullname)
+            {
+                let _ = tokio::time::timeout(STOP_TIMEOUT, status.recv_async()).await;
             }
-            if let Some(advert) = &next.advertise {
+            if let Some(advert) = next
+                .advertise
+                .as_ref()
+                .filter(|_| action == AdvertAction::Register)
+            {
                 let host = format!("{}.local.", advert.instance);
                 let info = ServiceInfo::new(
                     SERVICE,
@@ -374,7 +402,7 @@ async fn run(core: Arc<CoreChild>, state: Arc<Mutex<State>>, poll: Duration) {
             let refused = config.iface.is_some()
                 && config.advertise.is_none()
                 && raw.get("advertise").is_some_and(|a| !a.is_null());
-            state.apply(config, refused);
+            state.apply(config, refused).await;
         }
         state.drain();
         if state.queue.is_empty() {
