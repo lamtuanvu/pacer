@@ -1,11 +1,22 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "attach" | "image" | "issue" | "repo" | "close" | "chevron-down" | "chevron-right" | "panel-bottom" | "search";
+export type IconName = "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "attach" | "image" | "issue" | "repo" | "close" | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    "chevron-left": "M15 6l-6 6 6 6",
+    "settings-plugins": "M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4",
+    "settings-home": "M3 12l9-8 9 8M5 10v10h14V10",
+    "settings-agents": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
+    "settings-routing": "M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10",
+    "settings-budget": "M3 12h18M3 6h18M3 18h10",
+    "settings-machines": "M4 5h16v10H4zM8 20h8M12 15v5",
+    "settings-app": "M4 4h16v16H4zM4 9h16",
+    "settings-diagnostics": "M3 12h4l3-7 4 14 3-7h4",
+
     "pr": "M6 8v8m0-14a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6M15 2l-3 3 3 3M12 5h4a3 3 0 0 1 3 3v8m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
     "commit": "M3 12h5m8 0h5m-9-4a4 4 0 1 0 0 8 4 4 0 0 0 0-8",
     "files": "M8 3h8l4 4v14H8zM16 3v5h4M4 7v14",
     "checks": "m3 6 2 2 4-4M12 6h9m-18 8 2 2 4-4m3 2h9M3 21h18",
     "time": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l3 2",
+    "info": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 8v5m0-8.5v.5",
     "retry": "M3 10a9 9 0 1 1 2 9M3 4v6h6",
     "notes": "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
     "branch": "M6 7v10m0-16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6M9 17a9 9 0 0 0 9-9V7m0-6a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
@@ -23,7 +34,11 @@ export function Icon({ name }: { name: IconName }) {
     "repo": "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
     "close": "M6 6l12 12M18 6L6 18",
     "chevron-down": "M6 9l6 6 6-6",
-    "chevron-right": "M9 6l6 6-6 6",
+    "stack": "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5",
+    "bolt": "M13 2 4 14h7l-1 8 9-12h-7l1-8z",
+    "fork": "M4 12h6m0 0 6-6h4m-10 6 6 6h4m-10-6h10",
+    "check-circle": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M8 12l3 3 5-6",
+    "chevron-right": "m9 6 6 6-6 6",
     "search": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14m9 16-4.5-4.5",
     "plugin": "M9 4H4v5a3 3 0 1 1 0 6v5h5a3 3 0 1 0 6 0h5v-5a3 3 0 1 0 0-6V4h-5a3 3 0 1 0-6 0z",
     sliders: "M4 6h6m4 0h6M4 12h10m4 0h2M4 18h2m4 0h10M10 3v6m4 0v6M6 15v6",
@@ -42,6 +57,7 @@ export function Icon({ name }: { name: IconName }) {
     overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", review: "M5 12l4 4 10-10M5 20h14", sessions: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {name === "more" && [5,12,19].map(cx => <circle key={cx} cx={cx} cy="12" r="1.6" fill="currentColor" stroke="none" />)}
     {paths[name] && <path d={paths[name]} />}
     {name === "executors" && <><rect x="4" y="4" width="16" height="6" rx="1" /><rect x="4" y="14" width="16" height="6" rx="1" /></>}
     {name === "hosts" && <><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8" /></>}

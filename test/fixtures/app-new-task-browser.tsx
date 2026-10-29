@@ -84,7 +84,7 @@ const state = { ...initialState(), connected: true, snapshot: snapshot as any, f
 const runner = createActionRunner({ call: (op, params) => api.call(op, params) as never, waitFor: async () => true, refetch: () => {}, navigate: href => { location.hash = href; } });
 
 function App() {
-  const [hash, setHash] = useState(location.hash || "#/overview");
+  const [hash, setHash] = useState(location.hash || "#/");
   useEffect(() => { const update = () => setHash(location.hash); addEventListener("hashchange", update); return () => removeEventListener("hashchange", update); }, []);
   const route = resolveRoute(hash) as Route;
   useEffect(() => { keys.setScope(route.name); }, [route.name]);

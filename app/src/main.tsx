@@ -1,3 +1,5 @@
+import { PluginContext, usePluginCatalog } from "./plugins/catalog";
+import { updateNoticeHiddenOn } from "./settings-pages";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -36,6 +38,7 @@ function App() {
   const [state, setState] = useState(store.getState);
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
+  const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
   const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
   useEffect(() => { resetDesktopPageScroll(); }, [hash]);
@@ -88,7 +91,7 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      commands.register({ id: "go.overview", title: "Go to Overview", group: "Go to", icon: "overview", keys: "g o", run: go("#/overview") }),
+      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "dispatch", keys: "g o", run: go("#/") }),
       commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
       commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
       commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
@@ -119,10 +122,10 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider>
+      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")} />
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}

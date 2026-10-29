@@ -164,12 +164,12 @@ browserTest("new_task_strict_planner_notice", async () => {
 
 browserTest("new_task_cmd_n_opens_the_composer_from_anywhere", async () => {
   await withComposer(async page => {
-    await page.locator('[data-route="overview"]').waitFor();
+    await page.locator('[data-route="dispatch"]').waitFor();
     await page.locator("#main-content").focus();
     await page.keyboard.press("Meta+n");
     await page.waitForFunction(() => location.hash === "#/tasks/new?repo=econ-v1%2Fnode");
     await focused(page, "#nt-request");
-  }, { hash: "#/overview?repo=econ-v1%2Fnode" });
+  }, { hash: "#/?repo=econ-v1%2Fnode" });
 }, 30_000);
 
 browserTest("new_task_375_sheet_rows_open_sheets", async () => {
