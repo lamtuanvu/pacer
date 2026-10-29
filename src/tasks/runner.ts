@@ -1,6 +1,6 @@
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
-import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget } from "../dispatch/enforcement";
+import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { extractAttemptTokens } from "../tokens/extract";
 import { attemptUsageText, recordAttemptUsage } from "../tokens/store";
@@ -38,6 +38,7 @@ import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
+import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
@@ -113,6 +114,13 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
 }
 
 const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped";
+
+/** The runner whose explicit `session: interactive` alone blocks strict work: the requested one, or every runner. */
+function strictInteractiveRefusal(decision: DispatchPreview, requested: string | null): string | undefined {
+  if (requested) return decision.excluded.find(e => e.id === requested && e.reason === STRICT_INTERACTIVE_REASON)?.id;
+  const blocking = decision.excluded.filter(e => e.reason !== "planner");
+  return blocking.length && !decision.request.candidates.length && blocking.every(e => e.reason === STRICT_INTERACTIVE_REASON) ? blocking[0].id : undefined;
+}
 
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
@@ -215,7 +223,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         selection = snapshot.selection;
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
-        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation"});
+        // The installed check uses the PATH the attempt will: strict work runs with the service's environment;
+        // other work reads the login environment first.
+        const servicePath = work?.options.delegationEnforcement === "strict";
+        if (!servicePath) await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
+        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation", servicePath});
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
@@ -296,6 +308,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           }
           const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
           if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
+          // An explicit interactive runner can never be certified, so refuse at once rather than wait or swap it.
+          const refused = work && decision ? strictInteractiveRefusal(decision, req) : undefined;
+          if (refused) {
+            task = updateTask(ctx, id, t => {
+              t.state = "failed"; t.result = {status: "failed", executor: null, model: null, files: "", report: `${refused}: ${STRICT_INTERACTIVE_REASON}`, backend: "direct"};
+              delete t.queue; delete t.runnerPid; delete t.executor; delete t.attemptStartedAt;
+            });
+            return;
+          }
           pick = requested && ids.includes(req!) ? req! : ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (work && pick && decision) {
@@ -305,6 +326,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (work && !pick && !paused) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
             const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
+              ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
               ??decision?.excluded[0];
             task=updateTask(ctx,id,t=>{
@@ -339,7 +361,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
           i--; continue;
         }
-        if (task.queue) return task;
+        if (task.queue || task.state === "failed") return task;
       }
       if (!pick) break;
       if (!resuming) {
@@ -452,6 +474,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         let evidence:ReturnType<typeof certificateEvidence>|undefined;
         if(!reason)try{evidence=certificateEvidence(checkedCtx,await resolveEnforcementTarget(checkedCtx,s,pick,checkedRepo));}
         catch(error){reason=error instanceof Error?error.message:"Native subagent control is unverified";}
+        if(reason===STRICT_INTERACTIVE_REASON&&pick===task.requestedExecutor){
+          releaseDispatch(ctx,id);
+          updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
+          return finish(ctx,id,{status:"failed",executor:pick,model:null,files:"",report:`${pick}: ${reason}`,backend:"direct"});
+        }
         if(reason){
           releaseDispatch(ctx,id);
           task=updateTask(ctx,id,t=>{t.state="queued";t.queue={reason:"waiting_retry",detail:`Native subagent control unverified for ${pick}: ${reason}`,since:t.queue?.since??Date.now()/1000,position:1,nextAt:Date.now()/1000+30};delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;delete t.run;});

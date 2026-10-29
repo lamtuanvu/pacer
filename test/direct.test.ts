@@ -9,6 +9,8 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} } }, "/x");
+// These cases exercise headless launches; launch-mode resolution has its own tests.
+for (const p of Object.values(s.providers)) p.session = "headless";
 
 // Wrapper identity checks require ps, which restricted test environments may deny.
 const canInspectProcesses = (() => {try {return Bun.spawnSync(["ps", "-p", String(process.pid)]).exitCode === 0;} catch {return false;}})();
@@ -75,7 +77,7 @@ test("Claude headless task refreshes its managed account after the turn and keep
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
     planner: "claude-code#work", accounts: {work: {kind: "claude", home}},
-    runners: {"claude-code#work": {}}, routing: [{default: ["claude-code#work"]}],
+    runners: {"claude-code#work": {}}, routing: [{default: ["claude-code#work"]}], execution: {launch_mode: "headless"},
   }));
   const strategy = loadStrategy(ctx);
   const result = await runAttempt(ctx, strategy.providers["claude-code#work"], task);
@@ -179,7 +181,7 @@ for (const [agent,kind,bin,fixture] of [['claude-code','claude','claude','claude
  const text=await Bun.file(new URL(`./fixtures/${fixture}`,import.meta.url)).text();
  const {ctx,task}=await setup(bin,`cat <<'LIMIT'\n${text}LIMIT\nexit 1`);
  const {mkdirSync}=await import('node:fs');mkdirSync(ctx.pacerHome,{recursive:true});
- const raw={accounts:{plan:{kind:'claude'},team:{kind,home:'~/.test-team'}},planner:'claude-code',routing:[{default:[`${agent}#team`]}]};
+ const raw={accounts:{plan:{kind:'claude'},team:{kind,home:'~/.test-team'}},planner:'claude-code',routing:[{default:[`${agent}#team`]}],execution:{launch_mode:'headless'}};
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify(raw));
  const st=validateStrategy(raw,'test');
  const out=await runAttempt(ctx,st.providers[`${agent}#team`],task);

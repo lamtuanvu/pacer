@@ -11,7 +11,7 @@ import { ActionContext } from "../app/src/data/action-context";
 import { ApiError } from "../app/src/data/api";
 import { createActionRunner } from "../app/src/data/actions";
 import { BulkReview, ReviewCheckbox, runBulkReview, scopedReviewQueue, selectedReviews } from "../app/src/screens/review/BulkReview";
-import { OverviewView } from "../app/src/screens/Overview";
+import { DispatchView } from "../app/src/screens/dispatch/Dispatch";
 import { Review, ReviewView } from "../app/src/screens/Review";
 import { initialReview } from "../app/src/screens/review/model";
 
@@ -117,8 +117,8 @@ test("successful operation responses count even when the review snapshot has not
 
 test("Overview has no bulk verdict controls while legacy review controls remain compatible", () => {
   const h = harness();
-  const overview = renderToString(<OverviewView snapshot={snap} query={{ repo: repoA.key, scope: null }} now={snap.at}
-    runner={h.runner} activity={[]} ops={new Set(["task.review"])} />);
+  const overview = renderToString(<DispatchView snapshot={snap} query={{ repo: repoA.key, scope: null }} now={snap.at}
+    runner={h.runner}/>);
   const review = renderToString(<BulkReview snapshot={snap} repo={repoA.key} runner={h.runner}>
     <ReviewView snapshot={snap} view={{ ...initialReview, queue: scopedReviewQueue(snap, repoA.key) }} now={snap.at} />
   </BulkReview>);

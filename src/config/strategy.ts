@@ -83,7 +83,7 @@ export interface Strategy {
   runnerAliases: Record<string, string>;
   /** @deprecated Derived from runners and accounts; use those directly in new consumers. */
   providers: Record<string, ProviderCfg>;
-  pacing: { policy: Policy; order: string[]; plannerReserve: number; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
+  pacing: { policy: Policy; order: string[]; plannerReserve: number; plannerReserveHeadroom: number; plannerProbe: "ask" | "auto" | "off"; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
@@ -196,10 +196,16 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     }
     return v;
   };
+  const plannerProbeRaw = pc.planner_probe ?? "ask";
+  const plannerProbe = ["ask", "auto", "off"].includes(String(plannerProbeRaw))
+    ? plannerProbeRaw as "ask" | "auto" | "off"
+    : "ask";
   const pacing = {
     policy,
     order,
     plannerReserve: num("planner_reserve", 15),
+    plannerReserveHeadroom: num("planner_reserve_headroom", 25),
+    plannerProbe,
     aheadThreshold: num("ahead_threshold", 10),
     behindThreshold: num("behind_threshold", -10),
     accounts: (pc.accounts ?? "spread") as "spread" | "fill",
@@ -209,6 +215,12 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   if (!Number.isFinite(pacing.fillThreshold) || pacing.fillThreshold < 50 || pacing.fillThreshold > 100) p.push("pacing.fill_threshold must be between 50 and 100");
   if (pacing.plannerReserve < 0 || pacing.plannerReserve >= 100) {
     p.push("pacing.planner_reserve must be between 0 and 99");
+  }
+  if (pacing.plannerReserveHeadroom < 0 || pacing.plannerReserveHeadroom >= 100) {
+    p.push("pacing.planner_reserve_headroom must be between 0 and 99");
+  }
+  if (!["ask", "auto", "off"].includes(String(plannerProbeRaw))) {
+    p.push("pacing.planner_probe must be ask, auto or off");
   }
 
   const routing: RouteRule[] = [];
@@ -247,6 +259,8 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
 
   const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
   if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
+  const launchMode = isObj(raw.execution) ? raw.execution.launch_mode : undefined;
+  if (launchMode !== undefined && launchMode !== "interactive" && launchMode !== "headless") p.push("execution.launch_mode must be interactive or headless");
   const taskRetentionDays = raw.task_retention_days ?? 14;
   if (typeof taskRetentionDays !== "number" || !Number.isSafeInteger(taskRetentionDays) || taskRetentionDays < 0) p.push("task_retention_days must be a non-negative integer");
   const plugins = parsePlugins(raw.plugins, p);

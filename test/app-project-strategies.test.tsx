@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { ProjectStrategies } from "../app/src/screens/settings/ProjectStrategies";
+import { SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { dispatchConfigSchema } from "../src/dispatch/types";
 import { moveExecutor, reconcileExecutor, projectDraft } from "../app/src/model/project-strategies";
 import { TaskContext, queryRevision } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -8,15 +9,21 @@ import { initialState } from "../app/src/data/store";
 const view = { repo: {key:"github.com/acme/repo",label:"acme/repo",path:"/repo"},rev:2,executors:["cursor#team@local","codex#personal@local"],available:[{id:"cursor#team",reference:"cursor#team@local",label:"Cursor · team · local"},{id:"codex#personal",reference:"codex#personal@local",label:"Codex · personal · local"}] };
 const state = {...initialState(),connected:true,features:{readModel:true,ops:new Set(["project.strategy.get","project.strategy.set","project.strategy.list","project.strategy.remove"])},snapshot:{repos:[view.repo],tasks:[]} as any};
 const api = {call:async()=>view} as any;
-const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><ProjectStrategies initialData={initial}/></TaskContext.Provider>);
+const config = {strategy:"default",planner:"codex",plannerAccount:"work",source:"built-in" as const,config:dispatchConfigSchema.parse({})};
+const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><SetupEditor view={config} eligibility={{kind:"project",repo:initial.repo.key,repoLabel:initial.repo.label,view:initial}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
-  for(const copy of ["Project overrides","Project order","Move Cursor · team · local down","Move Codex · personal · local up","Save project override","Use global rules"]) expect(html).toContain(copy);
-  expect(html).toContain("pc-choice-picker"); expect(html).toContain("pc-btn");
+  for(const copy of ["Executor order for acme/repo","Move down: Cursor · team · local","Move up: Codex · personal · local","Use global rules","Allowed executors for acme/repo, in priority order"]) expect(html).toContain(copy);
+  expect(html).not.toContain("unsaved change");
+  const inherited=render(state,{...view,rev:0,executors:null as any});
+  expect(inherited).toContain("Add executors to give this repository its own order");
+  expect(inherited).toContain("Add Cursor · team · local");
+  expect(inherited).not.toContain(">Use global rules<");
 });
-test("older services hide project settings and disconnected editors explain disabled saving", () => {
-  expect(render({...state,features:{readModel:true,ops:new Set()}})).toBe("");
-  expect(render({...state,connected:false})).toContain("Reconnect to save");
+test("disconnected editors explain why saving is unavailable", () => {
+  const html=render({...state,connected:false});
+  expect(html).toContain("Reconnect to save");
+  expect(html).toContain("disabled");
 });
 test("draft order is immutable and forbidden repository selections are cleared", () => {
   const draft=projectDraft(view); expect(moveExecutor(draft.executors,1,-1)).toEqual([...view.executors].reverse()); expect(draft.executors).toEqual(view.executors);
@@ -61,4 +68,17 @@ test("an unavailable project preview explains each excluded executor", async()=>
   const routing={ranked:[],excluded:[{id:"codex",reason:"signed out — run codex login"},{id:"cursor",reason:"at capacity"}],policy:{source:"project" as const,repoKey:"local:project",rev:1,executors:[]}};
   const html=renderToString(<DelegateRoutingPreview routing={routing} executor="" repoLabel="Project"/>);
   expect(html).toContain("Codex: signed out");expect(html).toContain("Cursor: at capacity");
+});
+
+
+test("project rows resolve snapshot status by executor ID and preserve unavailable references", () => {
+  const snapshot = { repos: [view.repo], tasks: [], accounts: [], executors: [
+    { id: "cursor#team", agent: "cursor", account: "team", state: "blocked", reason: "Maintenance" },
+  ] };
+  const html = render({ ...state, snapshot }, { ...view, executors: [...view.executors, "removed#old@local"] });
+  expect(html).toContain("Blocked until unblocked");
+  expect(html).toContain('class="pc-executor-id">cursor#team');
+  expect(html).toContain("Unavailable in the active setup");
+  expect(html).toContain("pc-sortable--icons");
+  expect(html).toContain('<h3 class="pc-section-heading">Available executors');
 });

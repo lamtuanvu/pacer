@@ -48,23 +48,23 @@ test("unknown and stale planners still show their name without duplicated usage"
   expect(renderToString(<TopBar {...base} planner={{ ...planner, stale: true }} />)).not.toContain("pc-meter");
 });
 
-test("Delegate is a secondary button, so the screen keeps the one primary action", () => {
+test("New task is a secondary button, so the screen keeps the one primary action", () => {
   const html = renderToString(<TopBar {...base} />);
   expect(html).not.toContain("pc-btn--primary");
-  expect(html).toMatch(/pc-btn--secondary[^>]*>Delegate</);
+  expect(html).toMatch(/pc-btn--secondary[^>]*>New task</);
 });
 
 test("setup leaves the step's page heading and actions to the setup flow", () => {
   const html = renderToString(<TopBar {...base} title="Setup" showActions={false} />);
   expect(html).not.toContain("<h1");
   expect(html).not.toContain("Setup");
-  expect(html).not.toContain(">Delegate<");
+  expect(html).not.toContain(">New task<");
   expect(html).not.toContain("pc-meter");
 });
 
 test("a screen that renders its own h1 gets a top bar without one, so the title appears once", () => {
   expect(renderToString(<TopBar {...base} />)).toContain("<h1");
-  for (const narrow of [false, true]) expect(renderToString(<TopBar {...base} narrow={narrow} showTitle={false} />)).not.toContain("<h1");
+  for (const narrow of [false, true]) expect(renderToString(<TopBar {...base} narrow={narrow} pageTitle={false} />)).not.toContain("<h1");
   expect(pageOwnsTitle(resolveRoute("#/insights") as Route)).toBe(true);
   expect(pageOwnsTitle(resolveRoute("#/") as Route)).toBe(false);
 });
