@@ -926,6 +926,9 @@ a.pc-btn{text-decoration:none}
 
 .pc-settings-nav__plugin{font-size:var(--type-count-badge-size);font-weight:var(--type-label-weight);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary)}
 
+/* Extra compact labelled controls for the fixed-width desktop tray footer. */
+.pc-btn--xs{min-height:var(--control-compact);padding:0 var(--space-2);gap:var(--space-1)}
+
 /* Insights board geometry; other segmented controls retain their density. */
 .pc-segmented--insights{padding:var(--size-3);border-radius:var(--radius-md);background:var(--surface-card)}
 .pc-segmented--insights .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}
