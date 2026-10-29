@@ -56,7 +56,7 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     strays: Object.fromEntries(Object.entries(records<StrandedWorktree & { initial?: unknown }>(o.strays, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")))
       .map(([k, v]) => [k, { ...v, initial: Array.isArray(v.initial) ? v.initial.filter((h): h is string => typeof h === "string") : [] }])),
     removed: records<RemovedWorktree>(o.removed, v => ["id", "path"].every(k => typeof v[k] === "string")),
-    groups: isObj(o.groups) ? (o.groups as Record<string, OrcaGroupEntry>) : {},
+    groups: records<OrcaGroupEntry>(o.groups, v => typeof v.selector === "string" && v.selector.startsWith("path:")),
   };
 }
 

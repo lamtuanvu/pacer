@@ -87,3 +87,10 @@ test("stranded worktrees, uncertain starts, stray risks and removals persist; ma
   expect([s.strays["r::/w"]!.initial, s.strays["r::/old"]!.initial]).toEqual([["term_a"], []]);
   expect(Object.keys(s.removed)).toEqual(["r::/w"]);
 });
+
+test("group cache entries without a path selector are dropped on load", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(orcaStatePath(ctx), JSON.stringify({ groups: { "r:ok": { selector: "path:/work/g" }, "r:id": { selector: "id:other" }, "r:bad": { selector: 7 }, "r:junk": "x" } }));
+  expect(loadOrcaState(ctx).groups).toEqual({ "r:ok": { selector: "path:/work/g" } });
+});
