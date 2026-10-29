@@ -1,7 +1,7 @@
 import type { Hello, ApiClient } from "../../../src/api/client-types";
 import { TerminalActionRequests } from "./terminal-action-request";
 export class ApiError extends Error {
-  constructor(readonly code: string, message: string, readonly hint?: string, readonly status?: number) { super(message); this.name = "ApiError"; }
+  constructor(readonly code: string, message: string, readonly hint?: string, readonly status?: number, readonly data?: unknown) { super(message); this.name = "ApiError"; }
 }
 /** Only the desktop shell exposes this bridge; browsers keep their sign-in guidance. */
 export function reportSessionEnded(): void {
@@ -20,9 +20,9 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
     if (!response.ok) {
       const text = await response.text();
-      let error: { code: string; message: string; hint?: string } | undefined;
+      let error: { code: string; message: string; hint?: string; data?: unknown } | undefined;
       try { error = JSON.parse(text).error; } catch { /* pre-routing HTTP failure */ }
-      throw new ApiError(error?.code ?? "internal", error?.message ?? `pacer serve: HTTP ${response.status}`, error?.hint, response.status);
+      throw new ApiError(error?.code ?? "internal", error?.message ?? `pacer serve: HTTP ${response.status}`, error?.hint, response.status, error?.data);
     }
     return response.json() as Promise<T>;
   }

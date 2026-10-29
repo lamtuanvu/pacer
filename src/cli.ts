@@ -57,6 +57,7 @@ import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
 import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
 import { runTask } from "./tasks/runner";
+import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 
@@ -573,6 +574,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
           const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, ...(pairedNative ? {pairedNative} : {}) });
+          void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
             // The front door owns the write end. EOF also arrives after SIGKILL,
@@ -586,6 +588,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
         ctx.env.PACER_PORT=String(s.port);
+        // Routing's installed check reads the cached login PATH and never waits on a shell, so read it now.
+        void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };

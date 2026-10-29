@@ -36,8 +36,8 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  // The Tasks, app-frame chrome, command menu and file viewer board values, until the design system carries them. Each entry names its board.
-  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-4", "radius-5", "radius-2", "radius-7", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-10.5", "size-12.5", "size-440", "size-72", "count-badge", "match-strong"]);
+  // The Tasks, Dispatch, Dispatcher, app-frame chrome, command menu, file viewer, session and activity bar board values, until the design system carries them. Each entry names its board.
+  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-4", "radius-5", "radius-2", "radius-7", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-10.5", "size-12.5", "size-440", "size-72", "size-220", "size-140", "size-110", "size-9", "count-badge", "match-strong", "session-title", "plugin-section"]);
   expect(entries.every(entry => entry.provisional.length > 20)).toBe(true);
 });
 

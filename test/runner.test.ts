@@ -465,7 +465,7 @@ test("timed out executor with changes stays failed", async () => {
   const ctx = fakeCtx({ run: realRun, env: { PATH: `${bin}:${process.env.PATH}` } }), repo = gitRepo();
   writeFileSync(join(repo, "planner-wip.txt"), "planner changes stay in the original repo");
   const t = createTask(ctx, { brief: { goal: "g", repo, worktreeBase: "head" }, kind: null, requestedExecutor: "cursor", timeoutS: 30 });
-  const done = await runTask(ctx, t.id, { ...deps({}), runAttempt, computeStatus: async () => status({ codex: { installed: false }, agy: { installed: false } }) });
+  const done = await runTask(ctx, t.id, { ...deps({}), runAttempt: (c, cfg, task, spawned) => runAttempt(c, {...cfg, session: "headless"}, task, spawned), computeStatus: async () => status({ codex: { installed: false }, agy: { installed: false } }) });
   expect(done.attempts[0].brokenReason).toContain("unknown option");
  });
 test('limit marks the account and carries the reset reported by a named runner',async()=>{

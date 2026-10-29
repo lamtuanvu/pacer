@@ -1,6 +1,6 @@
 import { integrationFreshness } from "./reconcile";
 import { recordedAgent } from "./reconcile-target";
-import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers } from "./doctor-hooks";
+import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers, enforcementProbeScheduleCheck } from "./doctor-hooks";
 import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
 import { serviceBackend, type ServiceStatus } from "../service";
@@ -84,6 +84,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     checks.push(...claudeHookChecks(ctx, strategy));
     checks.push(await probeClaudeHandlers());
   }
+  checks.push(enforcementProbeScheduleCheck(ctx));
   checks.push(...await removableVolumeChecks(ctx));
   checks.push(await linkLatencyCheck(ctx));
 

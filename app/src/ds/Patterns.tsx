@@ -20,7 +20,7 @@ export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
   layout?: 'aligned';
-  outlined?: boolean; tone?: 'bad';
+  outlined?: boolean; tone?: 'bad' | 'warn';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
 export function ListRow({ leading, content, meta, actions, children, className, density, layout, outlined, tone, ...props }: ListRowProps) {
@@ -49,11 +49,13 @@ export function FilterChip({ selected, className, ...props }: ButtonProps & { se
 }
 
 export interface SegmentOption { value: string; label: ComponentChildren; disabled?: boolean }
-export function SegmentedControl({ label, value, options, onChange, disabled, className }: {
-  label: string; value: string; options: readonly SegmentOption[];
+export function SegmentedControl({ label, value, options, onChange, disabled, className, variant, describedBy }: {
+  variant?: "board"; label: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
+  /** Id of visible text that explains the group, such as why it is disabled (UI-13). */
+  describedBy?: string;
 }) {
-  return <div role="group" aria-label={label} className={classes('pc-segmented', className)}>
+  return <div role="group" aria-label={label} aria-describedby={describedBy} className={classes('pc-segmented', variant && 'pc-segmented--board', className)}>
     {options.map(option => <Button size="sm" key={option.value} disabled={disabled || option.disabled}
       aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div>;
@@ -82,8 +84,8 @@ export function Tabs({ label, id, value, options, onChange }: {
   </div>;
 }
 
-export function Card({ children, className, ...props }: JSX.HTMLAttributes<HTMLElement>) {
-  return <section {...props} className={classes('pc-card', className)}>{children}</section>;
+export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement> & { tone?: "sunken" }) {
+  return <section {...props} className={classes('pc-card', tone && 'pc-card--sunken', className)}>{children}</section>;
 }
 export function ApprovalCard({ title, children, actions, className, ...props }: JSX.HTMLAttributes<HTMLElement> & {
   title?: string; actions?: ComponentChildren;
@@ -102,10 +104,10 @@ export function LoadingState({ label = 'Loading…', updating = false }: { label
     </span>{label}
   </div>;
 }
-export function EmptyState({ title, description, children }: {
-  title: string; description?: ComponentChildren; children?: ComponentChildren;
+export function EmptyState({ title, description, children, bodyTitle = false }: {
+  title: string; description?: ComponentChildren; children?: ComponentChildren; bodyTitle?: boolean;
 }) {
-  return <section className="pc-empty"><SectionHeading>{title}</SectionHeading>
+  return <section className="pc-empty">{bodyTitle ? <strong className="pc-empty__body-title">{title}</strong> : <SectionHeading>{title}</SectionHeading>}
     {description && <p>{description}</p>}{children}
   </section>;
 }

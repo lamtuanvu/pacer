@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
 import type { TaskNodeView } from "../../../src/view-model/task-tree";
 import { AgentStack } from "./AgentStack";
@@ -13,6 +14,10 @@ export interface TaskCardProps {
   density?: TaskCardDensity; node: TaskNodeView; expanded: boolean; onToggle(id: string): void; selectedId?: string; href(id: string): string;
   /** Where a row's quick actions go (Notes, Open terminal, Changes); regular density shows them when given. */
   viewHref?(id: string, view: TaskCardView): string; onSelect?(id: string): void;
+  /** Buttons for the task (Take over, Stop on Dispatch); siblings of the title link, never inside it. */
+  actions?: ComponentChildren;
+  /** Borderless row inside a containing section, with lane dividers between rows. */
+  flush?: boolean;
 }
 const plural = (n: number) => `${n} subtask${n === 1 ? "" : "s"}`;
 /** The dot's colour follows the card's attention first, then its status, so it never disagrees with the pill. */
@@ -52,19 +57,22 @@ function Children({ nodes, selectedId, href, id, onSelect, density }: { nodes: T
  * A root task as the Tasks and Session boards draw it. Regular: status dot, title, pill, then host, branch, agents,
  * tokens and quick actions, then facts. Compact (the navigator): title, host and repository, then status, agents and tokens.
  */
-export function TaskCard({ density = "regular", node, expanded, onToggle, selectedId, href, viewHref, onSelect }: TaskCardProps) {
+export function TaskCard({ density = "regular", node, expanded, onToggle, selectedId, href, viewHref, onSelect, actions, flush = false }: TaskCardProps) {
   const listId = `${useId()}-children`;
   const current = node.id === selectedId;
   const regular = density === "regular";
   const pill = !regular ? null : node.attention !== "none" && node.attentionLabel ? { tone: node.attention, label: node.attentionLabel }
     : settled(node) ? { tone: node.state.tone, label: node.state.label } : null;
-  return <article className={classNames("pc-task-card", `pc-task-card--${density}`, node.attention !== "none" && `pc-task-card--${node.attention}`)}>
+  return <article className={classNames("pc-task-card", `pc-task-card--${density}`, flush && "pc-task-card--flush", node.attention !== "none" && `pc-task-card--${node.attention}`)}>
     <div className={classNames("pc-task-card__main", current && "pc-task-card__main--selected")} onClick={() => onSelect?.(node.id)}>
       <div className="pc-task-card__row pc-task-card__row--head">
         <Dot node={node} size="root" /><span className="sr-only">{words(node)}: </span>
         <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{node.title}</a>
         {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
         {regular && !pill && <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(node)}`)}>{node.state.label}</span>}
+        {/* A flush row (Dispatch) carries its agents on the title line, as the board does. */}
+        {flush && !regular && <AgentStack agents={node.agents} size={16} />}
+        {actions && <span className="pc-task-card__controls">{actions}</span>}
       </div>
       {regular ? <div className="pc-task-card__row pc-task-card__row--facts">
         {node.host && <HostChip name={node.host.name} kind={node.host.kind} />}
@@ -79,11 +87,11 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
       </div> : <>
         <div className="pc-task-card__row pc-task-card__row--facts">
           {node.host && <HostChip name={node.host.name} kind={node.host.kind} />}
-          {node.repo && <span className="pc-task-card__branch pc-task-card__branch--repo" title={node.repo}>{node.repo}</span>}
+          {node.repo && <span className="pc-task-card__branch pc-task-card__branch--repo" title="Repository">{node.repo}</span>}
         </div>
         <div className="pc-task-card__row pc-task-card__row--facts">
           <span className={classNames("pc-task-card__status pc-task-card__status--grow", `pc-task-card__status--${dotTone(node)}`)}>{words(node)}</span>
-          <AgentStack agents={node.agents} size={16} />
+          {!flush && <AgentStack agents={node.agents} size={16} />}
           <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(node.tokens)}</span>
         </div>
       </>}
