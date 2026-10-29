@@ -12,6 +12,7 @@ import { inspectDesktopArchive } from "../release/desktop-verify";
 import { assetFile, companionFile, hostTarget } from "../../src/update/manifest";
 import { parsePlistDictionary } from "../../src/service";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
+import { FIXTURE_IDENTIFIERS, RELEASE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 
 export const PUBLISHED_BRIDGE_SOURCE = "9205c94ce0b32efd797e4892e56cdc374de01212";
 const sourceRoots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates", "xtask", ".cargo"]);
@@ -65,7 +66,12 @@ function rewriteFixtureVersion(destination: string, version: string): void {
     const file = join(destination, path), value = JSON.parse(readFileSync(file, "utf8"));
     if (value.version !== current) throw Error("Fixture source baseline version changed");
     value.version = version;
-    if (path === "desktop/src-tauri/tauri.conf.json" && value.plugins) delete value.plugins["deep-link"];
+    if (path === "desktop/src-tauri/tauri.conf.json") {
+      if (value.plugins) delete value.plugins["deep-link"];
+      // Fixture apps run beside the user's app under their own identifier and config folder.
+      if (value.identifier !== undefined && value.identifier !== RELEASE_IDENTIFIERS.desktop) throw Error("Fixture source desktop identifier changed");
+      value.identifier = FIXTURE_IDENTIFIERS.desktop;
+    }
     writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
   }
   for (const name of ["Cargo.toml", "Cargo.lock"]) {
@@ -83,6 +89,43 @@ function rewriteFixtureVersion(destination: string, version: string): void {
     // path is not covered by that workspace's desktop exclusion. Stop Cargo's
     // ancestor search here without changing the production manifest/workspace.
     if (name === "Cargo.toml" && !/^\[workspace\]\s*(?:#.*)?$/m.test(next)) next += "\n[workspace]\n";
+    writeFileSync(file, next);
+  }
+}
+/**
+ * The published bridge predates fixture identifiers and hard-codes the release ones. Its snapshot
+ * uses the fixture set so both fixture versions trust each other and never the user's app.
+ * Exact per-file counts fail closed if the fixed tree differs. Escaped and other literals stay.
+ */
+export const PUBLISHED_BRIDGE_IDENTIFIER_REWRITES: readonly (readonly [string, number])[] = [
+  ["desktop/src-tauri/src/bin/pacer-update-helper.rs", 1],
+  ["desktop/src-tauri/src/main.rs", 1],
+  ["desktop/src-tauri/src/ota/platform.rs", 2],
+  ["desktop/src-tauri/src/ota/platform_adoption.rs", 2],
+  ["desktop/src-tauri/src/ota/trust.rs", 4],
+  ["desktop/src-tauri/src/ota/updater.rs", 3],
+  ["desktop/src-tauri/src/ota/wire.rs", 1],
+  ["desktop/src-tauri/src/packaging.rs", 3],
+  ["src/cli.ts", 1],
+  ["src/commands/open.ts", 1],
+  ["src/update/desktop/adapter.ts", 2],
+  ["src/update/desktop/adoption-state.ts", 1],
+  ["src/update/desktop/identity.ts", 1],
+  ["src/update/desktop/native-os.ts", 4],
+];
+const RELEASE_IDENTIFIER_LITERAL = /"dev\.pacer\.(?:desktop(?:\.native-shim|\.update-helper)?|cli)"/g;
+const FIXTURE_IDENTIFIER_LITERAL: Record<string, string> = {
+  [`"${RELEASE_IDENTIFIERS.desktop}"`]: `"${FIXTURE_IDENTIFIERS.desktop}"`,
+  [`"${RELEASE_IDENTIFIERS.cli}"`]: `"${FIXTURE_IDENTIFIERS.cli}"`,
+  [`"${RELEASE_IDENTIFIERS.nativeShim}"`]: `"${FIXTURE_IDENTIFIERS.nativeShim}"`,
+  [`"${RELEASE_IDENTIFIERS.helper}"`]: `"${FIXTURE_IDENTIFIERS.helper}"`,
+};
+export function rewritePublishedBridgeIdentifiers(destination: string): void {
+  for (const [path, expected] of PUBLISHED_BRIDGE_IDENTIFIER_REWRITES) {
+    const file = join(destination, path), text = readFileSync(file, "utf8");
+    let count = 0;
+    const next = text.replace(RELEASE_IDENTIFIER_LITERAL, literal => { count++; return FIXTURE_IDENTIFIER_LITERAL[literal]!; });
+    if (count !== expected) throw Error(`Published bridge identifiers changed in ${path}`);
     writeFileSync(file, next);
   }
 }
@@ -118,6 +161,7 @@ async function snapshotPublishedBridge(destination: string, run: (argv: string[]
   await run(["/usr/bin/tar", "-xf", archive, "--no-same-owner", "--no-same-permissions", "-C", destination]);
   rmSync(archive);
   rewriteFixtureVersion(destination, "0.2.3");
+  rewritePublishedBridgeIdentifiers(destination);
   linkFixtureDependencies(checkout, destination);
 }
 /** Explicit certificate lease pins only; ambient build or runtime options never supply trust. */
@@ -127,7 +171,7 @@ export function fixtureFrontDoorBuild(root: string, targetDir: string, version: 
   const target = hostTarget();
   if (!target || target.os !== "darwin" || version !== "0.2.4" || !policy.signingCertSha1) throw Error("Paired fixture requires the candidate certificate lease");
   const clean = fixtureBuildEnvironment(inherited.HOME ?? "", inherited.PACER_OTA_PUBLIC_KEY ?? "", policy, inherited);
-  return { argv: frontDoorBuildCommand(target), env: { ...frontDoorBuildEnvironment({ root, target, version, outfile: "", desktopTrust: { signingCertSha1: policy.signingCertSha1 } }, clean), CARGO_TARGET_DIR: targetDir } };
+  return { argv: frontDoorBuildCommand(target), env: { ...frontDoorBuildEnvironment({ root, target, version, outfile: "", desktopTrust: { signingCertSha1: policy.signingCertSha1 } }, clean), PACER_BUILD_DESKTOP_FIXTURE: "1", CARGO_TARGET_DIR: targetDir } };
 }
 function stageFixtureSidecars(source: string, release: string, paired: boolean): void {
   const target = hostTarget();
@@ -144,13 +188,20 @@ export function fixtureFeed(arch: DesktopArch, archive: Buffer, signature: strin
   if (!["aarch64", "x86_64"].includes(arch) || signature.length > 8192) throw Error("Invalid host fixture feed");
   const version = "0.2.4", name = desktopAssetName(version, arch);
   return JSON.stringify({ schema: 1, version, notes: "Disposable native OTA validation fixture", pub_date: new Date().toISOString(), platforms: {
-    [`darwin-${arch}`]: { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(archive), bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true },
+    [`darwin-${arch}`]: { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(archive), bundleId: FIXTURE_IDENTIFIERS.desktop, protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true },
   } }, null, 2) + "\n";
 }
 
 export function assertFixtureBundlePlist(text: string): void {
   const value = parsePlistDictionary(text);
-  if (value.CFBundleIdentifier !== "dev.pacer.desktop" || Object.hasOwn(value, "CFBundleURLTypes")) throw Error("Fixture bundle must not register production URL handling");
+  if (value.CFBundleIdentifier !== FIXTURE_IDENTIFIERS.desktop || Object.hasOwn(value, "CFBundleURLTypes")) throw Error("Fixture bundle must not register production URL handling");
+}
+
+/** Every compiled fixture component reports a fixture identifier; a release one means a release-identity build. */
+export function assertFixtureCompiledBundleId(identity: { role?: unknown; bundleId?: unknown }): void {
+  const expected = identity.role === "cli" ? FIXTURE_IDENTIFIERS.cli
+    : identity.role === "desktop" || identity.role === "update-helper" ? FIXTURE_IDENTIFIERS.desktop : null;
+  if (!expected || identity.bundleId !== expected) throw Error("Fixture compiled identity has a release bundle identifier");
 }
 
 export function assertFixtureTransport(value: unknown, version: string, arch: DesktopArch): void {
@@ -171,12 +222,12 @@ export async function signFixtureBundle(app: string, entitlement: string, run: (
   // Sleep or a long build can relock the keychain; codesign then reports an internal error.
   if (signer?.password) await run(["/usr/bin/security", "unlock-keychain", "-p", signer.password, signer.keychain]);
   for (const [file, identifier, extra] of [
-    [join(app, "Contents/Frameworks/libpacer-native.dylib"), "dev.pacer.desktop.native-shim", []],
-    ...(paired ? [[core, "dev.pacer.cli", signer ? [] : ["--entitlements", entitlement]] as const] : []),
-    [join(resources, "pacer"), "dev.pacer.cli", signer || paired ? [] : ["--entitlements", entitlement]],
-    [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
+    [join(app, "Contents/Frameworks/libpacer-native.dylib"), FIXTURE_IDENTIFIERS.nativeShim, []],
+    ...(paired ? [[core, FIXTURE_IDENTIFIERS.cli, signer ? [] : ["--entitlements", entitlement]] as const] : []),
+    [join(resources, "pacer"), FIXTURE_IDENTIFIERS.cli, signer || paired ? [] : ["--entitlements", entitlement]],
+    [join(resources, "pacer-update-helper"), FIXTURE_IDENTIFIERS.helper, []],
     ...(existsSync(permission) ? [[permission, "dev.pacer.permission-setup", []] as const] : []),
-    [app, "dev.pacer.desktop", []],
+    [app, FIXTURE_IDENTIFIERS.desktop, []],
   ] as const) await run(["/usr/bin/codesign", "--force", ...identity, "--identifier", identifier, ...extra, file]);
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
 }
@@ -279,7 +330,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       await run(["cargo", "build", "--offline", "--locked", "--release", "--features", "ota-fixture", "--bin", "pacer-update-helper"], join(source, "desktop/src-tauri"));
       cpSync(join(targetDir, "release/bundle/macos/pacer.app"), join(release, "pacer.app"), { recursive: true });
       copyFileSync(join(targetDir, "release/pacer-update-helper"), join(release, "pacer-update-helper")); chmodSync(join(release, "pacer-update-helper"), 0o755);
-      const stage = await stageDesktopPackage(source, release, arch, { run: argv => run(argv) }), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources");
+      const stage = await stageDesktopPackage(source, release, arch, { run: argv => run(argv), bundleId: "dev.pacer.desktop.fixture" }), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources");
       assertFixtureBundlePlist(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
       const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8")); metadata.fixture = true; writeFileSync(metadataPath, JSON.stringify(metadata) + "\n");
       const entitlement = join(directory, "cli-entitlements.plist"); writeFileSync(entitlement, '<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>', { mode: 0o600 });
@@ -288,6 +339,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
         verifyDesktopExecutable(readFileSync(binary), arch);
         const identity = JSON.parse(await run([binary, "--pacer-identity"]));
         if (binary === join(app, "Contents/MacOS/pacer") && identity.fixtureIsolationProtocol !== 1) throw Error("Fixture shell lacks compile-time isolation proof");
+        assertFixtureCompiledBundleId(identity);
         if (identity.version !== version || identity.arch !== arch || identity.fixture !== true || identity.otaMode !== "fixture" || identity.fixturePolicySha256 !== digest(Buffer.from(JSON.stringify(policy))) || (![join(resources, "pacer"), join(resources, "pacer-core")].includes(binary) && identity.updaterKeySha256 !== state.nativeFixture!.updaterKeySha256)) throw Error("Fixture compiled identity differs from its lease");
       }
       renameSync(app, state.sources[index].path);

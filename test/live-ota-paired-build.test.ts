@@ -44,6 +44,7 @@ test.skipIf(process.platform !== "darwin")("candidate Rust build receives only e
   expect(command.env.PACER_BUILD_SIGNING_CERT_SHA1).toBe(policy.signingCertSha1);
   expect(command.env.PACER_BUILD_APPLE_TEAM_ID).toBe("");
   expect(command.env.CARGO_TARGET_DIR).toBe("/private-target");
+  expect(command.env.PACER_BUILD_DESKTOP_FIXTURE).toBe("1");
   expect(command.env.BUN_OPTIONS).toBeUndefined();
   expect(() => (build as any).fixtureFrontDoorBuild("/s", "/t", "0.2.4", { ...policy, signingCertSha1: undefined })).toThrow();
 });
