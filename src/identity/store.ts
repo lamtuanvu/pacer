@@ -1,5 +1,5 @@
 import { generateKeyPairSync, createPublicKey, randomBytes, type KeyObject } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
@@ -24,7 +24,12 @@ export interface RotationStatement { oldId: string; newId: string; signature: st
 /** `cloneSuspected` is the copied-home check made when the identity was loaded; it is cached with the identity. */
 export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject; cloneSuspected: boolean; lastRotation?: RotationStatement }
 
-const cache = new Map<string, MachineIdentity>();
+/**
+ * `stamp` fingerprints machine.json when the identity was cached. Every identity change in any process rewrites
+ * machine.json (atomic rename, so a new inode), so a different stamp means another process renamed, rotated or
+ * flagged this home and the cached identity is stale.
+ */
+const cache = new Map<string, { identity: MachineIdentity; stamp: string | null }>();
 /** One load per PACER_HOME at a time: concurrent callers share it, so a first start creates one key. */
 const inflight = new Map<string, Promise<MachineIdentity>>();
 let generation = 0;
@@ -32,7 +37,22 @@ let generation = 0;
 export const IDENTITY_LOCK = "identity";
 export function withIdentityLock<T>(ctx: Ctx, fn: () => Promise<T>): Promise<T> { return withLock(ctx, IDENTITY_LOCK, fn); }
 export function clearIdentityCache(): void { cache.clear(); inflight.clear(); generation++; }
-export function cachedIdentity(ctx: Pick<Ctx, "pacerHome">): MachineIdentity | undefined { return cache.get(ctx.pacerHome); }
+
+function metaStamp(pacerHome: string): string | null {
+  try {
+    const st = statSync(join(pacerHome, IDENTITY_DIR, "machine.json"), { bigint: true });
+    return `${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`;
+  } catch { return null; }
+}
+
+/** The cached identity, if machine.json has not changed since it was cached; a stale entry is dropped. One stat call. */
+export function cachedIdentity(ctx: Pick<Ctx, "pacerHome">): MachineIdentity | undefined {
+  const hit = cache.get(ctx.pacerHome);
+  if (!hit) return undefined;
+  if (hit.stamp !== null && hit.stamp === metaStamp(ctx.pacerHome)) return hit.identity;
+  cache.delete(ctx.pacerHome);
+  return undefined;
+}
 
 let testPlatform: NodeJS.Platform | undefined;
 export function setIdentityPlatformForTests(p?: NodeJS.Platform): void { testPlatform = p; }
@@ -70,13 +90,14 @@ function build(meta: MachineMeta, privateKey: KeyObject): MachineIdentity {
 }
 
 export function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}): Promise<MachineIdentity> {
-  const home = ctx.pacerHome, hit = cache.get(home);
+  const home = ctx.pacerHome, hit = cachedIdentity(ctx);
   if (hit) return Promise.resolve(hit);
   const running = inflight.get(home);
   if (running) return running;
   const gen = generation;
-  const p: Promise<MachineIdentity> = withIdentityLock(ctx, () => loadIdentityLocked(ctx, deps))
-    .then(identity => { if (gen === generation) cache.set(home, identity); return identity; })
+  // Stamp inside the lock, after the load's own writes, so no other process can change machine.json in between.
+  const p: Promise<MachineIdentity> = withIdentityLock(ctx, async () => ({ identity: await loadIdentityLocked(ctx, deps), stamp: metaStamp(home) }))
+    .then(entry => { if (gen === generation) cache.set(home, entry); return entry.identity; })
     .finally(() => { if (inflight.get(home) === p) inflight.delete(home); });
   inflight.set(home, p);
   return p;
@@ -115,11 +136,11 @@ export async function loadIdentityLocked(ctx: Ctx, deps: { platform?: NodeJS.Pla
 }
 
 /**
- * The machine id for stamping records: the cached identity, else `publicId` from machine.json.
+ * The machine id for stamping records: the cached identity while machine.json is unchanged, else `publicId` from it.
  * Never creates an identity or reads the private key, so it is safe on hot paths.
  */
 export function cachedMachineId(ctx: Ctx): string | undefined {
-  const hit = cache.get(ctx.pacerHome);
+  const hit = cachedIdentity(ctx);
   if (hit) return hit.id;
   try { return readMeta(ctx)?.publicId; } catch { return undefined; }
 }
