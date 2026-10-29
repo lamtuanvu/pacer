@@ -56,7 +56,7 @@ test('old service discovery fails with an upgrade hint and no local catalog subs
 });
 
 test('generic HTTP calls retain the local executor delegation guard before connecting', async () => {
-  for (const [name, params] of [['onboarding.try', {}], ['task.delegate', {}], ['task.retry', {}], ['task.retry_all', {}], ['task.answer', {}], ['session.create', {}], ['session.resume', {}], ['task.review', {verdict: 'send_back'}], ['task.review', {verdict: 'retry'}]] as const) {
+  for (const [name, params] of [['onboarding.try', {}], ['task.delegate', {}], ['task.retry', {}], ['task.retry_all', {}], ['task.answer', {}], ['task.send', {}], ['session.create', {}], ['session.resume', {}], ['task.review', {verdict: 'send_back'}], ['task.review', {verdict: 'retry'}]] as const) {
     let connected = false;
     const ctx = fakeCtx(); ctx.env.PACER_ROLE = 'executor';
     const result = await apiCommand(['call', name, '--params', JSON.stringify(params), '--json'], ctx, {connect:async()=>{connected=true;return fixture().client;}});

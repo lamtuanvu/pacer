@@ -45,6 +45,11 @@ export function runningTasksReadOnly(store: ReadOnlyStore): TaskRecord[] {
   if (!store.has("tasks")) return [];
   return store.query<{ record: string }>("SELECT record FROM tasks WHERE state='running' ORDER BY id DESC").flatMap(r => { try { return [JSON.parse(r.record) as TaskRecord]; } catch { return []; } });
 }
+/** Tasks that may hold an executor slot (see `holdsSlot`): running, or waiting on a question with a live worker. */
+export function slotTasksReadOnly(store: ReadOnlyStore): TaskRecord[] {
+  if (!store.has("tasks")) return [];
+  return store.query<{ record: string }>("SELECT record FROM tasks WHERE state IN ('running','needs_input') ORDER BY id DESC").flatMap(r => { try { return [JSON.parse(r.record) as TaskRecord]; } catch { return []; } });
+}
 export function storedObservationsReadOnly(store: ReadOnlyStore, now: number): Observation[] {
   if (!store.has("work_observations")) return [];
   return store.query<{ data: string }>("SELECT data FROM work_observations ORDER BY at DESC LIMIT 2048").flatMap(row => {

@@ -1,4 +1,4 @@
-import { slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { type HostCfg, repoKey } from "../config/hosts";
@@ -72,7 +72,7 @@ export async function remoteExclusion(
   if (!key || !Object.hasOwn(host.repos, key)) return `repo not set up on ${alias} (add hosts.${alias}.repos.${key ?? "<key>"})`;
   if (task.placement === "current") return "remote runners need a new worktree";
   if (deps.skipSlots) return null;
-  const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
+  const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }));
   if (deps.running) use.byHost[alias] = deps.running(alias);
   return slotBlock(s, runnerId, use);
 }

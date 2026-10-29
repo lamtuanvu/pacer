@@ -12,9 +12,24 @@ export interface Backend {
   id: string;
   available(ctx: Ctx, s: Strategy): Promise<boolean>;
   runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome>;
+  /** Optional capability: a backend that keeps an interactive lane's worker alive (`TaskRecord.live`). */
+  live?: LiveWorkerOps;
+}
+
+export type LiveRefusal = { ok: false; code: "unavailable" | "conflict"; message: string };
+export interface LiveWorkerOps {
+  /** Type one message into the task's live worker. Refuses unless the lane's agent is the terminal's foreground process. */
+  send(ctx: Ctx, task: TaskRecord, text: string): Promise<{ ok: true } | LiveRefusal>;
+  /** Stop the task's live worker, close its terminal and clear `TaskRecord.live`. */
+  release(ctx: Ctx, task: TaskRecord, why: string): Promise<void>;
 }
 
 export const directBackend: Backend = { id: "direct", available: async () => true, runAttempt };
+
+/** The registered backend with this id, if any. */
+export function backendById(id: string, extras: Backend[] = defaultBackends()): Backend | undefined {
+  return [...extras, directBackend].find(b => b.id === id);
+}
 
 /** Whether the backend with this id reports itself available; unknown ids are not. */
 export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras: Backend[] = defaultBackends()): Promise<boolean> {

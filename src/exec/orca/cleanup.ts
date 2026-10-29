@@ -6,6 +6,7 @@ import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
 import { OrcaClient, type TerminalRow } from "./client";
+import { laneWorktreeName } from "./names";
 import { realpathSafe } from "./setup";
 import { loadOrcaState, type StrandedWorktree, type StrayRisk, type UncertainStart, updateOrcaState, withLock } from "./state";
 
@@ -137,6 +138,39 @@ export async function discardCreatedWorktree(ctx: Ctx, c: OrcaClient, taskId: st
   log(`Orca worktree ${w.id} not removed (${failure}); pacer clean removes it`);
 }
 
+/**
+ * A `--group` parent lives while any lane worktree is nested under it. Once pacer has removed a lane's worktree, it
+ * removes the parent too when Orca shows no lane left under it and the parent has no uncommitted changes; otherwise
+ * the parent stays, and the removal of its last lane retries. Never throws.
+ */
+export async function releaseEmptyGroup(ctx: Ctx, c: OrcaClient, repoId: string, group: string, log: (l: string) => void, over: Partial<CleanupDeps> = {}): Promise<void> {
+  const deps = { ...DEFAULTS, ...over };
+  const key = `${repoId}:${group}`;
+  try {
+    await withLock(ctx, "orca-group", async () => {
+      const entry = loadOrcaState(ctx).groups[key];
+      if (!entry) return;
+      const shown = await c.worktreeShowBy(entry.selector);
+      if (!shown.ok) {
+        if (shown.error.code === "selector_not_found") updateOrcaState(ctx, s => { delete s.groups[key]; });
+        else log(`group ${group} parent kept: orca worktree show failed (${shown.error.code})`);
+        return;
+      }
+      const w = shown.result.worktree, path = entry.selector.slice("path:".length);
+      const children = w?.childWorktreeIds;
+      if (!Array.isArray(children)) { log(`group ${group} parent kept: Orca does not list its lanes`); return; }
+      if (children.length) { log(`group ${group} parent kept: ${children.length} lane worktree(s) still under it`); return; }
+      if (await worktreeDirty(ctx, path) !== false) { log(`group ${group} parent kept: it has uncommitted changes or git could not tell`); return; }
+      const owned = await verifyOwned(c, entry.selector, { name: `pacer-group-${group}`, path });
+      if ("error" in owned) { log(`group ${group} parent kept: ${owned.error}`); return; }
+      const failure = await removeOwned(ctx, c, owned.id, path, false, deps);
+      if (failure) { log(`group ${group} parent kept: ${failure}`); return; }
+      updateOrcaState(ctx, s => { delete s.groups[key]; });
+      log(`removed group ${group} parent worktree ${owned.id}`);
+    });
+  } catch (e) { log(`group ${group} parent kept: ${String(e instanceof Error ? e.message : e)}`); }
+}
+
 async function removeStranded(ctx: Ctx, c: OrcaClient, s: StrandedWorktree, force: boolean, deps: CleanupDeps): Promise<string | null> {
   const owned = await verifyOwned(c, `id:${s.id}`, s);
   const failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(ctx, c, s.id, s.path, force, deps);
@@ -161,11 +195,14 @@ export async function cleanOrcaTask(ctx: Ctx, t: TaskRecord, o: HostCleanOpts, o
   if (!path || realpathSafe(path) === realpathSafe(t.brief.repo)) return { kept: "Orca worktree path could not be resolved" };
   if (o.shared(t.worktree)) return { kept: "worktree is shared with an active or unreviewed task" };
   if (!o.force && await worktreeDirty(ctx, path) !== false) return { kept: "uncommitted changes; use --force" };
-  const owned = await verifyOwned(c, `path:${path}`, { name: `pacer-${t.id}-${t.result.executor}`, path });
+  const owned = await verifyOwned(c, `path:${path}`, { name: laneWorktreeName(t.id, t.result.executor ?? ""), path });
   if ("error" in owned) return { kept: owned.error };
   if (o.dryRun) return { removed: true };
   const failure = await removeOwned(ctx, c, owned.id, path, !!o.force, deps);
-  return failure ? { kept: failure } : { removed: true };
+  if (failure) return { kept: failure };
+  const sep = owned.id.indexOf("::");
+  if (t.group && sep > 0) await releaseEmptyGroup(ctx, c, owned.id.slice(0, sep), t.group, () => {}, deps);
+  return { removed: true };
 }
 
 /** A worker found settled after an uncertain start: show its worktree and outcome on the task, which needs review again. */

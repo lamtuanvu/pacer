@@ -50,6 +50,11 @@ test("browser API uses cookie credentials and typed operation errors", async () 
     expect(calls[0]?.credentials).toBe("same-origin");
     expect(new Headers(calls[0]?.headers).get("X-Pacer-Client")).toBe("app");
     expect(new Headers(calls[0]?.headers).get("content-type")).toBe("application/json");
+    // Each window names its own client instance, so two windows contend for a lane's driving lease.
+    const window = new Headers(calls[0]?.headers).get("X-Pacer-Client-Instance");
+    expect(window).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(createApi().call("config.set", { key: "planner" })).rejects.toBeInstanceOf(ApiError);
+    expect(new Headers(calls[1]?.headers).get("X-Pacer-Client-Instance")).not.toBe(window);
     mock.mockImplementation((async () => new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch);
     await expect(createApi().hello()).rejects.toBeInstanceOf(ApiError);
     await expect(createApi().hello()).rejects.toMatchObject({ status: 401 });

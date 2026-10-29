@@ -5,7 +5,7 @@ use std::path::Path;
 fn client_protocol_keeps_session_types_in_their_own_generated_crate() {
     let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/protocol.schema.json");
     let code = xtask::generate(&schema).unwrap();
-    assert!(code.contains("pub struct TaskDelegateParams"));
+    assert!(code.contains("pub struct AccountAddParamsVariant0Model"));
     assert!(!code.contains("pub struct SessionCreateParams"));
     let out = schema
         .parent()

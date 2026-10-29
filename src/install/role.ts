@@ -1,6 +1,7 @@
 import { allowedPair, type AccountCfg, type AgentId } from "../config/accounts";
 import { formatRunnerId, runnerDefaults } from "../config/runner-id";
 import { orcaAccountHome } from "../orca/accounts";
+import { orcaWorktreeName } from "../exec/orca/names";
 import { computeStatus } from "../engine/status";
 import { join, resolve } from "node:path";
 import { loadStrategy, type Strategy } from "../config/strategy";
@@ -8,7 +9,7 @@ import { isTaskId } from "../tasks/store";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 
-/** Orca new-child worktrees are named pacer-<taskId>-<providerId>; pacer's own task worktrees live under <pacerHome>/worktrees/<repo>/<taskId>. */
+/** Orca new-child worktrees are named pacer-<taskId>-<providerId as Orca stores it> (laneWorktreeName); pacer's own task worktrees live under <pacerHome>/worktrees/<repo>/<taskId>. */
 export function isExecutorSession(ctx: Ctx, input?: unknown): boolean {
   if (ctx.env.PACER_ROLE === "executor") return true;
   const paths = [process.cwd(), ...(isObj(input) && typeof input.cwd === "string" ? [input.cwd] : [])];
@@ -17,7 +18,7 @@ export function isExecutorSession(ctx: Ctx, input?: unknown): boolean {
   return paths.some(path => {
     const match = /\/orca\/workspaces\/[^/]+\/pacer-(t-\d{8}-\d{6}-[0-9a-f]{4})-([^/]+)(?:\/|$)/.exec(resolve(path));
     if (!match || !isTaskId(match[1])) return false;
-    try { return Object.hasOwn(loadStrategy(ctx).providers, match[2]); }
+    try { return Object.keys(loadStrategy(ctx).providers).some(id => orcaWorktreeName(id) === match[2]); }
     catch { return false; }
   });
 }

@@ -1044,6 +1044,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-task-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-terminal-protocol"
 version = "0.0.0"
 dependencies = [

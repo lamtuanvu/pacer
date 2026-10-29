@@ -10,10 +10,10 @@ const entry = (subject: string): InboxEntry => ({ outcome: "succeeded", subject,
 
 test("a missing or corrupt orca.json loads as empty state", () => {
   const ctx = fakeCtx();
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {}, groups: {} });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), "not json");
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {}, groups: {} });
 });
 
 test("updateOrcaState persists coordinator, run and workers", () => {
@@ -26,6 +26,7 @@ test("updateOrcaState persists coordinator, run and workers", () => {
   expect(loadOrcaState(ctx)).toEqual({
     coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {},
     workers: { ctx_1: { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 } },
+    groups: {},
   });
   updateOrcaState(ctx, (s) => { delete s.workers.ctx_1; });
   expect(loadOrcaState(ctx).workers).toEqual({});
@@ -85,4 +86,11 @@ test("stranded worktrees, uncertain starts, stray risks and removals persist; ma
   expect(Object.keys(s.strays)).toEqual(["r::/w", "r::/old"]);
   expect([s.strays["r::/w"]!.initial, s.strays["r::/old"]!.initial]).toEqual([["term_a"], []]);
   expect(Object.keys(s.removed)).toEqual(["r::/w"]);
+});
+
+test("group cache entries without a path selector are dropped on load", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(orcaStatePath(ctx), JSON.stringify({ groups: { "r:ok": { selector: "path:/work/g" }, "r:id": { selector: "id:other" }, "r:bad": { selector: 7 }, "r:junk": "x" } }));
+  expect(loadOrcaState(ctx).groups).toEqual({ "r:ok": { selector: "path:/work/g" } });
 });

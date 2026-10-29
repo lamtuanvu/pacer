@@ -12,6 +12,7 @@ export interface OrcaWorkerEntry {
   terminal: string | null;
   startedAt: number;
 }
+export interface OrcaGroupEntry { selector: string }
 /** A worktree pacer created through Orca and could not remove before falling back. */
 export interface StrandedWorktree { taskId: string; id: string; path: string; name: string; at: number }
 /** A pacer terminal whose worker-start result was uncertain; a later pass reconciles it. */
@@ -28,6 +29,7 @@ export interface OrcaState {
   /** Pacer-created worktrees whose terminal listing failed, keyed by worktree id; `pacer clean` closes only their recorded initial terminals. */
   strays: Record<string, StrayRisk>;
   removed: Record<string, RemovedWorktree>;
+  groups: Record<string, OrcaGroupEntry>;
 }
 export interface InboxEntry { outcome: string; subject: string; body: string; filesModified: string[]; messageId: string }
 
@@ -54,6 +56,7 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     strays: Object.fromEntries(Object.entries(records<StrandedWorktree & { initial?: unknown }>(o.strays, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")))
       .map(([k, v]) => [k, { ...v, initial: Array.isArray(v.initial) ? v.initial.filter((h): h is string => typeof h === "string") : [] }])),
     removed: records<RemovedWorktree>(o.removed, v => ["id", "path"].every(k => typeof v[k] === "string")),
+    groups: records<OrcaGroupEntry>(o.groups, v => typeof v.selector === "string" && v.selector.startsWith("path:")),
   };
 }
 

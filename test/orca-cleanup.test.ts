@@ -49,3 +49,39 @@ test("dry runs and shared worktrees never call orca worktree rm", async () => {
   expect(await cleanOrcaTask(x.ctx, x.t, {force: true, shared: () => true})).toEqual({kept: "worktree is shared with an active or unreviewed task"});
   expect(x.f.count(["orca", "worktree", "rm"])).toBe(0);
 });
+
+test("cleaning a group lane's worktree also removes the group parent once no lane is left under it", async () => {
+  const x = setup();
+  const {loadOrcaState, updateOrcaState} = await import("../src/exec/orca/state");
+  updateTask(x.ctx, x.t.id, t => { t.group = "g1"; });
+  updateOrcaState(x.ctx, s => { s.groups["repo:g1"] = {selector: "path:/work/pacer-group-g1"}; });
+  const f = fakeRun([
+    [["git", "-C", x.path, "rev-parse"], raw(`${x.path}\n`)],
+    [["git", "-C", "/work/pacer-group-g1", "status"], raw("")],
+    [["orca", "worktree", "show", "--worktree", "path:/work/pacer-group-g1"], envelope({worktree: {id: "repo::/work/pacer-group-g1", path: "/work/pacer-group-g1", displayName: "pacer-group-g1", isMainWorktree: false, childWorktreeIds: []}})],
+    [["orca", "worktree", "show"], envelope({worktree: {id: `repo::${x.path}`, path: x.path, displayName: `pacer-${x.t.id}-codex`, isMainWorktree: false}})],
+    [["orca", "worktree", "rm"], (a: string[]) => { if (a.includes(`id:repo::${x.path}`)) rmSync(x.path, {recursive: true}); return envelope({}); }],
+  ]);
+  x.ctx.run = f.run;
+  expect(await cleanOrcaTask(x.ctx, readTask(x.ctx, x.t.id)!, {force: true, shared: () => false}, {polls: 1, sleep: async () => {}})).toEqual({removed: true});
+  expect(f.calls.filter(a => a[2] === "rm").map(a => a[a.indexOf("--worktree") + 1])).toEqual([`id:repo::${x.path}`, "id:repo::/work/pacer-group-g1"]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({});
+});
+
+test("a group parent with uncommitted changes stays after its last lane is cleaned", async () => {
+  const x = setup();
+  const {loadOrcaState, updateOrcaState} = await import("../src/exec/orca/state");
+  updateTask(x.ctx, x.t.id, t => { t.group = "g1"; });
+  updateOrcaState(x.ctx, s => { s.groups["repo:g1"] = {selector: "path:/work/pacer-group-g1"}; });
+  const f = fakeRun([
+    [["git", "-C", x.path, "rev-parse"], raw(`${x.path}\n`)],
+    [["git", "-C", "/work/pacer-group-g1", "status"], raw(" M notes.md\n")],
+    [["orca", "worktree", "show", "--worktree", "path:/work/pacer-group-g1"], envelope({worktree: {id: "repo::/work/pacer-group-g1", path: "/work/pacer-group-g1", displayName: "pacer-group-g1", isMainWorktree: false, childWorktreeIds: []}})],
+    [["orca", "worktree", "show"], envelope({worktree: {id: `repo::${x.path}`, path: x.path, displayName: `pacer-${x.t.id}-codex`, isMainWorktree: false}})],
+    [["orca", "worktree", "rm"], (a: string[]) => { if (a.includes(`id:repo::${x.path}`)) rmSync(x.path, {recursive: true}); return envelope({}); }],
+  ]);
+  x.ctx.run = f.run;
+  expect(await cleanOrcaTask(x.ctx, readTask(x.ctx, x.t.id)!, {force: true, shared: () => false}, {polls: 1, sleep: async () => {}})).toEqual({removed: true});
+  expect(f.calls.filter(a => a[2] === "rm").map(a => a[a.indexOf("--worktree") + 1])).toEqual([`id:repo::${x.path}`]);
+  expect(loadOrcaState(x.ctx).groups).toEqual({"repo:g1": {selector: "path:/work/pacer-group-g1"}});
+});

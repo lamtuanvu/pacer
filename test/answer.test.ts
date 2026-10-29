@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readActivity } from "../src/activity/log";
 import { callOp } from "../src/api/ops";
 import * as tasks from "../src/core/tasks";
 import { cliDeps, main } from "../src/cli";
@@ -79,6 +80,38 @@ test("an answer starts from the asking executor's committed worktree head",async
   const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
   expect(readTask(ctx,r.retry.id)?.brief.base).toBe(head);
   expect(readTask(ctx,r.retry.id)?.placement?.requested).toBe("new");
+});
+
+test("an answer whose asking worktree pacer removed starts from the lane's recorded base and says so",async()=>{
+  const {ctx,task,deps}=setup();
+  const base="c".repeat(40);
+  updateTask(ctx,task.id,t=>{t.baseSha=base;t.worktreeReleased={at:ctx.now,path:join(tmpDir(),"lane")};t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"orca"};});
+  const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
+  expect(readTask(ctx,r.retry.id)?.brief.base).toBe(base);
+  expect(readActivity(ctx,{}).entries.find(e=>e.taskId===r.retry.id&&e.kind==="message")?.text)
+    .toBe(`The asking worktree was removed; the answer starts from the recorded base ${base.slice(0,12)}`);
+});
+
+test("an answer to a remote-host task keeps its brief base and says nothing about a removed worktree",async()=>{
+  const {ctx,task,deps}=setup();
+  const original=task.brief.base;
+  updateTask(ctx,task.id,t=>{
+    t.baseSha="c".repeat(40);t.worktree="build-host:/srv/lane";
+    t.run={host:"build-host",dir:join(tmpDir(),"run"),attempt:1,executor:"codex",startedAt:ctx.now,mode:"new",workdir:"/srv/lane",logFile:join(tmpDir(),"log")};
+    t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:"build-host:/srv/lane"};
+  });
+  const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
+  expect(readTask(ctx,r.retry.id)?.brief.base).toBe(original);
+  expect(readActivity(ctx,{}).entries.some(e=>e.taskId===r.retry.id&&e.text?.includes("asking worktree was removed"))).toBe(false);
+});
+
+test("an answer whose asking worktree was removed out of band is refused until it is restored",async()=>{
+  const {ctx,task,deps}=setup();
+  const gone=join(tmpDir(),"removed-lane");
+  updateTask(ctx,task.id,t=>{t.worktree=gone;t.baseSha="c".repeat(40);t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"direct",worktree:gone};});
+  await expect(callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps)).rejects.toMatchObject({code:"conflict",message:expect.stringContaining("restore it before answering")});
+  expect(readTask(ctx,task.id)?.question?.answer).toBeUndefined();
+  expect(readTask(ctx,task.id)?.retriedBy).toBeUndefined();
 });
 
 test("a failed delegation leaves the question unanswered and available to answer",async()=>{

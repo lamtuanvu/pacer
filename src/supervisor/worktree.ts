@@ -34,12 +34,15 @@ export async function removeTaskWorktree(ctx: Ctx, top: string, path: string, o:
   return r.code === 0 ? { ok: true } : { error: `git worktree remove failed: ${firstLine(r.stderr) || `exit ${r.code}`}` };
 }
 
-/** True when the task worktree has no uncommitted changes and no commits beyond base; null when git fails. */
+/**
+ * True when the task worktree has no uncommitted changes and no commits beyond base; null when git fails or no base is
+ * known, since a clean tree may still hold commits.
+ */
 export async function worktreeUnchanged(ctx: Ctx, path: string, base: string | undefined): Promise<boolean | null> {
   const dirty = await worktreeDirty(ctx, path);
   if (dirty === null) return null;
   if (dirty) return false;
-  if (!base) return true;
+  if (!base) return null;
   const c = await ctx.run(["git", "-C", path, "rev-list", "--count", `${base}..HEAD`], 15_000);
   return c.code === 0 ? Number(c.stdout.trim()) === 0 : null;
 }

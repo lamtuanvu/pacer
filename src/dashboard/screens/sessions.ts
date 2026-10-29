@@ -9,13 +9,36 @@ import type { ClientTask } from "../../view-model/snapshot";
 import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
-import { errorRows, reviewDetail, reviewItem } from "./review";
+import { errorRows, managedAnswerAct, reviewDetail, reviewItem } from "./review";
 import {workRows} from "./work";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
 const ACTIVE = new Set(["running", "queued"]);
 export const attachable = (ctx: ScreenCtx, t: ClientTask) => !!t.session && t.session.host !== "none" && ctx.supports("task.attach");
+/** A conversation that asked a question still waits for its answer: it is not a finished result to review yet. */
+const awaitingAnswer = (t: ClientTask) => t.interactionMode === "conversation" && t.state === "needs_input" && !t.retriedBy && !t.review && !t.dismissed && !t.resolved;
 const waitingForReview = (t: ClientTask) => !!t.reviewRequest && t.state === "done" && t.acceptanceState !== "failed" && !t.review && !t.dismissed && !t.resolved && !t.retriedBy;
+
+/**
+ * How a conversation waiting on its question can be answered from here: the action with the matching command, or why
+ * it cannot (null when the question itself is not loaded yet). Managed work is answered through `dispatch.answer`.
+ */
+function answerRoute(ctx: ScreenCtx, t: ClientTask): { act: Act; command: string } | { reason: string | null } {
+  const detail = ctx.data.details.get(t.id)?.value;
+  if (detail?.work) {
+    const act = managedAnswerAct(ctx, t.id, typeof t.rev === "number" ? t.rev : detail.rev, detail);
+    if (act) return { act, command: `pacer dispatch answer --id ${t.id} --request-id <id> --text "…"` };
+    return { reason: !ctx.supports("dispatch.answer") ? "This pacer service does not offer answering managed work." : !detail.question?.text ? null : "This work step's question cannot be answered from here." };
+  }
+  const question = t.question?.answer === undefined ? t.question?.text : undefined;
+  if (!question) return { reason: null };
+  if (!ctx.supports("task.answer")) return { reason: "This pacer service does not offer answering." };
+  const rev = typeof t.rev === "number" ? { expect_rev: t.rev } : {};
+  return { command: `pacer answer ${t.id} "…"`, act: {
+    label: "Answer", effect: { type: "prompt", prompt: { title: question, label: "Your answer", required: "Add an answer first.",
+      submit: value => ({ type: "action", action: { label: "Answer sent", op: "task.answer", params: { id: t.id, text: value, ...rev } } }) } },
+  } };
+}
 
 export function recentlyEnded(ctx: Pick<ScreenCtx, "s" | "state" | "data">): ClientTask[] {
   const scope = ctx.state.scope;
@@ -33,12 +56,16 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   const stop = active || t.state === "needs_input" ? opAct(ctx, conversation ? "End session" : "Stop", conversation && ctx.supports("session.end") ? "session.end" : "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
   const review: Act | undefined = waitingForReview(t) ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const detail = ctx.data.details.get(t.id)?.value;
-  const verdictItem = !conversation && !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
+  const asking = awaitingAnswer(t), route = asking ? answerRoute(ctx, t) : undefined;
+  const answer: Act | undefined = route && "act" in route ? route.act : undefined;
+  // A settled conversation is reviewable/retryable like any delegated task (interactive lanes design); one still
+  // waiting for its answer is not a result yet, so it gets an answer action instead of verdicts.
+  const verdictItem = !active && !asking && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   return {
-    id: `session:${t.id}`, primary: watch ?? review,
-    actions: [...defined([watch && review, terminal, tmux, stop, dismiss]),...(verdictItem?.actions??[])],
-    keys: { ...verdictItem?.keys, ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}) },
+    id: `session:${t.id}`, primary: watch ?? review ?? answer,
+    actions: [...defined([watch && review, answer && (watch || review) ? answer : undefined, terminal, tmux, stop, dismiss]),...(verdictItem?.actions??[])],
+    keys: { ...verdictItem?.keys, ...(answer ? { a: answer } : {}), ...(terminal ? { t: terminal } : {}), ...(tmux ? { m: tmux } : {}), ...(stop ? { s: stop } : {}), ...(dismiss ? { x: dismiss } : {}) },
   };
 }
 
@@ -93,7 +120,8 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
 }
 
 function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
-  if (!ACTIVE.has(t.state) && t.interactionMode !== "conversation") return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
+  // A settled conversation is reviewable/retryable like any delegated task (interactive lanes design).
+  if (!ACTIVE.has(t.state) && !awaitingAnswer(t)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
   const { theme, now } = ctx, resource = ctx.data.details.get(t.id), d = resource?.value;
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));
@@ -101,6 +129,18 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   rows.push(...wrapAfter([...statusSpans(theme, taskStatus(t)), span(dot, { fg: "secondary" })], [executorLabel(t.executor), t.repo?.label, d?.branch, started ? `started ${time(ctx, started)}` : "Start time unknown"].filter(Boolean).join(dot), width, { fg: "secondary" }));
   const progress = t.progress;
   rows.push(...wrapAfter([], [sessionTime(t, now), progress ? `${progress.files} files · ${progress.commits} commits` : "", progress?.lastOutputAt != null ? (progress.phase === "idle" ? `idle ${elapsed(now - progress.lastOutputAt)}` : `output ${ago(progress.lastOutputAt, now)}`) : ""].filter(Boolean).join(dot), width, { fg: progress?.phase === "idle" ? "warn" : "muted" }));
+
+  if (awaitingAnswer(t)) {
+    rows.push(blank(), { line: heading(theme, "Question") });
+    const question = t.question?.answer === undefined ? t.question?.text : undefined;
+    if (question) rows.push(...wrap(question, width).map(line => ({ line: [span(line)] })));
+    else rows.push(empty("The question is not loaded yet."));
+    const route = answerRoute(ctx, t);
+    if ("act" in route) {
+      rows.push(...wrapAfter([], "Answering resumes this session with your answer. A lane whose executor is still running receives it live.", width, { fg: "muted" }));
+      rows.push({ line: [span("a", { bold: true }), span(" answer   "), span(route.command, { fg: "secondary" })] });
+    } else if (route.reason) rows.push(empty(route.reason));
+  }
 
   rows.push(blank(), { line: heading(theme, "Watch") });
   if (attachable(ctx, t)) {

@@ -71,9 +71,12 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
       const label=req.headers.get("X-Pacer-Client")??"";
       const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
+      // A window or process id the client picks once, so two instances of one client contend for a lane's driving lease.
+      const instance=req.headers.get("X-Pacer-Client-Instance")??"";
+      const clientInstance=/^[A-Za-z0-9._:-]{1,64}$/.test(instance)?{label:client??(label==="app"?"app":"http"),id:instance}:undefined;
       const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
-        : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
+        : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client,clientInstance});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
