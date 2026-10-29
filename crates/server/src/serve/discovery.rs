@@ -8,10 +8,10 @@ use hyper_util::{
     client::legacy::{Client, connect::HttpConnector},
     rt::TokioExecutor,
 };
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties};
+use mdns_sd::{IfKind, ScopedIp, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties};
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
     time::Duration,
 };
@@ -19,6 +19,7 @@ use tokio::{sync::Mutex, task::JoinHandle};
 
 pub const SERVICE: &str = "_pacer._udp.local.";
 const ID_LEN: usize = 26;
+const IFACE_MAX: usize = 32;
 const TXT_MAX: usize = 400;
 const QUEUE_MAX: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -36,7 +37,47 @@ pub struct Config {
     pub rev: u64,
     pub enabled: bool,
     pub listen: bool,
+    /// The default route's interface (SEC-11): the only one the radio uses. None means no radio.
+    pub iface: Option<String>,
     pub advertise: Option<Advert>,
+}
+
+/// An interface name such as `en0` or `wlp2s0`.
+fn is_iface(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= IFACE_MAX
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._:@-".contains(&b))
+}
+
+/// The daemon calls that scope the radio to one interface.
+pub trait InterfaceScope {
+    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()>;
+    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()>;
+}
+
+impl InterfaceScope for ServiceDaemon {
+    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()> {
+        self.enable_interface(kind)
+    }
+    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()> {
+        self.disable_interface(kind)
+    }
+}
+
+/// Turns every interface off, loopback and container bridges included, then turns on only `iface`.
+pub fn scope_to(daemon: &impl InterfaceScope, iface: &str) -> mdns_sd::Result<()> {
+    daemon.disable(IfKind::All)?;
+    daemon.enable(IfKind::Name(iface.to_string()))
+}
+
+/// Whether a resolved service was heard on `iface`; an address with no interface does not count.
+pub fn seen_on(addresses: &HashSet<ScopedIp>, iface: &str) -> bool {
+    addresses.iter().any(|addr| match addr {
+        ScopedIp::V4(v4) => v4.interface_ids().iter().any(|id| id.name == iface),
+        ScopedIp::V6(v6) => v6.scope_id().name == iface,
+        _ => false,
+    })
 }
 
 /// A per-network discovery id: 26 lowercase base32 characters.
@@ -88,16 +129,23 @@ fn advert_from(raw: &Value) -> Option<Advert> {
 }
 
 /// Parses the core's radio config. An advert outside the hard bounds is dropped, never trimmed.
+/// Without a valid interface the radio neither listens nor advertises.
 pub fn validate_config(raw: &Value) -> Option<Config> {
     let rev = raw.get("rev")?.as_u64()?;
     let enabled = raw.get("enabled")?.as_bool()?;
     let listen = raw.get("listen")?.as_bool()?;
+    let iface = raw
+        .get("iface")
+        .and_then(Value::as_str)
+        .filter(|i| enabled && is_iface(i))
+        .map(str::to_string);
     let advertise = raw.get("advertise").and_then(advert_from);
     Some(Config {
         rev,
         enabled,
-        listen: enabled && listen,
-        advertise: advertise.filter(|_| enabled),
+        listen: listen && iface.is_some(),
+        advertise: advertise.filter(|_| iface.is_some()),
+        iface,
     })
 }
 
@@ -135,6 +183,7 @@ pub struct RadioOptions {
 
 struct Mdns {
     daemon: ServiceDaemon,
+    iface: String,
     browse: Option<mdns_sd::Receiver<ServiceEvent>>,
     advertised: Option<String>,
 }
@@ -157,16 +206,27 @@ impl State {
         if self.config.as_ref() == Some(&next) {
             return;
         }
-        if !next.listen && next.advertise.is_none() {
+        let Some(iface) = next
+            .iface
+            .clone()
+            .filter(|_| next.listen || next.advertise.is_some())
+        else {
             self.teardown();
             self.config = Some(next);
             return;
+        };
+        // A new interface gets a new daemon: the old one says goodbye on the old interface.
+        if self.mdns.as_ref().is_some_and(|m| m.iface != iface) {
+            self.teardown();
+            self.config = None;
         }
         if self.mdns.is_none() {
-            match ServiceDaemon::new() {
+            match ServiceDaemon::new().and_then(|daemon| scope_to(&daemon, &iface).map(|()| daemon))
+            {
                 Ok(daemon) => {
                     self.mdns = Some(Mdns {
                         daemon,
+                        iface,
                         browse: None,
                         advertised: None,
                     });
@@ -199,7 +259,10 @@ impl State {
                     advert.port,
                     advert.txt.clone(),
                 )
-                .map(ServiceInfo::enable_addr_auto);
+                .map(|mut info| {
+                    info.set_interfaces(vec![IfKind::Name(mdns.iface.clone())]);
+                    info.enable_addr_auto()
+                });
                 match info {
                     Ok(info) => {
                         let fullname = info.get_fullname().to_string();
@@ -225,13 +288,20 @@ impl State {
 
     /// Queues resolved services, keeping the newest `QUEUE_MAX`.
     fn drain(&mut self) {
-        let Some(receiver) = self.mdns.as_ref().and_then(|m| m.browse.as_ref()) else {
+        let Some((receiver, iface)) = self
+            .mdns
+            .as_ref()
+            .and_then(|m| Some((m.browse.as_ref()?, m.iface.as_str())))
+        else {
             return;
         };
         while let Ok(event) = receiver.try_recv() {
             let ServiceEvent::ServiceResolved(service) = event else {
                 continue;
             };
+            if !seen_on(service.get_addresses(), iface) {
+                continue;
+            }
             let Some(observation) = props_of(service.get_properties())
                 .as_ref()
                 .and_then(observation_from)
@@ -301,7 +371,7 @@ async fn run(core: Arc<CoreChild>, state: Arc<Mutex<State>>, poll: Duration) {
         if let Some(raw) = raw
             && let Some(config) = validate_config(&raw)
         {
-            let refused = config.enabled
+            let refused = config.iface.is_some()
                 && config.advertise.is_none()
                 && raw.get("advertise").is_some_and(|a| !a.is_null());
             state.apply(config, refused);

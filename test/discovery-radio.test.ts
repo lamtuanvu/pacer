@@ -9,13 +9,13 @@ import { readState, updateState, ensureNetwork } from "../src/discovery/state";
 import { currentVersion } from "../src/update/version";
 
 beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
-const home = { key: "k1", label: "home-wifi" };
+const home = { key: "k1", label: "home-wifi", iface: "en0" };
 
 test("on an unanswered network the radio listens but does not advertise, and the network question is raised", async () => {
   const ctx = fakeCtx();
   expect(radioStatus().available).toBe(false);
   const cfg = await buildRadioConfig(ctx, { network: home });
-  expect(cfg).toMatchObject({ enabled: true, listen: true, advertise: null });
+  expect(cfg).toMatchObject({ enabled: true, listen: true, iface: "en0", advertise: null });
   expect(readState(ctx).networks.k1.advertise).toBeNull();
   expect(radioStatus().available).toBe(true);
 });
@@ -32,6 +32,7 @@ test("on an approved network the advert has id, name and version but no machine 
   expect(JSON.stringify(cfg)).not.toContain("alex");
   expect(JSON.stringify(cfg)).not.toContain((await ensureIdentity(ctx)).id);
   expect(cfg.advertise!.port).toBe(4433);
+  expect(cfg.iface).toBe("en0");
 });
 
 test("without plugin hints the advert has no h key and uses the discard port", async () => {
@@ -56,13 +57,13 @@ test("discovery off disables both listening and advertising", async () => {
   await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
   await config.set(ctx, "discovery", "off");
   expect(config.get(ctx).keys.discovery.value).toBe("off");
-  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: false, listen: false, advertise: null });
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: false, listen: false, iface: null, advertise: null });
   await expect(config.set(ctx, "discovery", "maybe")).rejects.toMatchObject({ code: "invalid_input" });
 });
 
-test("an unknown network never advertises", async () => {
+test("an unknown network neither listens nor advertises, and names no interface", async () => {
   const ctx = fakeCtx();
-  expect((await buildRadioConfig(ctx, { network: null })).advertise).toBeNull();
+  expect(await buildRadioConfig(ctx, { network: null })).toMatchObject({ enabled: true, listen: false, iface: null, advertise: null });
 });
 
 test("observations are sanitized, own adverts are ignored, and prompts respect silences and the hourly cap", async () => {
@@ -113,7 +114,8 @@ test("the radio endpoints answer only on the internal channel with the internal 
     expect((await fetch(url("/_internal/discovery/config"), { method: "POST", headers: { ...headers, authorization: "Bearer wrong" } })).status).toBe(401);
     const cfg = await fetch(url("/_internal/discovery/config"), { method: "POST", headers });
     expect(cfg.status).toBe(200);
-    expect(await cfg.json()).toMatchObject({ enabled: true, listen: true, advertise: null });
+    // The fake context identifies no network, so there is no interface to listen on.
+    expect(await cfg.json()).toMatchObject({ enabled: true, listen: false, iface: null, advertise: null });
     const observed = await fetch(url("/_internal/discovery/observed"), { method: "POST", headers, body: JSON.stringify({ observations: [{ id: "h".repeat(26), name: "desk", v: "1", h: "" }, "junk"] }) });
     expect(await observed.json()).toMatchObject({ accepted: 1 });
     expect(readState(ctx).seen["h".repeat(26)].name).toBe("desk");

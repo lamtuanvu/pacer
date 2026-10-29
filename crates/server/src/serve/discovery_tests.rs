@@ -1,15 +1,93 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-use super::discovery::{observation_from, validate_config};
+use super::discovery::{InterfaceScope, observation_from, scope_to, seen_on, validate_config};
+use mdns_sd::{IfKind, InterfaceId, ScopedIp, ScopedIpV4};
 use serde_json::json;
-use std::collections::HashMap;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    net::{IpAddr, Ipv4Addr},
+};
 
 fn advert(txt: serde_json::Value) -> serde_json::Value {
-    json!({"rev": 1, "enabled": true, "listen": true, "advertise": {"instance": "a".repeat(26), "port": 9, "txt": txt}})
+    json!({"rev": 1, "enabled": true, "listen": true, "iface": "en0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": txt}})
+}
+
+#[derive(Default)]
+struct Recorder(RefCell<Vec<String>>);
+
+impl InterfaceScope for Recorder {
+    fn enable(&self, kind: IfKind) -> mdns_sd::Result<()> {
+        self.0.borrow_mut().push(format!("enable {kind:?}"));
+        Ok(())
+    }
+    fn disable(&self, kind: IfKind) -> mdns_sd::Result<()> {
+        self.0.borrow_mut().push(format!("disable {kind:?}"));
+        Ok(())
+    }
+}
+
+#[test]
+fn the_radio_is_scoped_to_the_named_interface_only() {
+    let daemon = Recorder::default();
+    scope_to(&daemon, "wlp2s0").unwrap();
+    assert_eq!(
+        daemon.0.into_inner(),
+        vec![
+            "disable All".to_string(),
+            "enable Name(\"wlp2s0\")".to_string()
+        ]
+    );
+}
+
+#[test]
+fn config_carries_the_interface_and_no_interface_means_no_radio() {
+    let cfg = validate_config(&advert(
+        json!({"id": "a".repeat(26), "name": "n", "v": "1"}),
+    ))
+    .unwrap();
+    assert_eq!(cfg.iface.as_deref(), Some("en0"));
+    assert!(cfg.listen && cfg.advertise.is_some());
+    for iface in [
+        json!(null),
+        json!(""),
+        json!("en0; rm"),
+        json!("x".repeat(33)),
+        json!(7),
+    ] {
+        let mut raw = advert(json!({"id": "a".repeat(26), "name": "n", "v": "1"}));
+        raw["iface"] = iface;
+        let cfg = validate_config(&raw).unwrap();
+        assert_eq!(cfg.iface, None);
+        assert!(!cfg.listen);
+        assert!(cfg.advertise.is_none());
+    }
+    let mut raw = advert(json!({"id": "a".repeat(26), "name": "n", "v": "1"}));
+    raw.as_object_mut().unwrap().remove("iface");
+    assert!(!validate_config(&raw).unwrap().listen);
+}
+
+#[test]
+fn observations_count_only_from_the_selected_interface() {
+    let on = |name: &str| {
+        ScopedIp::V4(ScopedIpV4::new(
+            Ipv4Addr::new(192, 168, 1, 20),
+            InterfaceId {
+                name: name.to_string(),
+                index: 2,
+            },
+        ))
+    };
+    assert!(seen_on(&HashSet::from([on("en0")]), "en0"));
+    assert!(seen_on(&HashSet::from([on("docker0"), on("en0")]), "en0"));
+    assert!(!seen_on(&HashSet::from([on("docker0")]), "en0"));
+    assert!(!seen_on(&HashSet::new(), "en0"));
+    let unscoped = ScopedIp::from(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+    assert!(!seen_on(&HashSet::from([unscoped]), "en0"));
 }
 
 #[test]
 fn config_with_bounded_txt_is_accepted() {
-    let raw = json!({"rev": 3, "enabled": true, "listen": true, "advertise": {"instance": "a".repeat(26), "port": 9, "txt": {"id": "a".repeat(26), "name": "pacer-k3x9", "v": "3.1.0"}}});
+    let raw = json!({"rev": 3, "enabled": true, "listen": true, "iface": "en0", "advertise": {"instance": "a".repeat(26), "port": 9, "txt": {"id": "a".repeat(26), "name": "pacer-k3x9", "v": "3.1.0"}}});
     let cfg = validate_config(&raw).expect("valid");
     assert_eq!(cfg.rev, 3);
     assert!(cfg.listen);
@@ -61,7 +139,8 @@ fn malformed_config_is_rejected() {
     assert!(validate_config(&port).unwrap().advertise.is_none());
     let instance = json!({"rev": 1, "enabled": true, "listen": true, "advertise": {"instance": "my laptop", "port": 9, "txt": {"id": "a".repeat(26), "name": "n"}}});
     assert!(validate_config(&instance).unwrap().advertise.is_none());
-    let null = json!({"rev": 1, "enabled": true, "listen": false, "advertise": null});
+    let null =
+        json!({"rev": 1, "enabled": true, "listen": false, "iface": "en0", "advertise": null});
     assert_eq!(validate_config(&null).unwrap().advertise, None);
 }
 

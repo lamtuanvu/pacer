@@ -8,8 +8,11 @@ import { DISCOVERY_ID, isSilenced, takePrompt } from "./policy";
 import { sanitizeText } from "./sanitize";
 import { ensureNetwork, readState, updateState } from "./state";
 
-/** What the front door's radio should do. advertise is null unless the user approved the current network. */
-export interface RadioConfig { rev: number; enabled: boolean; listen: boolean; advertise: null | { instance: string; port: number; txt: Record<string, string> } }
+/**
+ * What the front door's radio should do. advertise is null unless the user approved the current network.
+ * iface is the default route's interface, the only one the radio may use (SEC-11); null means neither listen nor advertise.
+ */
+export interface RadioConfig { rev: number; enabled: boolean; listen: boolean; iface: string | null; advertise: null | { instance: string; port: number; txt: Record<string, string> } }
 /** One raw TXT record set from the radio. Every field is untrusted (SEC-16). */
 export interface Observation { id: unknown; name: unknown; v: unknown; h: unknown; iface?: unknown }
 export interface PairingHints { port?: number; h?: string }
@@ -29,14 +32,15 @@ export function radioStatus(): { available: boolean; lastContact: number | null 
 
 export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo | null; hintsFor?: () => PairingHints | null } = {}): Promise<RadioConfig> {
   lastContact = Date.now() / 1000;
-  if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, advertise: null }; }
+  if (!discoveryEnabled(ctx)) { lastNetwork = null; return { rev: readState(ctx).rev, enabled: false, listen: false, iface: null, advertise: null }; }
   const network = deps.network !== undefined ? deps.network : await currentNetwork(ctx);
   lastNetwork = network;
-  if (!network) return { rev: readState(ctx).rev, enabled: true, listen: true, advertise: null };
+  if (!network) return { rev: readState(ctx).rev, enabled: true, listen: false, iface: null, advertise: null };
+  const iface = network.iface;
   let s = readState(ctx);
   if (!s.networks[network.key] && !ctx.readOnly) s = await updateState(ctx, st => { ensureNetwork(st, network.key, network.label); });
   const entry = s.networks[network.key];
-  if (entry?.advertise !== true) return { rev: s.rev, enabled: true, listen: true, advertise: null };
+  if (entry?.advertise !== true) return { rev: s.rev, enabled: true, listen: true, iface, advertise: null };
   // SEC-11: only the per-network id, the machine name and the version; never the machine id or the OS user name.
   const identity = await ensureIdentity(ctx);
   const hints = deps.hintsFor?.() ?? null;
@@ -44,7 +48,7 @@ export async function buildRadioConfig(ctx: Ctx, deps: { network?: NetworkInfo |
   const h = sanitizeText(hints?.h, 200);
   if (h) txt.h = h;
   const port = Number.isInteger(hints?.port) && hints!.port! > 0 && hints!.port! < 65536 ? hints!.port! : DISCARD_PORT;
-  return { rev: s.rev, enabled: true, listen: true, advertise: { instance: entry.discoveryId, port, txt } };
+  return { rev: s.rev, enabled: true, listen: true, iface, advertise: { instance: entry.discoveryId, port, txt } };
 }
 
 /** Records sanitized observations; returns the discovery ids that may be prompted for now. */

@@ -15,11 +15,13 @@ A machine is advertised only on networks you allowed. Its record (mDNS service `
 
 The whole record is at most 400 bytes. It never contains the machine id, the OS user name or the host name; the record's host is the discovery id. The default machine name, `pacer-` plus four random characters, keeps the host name out; rename the machine if you want something easier to recognize.
 
-Every pacer with discovery on listens, including on networks it is not advertised on, so it can show you the machines it finds.
+Every pacer with discovery on listens, including on networks it is not advertised on, so it can show you the machines it finds. It listens and advertises only on the interface of the default route (for example `en0` or `wlp2s0`), never on VPN tunnels, container bridges or other interfaces, and it ignores answers heard on any other interface. When the default route moves to another interface, discovery moves with it.
 
 ## Ask once per network
 
-pacer recognizes a network by its default gateway's hardware address and, on Wi-Fi, its name (SSID); it stores only a hash of the two. The first time pacer sees a network it asks once: **Let your other machines find this one on {network}?**, showing the exact name it will advertise, with **Allow** and **Not on this network**. Nothing is advertised until you choose Allow. When pacer cannot identify the network, for example on a VPN-only connection, it does not advertise there and does not ask.
+pacer recognizes a network by its default gateway's hardware address and, on Wi-Fi, its name (SSID); it stores only a hash of the two. The first time pacer sees a network it asks once: **Let your other machines find this one on {network}?**, showing the exact name it will advertise, with **Allow** and **Not on this network**. Nothing is advertised until you choose Allow. When pacer cannot identify the network, for example on a VPN-only connection, it neither listens nor advertises there and does not ask.
+
+To identify the network pacer runs the system's own tools by absolute path, so a service started without `/sbin` on its `PATH` still finds them: `/sbin/route`, `/usr/sbin/arp` and `/usr/sbin/ipconfig` on macOS; `ip` from `/usr/sbin`, `/sbin`, `/usr/bin` or `/bin` and `/usr/bin/nmcli` on Linux.
 
 To change an answer later:
 
