@@ -293,7 +293,8 @@ test("Claude terminal commands set CLAUDE_CODE_SANDBOXED and write no Claude con
     const out = await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
     expect(out.backend).toBe("orca");
     const cmd = arg(x.f.calls.find(a => a[2] === "create" && a.includes("--command"))!, "--command");
-    expect(cmd.startsWith(`exec env -u ${id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} PACER_ROLE=executor PACER_TASK_ID=${x.task.id}${id === "claude-code" ? " CLAUDE_CODE_SANDBOXED=1 claude " : " codex "}`)).toBe(true);
+    expect(cmd.startsWith(`exec env -u ${id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} PACER_ROLE=executor PACER_TASK_ID=${x.task.id} PACER_HOME=${x.ctx.pacerHome}`)).toBe(true);
+    expect(cmd).toContain(id === "claude-code" ? " CLAUDE_CODE_SANDBOXED=1 claude " : " codex ");
     expect(cmd.includes("CLAUDE_CODE_SANDBOXED")).toBe(id === "claude-code");
     expect(existsSync(join(x.ctx.home, ".claude.json"))).toBe(false);
     expect(existsSync(join(x.ctx.pacerHome, "orca", "trusted.json"))).toBe(false);
@@ -382,7 +383,7 @@ test("the attempt log records each Orca step", async () => {
   const x = setup();
   const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   const text = readFileSync(out.attempt.log, "utf8");
-  const order = [`worktree create ${x.wt}: ${x.root}`, `terminal create ${terminal}: exec env -u CODEX_HOME PACER_ROLE=executor PACER_TASK_ID=${x.task.id} codex `,
+  const order = [`worktree create ${x.wt}: ${x.root}`, `terminal create ${terminal}: exec env -u CODEX_HOME PACER_ROLE=executor PACER_TASK_ID=${x.task.id}`,
     `terminal wait ${terminal}: idle`, `worker-start ${dispatch}: ready`, `worker_done ${dispatch}: succeeded`, "worker-release: retained",
     `closed pacer terminal ${terminal}: ok`, "--- summary\ndone\n\nok"];
   const at = order.map(line => text.indexOf(line));
@@ -941,6 +942,18 @@ test("stopping an answered group lane removes its original worktree and empty gr
   expect(loadOrcaState(x.ctx).groups).toEqual({});
   expect(readTask(x.ctx, asked.id)?.state).not.toBe("needs_input");
   expect(readTask(x.ctx, asked.id)?.dismissed).toBe(true);
+});
+
+test("Orca agent receives the task's pacer home and port", async () => {
+  const x = setup();
+  x.ctx.env = {...x.ctx.env, PACER_PORT: "54321"};
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const launch = x.f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))!;
+  const command = arg(launch, "--command");
+  expect(command).toContain(`PACER_HOME=${x.ctx.pacerHome}`);
+  expect(command).toContain("PACER_PORT=54321");
+  expect(command).toContain(`PACER_RUN_DIR=${x.ctx.pacerHome}/runs/${x.task.id}/1-orca`);
+  expect(command).toContain(`PACER_TRANSCRIPT_REPORT=${x.ctx.pacerHome}/runs/${x.task.id}/1-orca/transcript-report.md`);
 });
 
 test("a second question and answer reattach to the same worker again, and pacer send reaches it after an answer", async () => {

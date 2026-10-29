@@ -538,7 +538,10 @@ async function runOrcaAttempt(
       throw Error("account environment contains values that cannot be placed in a visible Orca terminal command");
     }
     // CLAUDE_CODE_SANDBOXED makes Claude treat the folder as trusted without writing its configuration.
-    const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
+    const agentRunDir = `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`;
+    const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, `PACER_HOME=${ctx.pacerHome}`,
+      `PACER_RUN_DIR=${agentRunDir}`, `PACER_TRANSCRIPT_REPORT=${join(agentRunDir, "transcript-report.md")}`,
+      ...(ctx.env.PACER_PORT ? [`PACER_PORT=${ctx.env.PACER_PORT}`] : []), ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
     // As in a direct launch, a default account uses the folder the user's login profile sets. Orca's shell environment
     // is not the service's, so without a profile folder a default account must not inherit another account's home.
     const agent = p.agent === "claude" ? "claude-code" : "codex", home = p.agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
@@ -561,12 +564,15 @@ async function runOrcaAttempt(
     }
     // The direct interactive launch for this runner and worktree, with its per-run settings file (bypass-permissions
     // acknowledgement, MCP answers). pacer's PTY session hooks stay out: Orca supervises this terminal.
-    const launch = prepareInteractive(agent, `${runDir(ctx, task.id, task.attempts.length + 1)}-orca`,
+    const launch = prepareInteractive(agent, agentRunDir,
       {cwd: root, argv: launchArgvFor(cfg, root, tasksDir(ctx), p.top)}, {sessionHooks: false, ...(mcp ? {mcp} : {})}).argv;
     // `exec` replaces the terminal's login shell with the agent: when the agent exits the terminal ends, so no shell is
     // ever left behind it to receive text typed for the agent (`task.send`, a live answer).
     const command = shellCommand(["exec", "env", ...unset, ...identity, ...Object.entries(folders).map(([key, value]) => `${key}=${value}`), ...launch]);
-    const shown = shellCommand(["exec", "env", ...unset, ...identity, ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
+    const shown = shellCommand(["exec", "env", ...unset, ...identity.map(value => value.startsWith("PACER_HOME=") ? "PACER_HOME=<PACER_HOME>"
+      : value.startsWith("PACER_RUN_DIR=") ? "PACER_RUN_DIR=<PACER_RUN_DIR>"
+      : value.startsWith("PACER_TRANSCRIPT_REPORT=") ? "PACER_TRANSCRIPT_REPORT=<PACER_TRANSCRIPT_REPORT>" : value),
+      ...Object.keys(folders).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
     if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
     terminal = made.result.terminal.handle;
