@@ -13,7 +13,7 @@ import { readAdoption } from "../../src/update/desktop/adoption-store";
 import { makeCtx } from "../../src/ctx";
 import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
-import { assertFixtureLayoutScenario, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { assertFixtureLayoutScenario, exactFixtureExternal, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { ATTACHED_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { verifyPairedAdoptionProcesses } from "./ota-paired-proof";
@@ -30,7 +30,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
   assertFixtureLayoutScenario(state, scenario);
-  if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || state.runtime || state.exercise || state.external.length !== 2 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh attached fixture and exact source service ownership required");
+  if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || state.runtime || state.exercise || !exactFixtureExternal(state) || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh attached fixture and exact source service ownership required");
   const baseline = state.nativeFixture.baselineVersion, appVersion = initialFixtureVersion(state), external = fixtureExternalCli(state), bundled = join(state.currentApp, "Contents/Resources/pacer");
   await verifyFixtureBundle(state, appVersion);
   const before = await inspectFixtureJobs(state);

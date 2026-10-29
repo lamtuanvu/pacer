@@ -1,8 +1,8 @@
 // Shared fixture plugin. Behavior comes from fixture.json in the working directory (the plugin folder).
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { PluginError, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[] }
+interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[] }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
@@ -56,8 +56,9 @@ await serve({
           }
         }
         if (fixture.callCapability) {
-          const params = fixture.callCapability === "log" ? { level: "info", message: "hello from fixture" } : {};
-          await host.call(`capability.${fixture.callCapability}`, params);
+          const params = fixture.capabilityParams ?? (fixture.callCapability === "log" ? { level: "info", message: "hello from fixture" } : {});
+          const result = await host.call(`capability.${fixture.callCapability}`, params);
+          if (fixture.capabilityResultFile) writeFileSync(fixture.capabilityResultFile, JSON.stringify(result), { mode: 0o600 });
         }
         const slow = fixture.pingDelayMs && (fixture.slowPings === undefined || pings <= fixture.slowPings);
         if (slow) await new Promise<void>(resolve => {

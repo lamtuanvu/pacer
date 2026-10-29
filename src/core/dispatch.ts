@@ -7,7 +7,7 @@ import { buildCandidates } from "../dispatch/candidates";
 import { decisionHash, ladderEngine, runDecision, type DecisionEngine } from "../dispatch/engines";
 import { computeStatus, type Status } from "../engine/status";
 import { rankExecutors } from "../engine/rank";
-import { slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
 import { listTasksWhere, readTask } from "../tasks/store";
 import { readHostReachability, remoteExclusion } from "../remote/eligibility";
 import { projectSnapshot, resolvePolicyRepoInput, resolvePolicyRepoInputReadOnly } from "./project-policy";
@@ -20,7 +20,7 @@ import { enforcementExclusion, enforcementExclusionCached } from "../dispatch/en
 import { executorExclusion } from "../executors/availability";
 import { exclusionReason, reason as makeReason, type Reason } from "../dispatch/reasons";
 import { readOnlyReviewReader } from "../dispatch/learning";
-import { runningTasksReadOnly, storedObservationsReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
+import { slotTasksReadOnly, storedObservationsReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
 import { pluginRegistry } from "../plugins";
 
 /**
@@ -73,7 +73,7 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
     if (!ro.store.available) ro.uncertainty.push(makeReason("tasks_unavailable", "info"));
   }
   const strict = deps.taskId ? getWork(ctx,deps.taskId)?.options.delegationEnforcement === "strict" : brief.delegationEnforcement !== "cooperative";
-  const use = slotUse((ro ? runningTasksReadOnly(ro.store) : listTasksWhere(ctx, {states: ["running"], all: true})).filter(t=>t.id!==deps.taskId));
+  const use = slotUse((ro ? slotTasksReadOnly(ro.store) : listTasksWhere(ctx, {states: SLOT_STATES, all: true})).filter(t=>t.id!==deps.taskId));
   const allowed = new Set<string>();
   for (const runner of existing.ranked) {
     const host = strategy.runners[runner.id].host;

@@ -10,8 +10,9 @@ import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust]
-                                  start isolated service and disposable repo; ui seeds sample data
+  up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
+                                  start isolated service and disposable repo; ui seeds sample data;
+                                  --real-keychain uses the login Keychain instead of a security stub
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
   ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages] [--cargo-target-dir <dir>]
@@ -55,7 +56,7 @@ export async function main(argv: string[]): Promise<number> {
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
@@ -65,8 +66,9 @@ export async function main(argv: string[]): Promise<number> {
   if (flags.has("--baseline-request-stages") && command !== "ota") throw Error("Baseline request stages require OTA build");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
+  if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain")), null, 2));
     return 0;
   }
   if (command === "status") {

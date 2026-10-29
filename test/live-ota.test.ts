@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import * as childProcess from "node:child_process";
 import { tmpDir } from "./helpers";
 import { atomicWrite, readEvidence, saveSession, type Session } from "../scripts/live/core";
-import { appDigest, cleanupOta, exerciseOta, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
+import { appDigest, cleanupOta, exactFixtureExternal, exerciseOta, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
 import { refusedOp } from "../scripts/live/proxy";
 import { refusal } from "../scripts/live/guard";
 
@@ -502,4 +502,17 @@ test("runtime driver cannot request an initial layout change before any ownershi
   const { updateOtaDriverRecord } = await import("../scripts/live/ota");
   expect(() => updateOtaDriverRecord("nonexistent", {} as any, { initialLayout: "paired" } as any)).toThrow("Initial layout is immutable");
   expect(() => updateOtaDriverRecord("nonexistent", {} as any, { baselineProcessType: "Standard" } as any)).toThrow("Baseline process type is immutable");
+});
+
+test("exercise guards accept only the exact recorded external service set", () => {
+  const root = "/tmp/lease/ota", file = (name: string) => ({ path: join(root, "external", name), sha256: "a".repeat(64) });
+  const recorded = ["pacer", "libpacer-native.dylib", "takeover-pacer-alt", "takeover-pacer"].map(file);
+  expect(exactFixtureExternal({ root, external: recorded })).toBe(true);
+  // A pre-takeover record (CLI and shim only) is stale: builds now always stage both takeover CLIs.
+  expect(exactFixtureExternal({ root, external: recorded.slice(0, 2) })).toBe(false);
+  expect(exactFixtureExternal({ root, external: [] })).toBe(false);
+  expect(exactFixtureExternal({ root, external: [recorded[1], recorded[0], recorded[2], recorded[3]] })).toBe(false);
+  expect(exactFixtureExternal({ root, external: [...recorded.slice(0, 3), file("other-pacer")] })).toBe(false);
+  expect(exactFixtureExternal({ root, external: [...recorded.slice(0, 3), { ...recorded[3], path: "/tmp/elsewhere/external/takeover-pacer" }] })).toBe(false);
+  expect(exactFixtureExternal({ root, external: [...recorded, file("extra")] })).toBe(false);
 });

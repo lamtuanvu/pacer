@@ -47,6 +47,10 @@ const schema = z.object({
   external: z.array(z.object({ path: z.string(), sha256: hash }).strict()).max(4).default([]),
 }).strict().refine(state => state.phase === "building" ? state.nativeFixture !== null && state.sources.every(source => source.sha256 === null) && state.artifacts.length === 0 : state.sources.every(source => source.sha256 !== null), "Source fingerprints are required outside building").refine(state => (!state.exercise && !state.runtime) || (state.phase === "prepared" || state.phase === "cleaned" && state.runtime?.state === "retired" && (!state.exercise || state.exercise.state === "complete")) && !!state.nativeFixture && !!state.runtime && (!state.exercise || sameProcess(state.exercise.driver, state.runtime.driver)), "Native exercise requires an exact runtime lease");
 export type OtaRecord = z.infer<typeof schema>;
+/** Every native fixture build records these external files, in this order: the attached CLI and its shim, then both takeover CLIs. */
+export const FIXTURE_EXTERNAL_FILES = ["pacer", "libpacer-native.dylib", "takeover-pacer-alt", "takeover-pacer"] as const;
+export const exactFixtureExternal = (state: Pick<OtaRecord, "root" | "external">): boolean =>
+  state.external.length === FIXTURE_EXTERNAL_FILES.length && state.external.every((file, index) => file.path === join(state.root, "external", FIXTURE_EXTERNAL_FILES[index]));
 /** Fixed initial assembly only; versions never come from a public request. */
 export function initialFixtureVersion(state: Pick<OtaRecord, "initialLayout" | "nativeFixture">): "0.2.3" | "0.2.4" {
   const layout = initialLayoutSchema.parse(state.initialLayout ?? "bridge");
@@ -315,12 +319,11 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   }
   if (state.nativeFixture && state.phase === "prepared" && (state.artifacts.length !== 2 || state.artifacts.some(asset => !present(asset.path)))) throw Error("Fixture artifacts missing");
   if (state.artifacts.some(asset => asset.path !== join(root, "feed/stable.json") && asset.path !== join(root, "artifacts", `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`)) || new Set(state.artifacts.map(asset => asset.path)).size !== state.artifacts.length) throw Error("Invalid fixture artifact ledger");
-  const externalFiles = [join(root, "external/pacer"), join(root, "external/libpacer-native.dylib"), join(root, "external/takeover-pacer-alt"), join(root, "external/takeover-pacer")];
-  if (state.external.length && (!state.nativeFixture || state.external.length !== 4 || state.external.some((file, index) => file.path !== externalFiles[index]))) throw Error("Invalid external service ledger");
+  if (state.external.length && (!state.nativeFixture || !exactFixtureExternal(state))) throw Error("Invalid external service ledger");
   if (present(join(root, "external"))) {
     if (!state.external.length) throw Error("Unrecorded external service");
     canonical(join(root, "external")); owned(join(root, "external"), "directory", true);
-    if (readdirSync(join(root, "external")).sort().join() !== "libpacer-native.dylib,pacer,takeover-pacer,takeover-pacer-alt") throw Error("Unrecorded external service resource");
+    if (readdirSync(join(root, "external")).sort().join() !== [...FIXTURE_EXTERNAL_FILES].sort().join()) throw Error("Unrecorded external service resource");
     for (const file of state.external) {
       canonical(file.path); owned(file.path, "file", true);
       if (lstatSync(file.path).size > 512 * 1024 * 1024 || createHash("sha256").update(readFileSync(file.path)).digest("hex") !== file.sha256) throw Error("External service changed");

@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Ctx } from "../types";
+import { cachedMachineId } from "../identity/store";
 import { TERMINAL_STATES, type Brief, type TaskRecord, type TaskState } from "./types";
 
 const ID_RE = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
@@ -185,12 +186,13 @@ export function isTaskId(id: string): boolean {
 }
 
 export function createTask(
-  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha">>,
+  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha" | "group" | "interactive">>,
   onCreate?: (task: TaskRecord, db: Database) => void,
 ): TaskRecord {
   const { db } = connection(ctx);
+  const machineId = cachedMachineId(ctx);
   for (let i = 0; i < 65; i++) {
-    const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, state: "queued", attempts: [] };
+    const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, ...(machineId ? { machineId } : {}), state: "queued", attempts: [] };
     const created = db.transaction(() => {
       const result = db.query(`INSERT OR IGNORE INTO tasks (${columns}) VALUES (${placeholders})`).run(...values(task, ctx.now));
       if (!result.changes) return false;
@@ -281,6 +283,12 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
   const sql = `SELECT record FROM tasks ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
   const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
+  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+}
+
+/** Tasks whose backend still records a live worker (`TaskRecord.live`), newest first. */
+export function listLiveTasks(ctx: Ctx): TaskRecord[] {
+  const rows = connection(ctx).db.query<{ record: string }, []>("SELECT record FROM tasks WHERE json_extract(record, '$.live') IS NOT NULL ORDER BY id DESC").all();
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }
 

@@ -132,7 +132,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 
 ## Activity
 
-`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host? }`, where repo is a RepoRef key, level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
+`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host?, machineId? }`, where repo is a RepoRef key, machineId is the recording machine's id once it has one (a stable device identifier), level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
 
 ## Task and repository operations
 
@@ -148,11 +148,13 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
-Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward.
+Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify` and `machine`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+
+The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
 The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.
 
@@ -738,6 +740,7 @@ Params JSON Schema:
           "task_settled",
           "verdict",
           "retry",
+          "message",
           "mode",
           "budget_refreshed",
           "executor_state",
@@ -4412,6 +4415,66 @@ Params JSON Schema:
 }
 ```
 
+### `machine.get`
+
+This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.rotate`
+
+Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.set`
+
+Rename this machine against the expected revision. Names are display-only.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "name",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `mode.hold`
 
 Hold a mode until a timestamp or the planner window resets.
@@ -6534,6 +6597,13 @@ Params JSON Schema:
       "type": "number",
       "minimum": 1,
       "maximum": 240
+    },
+    "interactive": {
+      "type": "boolean"
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
     }
   },
   "required": [
@@ -6960,6 +7030,44 @@ Params JSON Schema:
 }
 ```
 
+### `task.send`
+
+Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "force": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "text"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `task.session`
 
 Session host, capabilities and available viewers.
@@ -7233,7 +7341,7 @@ Clients register with `client.register { kind, version, notifier? }` (kinds `app
 
 `/state` and `/console/*` were removed in 2.6. The bearer-only `/link` and legacy `/events` routes are removed in 3.0 (404); use the versioned snapshot and events routes. The Orca storage bridge, channel sends, command lines and `pacer console` are retired. `task.retry_all { ids }` retries several tasks and reports the ones it skipped.
 
-`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged.
+`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged. `X-Pacer-Client-Instance: <id>` (1–64 letters, digits, `.`, `_`, `:` or `-`) names one running client, such as an app window; it only identifies a `task.send` driving-lease holder and is never authentication.
 
 TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. `connectClient` picks HTTP when `pacer serve` answers `/health` with `X-Pacer: 1`, and otherwise runs in-process. `PACER_API=inprocess` forces in-process.
 

@@ -9,7 +9,7 @@ import { validateStrategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
 import { withLock } from "../src/core/lock";
 import * as tasks from "../src/core/tasks";
-import { readTask } from "../src/tasks/store";
+import { readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
@@ -70,6 +70,26 @@ test("retry re-delegates the stored brief, links both tasks, and passes the exec
   expect(inputs[0]).toMatchObject({ brief: t.brief, kind: t.kind, timeoutMin: t.timeoutS / 60, retryOf: t.id, executor: "codex" });
   expect(readTask(ctx, t.id)?.retriedBy).toBe(r.retry.id);
   expect(readTask(ctx, r.retry.id)?.retryOf).toBe(t.id);
+});
+
+test("retry of a task whose worktree pacer removed starts fresh; one removed out of band is refused", async () => {
+  const { ctx, t } = mk();
+  const kept = tmpDir(), gone = join(tmpDir(), "removed-lane");
+  const inputs: Parameters<typeof tasks.delegate>[1][] = [];
+  const retryOnce = async (id: string) => tasks.retry(ctx, id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  // Pacer forgets a lane worktree it removes, so the retry has no path to reuse.
+  updateTask(ctx, t.id, (x) => { x.state = "stopped"; delete x.worktree; x.baseSha = "c".repeat(40); });
+  await retryOnce(t.id);
+  expect(inputs[0].reuseWorktree).toBeUndefined();
+  const other = tasks.delegate(ctx, { brief: { goal: "g", repo: t.brief.repo } }, () => 1, s);
+  updateTask(ctx, other.id, (x) => { x.state = "stopped"; x.worktree = kept; });
+  await retryOnce(other.id);
+  expect(inputs[1].reuseWorktree).toBe(kept);
+  const lost = tasks.delegate(ctx, { brief: { goal: "g", repo: t.brief.repo } }, () => 1, s);
+  updateTask(ctx, lost.id, (x) => { x.state = "stopped"; x.worktree = gone; });
+  await expect(retryOnce(lost.id)).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining("restore it before retrying") });
+  expect(inputs).toHaveLength(2);
+  expect(readTask(ctx, lost.id)?.retriedBy).toBeUndefined();
 });
 
 test("retry without executor lets routing choose", async () => {
@@ -160,6 +180,36 @@ test("delegate stores trimmed titles and derives absent ones, including activity
   expect(z.object(delegateSchema).safeParse({...brief,title:"x".repeat(61)}).success).toBe(false);
   const r=await tasks.retry(ctx,t.id,{}, {delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
   expect(r.retry.title).toBe("Queue fix");
+});
+test("--interactive and --group are parsed and set on the delegated task", () => {
+  const ctx=fakeCtx(), brief={goal:"Interactive lane",repo:tmpDir()};
+  const parsed=parseDelegateBrief({...brief,interactive:true,group:"feature-x"},brief.repo);
+  expect(parsed).toMatchObject({interactive:true,group:"feature-x"});
+  const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
+  expect(t.interactionMode).toBe("conversation");
+  expect(t.conversation).toEqual({activity:"starting"});
+  expect(t.interactive).toBe(true);
+  expect(t.group).toBe("feature-x");
+});
+test("retrying an interactive, grouped task keeps it interactive and in its group", async () => {
+  const ctx=fakeCtx(), brief={goal:"Interactive lane",repo:tmpDir()};
+  const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
+  const retried=await tasks.retry(ctx,t.id,{},{delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  expect(readTask(ctx,retried.retry.id)?.interactionMode).toBe("conversation");
+  expect(readTask(ctx,retried.retry.id)?.interactive).toBe(true);
+  expect(readTask(ctx,retried.retry.id)?.group).toBe("feature-x");
+});
+test("retrying a session chat does not turn it into an interactive lane", async () => {
+  const ctx=fakeCtx(), brief={goal:"Chat",repo:tmpDir()};
+  const t=tasks.delegate(ctx,{brief},()=>1,s);
+  updateTask(ctx,t.id,x=>{x.interactionMode="conversation";x.state="failed";});
+  const retried=await tasks.retry(ctx,t.id,{},{delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  expect(readTask(ctx,retried.retry.id)?.interactive).toBeUndefined();
+});
+test("group rejects invalid names", () => {
+  const ctx=fakeCtx(), brief={goal:"g",repo:tmpDir()};
+  expect(()=>tasks.delegate(ctx,{brief,group:"-bad"},()=>1,s)).toThrow(/group must be/);
+  expect(()=>tasks.delegate(ctx,{brief,group:"x".repeat(41)},()=>1,s)).toThrow(/group must be/);
 });
 test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by default", () => {
   const brief={goal:"g",repo:tmpDir(),acceptance:"test -f x"};

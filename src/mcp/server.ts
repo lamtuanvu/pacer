@@ -1,6 +1,7 @@
 import { connectClient } from "../api/client";
 import {callOp} from "../api/ops";
 import { previewInputSchema } from "../dispatch/types";
+import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,6 +27,8 @@ export { summarizeTask } from "../tasks/api";
 
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
   const server = new McpServer({ name: "pacer", version: pkg.version });
+  // Each MCP server (one per connected planner) is its own client instance for the task_send driving lease.
+  const instance = { label: "mcp/stdio", id: `${process.pid}-${randomUUID().slice(0, 8)}` };
   if (getCtx().env.PACER_WORK_GRANT) {
     const scoped = async (op: string, params: Record<string, unknown>) => {
       try {
@@ -106,6 +109,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
   }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>));
+
+  server.registerTool("task_send", {
+    description: "Send one message into a running interactive lane's live agent (delegate --interactive); a lane waiting on its question is answered with task_answer instead. Refused when the agent is not in its terminal's foreground, or while another client drove the lane in the last 60 seconds unless force.",
+    inputSchema: {task_id:z.string(), text:z.string().min(1).max(4000), force:z.boolean().optional(), expect_rev:z.number().int().positive().optional()},
+  }, async ({task_id,text,force,expect_rev}) => json(await callOp(getCtx(),"task.send",{id:task_id,text,force,expect_rev},{client:"mcp/stdio",clientInstance:instance}) as Record<string,unknown>));
 
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",

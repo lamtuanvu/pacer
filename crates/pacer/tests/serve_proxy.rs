@@ -5,6 +5,8 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
+#[path = "support/keychain_stub.rs"]
+mod keychain_stub;
 struct Server {
     child: Child,
     port: u16,
@@ -50,6 +52,7 @@ fn core_receives_the_bound_public_port_instead_of_the_ambient_port() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_pacer"))
         .args(["serve", "--port", "0"])
         .env("PACER_HOME", home.path())
+        .env("PATH", keychain_stub::keychain_stub_path(home.path(), &bun))
         .env("PACER_PORT", "1")
         .env("PACER_TEST_PORT_FILE", &observed)
         .env("PACER_TEST_PRELOAD_MARKER", &marker)
@@ -110,6 +113,7 @@ fn forwards_http_sse_limits_and_recovers_core() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_pacer"))
         .args(["serve", "--port", "0"])
         .env("PACER_HOME", home.path())
+        .env("PATH", keychain_stub::keychain_stub_path(home.path(), &bun))
         .env("PACER_SERVE_ANNOUNCE", "1")
         .env(
             "PACER_CORE_ARGV",

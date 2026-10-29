@@ -14,6 +14,16 @@ test("snapshot and events reduce without mutating previous state or regressing s
   expect(reduceStore(next, { type: "event", event })).toBe(next);
 });
 
+test("machine event leaves the app state intact and later task events still apply", () => {
+  const start = reduceStore(initialState(), { type: "snapshot", snapshot });
+  const machine = reduceStore(start, { type: "event", event: { seq: 6, at: 123, type: "machine", data: { id: "machine-1", label: "Local" } } });
+  expect(machine).toBe(start);
+  expect(machine.needsSnapshot).toBe(false);
+  const task = reduceStore(machine, { type: "event", event: { seq: 7, at: 124, type: "task", data: { id: "t2", goal: "After rotate", state: "running", executor: null, backend: null, worktree: null, updatedAt: 124 } } });
+  expect(task.snapshot?.tasks[0]?.id).toBe("t2");
+  expect(task.snapshot?.seq).toBe(7);
+});
+
 test("reset and reconnect require a snapshot; errors retain content; config invalidates its area and refreshes snapshot capacity", () => {
   const start = reduceStore(initialState(), { type: "snapshot", snapshot });
   const config = reduceStore(start, { type: "event", event: { seq: 6, at: 1, type: "config", data: { area: "accounts", at: 1 } } });
@@ -40,6 +50,11 @@ test("browser API uses cookie credentials and typed operation errors", async () 
     expect(calls[0]?.credentials).toBe("same-origin");
     expect(new Headers(calls[0]?.headers).get("X-Pacer-Client")).toBe("app");
     expect(new Headers(calls[0]?.headers).get("content-type")).toBe("application/json");
+    // Each window names its own client instance, so two windows contend for a lane's driving lease.
+    const window = new Headers(calls[0]?.headers).get("X-Pacer-Client-Instance");
+    expect(window).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(createApi().call("config.set", { key: "planner" })).rejects.toBeInstanceOf(ApiError);
+    expect(new Headers(calls[1]?.headers).get("X-Pacer-Client-Instance")).not.toBe(window);
     mock.mockImplementation((async () => new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch);
     await expect(createApi().hello()).rejects.toBeInstanceOf(ApiError);
     await expect(createApi().hello()).rejects.toMatchObject({ status: 401 });
@@ -56,6 +71,29 @@ class FakeEvents {
   emit(type: string, data = {}, seq = "6") { this.listeners[type]?.({ data: JSON.stringify(data), lastEventId: seq }); }
 }
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+test("v3 stream receives machine and continues applying task events", async () => {
+  FakeEvents.instances = [];
+  const api = {
+    hello: async () => hello("3.0.0", ["machine", "task", "attention"]),
+    snapshot: async () => ({ protocol: "3.0.0", seq: 5, snapshot }),
+    call: async <T>() => ({} as T),
+  };
+  const store = createStore(api, FakeEvents as any);
+  const stop = store.start();
+  try {
+    await flush();
+    const stream = FakeEvents.instances[0]!;
+    expect(stream.url).toBe("/v3/events?since=5");
+    stream.emit("open");
+    const before = store.getState();
+    stream.emit("machine", { event: "rotated", oldId: "old", newId: "new" }, "6");
+    expect(store.getState()).toBe(before);
+    expect(store.getState().connected).toBe(true);
+    stream.emit("task", { id: "after", goal: "After rotate", state: "running", executor: null, backend: null, worktree: null, updatedAt: 7 }, "7");
+    expect(store.getState().snapshot?.tasks[0]?.id).toBe("after");
+    expect(store.getState().snapshot?.seq).toBe(7);
+  } finally { stop(); }
+});
 test("live store snapshots before streaming and refetches on reset and reconnect", async () => {
   FakeEvents.instances = [];
   let reads = 0;

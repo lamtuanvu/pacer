@@ -39,6 +39,10 @@ delete process.env.PACER_TASK_ID;
 delete process.env.CLAUDE_CONFIG_DIR;
 // Executor launches would otherwise run the developer's real login shell; tests opt in with fakes.
 process.env.PACER_LOGIN_ENV = "off";
+// Nothing a test runs or spawns may reach the login Keychain through PATH: `security` resolves to a file-backed stub.
+const { installKeychainStub } = await import("../scripts/live/keychain");
+installKeychainStub(join(isolatedHome, "bin"), join(isolatedHome, "keychain"));
+process.env.PATH = `${join(isolatedHome, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`;
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

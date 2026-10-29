@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 
 import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
 import { seedUi, validateSeed } from "./seed";
+import { deleteSandboxKeychainItems, prepareKeychain } from "./keychain";
 import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 export const checkout = resolve(import.meta.dir, "../..");
@@ -22,6 +23,8 @@ export interface Session {
   seed?: "ui";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
   frontDoor?: "rust";
+  /** The sandbox uses the login Keychain instead of the `security` stub; `down` deletes its identity items. */
+  realKeychain?: true;
   stopped?: boolean;
   desktopPid?: number;
   desktopExecutable?: string;
@@ -196,7 +199,7 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
   if (frontDoor === "rust") {
@@ -209,7 +212,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (template) cpSync(resolve(template), join(root, "repo"), {
@@ -219,6 +222,8 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     });
     atomicWrite(join(root, "bin/pacer"), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(checkout, "scripts/live/guard.ts"))} ${shellQuote(join(root, "session.json"))} "$@"\n`, 0o700);
     for (const manager of ["launchctl", "systemctl"]) atomicWrite(join(root, "bin", manager), "#!/bin/sh\necho 'Live validation D3: service manager refused' >&2\nexit 3\n", 0o700);
+    // The machine identity lives in the login Keychain on macOS; sandboxes use a stub unless --real-keychain.
+    prepareKeychain(session);
     // Only sandbox-owned config is created; never copy the user's strategy or credentials.
     atomicWrite(join(root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
     if (seed === "ui") seedUi(root);
@@ -295,6 +300,10 @@ export async function down(session: Session, keep = false): Promise<void> {
       }
       stopProcess(session.desktopPid);
     }
+  }
+  if (session.realKeychain) {
+    const deleted = await deleteSandboxKeychainItems(session.root);
+    record(session, { kind: "note", text: `Deleted ${deleted.length} sandbox Keychain item(s): ${deleted.join(", ") || "none"}` });
   }
   session.stopped = true;
   saveSession(session);
