@@ -1,10 +1,11 @@
 import { dashboardClient } from "../dashboard/client";
+import { assertCallerCanInvoke } from "../api/caller-policy";
 import type { ApiClient } from "../api/client-types";
 import type { Ctx } from "../types";
 import type { Command, Result } from "./types";
 
 type Found = { discoveryId: string; name: string; version: string; lastSeen: number; silenced: boolean };
-type Listing = { available: boolean; enabled: boolean; network: { key: string; label: string; advertise: boolean | null; muted: boolean; name: string } | null; found: Found[]; rev: number; networksRev: number };
+type Listing = { available: boolean; enabled: boolean; warning?: string; network: { key: string; label: string; advertise: boolean | null; muted: boolean; name: string } | null; found: Found[]; rev: number; networksRev: number };
 type Networks = { rev: number; networksRev: number; current: string | null; networks: { key: string; label: string; advertise: boolean | null; muted: boolean }[] };
 type Respond = { ok: true; pairing?: { handedOver: boolean; plugin?: string } };
 
@@ -19,7 +20,7 @@ function formatList(l: Listing): string {
   const head = !l.enabled ? "Discovery is off." : !l.available ? "Discovery is unavailable: the pacer service is not running its LAN radio."
     : l.network ? `${networkName(l.network.label)}: ${answer(l.network.advertise)} as ${l.network.name}${l.network.muted ? ", prompts muted" : ""}.` : "Network unknown: this machine is not advertised.";
   const rows = l.found.map(f => `${f.discoveryId.slice(0, 8)}  ${f.name}  ${f.version || "-"}${f.silenced ? "  silenced" : ""}`);
-  return [head, ...(rows.length ? ["Found (names are unverified):", ...rows] : ["No pacer machines found."])].join("\n");
+  return [head, ...(l.warning ? [l.warning] : []), ...(rows.length ? ["Found (names are unverified):", ...rows] : ["No pacer machines found."])].join("\n");
 }
 function formatNetworks(n: Networks): string {
   if (!n.networks.length) return "No networks recorded.";
@@ -38,7 +39,9 @@ export async function discoveryCmd(args: string[], ctx: Ctx, connect: (ctx: Ctx)
       advertise = more[1] === "on";
     } else if (["pair", "later", "ignore"].includes(verb) ? more.length !== 1 : !["ls", "on", "off", "mute-network", "network"].includes(verb) || more.length) return fail(usage);
     client = await connect(ctx);
-    const c = client;
+    const raw = client;
+    // The owner bearer carries no caller role, so executor sessions are refused here (spec section 8).
+    const c = { call: <T>(op: string, params: Record<string, unknown>) => { assertCallerCanInvoke(ctx, op, params); return raw.call<T>(op, params); } };
     const print = (value: unknown, text: string): Result => ({ code: 0, out: json ? JSON.stringify(value, null, 2) : text, err: "" });
     if (verb === "on" || verb === "off") { const r = await c.call<{ enabled: boolean }>("discovery.set", { enabled: verb === "on" }); return print(r, r.enabled ? "Discovery is on." : "Discovery is off."); }
     if (verb === "ls") { const l = await c.call<Listing>("discovery.list", {}); return print(l, formatList(l)); }

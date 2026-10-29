@@ -97,3 +97,41 @@ test("on and off send only enabled", async () => {
   expect((await discoveryCmd(["off"], setup(), async () => client)).code).toBe(0);
   expect(calls).toEqual([["discovery.set", { enabled: false }]]);
 });
+
+test("an executor session may list but not change discovery (S1)", async () => {
+  // With a work grant, dashboardClient still talks to the service with the owner bearer, so the CLI applies the caller policy.
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const calls: string[] = [];
+  const listing = { available: true, enabled: true, rev: 1, networksRev: 1, network: null, found: [{ discoveryId: "abcd" + "a".repeat(22), name: "studio", version: "1", lastSeen: 1, silenced: false }] };
+  const client = { call: async (op: string) => { calls.push(op); return listing; }, close() {} } as any;
+  const ctx = fakeCtx({ env: { PACER_ROLE: "executor" } });
+  expect((await discoveryCmd(["ls", "--json"], ctx, async () => client)).code).toBe(0);
+  for (const args of [["off"], ["on"], ["pair", "abcd"], ["later", "abcd"], ["ignore", "abcd"]]) {
+    const r = await discoveryCmd(args, ctx, async () => client);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("PACER_ROLE=executor");
+  }
+  expect(calls.every(op => op === "discovery.list")).toBe(true);
+});
+
+test("an executor session cannot change the advertise answer or mute the network (S1)", async () => {
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const calls: string[] = [];
+  const view = { rev: 40, networksRev: 3, current: home.key, networks: [{ key: home.key, label: "home", advertise: null, muted: false }] };
+  const client = { call: async (op: string) => { calls.push(op); return view; }, close() {} } as any;
+  const ctx = setup();
+  ctx.env.PACER_ROLE = "executor";
+  for (const args of [["network", "--advertise", "on"], ["mute-network"]]) {
+    const r = await discoveryCmd(args, ctx, async () => client);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("PACER_ROLE=executor");
+  }
+  expect(calls).not.toContain("discovery.network.set");
+});
+
+test("ls prints the warning when the state file could not be read (N7)", async () => {
+  const { discoveryCmd } = await import("../src/commands/discovery");
+  const listing = { available: true, enabled: false, warning: "The discovery state file could not be read, so discovery is off.", rev: 1, networksRev: 1, found: [], network: null };
+  const r = await discoveryCmd(["ls"], fakeCtx(), async () => ({ call: async () => listing, close() {} }) as never);
+  expect(r.out.split("\n").slice(0, 2)).toEqual(["Discovery is off.", listing.warning]);
+});
