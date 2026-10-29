@@ -255,6 +255,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     action = useOperation(query.reload),
     { state } = useTaskContext();
   const [chosen, setChosen] = useState("");
+  const paceClock = useResource<{ calendarPace: boolean }>("routing.status");
   const config = query.data, planner = state.snapshot?.planner,
     value = (key: string) => String(config?.keys[key]?.value ?? "");
   const save = (key: string, value: string | number) => void action.run("config.set", { key, value });
@@ -304,21 +305,23 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
           <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
-        <SettingRow headingLevel={3} variant="budget" label="Planner" description="Plans and reviews; paced weekly">
-          <div className="u3-agent"><AgentMark agent={agent}/><ChoicePicker aria-label="Planner" value={value("planner")} placeholder="Choose a planner" options={config.planners.map(planner => ({ value: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/></div>
-          <Button disabled={!value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
+        <SettingRow headingLevel={3} variant="budget" label="Planner" description="Who plans and reviews. Changing it rewires that agent's hooks and status line.">
+          <div className="pc-budget-planner">
+            <ChoicePicker sizing="content" aria-label="Planner" value={value("planner")} placeholder="Choose a planner" disabled={action.busy} options={config.planners.map(planner => ({ value: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/>
+            <Button size="sm" disabled={action.busy || !value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
+          </div>
+        </SettingRow>
+        <SettingRow headingLevel={3} variant="budget" label="Pace clock" description="How pacer spreads a weekly budget over time. Set automatically.">
+          <ResourceState resource={paceClock}><div className="pc-budget-clock">
+            <b>{paceClock.data?.calendarPace ? "Calendar time" : "Your working hours"}</b>
+            <span className="pc-settings-board__caption">{paceClock.data?.calendarPace ? "Not enough activity history yet." : `Learned from activity${planner?.activeHoursLeft != null ? `: about ${Math.round(planner.activeHoursLeft)} active hours left in this budget window` : "."}`}</span>
+          </div></ResourceState>
         </SettingRow>
       </section>
       <section className="pc-preferences-section" aria-labelledby="budget-executors-h"><h2 id="budget-executors-h" className="pc-settings-board__label">Executors</h2>
-        <SettingRow headingLevel={3} variant="budget" label="Pacing policy" description="How work spreads across executors">
+        <SettingRow headingLevel={3} variant="budget" label="Pacing policy" description="How work spreads across executors that may take it.">
           <Segment variant="board" label="Pacing policy" value={value("pacing.policy")} disabled={action.busy} onChange={v => save("pacing.policy", v)} options={[{ value: "priority", label: "Priority" }, { value: "even", label: "Even" }, { value: "burn-before-reset", label: "Burn before reset" }, { value: "cheapest-first", label: "Cheapest first" }]}/>
-          <span className="pc-settings-board__caption">{value("pacing.policy") === "priority" ? "Use the order on the Agents page; skip one only when it’s out of quota or ahead of pace." : "pacer applies this policy on the next routing decision."}</span>
-        </SettingRow>
-        <SettingRow headingLevel={3} variant="budget" label="Multiple accounts" description="When one agent has several">
-          <Segment variant="board" label="Account mode" value={value("pacing.accounts")} disabled={action.busy} onChange={v => save("pacing.accounts", v)} options={[{ value: "spread", label: "Spread" }, { value: "fill", label: "Fill" }]}/>
-        </SettingRow>
-        <SettingRow headingLevel={3} variant="budget" label="Move to the next account at" description="Percent of quota used; applies when filling accounts">
-          <div className="pc-budget-threshold"><TextInput type="number" min="50" max="100" disabled={action.busy || value("pacing.accounts") !== "fill"} value={value("pacing.fill_threshold") || "80"} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.fill_threshold", Number(e.currentTarget.value)); }}/><span>% used</span></div>
+          <span className="pc-settings-board__caption">Priority uses the order on the Agents page and skips one only when it is out of quota or ahead of pace. Readings older than <b>24 hours</b> count as unknown.</span>
         </SettingRow>
       </section>
     </>}</ResourceState>

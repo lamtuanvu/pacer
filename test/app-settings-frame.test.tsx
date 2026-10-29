@@ -160,7 +160,7 @@ test('Overview shows only real readiness and setup facts', () => {
 
 test('Budget & pacing and App preferences rows use the shared SettingRow grammar', () => {
   const budget = render(<SettingsGeneral section="planner" initialData={settings} />);
-  expect((budget.match(/class="pc-setting-row pc-setting-row--board pc-setting-row--budget"/g) ?? []).length).toBe(6);
+  expect((budget.match(/class="pc-setting-row pc-setting-row--board pc-setting-row--budget"/g) ?? []).length).toBe(5);
   expect(budget).not.toContain('class="u3-setting"');
   const app = render(<SettingsGeneral section="app" initialData={settings} />);
   expect((app.match(/class="pc-setting-row(?: pc-setting-row--board)?"/g) ?? []).length).toBeGreaterThanOrEqual(2);
@@ -194,7 +194,8 @@ test('existing settings actions send the same operations', async () => {
     mount('planner');
     handlers.get('Pacing policy')!('even');
     await settle();
-    handlers.get('Account mode')!('fill');
+    mount('accounts');
+    handlers.get('Multiple accounts')!('fill');
     await settle();
     mount('app');
     for (const level of ['important', 'off', 'all']) {
@@ -259,7 +260,7 @@ test('update, reserve and threshold controls send the same operations', async ()
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={settings} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
   const settle = () => new Promise(resolve => setTimeout(resolve, 0));
   const input = (value: string, checked = false) => ({ currentTarget: { validity: { valid: true }, value, checked } });
   try {
@@ -268,6 +269,7 @@ test('update, reserve and threshold controls send the same operations', async ()
     handlers.autoCheck!(input('', false)); await settle();
     mount('planner');
     handlers.reserve!(input('25')); await settle();
+    mount('accounts');
     handlers.threshold!(input('90')); await settle();
   } finally { options.vnode = old; }
   expect(calls).toEqual([
@@ -438,13 +440,13 @@ test('Budget board uses real planner facts and omits unsupported controls', () =
   const planner = { agent: 'codex', runner: 'codex#team', usedPct: 18, pacePct: 38, deltaPts: -20, verdict: 'behind', window: 'weekly', resetsAt: 1800000000, stale: false, mode: 'relaxed', advice: '20 pts under pace — spend it.' };
   const html = render(<SettingsGeneral section="planner" initialData={settings} />, { ...state, snapshot: { ...state.snapshot, planner } });
   expect(html).toContain('pc-settings-board--budget');
-  expect(html.match(/<h3 /g)).toHaveLength(6);
+  expect(html.match(/<h3 /g)).toHaveLength(5);
   expect(html).toContain('Codex is 20 points under pace, so it may do small edits itself.');
   expect(html).toContain('Emergency, Strict, Normal, Relaxed; Relaxed is active');
   expect(html).toContain('18% of weekly used · pace 38% · 20% kept for planning and review');
   expect(html).toContain('Hold strict');
   expect(html).toContain('Hold relaxed');
-  for (const label of ['Pace clock', 'points ahead', 'From 6 hours', 'When an executor runs out', 'Pace team weekly']) expect(html).not.toContain(label);
+  for (const label of ['points ahead', 'From 6 hours', 'When an executor runs out', 'Pace team weekly']) expect(html).not.toContain(label);
   const reserveId = attr(html, /<label[^>]*for="([^"]+)"[^>]*>Keep back for planning and review<\/label>/);
   expect(reserveId).toBeTruthy();
   expect(html).toMatch(new RegExp(`<input(?=[^>]*id="${reserveId}")(?=[^>]*type="range")`));
@@ -496,7 +498,8 @@ test.skipIf(!browserPath)('Budget board geometry matches tokens in both themes a
       if (width === 1440) {
         expect(await page.locator('.pc-setting-row').first().evaluate(node => {
           const s = getComputedStyle(node); return { columns: s.gridTemplateColumns, gap: s.gap, padding: s.padding, align: s.alignItems };
-        })).toEqual({ columns: '300px 1052px', gap: '24px', padding: '14px 0px', align: 'start' });
+        })).toEqual({ columns: '300px 1052px', gap: '24px', padding: '16px 0px', align: 'start' });
+        expect(await page.getByRole('button', { name: 'Review integration changes', exact: true }).evaluate(node => node.getBoundingClientRect().height)).toBe(32);
         expect(await page.locator('.pc-budget-mode__fill').first().evaluate(node => node.getBoundingClientRect().height)).toBe(6);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

@@ -30,8 +30,8 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
   }
   return <DensityContext.Provider value="settings"><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings">
     <header className="pc-settings-board__header"><h1>Plugins</h1><p>Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</p></header>
-    <section aria-label="Installed plugins" className="pc-plugin-installed">
-      {resource.data && <span className="pc-plugin-installed__count">Installed · {resource.data.plugins.length}</span>}
+    <span id="plugins-installed-label" className="pc-settings-board__label">Installed · {resource.data?.plugins.length ?? "…"}</span>
+    <section aria-labelledby="plugins-installed-label" className="pc-plugin-installed">
       {!resource.data && !resource.error && <LoadingState label="Loading plugins…"/>}<ErrorMessage error={resource.error}/>
       {resource.data?.plugins.length === 0 && <p>No plugins installed.</p>}
       {resource.data?.plugins.map(plugin => {

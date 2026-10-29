@@ -25,6 +25,8 @@ test('Plugins cards show backed additions, permissions, states and only usable l
   for(const text of ['Installed · 3','Built in','Failing','Settings page','Activity view','Right-panel tab','Status bar item','Diagnostic checks','Terminal sessions','Usage reader','Routing engine','Read tasks','Read its settings','Reach the network: example.test','Where plugins appear']) expect(html).toContain(text);
   expect(html).toContain('&lt;b>Failed&lt;/b>');expect(html).not.toContain('<b>Failed</b>');
   expect(html.match(/>Settings<\/a>/g)).toHaveLength(1);
+  expect(html).not.toContain('role="tablist"');
+  expect(html).toContain('aria-labelledby="plugins-installed-label"');
   for(const text of ['Install from file','Browse','Updates','Update to']) expect(html).not.toContain(text);
   expect(draw(<PluginsPage initialData={{plugins:[]}} initialSurfaces={{surfaces:[]}}/>)).toContain('No plugins installed.');
 });
