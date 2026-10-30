@@ -57,6 +57,8 @@ Codex homes from `codex-accounts/<id>/home`, beneath Orca's data folder.
 This is a workaround tracked in [#19](https://github.com/lamtuanvu/pacer/issues/19).
 If the derived folder is missing, the account remains available for usage
 reporting but cannot execute tasks or become an installed planner.
+Read-only Orca discovery runs without inherited terminal or session caller
+attestation, so a caller's Orca context is not used as pacer's identity.
 
 ## Endpoint accounts (OpenCode)
 
