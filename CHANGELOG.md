@@ -40,6 +40,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Reuse recent screen reads and coalesce identical requests within each app connection; refresh on events, errors and reconnects. Briefly cache repository branch choices to avoid rescanning every registered repository on rapid navigation.
+
 - Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
 - Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
 - Resolve interactive agent reports from the authenticated launch run directory, so an overridden `PACER_HOME` no longer prevents completion. Report invalid launch paths, task states, attempts and tokens with actionable errors.
