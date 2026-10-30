@@ -119,3 +119,12 @@ test("MCP preview uses the running service instead of a separate process-local u
   try { expect((await client.callTool({name: "dispatch_preview", arguments: {repo: tmpDir(), goal: "check"}})).structuredContent).toEqual({marker: "authoritative-service"}); }
   finally {await client.close(); await server.close(); daemon.stop(true);}
 });
+
+test("dispatch brief inputs validate acceptance timeout bounds", async () => {
+  const ctx = dispatchCtx();
+  for (const op of ["dispatch.submit", "dispatch.child"] as const) {
+    for (const value of [0, 121, 1.5]) {
+      await expect(callOp(ctx, op, { goal: "g", repo: tmpDir(), requestId: "r", acceptance_timeout_min: value })).rejects.toMatchObject({ code: "invalid_input" });
+    }
+  }
+});

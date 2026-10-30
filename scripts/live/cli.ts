@@ -5,6 +5,7 @@ import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidenc
 import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
+import { executorRefusal } from "./guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
@@ -42,7 +43,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   status                          list sandboxes (or select --id)
   down [--keep]                   stop processes; --keep preserves evidence`;
 
-export async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [command, ...rest] = argv;
   if (!command || command === "--help" || command === "help") { console.log(usage); return 0; }
   if (CONTROL_COMMANDS.has(command) || command === "scenario") return controlMain(argv);
@@ -146,6 +147,12 @@ export async function main(argv: string[]): Promise<number> {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
     await exerciseUpdater(loadSession(id));
     return 0;
+  }
+  // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.
+  const reason = command === "pacer" ? executorRefusal(forwarded, outer) : undefined;
+  if (reason) {
+    console.error(`Live validation guard refused: ${reason}`);
+    return 3;
   }
   const session = loadSession(id);
   const env = sandboxEnv(session);

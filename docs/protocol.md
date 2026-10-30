@@ -1856,6 +1856,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "execution.auto_clean",
         "task_retention_days",
         "execution.local_max_tasks",
         "execution.local_memory_pressure_limit",
@@ -2527,6 +2528,11 @@ Params JSON Schema:
     "acceptance": {
       "type": "string",
       "maxLength": 20000
+    },
+    "acceptance_timeout_min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
     },
     "context": {
       "type": "string",
@@ -3500,6 +3506,11 @@ Params JSON Schema:
     "acceptance": {
       "type": "string",
       "maxLength": 20000
+    },
+    "acceptance_timeout_min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
     },
     "context": {
       "type": "string",
@@ -6590,6 +6601,11 @@ Params JSON Schema:
     },
     "acceptance_pipefail": {
       "type": "boolean"
+    },
+    "acceptance_timeout_min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
     },
     "constraints": {
       "type": "string"

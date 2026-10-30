@@ -371,3 +371,325 @@ test("clean keeps a remote task whose local repository was deleted", async () =>
   rmSync(gone.repo, { recursive: true, force: true });
   expect(await tasks.clean(ctx, { force: true })).toEqual({ removed: [], kept: [{ id: gone.t.id, reason: "source repository is missing; remote cleanup needs it" }] });
 });
+
+function autoStrategy(ctx: ReturnType<typeof fakeCtx>, autoClean = true) {
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {auto_clean: ${autoClean}}\n`);
+}
+
+for (const accepted of [true, false]) test(`review ${accepted ? "accept" : "reject"} automatically removes clean worktrees and retains branches`, async () => {
+  const {ctx, t, w, repo} = await finished({reviewed: false});
+  autoStrategy(ctx);
+  await tasks.review(ctx, t.id, {accepted});
+  expect(existsSync(w.path)).toBe(false);
+  expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${t.id}`]).exitCode).toBe(0);
+});
+
+test("dismiss cleans immediately; auto_clean false leaves manual cleanup available", async () => {
+  for (const enabled of [true, false]) {
+    const {ctx, t, w} = await finished({reviewed: false});
+    autoStrategy(ctx, enabled);
+    await tasks.dismiss(ctx, [t.id]);
+    expect(existsSync(w.path)).toBe(!enabled);
+    if (!enabled) expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+  }
+});
+
+test("automatic cleanup keeps dirty work and records the reason without failing review", async () => {
+  const {ctx, t, w} = await finished({dirty: true, reviewed: false});
+  autoStrategy(ctx);
+  await tasks.review(ctx, t.id, {accepted: false});
+  expect(existsSync(w.path)).toBe(true);
+  const {readActivity} = await import("../src/activity/log");
+  expect(readActivity(ctx).entries.some(e => e.taskId === t.id && /Kept worktree: uncommitted/.test(e.text))).toBe(true);
+});
+
+test("cleanup IO failures never fail a recorded verdict", async () => {
+  const {ctx, t, w} = await finished({reviewed: false});
+  autoStrategy(ctx);
+  ctx.run = async () => { throw new Error("git unavailable"); };
+  await expect(tasks.review(ctx, t.id, {accepted: true})).resolves.toMatchObject({task: {review: {accepted: true}}});
+  expect(existsSync(w.path)).toBe(true);
+  const {readActivity} = await import("../src/activity/log");
+  expect(readActivity(ctx).entries.some(e => /Kept worktree:.*git unavailable/.test(e.text))).toBe(true);
+});
+
+test("cleanup always keeps running and unanswered tasks, even dismissed or reviewed", async () => {
+  for (const state of ["running", "needs_input", "done"] as const) {
+    const {ctx, t, w} = await finished();
+    autoStrategy(ctx);
+    updateTask(ctx, t.id, x => {
+      x.state = state;
+      if (state !== "running") x.question = {text: "Which option?", at: ctx.now};
+    });
+    await tasks.dismiss(ctx, [t.id]);
+    expect((await tasks.clean(ctx)).removed).toEqual([]);
+    expect(existsSync(w.path)).toBe(true);
+  }
+});
+
+test("cleanup preserves a worktree shared with a waiting task", async () => {
+  const {ctx, t, w} = await finished();
+  autoStrategy(ctx);
+  const other = createTask(ctx, {brief: {goal: "follow-up", repo: w.workdir}, kind: null, requestedExecutor: null, timeoutS: 60});
+  updateTask(ctx, other.id, x => {x.state = "needs_input"; x.dismissed = true; x.worktree = w.workdir;});
+  expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "worktree is shared with an active or unreviewed task"}]);
+  expect(existsSync(w.path)).toBe(true);
+});
+
+test("resolve triggers cleanup as soon as work becomes resolved", async () => {
+  const {ctx, t, w} = await finished({reviewed: false});
+  autoStrategy(ctx);
+  updateTask(ctx, t.id, x => {x.state = "partial"; x.review = {accepted: false, at: 1, kind: null, note: null};});
+  const {resolveTask} = await import("../src/tasks/resolution");
+  const resolved = await resolveTask(ctx, readTask(ctx, t.id)!);
+  expect(resolved.resolved).toBe("reviewed");
+  expect(existsSync(w.path)).toBe(false);
+});
+
+test("service sweep retries cleanup, honours opt-out and never records kept reasons", async () => {
+  const {ctx, t, w} = await finished({dirty: true});
+  autoStrategy(ctx);
+  await tasks.autoCleanSweep(ctx);
+  expect(existsSync(w.path)).toBe(true);
+  const {readActivity} = await import("../src/activity/log");
+  await tasks.autoCleanSweep(ctx);
+  expect(readActivity(ctx).entries).toEqual([]);
+  const {rmSync} = await import("node:fs");
+  rmSync(join(w.path, "wip.txt"));
+  autoStrategy(ctx, false);
+  await tasks.autoCleanSweep(ctx);
+  expect(existsSync(w.path)).toBe(true);
+  autoStrategy(ctx);
+  await tasks.autoCleanSweep(ctx);
+  expect(existsSync(w.path)).toBe(false);
+});
+
+test("remote cleanup refuses dirty worktrees without force and preserves the branch", async () => {
+  const {ctx, t, w, repo} = await finished({dirty: true});
+  const {SCRIPTS} = await import("../src/remote/scripts");
+  const hostHome = join(ctx.home, "host");
+  const run = join(hostHome, ".pacer-remote", "runs", t.id, "1");
+  mkdirSync(run, {recursive: true});
+  const clean = () => Bun.spawnSync(["bash", "-c", SCRIPTS.CLEAN, "pacer", w.path, run, repo, t.id, ""], {
+    env: {...process.env, HOME: hostHome, PACER_HOME: join(hostHome, ".pacer")},
+  });
+  expect(clean().exitCode).not.toBe(0);
+  expect(existsSync(w.path)).toBe(true);
+  const {rmSync} = await import("node:fs");
+  rmSync(join(w.path, "wip.txt"));
+  expect(clean().exitCode).toBe(0);
+  expect(existsSync(w.path)).toBe(false);
+  expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${t.id}`]).exitCode).toBe(0);
+});
+
+test("dismissed questions with an answer no longer hold the old worktree", async () => {
+  const {ctx, t, w} = await finished();
+  autoStrategy(ctx);
+  updateTask(ctx, t.id, x => {x.state = "needs_input"; x.question = {text: "Which?", at: 1, answer: "A", answeredAt: 2};});
+  await tasks.dismiss(ctx, [t.id]);
+  expect(existsSync(w.path)).toBe(false);
+});
+
+for (const sweep of [false, true]) test(`automatic ${sweep ? "sweep" : "task cleanup"} defaults to enabled without a strategy`, async () => {
+  const {ctx, t, w} = await finished();
+  expect(existsSync(join(ctx.pacerHome, "strategy.yaml"))).toBe(false);
+  if (sweep) await tasks.autoCleanSweep(ctx);
+  else await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(false);
+  const {readActivity} = await import("../src/activity/log");
+  expect(readActivity(ctx).entries).toEqual([]);
+});
+
+for (const received of [true, false]) test(`remote task cleanup passes ${received ? "the transferred branch" : "no untransferred branch"}`, async () => {
+  const {ctx, t} = await finished();
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code
+providers: {claude-code: {}, codex: {}}
+hosts: {devbox: {ssh: devbox, repos: {github.com/o/r: ~/src/r}}}
+`);
+  updateTask(ctx, t.id, x => {
+    x.run!.host = "devbox";
+    x.run!.remoteWorktree = `~/.pacer-remote/worktrees/${t.id}`;
+    x.run!.remoteDir = `~/.pacer-remote/runs/${t.id}/1`;
+    x.run!.remoteBranch = `pacer/${t.id}-remote`;
+    if (received) x.run!.transferredHead = "abc123";
+  });
+  const ssh: string[][] = [];
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] === "ssh") { ssh.push(argv); return {code: 0, stdout: "", stderr: ""}; }
+    if (argv.includes("get-url")) return {code: 0, stdout: "https://github.com/o/r.git", stderr: ""};
+    if (argv.includes("--verify")) return {code: 0, stdout: "abc123", stderr: ""};
+    return realRun(argv, timeout);
+  };
+  expect((await tasks.cleanTask(ctx, t.id)).removed).toEqual([t.id]);
+  expect(ssh).toHaveLength(1);
+  expect(ssh[0]!.at(-1)).toEndWith(received ? ` pacer/${t.id}-remote ''` : "'' ''");
+});
+
+for (const force of [false, true]) test(`remote CLEAN sixth argument ${force ? "forces removal" : "keeps dirty checkout"}`, async () => {
+  const {ctx, t, repo} = await finished();
+  const {SCRIPTS} = await import("../src/remote/scripts");
+  const home = join(ctx.home, "remote"), wt = join(home, ".pacer-remote", "worktrees", t.id);
+  const run = join(home, ".pacer-remote", "runs", t.id, "1");
+  mkdirSync(run, {recursive: true});
+  expect((await realRun(["git", "-C", repo, "worktree", "add", "--detach", wt, "HEAD"], 10000)).code).toBe(0);
+  writeFileSync(join(wt, "dirty"), "keep");
+  const result = Bun.spawnSync(["bash", "-c", SCRIPTS.CLEAN, "pacer", wt, run, repo, t.id, "", force ? "force" : ""], {
+    env: {...process.env, HOME: home, PACER_HOME: join(home, ".pacer")},
+  });
+  expect(result.exitCode === 0).toBe(force);
+  expect(existsSync(wt)).toBe(!force);
+});
+
+for (const branchKept of [true, false]) test(`retry after cleanup ${branchKept ? "restores committed branch" : "falls back when branch is gone"}`, async () => {
+  const {ctx, t, w, repo} = await finished({reviewed: false});
+  writeFileSync(join(w.path, "committed"), "executor work");
+  expect((await realRun(["git", "-C", w.path, "add", "."], 10000)).code).toBe(0);
+  expect((await realRun(["git", "-C", w.path, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "work"], 10000)).code).toBe(0);
+  await tasks.review(ctx, t.id, {accepted: false});
+  expect(existsSync(w.path)).toBe(false);
+  if (!branchKept) expect((await realRun(["git", "-C", repo, "branch", "-D", `pacer/${t.id}`], 10000)).code).toBe(0);
+  let input!: Parameters<typeof tasks.delegate>[1];
+  const result = await tasks.retry(ctx, t.id, {}, {delegate: (c, i) => {
+    input = i;
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
+  }});
+  if (branchKept) {
+    expect(input.reuseWorktree).toBe(w.workdir);
+    expect(await Bun.file(join(w.path, "committed")).text()).toBe("executor work");
+  } else {
+    expect(input.reuseWorktree).toBeUndefined();
+    expect(input.worktree).toBe("new");
+    expect(result.retry.placement?.why).toContain("branch are gone");
+  }
+});
+
+for (const ancestor of [false, true]) test(`retry waits for cleanup of ${ancestor ? "retryOf ancestor" : "same task"} before choosing reuse`, async () => {
+  const {ctx, t, w} = await finished();
+  const target = ancestor ? createTask(ctx, {brief: t.brief, kind: null, requestedExecutor: null, timeoutS: 60}) : t;
+  if (ancestor) updateTask(ctx, target.id, x => {x.retryOf = t.id; x.state = "done"; x.review = {accepted: false, at: 1, kind: null, note: null}; x.worktree = w.path;});
+  let release!: () => void, entered!: () => void;
+  const ready = new Promise<void>(resolve => {entered = resolve;});
+  const gate = new Promise<void>(resolve => {release = resolve;});
+  ctx.run = async (argv, timeout) => {
+    if (argv.includes("status")) {entered(); await gate;}
+    return realRun(argv, timeout);
+  };
+  const cleaning = tasks.cleanTask(ctx, t.id);
+  await ready;
+  let delegated = false;
+  const retrying = tasks.retry(ctx, target.id, {}, {delegate: (c, i) => {
+    delegated = true;
+    expect(existsSync(i.reuseWorktree!)).toBe(true);
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
+  }});
+  await Bun.sleep(75);
+  expect(delegated).toBe(false);
+  release();
+  expect((await cleaning).removed).toEqual([t.id]);
+  await retrying;
+  expect(existsSync(w.path)).toBe(true);
+  expect((await tasks.cleanTask(ctx, t.id)).removed).toEqual([]);
+});
+
+for (const ancestor of [false, true]) test(`cleanup waits while retry restores ${ancestor ? "an ancestor's" : "its own"} checkout`, async () => {
+  const {ctx, t, w} = await finished();
+  await tasks.cleanTask(ctx, t.id);
+  const target = ancestor ? createTask(ctx, {brief: t.brief, kind: null, requestedExecutor: null, timeoutS: 60}) : t;
+  if (ancestor) updateTask(ctx, target.id, x => {x.retryOf = t.id; x.state = "done"; x.worktree = w.path;});
+  let entered!: () => void, release!: () => void;
+  const ready = new Promise<void>(resolve => {entered = resolve;});
+  const gate = new Promise<void>(resolve => {release = resolve;});
+  ctx.run = async (argv, timeout) => {
+    if (argv.includes("add") && argv.includes("worktree")) {entered(); await gate;}
+    return realRun(argv, timeout);
+  };
+  const retrying = tasks.retry(ctx, target.id, {}, {delegate: (c, i) => {
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
+  }});
+  await ready;
+  let cleaned = false;
+  const cleaning = tasks.cleanTask(ctx, t.id).then(result => {cleaned = true; return result;});
+  await Bun.sleep(75);
+  expect(cleaned).toBe(false);
+  release();
+  await retrying;
+  expect((await cleaning).removed).toEqual([]);
+  expect(existsSync(w.path)).toBe(true);
+});
+
+async function retryReusing(ctx: ReturnType<typeof fakeCtx>, id: string) {
+  return (await tasks.retry(ctx, id, {}, {delegate: (c, i) => {
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {
+        x.state = "running";
+        x.worktree = i.reuseWorktree;
+        x.run = {dir: join(c.pacerHome, "runs", next.id, "1"), attempt: 1, executor: "codex", startedAt: 1,
+          mode: "new", workdir: i.reuseWorktree!, logFile: ""};
+      });
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
+  }})).retry;
+}
+
+for (const settle of ["review", "dismiss", "resolve"] as const) test(`retry ${settle} removes restored ancestor checkout without misleading activity`, async () => {
+  const {ctx, t, w, repo} = await finished({reviewed: false});
+  await tasks.review(ctx, t.id, {accepted: false});
+  expect(existsSync(w.path)).toBe(false);
+  const retry = await retryReusing(ctx, t.id);
+  expect(existsSync(w.path)).toBe(true);
+  expect((await tasks.cleanTask(ctx, t.id)).removed).toEqual([]);
+  expect(existsSync(w.path)).toBe(true);
+  updateTask(ctx, retry.id, x => {x.state = "done";});
+  if (settle === "review") await tasks.review(ctx, retry.id, {accepted: true});
+  else if (settle === "dismiss") await tasks.dismiss(ctx, [retry.id]);
+  else {
+    updateTask(ctx, retry.id, x => {x.state = "partial"; x.review = {accepted: false, at: 1, kind: null, note: null};});
+    const {resolveTask} = await import("../src/tasks/resolution");
+    await resolveTask(ctx, readTask(ctx, retry.id)!);
+  }
+  expect(existsSync(w.path)).toBe(false);
+  expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${t.id}`]).exitCode).toBe(0);
+  const {readActivity} = await import("../src/activity/log");
+  expect(readActivity(ctx).entries.filter(e => /not this task's worktree/.test(e.text))).toEqual([]);
+});
+
+test("cleanup follows the entire retry chain before releasing the owner's checkout", async () => {
+  const {ctx, t, w} = await finished({reviewed: false});
+  await tasks.review(ctx, t.id, {accepted: false});
+  const first = await retryReusing(ctx, t.id);
+  updateTask(ctx, first.id, x => {x.state = "done"; x.review = {accepted: false, at: 1, kind: null, note: null};});
+  const last = await retryReusing(ctx, first.id);
+  await tasks.autoCleanTask(ctx, first.id);
+  await tasks.clean(ctx);
+  expect(existsSync(w.path)).toBe(true);
+  updateTask(ctx, last.id, x => {x.state = "done";});
+  await tasks.review(ctx, last.id, {accepted: true});
+  expect(existsSync(w.path)).toBe(false);
+});
+
+test("cleanup skips cyclic or missing retry chains", async () => {
+  for (const cycle of [true, false]) {
+    const {ctx, t, w} = await finished();
+    updateTask(ctx, t.id, x => {x.retriedBy = cycle ? t.id : "missing-retry";});
+    expect((await tasks.cleanTask(ctx, t.id)).removed).toEqual([]);
+    expect(existsSync(w.path)).toBe(true);
+  }
+});

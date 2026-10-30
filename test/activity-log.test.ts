@@ -145,7 +145,7 @@ test("retry, stop, dismiss and rejected reviews log their successful actions", a
   tasks.stop(ctx, result.retry.id);
   expect(readActivity(ctx, { kinds: ["task_settled"] }).entries.map(e => e.text)).toEqual(["Stopped “Fix parser”"]);
   await tasks.review(ctx, original.id, { accepted: false });
-  tasks.dismiss(ctx, [original.id, "unknown"]);
+  await tasks.dismiss(ctx, [original.id, "unknown"]);
   expect(readActivity(ctx, { kinds: ["verdict"] }).entries.map(e => e.text)).toEqual(["Dismissed “Fix parser”", "Rejected “Fix parser”"]);
 });
 

@@ -42,7 +42,7 @@ function fakeBin(s: string, m: string, translated = "0"): string {
 
 async function runInstall(env: Record<string, string>, bin: string | null = fakeBin("Darwin", "arm64")) {
   const PATH = bin ? `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` : (process.env.PATH ?? "/usr/bin:/bin");
-  const p = Bun.spawn([SHELL, INSTALL_SH], { env: { HOME: tmpDir(), PATH, ...env }, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn([SHELL, INSTALL_SH], { env: { HOME: tmpDir(), PACER_HOME: join(tmpDir(), ".pacer"), TMPDIR: tmpDir(), PATH, ...env }, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { code, out, err };
 }

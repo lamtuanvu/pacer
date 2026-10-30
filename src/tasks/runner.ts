@@ -1,4 +1,5 @@
 import { authorizeRoute } from "./policy-route";
+import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
@@ -159,6 +160,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
+      await autoCleanTask(ctx, id);
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
       }).catch(() => {});
@@ -704,7 +706,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
-      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, undefined, task.brief.pipefail);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, (task.brief.acceptanceTimeoutMin ?? 10) * 60_000, task.brief.pipefail);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;

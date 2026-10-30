@@ -585,3 +585,16 @@ test("a session.create chat stays on the direct backend; only an interactive lan
   expect(needsDirectBackend({ ...base, interactive: true }, true)).toBe(true);
   expect(needsDirectBackend({} as import("../src/tasks/types").TaskRecord, false)).toBe(false);
 });
+
+for (const [minutes, milliseconds] of [[undefined, 600_000], [20, 1_200_000]] as const) {
+  test(`acceptance timeout ${minutes ?? "default"} reaches verifyRepo`, async () => {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "g", repo: "/r", acceptance: "true", acceptanceTimeoutMin: minutes }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    const calls: unknown[][] = [];
+    const d = deps({ codex: outcomeFor("codex", 0) });
+    d.verifyRepo = async (...args) => { calls.push(args); return { files: "", acceptance: { cmd: "true", passed: true, tail: "" } }; };
+    await runTask(ctx, task.id, d);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][3]).toBe(milliseconds);
+  });
+}

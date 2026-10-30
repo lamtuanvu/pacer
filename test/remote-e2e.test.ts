@@ -12,7 +12,7 @@ import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
-async function setup(wait = false) {
+async function setup(wait = false, autoClean = true) {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git");
   const checkout = join(hostHome, "src/r"), bin = join(hostHome, "bin");
   mkdirSync(bin, { recursive: true });
@@ -37,7 +37,7 @@ async function setup(wait = false) {
   const env = { ...process.env, ...fakeSshEnv(hostHome, join(root, "ssh.log")), PACER_BACKEND: "direct" };
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }) });
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: {auto_clean: autoClean}, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
     loadStrategy,
     computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
@@ -113,9 +113,6 @@ test("clean removes the remote worktree and run dir after review", async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
   expect(t.state).toBe("done");
   await tasks.review(f.ctx, t.id, { accepted: true });
-  expect((await tasks.clean(f.ctx, { dryRun: true })).removed).toContain(t.id);
-  expect(existsSync(t.run!.remoteWorktree!)).toBe(true);
-  expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(existsSync(t.result!.worktree!)).toBe(false);
@@ -129,7 +126,6 @@ test("clean keeps the remote branch when transfer was refused", async () => {
   const t = await runTask(f.ctx, f.task.id, f.deps);
   expect(t.state).toBe("partial");
   await tasks.review(f.ctx, t.id, { accepted: false });
-  expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(await f.git("-C", f.checkout, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
@@ -137,7 +133,7 @@ test("clean keeps the remote branch when transfer was refused", async () => {
 }, 20000);
 
 for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} preserves a remote branch when the local head differs`, async () => {
-  const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
+  const f = await setup(false, false), t = await runTask(f.ctx, f.task.id, f.deps);
   expect(t.state).toBe("done");
   const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
   expect(t.run).toHaveProperty("transferredHead", head);

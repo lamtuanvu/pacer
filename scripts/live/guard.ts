@@ -23,10 +23,42 @@ export function refusal(args: string[]): string | undefined {
   return undefined;
 }
 
+/** CLI commands and API operations that start or re-start executor work. */
+const DELEGATION_OPS = ["task.delegate", "task.retry", "task.retry_all", "task.answer", "task.takeover", "dispatch.submit", "dispatch.child", "dispatch.retry", "dispatch.answer", "session.create", "session.resume"];
+function delegates(args: string[]): string | undefined {
+  const [command, action] = args;
+  if (command === "delegate" || command === "retry" || command === "answer" || command === "_run") return command;
+  if (command === "review" && args.some(arg => arg === "--send-back" || arg === "--retry-on" || arg.startsWith("--retry-on="))) return "review --send-back/--retry-on";
+  if (command === "dispatch" && ["submit", "child", "retry"].includes(action)) return `dispatch ${action}`;
+  if (command !== "api" || action !== "call") return undefined;
+  let name: string | undefined, params: string | undefined;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === "--params") { params = args[++i]; continue; }
+    if (args[i] === "--params-file") { params = undefined; i++; continue; }
+    if (!name && !args[i].startsWith("-")) name = args[i];
+  }
+  if (name && DELEGATION_OPS.includes(name)) return name;
+  if (name === "task.review") {
+    // Only accept and reject are safe; send_back and retry re-delegate, and a params file cannot be inspected here.
+    try { if (["accept", "reject"].includes((JSON.parse(params ?? "") as { verdict?: unknown }).verdict as string)) return undefined; } catch {}
+    return "task.review without an inline accept or reject verdict";
+  }
+  return undefined;
+}
+/**
+ * Executor sessions must not delegate onward, even inside a sandbox. The sandbox does not inherit the outer
+ * PACER_ROLE or PACER_TASK_ID (sandboxEnv drops them), so the guard checks the outer environment itself.
+ */
+export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv): string | undefined {
+  if (outer.PACER_ROLE !== "executor" && !outer.PACER_TASK_ID) return undefined;
+  const what = delegates(args);
+  return what ? `executor sessions cannot delegate onward (${what}); run real delegation from a planner session` : undefined;
+}
+
 if (import.meta.main) {
   try {
     const [sessionFile, ...args] = process.argv.slice(2);
-    const reason = refusal(args);
+    const reason = refusal(args) ?? executorRefusal(args, process.env);
     if (reason) {
       console.error(`Live validation guard refused: ${reason}`);
       process.exit(3);

@@ -57,7 +57,7 @@ test("review records the verdict and refuses unknown kinds", async () => {
 
 test("dismiss reports unknown ids and still dismisses known ones", async () => {
   const { ctx, t } = await mk();
-  const r = tasks.dismiss(ctx, ["missing-1", t.id, "missing-2"]);
+  const r = await tasks.dismiss(ctx, ["missing-1", t.id, "missing-2"]);
   expect(r.dismissed.map((x) => x.id)).toEqual([t.id]);
   expect(r.unknown).toEqual(["missing-1", "missing-2"]);
   expect(readTask(ctx, t.id)?.dismissed).toBe(true);
@@ -216,4 +216,20 @@ test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by de
   expect(parseDelegateBrief(brief,brief.repo).brief.pipefail).toBeUndefined();
   expect(parseDelegateBrief({...brief,acceptance_pipefail:true},brief.repo).brief.pipefail).toBe(true);
   expect(parseDelegateBrief({...brief,acceptance_pipefail:false},brief.repo).brief.pipefail).toBe(false);
+});
+
+test("acceptance_timeout_min validates integer bounds and persists through retry", async () => {
+  const ctx = fakeCtx(), brief = { goal: "g", repo: tmpDir(), acceptance: "true" };
+  expect(parseDelegateBrief(brief, brief.repo).brief.acceptanceTimeoutMin).toBeUndefined();
+  for (const value of [1, 10, 120]) {
+    expect(parseDelegateBrief({ ...brief, acceptance_timeout_min: value }, brief.repo).brief.acceptanceTimeoutMin).toBe(value);
+  }
+  for (const value of [0, 121, 1.5, "20"]) {
+    expect(() => parseDelegateBrief({ ...brief, acceptance_timeout_min: value }, brief.repo)).toThrow(/acceptance_timeout_min/);
+  }
+  const t = await tasks.delegate(ctx, parseDelegateBrief({ ...brief, acceptance_timeout_min: 20 }, brief.repo), () => 1, s);
+  expect(readTask(ctx, t.id)?.brief.acceptanceTimeoutMin).toBe(20);
+  expect(readTask(ctx, t.id)?.brief).not.toHaveProperty("acceptance_timeout_min");
+  const retried = await tasks.retry(ctx, t.id, {}, { delegate: (c, i) => tasks.delegate(c, i, () => 1, s) });
+  expect(readTask(ctx, retried.retry.id)?.brief.acceptanceTimeoutMin).toBe(20);
 });
