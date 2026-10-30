@@ -2,6 +2,7 @@
 import { apiCommand } from "./commands/api";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
@@ -26,6 +27,7 @@ import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
+import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
@@ -211,7 +213,8 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
+    const work = await runningWork(ctx).then(runningWorkLines, () => ["running work: unavailable"]);
+    return { code: 0, out: [renderText(st), ...work, updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return lineResult(null);
@@ -284,7 +287,7 @@ function renderTask(t: TaskRecord): string {
   ];
   if(t.archived)lines.push(`archive: ${t.archivePath}`);
   if(t.executorFallback)lines.push(`executor: ${fallbackText(t.executorFallback)}`);
-  if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
+  if(t.placement?.mode)lines.push(`placement: ${t.placement.requested === "current" && t.placement.mode === "new" ? "current overridden to " : ""}${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
   }
@@ -320,7 +323,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
   } catch (e) {
@@ -406,7 +409,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
       const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
-      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:DESKTOP_IDENTIFIERS.cli,version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
     }
     case "pause":
     case "resume": {
@@ -493,7 +496,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
-          const r=core.tasks.dismiss(ctx,pos);
+          const r=await core.tasks.dismiss(ctx,pos);
           return {code:r.unknown.length?2:0,out:r.dismissed.map(t=>`${t.id} dismissed`).join("\n"),err:r.unknown.map(id=>`pacer: unknown task ${id}`).join("\n")};
         }
         if(cmd==="retry") {

@@ -1,3 +1,4 @@
+import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
@@ -9,6 +10,10 @@ import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { installHandoverHandler, registerRunnerLease } from "./handover";
+import { appendActivity } from "../activity/log";
+import { currentVersion } from "../update/version";
+import { processIdentity } from "../update/desktop/process-identity";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
@@ -106,7 +111,9 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
+    delete t.childIdentity;
     delete t.runnerPid;
+    delete t.handover;
   });
   if (finished.state === "done") {
     const seen = new Set<string>([id]);
@@ -136,6 +143,8 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
   const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
   claimWorkSync(ctx, lease);
+  installHandoverHandler();
+  registerRunnerLease(lease);
   const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
   ctx = { ...ctx, env };
   const startedAt = Date.now();
@@ -148,6 +157,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
+      await autoCleanTask(ctx, id);
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
       }).catch(() => {});
@@ -166,16 +176,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
     return withLock(ctx, "slots", async () => updateTask(ctx,id,t=>{
-      const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
+      const resumable = (t.state === "running" || (t.state === "stopped" && t.handover?.state === "handed-over")) && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
       const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
       if(t.state!=="queued" && !resumable && !dispatched)return;
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
       if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
-      started=true;t.runnerPid=process.pid;delete t.queue;
+      started=true;t.runnerPid=process.pid;t.runnerPacer=currentVersion();delete t.queue;
       if (dispatched) t.attemptStartedAt = Date.now()/1000;
     }));
   });
+  const handedOver = started && task.handover?.state === "handed-over" && !!task.run && task.run.attempt > task.attempts.length ? task.handover : undefined;
+  if (handedOver) appendActivity({ ...ctx, now: Date.now() / 1000 }, { kind: "update", level: "info", text: `Reattached on v${currentVersion()}`, taskId: id });
   if(duplicate)return finish(ctx,id,{status:"failed",executor:null,model:null,files:"",report:`same brief is already active in ${duplicate}; use --force only when concurrent work is intended`,backend:"direct"});
   if (!started) {
     return TERMINAL_STATES.includes(task.state)
@@ -416,7 +428,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
       }
       const onSpawn = (pid: number) => {
-        updateTask(ctx, id, (t) => { t.childPid = pid; });
+        const identity = processIdentity(pid);
+        updateTask(ctx, id, (t) => { t.childPid = pid; if (identity) t.childIdentity = identity; else delete t.childIdentity; });
         if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
       if (!resuming) {
@@ -486,7 +499,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           why: candidate.reason };
         task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
       }
-      if(work?.options.delegationEnforcement==="strict"){
+      if(work?.options.delegationEnforcement==="strict"&&!(resuming&&handedOver)){
         const checkedCtx={...ctx,now:Date.now()/1000};
         const checkedRepo=task.repo?.path??task.brief.repo;
         let reason=await enforcementExclusion(checkedCtx,s,pick,checkedRepo,task.interactionMode==="conversation");
@@ -512,12 +525,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
       let executionCtx=ctx;
       if(work?.options.delegationEnforcement==="strict"){
-        const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
-        const markerDir=join(ctx.pacerHome,"guard-failures");mkdirSync(markerDir,{recursive:true,mode:0o700});
-        const marker=join(markerDir,`${id}-${task.attempts.length+1}`);rmSync(marker,{force:true});
-        executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        const markerDir=join(ctx.pacerHome,"guard-failures"),marker=join(markerDir,`${id}-${task.attempts.length+1}`);
+        if(resuming&&handedOver){
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_GUARD_FAILURE_MARKER:marker}};
+        } else {
+          const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          rmSync(marker,{force:true});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        }
       }
-      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
+      if(work?.options.allowDelegation&&!(resuming&&handedOver)){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {
@@ -593,6 +612,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;
+        delete t.childIdentity;
       });
       try {
         const result: TaskResult | undefined = out.worktree ? {

@@ -1268,6 +1268,7 @@
         "key": {
           "type": "string",
           "enum": [
+            "execution.auto_clean",
             "task_retention_days",
             "execution.local_max_tasks",
             "execution.local_memory_pressure_limit",
@@ -4130,6 +4131,17 @@
       ],
       "additionalProperties": false
     },
+    "ServiceHandoverParams": {
+      "type": "object",
+      "properties": {
+        "wait_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      },
+      "additionalProperties": false
+    },
     "ServiceInstallParams": {
       "type": "object",
       "properties": {
@@ -4144,6 +4156,11 @@
       "additionalProperties": false
     },
     "ServiceStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ServiceWorkParams": {
       "type": "object",
       "properties": {},
       "additionalProperties": false

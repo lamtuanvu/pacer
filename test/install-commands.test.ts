@@ -195,6 +195,30 @@ function allFixture() {
   return { ctx, binary };
 }
 
+test("uninstall --all refuses delegated executors before changing installations", async () => {
+  const { ctx, binary } = allFixture();
+  ctx.env.PACER_ROLE = "executor";
+  const result = await uninstallAll(["--all", "--yes", "--binary"], ctx, { removeBinary: () => { throw Error("must not remove binary"); } });
+  expect(result).toMatchObject({ code: 2, err: expect.stringContaining("upgrades are not allowed from a delegated task") });
+  expect(existsSync(binary)).toBe(true);
+});
+
+test("uninstall --all asks about a live terminal before removing the service", async () => {
+  const { ctx } = allFixture();
+  const unit = servicePath(ctx, "linux");
+  mkdirSync(join(ctx.home, ".config/systemd/user"), { recursive: true });
+  writeFileSync(unit, `# ${MARKER}\n`);
+  const { createTerminal, terminalDirectory } = await import("../src/terminal/workspace");
+  const { stopRun } = await import("../src/supervisor/run");
+  const terminal = await createTerminal(ctx, { requestId: "all-running-work", kind: "action", title: "Shell", argv: ["sleep", "10"] });
+  let question = "";
+  const result = await uninstallAll(["--all"], ctx, { tty: true, platform: "linux", confirm: async q => { question = q; return false; }, print: () => {} });
+  expect(result.code).toBe(0);
+  expect(question).toContain("1 session");
+  expect(existsSync(unit)).toBe(true);
+  await stopRun(terminalDirectory(ctx, terminal.id), { graceMs: 100 });
+});
+
 const appPathBlock = '# >>> pacer >>>\nexport PATH="$HOME/.local/bin:$PATH"\n# <<< pacer <<<\n';
 
 test.each(["running", "queued"] as const)("uninstall --all refuses a %s task before confirmation or changes", async state => {

@@ -1,3 +1,4 @@
+import { autoCleanSweep } from "../core/tasks";
 import { backfillFirstSettled } from "../insights/summary";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
@@ -17,6 +18,7 @@ import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
 import { shutdownPlugins } from "../plugins";
+import { triggerHandover } from "../tasks/handover-service";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, upgradeTerminal, type SessionWS } from "./session-ws";
 import { isExecutorSession } from "../install/role";
@@ -62,7 +64,7 @@ export function startServer(
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
-  recoverJobs(initialCtx);
+  recoverJobs(initialCtx, undefined, async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary);
   // History gets its token index in the background; it reads logs and writes only attempt_usage.
   try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
   void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
@@ -278,6 +280,18 @@ export function startServer(
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
+  let cleaning = false;
+  const sweep = () => {
+    if (stopped || cleaning) return;
+    cleaning = true;
+    void Promise.resolve().then(async () => {
+      const ctx = getCtx();
+      await autoCleanSweep(ctx);
+    }).catch(error => console.warn(`pacer: automatic cleanup failed: ${String(error)}`))
+      .finally(() => { cleaning = false; });
+  };
+  const cleanStart = setTimeout(sweep, 0);
+  const cleanTimer = setInterval(sweep, 60 * 60_000);
   const retention = retentionScheduler();
   const prune = () => {
     if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
@@ -323,6 +337,8 @@ export function startServer(
     readCache.stop();
     unregisterJobs();
     stopped = true;
+    clearTimeout(cleanStart);
+    clearInterval(cleanTimer);
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);

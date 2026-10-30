@@ -6,7 +6,7 @@ import { z } from "zod";
 import { checkout, liveRoot, loadSession, record, type Session } from "./core";
 import { parsePlistDictionary } from "../../src/service";
 import { withOtaLedgerLock } from "./ota-lock";
-import { exerciseSchema, runtimeSchema, resumableStartup } from "./ota-exercise-record";
+import { TAKEOVER_SCENARIOS, exerciseSchema, runtimeSchema, resumableStartup } from "./ota-exercise-record";
 import { diagnosticSchema, validateDiagnosticFiles, type FixtureDiagnostics } from "./ota-diagnostics";
 import { ownProcessIdentity, sameProcess } from "../../src/update/desktop/process-identity";
 
@@ -59,7 +59,9 @@ export function initialFixtureVersion(state: Pick<OtaRecord, "initialLayout" | "
 }
 export function assertFixtureLayoutScenario(state: Pick<OtaRecord, "initialLayout">, scenario: string): void {
   const layout = initialLayoutSchema.parse(state.initialLayout ?? "bridge");
-  if (layout === "paired" && scenario !== "adopt" && scenario !== "adopt-failure") throw Error("Paired initial layout is only for adoption scenarios");
+  const takeover = (TAKEOVER_SCENARIOS as readonly string[]).includes(scenario);
+  if (takeover && layout !== "paired") throw Error("Takeover requires the candidate desktop and helper layout");
+  if (layout === "paired" && scenario !== "adopt" && scenario !== "adopt-failure" && !takeover) throw Error("Paired initial layout is only for adoption and takeover scenarios");
 }
 
 export function otaFixturePolicy(state: OtaRecord) {

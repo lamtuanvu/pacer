@@ -1,3 +1,4 @@
+import { clientHello } from "../session/protocol";
 import { StringDecoder } from 'node:string_decoder';
 import { ApiError } from '../api/client-types';
 import { FrameType, WireDecoder, wire } from '../session/framing';
@@ -92,7 +93,7 @@ export async function sessionIoCommand(args: string[], ctx: Ctx, deps: {
     });
     await Promise.race([opened, done]);
     if (!finished) {
-      ws.send(JSON.stringify({type: 'hello', v: 1, client: 'cli', label: 'agent', cols: 120, rows: 40, ...(from !== undefined ? {from} : {})}));
+      ws.send(JSON.stringify({type: 'hello', v: 1, client: 'cli', label: 'agent', cols: 120, rows: 40, ...clientHello(), ...(from !== undefined ? {from} : {})}));
       const pump = async () => {
         if (flags.has('--control')) await Promise.race([take(flags.has('--force')), done]);
         for await (const line of deps.input ?? stdinLines()) {

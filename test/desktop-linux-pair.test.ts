@@ -20,7 +20,7 @@ function fixture() {
 test("Linux staging copies the executable pair and fails before staging a missing core", () => {
   const f = fixture();
   const run = (core = f.core) => Bun.spawnSync(["sh", join(f.scripts, "stage-cli.sh"), f.cli, core], {
-    env: { ...process.env, TAURI_TARGET_TRIPLE: "x86_64-unknown-linux-gnu" },
+    env: { ...process.env, TMPDIR: f.root, TAURI_TARGET_TRIPLE: "x86_64-unknown-linux-gnu" },
   });
   expect(run(join(f.root, "missing")).exitCode).not.toBe(0);
   expect(existsSync(join(f.root, "desktop/src-tauri/binaries"))).toBe(false);
@@ -41,7 +41,7 @@ test("AppImage repack preserves both payloads, smokes the core and leaves origin
   writeFileSync(join(tools, "unsquashfs"), '#!/bin/sh\nwhile [ "$1" != -d ]; do shift; done\nmkdir -p "$2/usr/bin"\ntouch "$2/usr/bin/pacer" "$2/usr/bin/pacer-core"\n', { mode: 0o755 });
   writeFileSync(join(tools, "mksquashfs"), '#!/bin/sh\ncp "$1/usr/bin/pacer" "$CAPTURE/pacer"\ncp "$1/usr/bin/pacer-core" "$CAPTURE/pacer-core"\necho squash > "$2"\n', { mode: 0o755 });
   const run = () => Bun.spawnSync(["sh", join(f.scripts, "repack-appimage.sh"), app, f.cli, "1.2.3"], {
-    env: { ...process.env, PATH: `${tools}:${process.env.PATH}`, CAPTURE: tools },
+    env: { ...process.env, TMPDIR: f.root, PATH: `${tools}:${process.env.PATH}`, CAPTURE: tools },
   });
   const result = run();
   expect(result.stderr.toString()).toBe("");
@@ -79,7 +79,7 @@ printf '%s\\n' "$*" >> "$PAIR_LOG"
   writeFileSync(join(f.scripts, "repack-appimage.sh"), '#!/bin/sh\n[ "$2" = "$PAIR_CLI" ] && [ "$3" = "1.2.3" ] || exit 2\necho repacked >> "$PAIR_LOG"\n');
   const log = join(f.root, "build.log");
   const result = Bun.spawnSync(["sh", join(f.scripts, "build-linux-bundles.sh"), f.cli, "1.2.3", "x86_64-unknown-linux-gnu"], {
-    env: { ...process.env, PATH: `${tools}:${process.env.PATH}`, PAIR_CLI: f.cli, PAIR_CORE: f.core, PAIR_LOG: log },
+    env: { ...process.env, TMPDIR: f.root, PATH: `${tools}:${process.env.PATH}`, PAIR_CLI: f.cli, PAIR_CORE: f.core, PAIR_LOG: log },
   });
   expect(result.stderr.toString()).toBe("");
   expect(result.exitCode).toBe(0);
@@ -96,7 +96,7 @@ test("staging resolves platform-named core beside a relative release filename", 
   copyFileSync(f.core, join(f.root, "pacer-core-linux-x64"));
   const result = Bun.spawnSync(["sh", join(f.scripts, "stage-cli.sh"), "pacer-linux-x64"], {
     cwd: f.root,
-    env: { ...process.env, TAURI_TARGET_TRIPLE: "x86_64-unknown-linux-gnu" },
+    env: { ...process.env, TMPDIR: f.root, TAURI_TARGET_TRIPLE: "x86_64-unknown-linux-gnu" },
   });
   expect(result.stderr.toString()).toBe("");
   expect(result.exitCode).toBe(0);

@@ -137,3 +137,12 @@ test("staging rejects unknown MacOS payloads and helper directories", async () =
   mkdirSync(join(g.app, "Contents/MacOS/pacer-update-helper"));
   await expect(stageDesktopPackage(g.root, g.dir, "aarch64", { run: g.run })).rejects.toThrow();
 });
+
+test("only an explicit fixture option stages the fixture bundle identifier", async () => {
+  const f = fixture(), plist = join(f.app, "Contents/Info.plist");
+  writeFileSync(plist, readFileSync(plist, "utf8").replace("<string>dev.pacer.desktop</string>", "<string>dev.pacer.desktop.fixture</string>"));
+  await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run })).rejects.toThrow("Desktop bundle identity/version mismatch");
+  const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run, bundleId: "dev.pacer.desktop.fixture" });
+  expect(JSON.parse(readFileSync(join(stage, "pacer.app/Contents/Resources/pacer-release.json"), "utf8")).bundleId).toBe("dev.pacer.desktop.fixture");
+  await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run, bundleId: "dev.pacer.other" as "dev.pacer.desktop" })).rejects.toThrow("Unsupported desktop bundle identifier");
+});

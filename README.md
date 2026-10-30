@@ -78,6 +78,10 @@ export PATH="$HOME/.local/bin:$PATH"
 pacer --version
 ```
 
+### Updating pacer
+
+Run `pacer update`, or choose **Install** in **Settings → Updates**. The service restarts onto the new version and running work is kept running: agents and terminal commands are not interrupted. Each task's runner hands over to the new version, and open sessions keep their current host. The update reports what happened, for example "Updated to v0.13.1. 2 tasks and 1 session kept running; 0 stayed on the previous runner." This starts with the first update *from* a version that has the feature; see [Service management](docs/install.md#terminal-and-servers).
+
 ### macOS desktop app
 
 Desktop releases are signed with the project's own code-signing certificate until pacer has an Apple Developer ID, so macOS blocks the first launch:

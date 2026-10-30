@@ -39,7 +39,7 @@ async function sandbox() {
   writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct, launch_mode: headless}\n");
 
   async function run(argv: string[]) {
-    const proc = Bun.spawn(argv, { env, cwd: repo, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(argv, { env: argv[0] === "sh" ? {...env, TMPDIR: home} : env, cwd: repo, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => proc.kill("SIGKILL"), 30_000);
     try {
       const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
