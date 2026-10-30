@@ -84,3 +84,29 @@ test("private trust store rejects symlink, loose mode and tampering", async () =
   symlinkSync("missing", path);
   expect(() => trust.lookup(ctx, "Fixture")).toThrow("private");
 });
+
+test("small-order and non-canonical Ed25519 publisher keys are refused", async () => {
+  const { ctx } = fixture(), trust = createPublisherTrust({});
+  const identity = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString("base64");
+  await expect(trust.set(ctx, "Fixture", identity, null)).rejects.toThrow("weak");
+  await expect(trust.set(ctx, "Fixture", Buffer.alloc(32).toString("base64"), null)).rejects.toThrow("weak");
+  const nonCanonical = Buffer.alloc(32, 0xff); nonCanonical[31] = 0x7f; // y = 2^255 - 1 >= p
+  await expect(trust.set(ctx, "Fixture", nonCanonical.toString("base64"), null)).rejects.toThrow("weak");
+  expect(() => createPublisherTrust({ Fixture: identity })).toThrow("weak");
+  expect(trust.lookup(ctx, "Fixture")).toBeNull();
+});
+
+test("publisher names that collide case-insensitively with a shipped or existing publisher are refused", async () => {
+  const { ctx, path } = fixture(), trust = createPublisherTrust({ Fixture: keys(3) });
+  await expect(trust.set(ctx, "fixture", keys(4), null)).rejects.toThrow("case-insensitively");
+  await expect(trust.set(ctx, "FIXTURE", keys(4), null)).rejects.toThrow("case-insensitively");
+  const acme = await trust.set(ctx, "Acme", keys(5), null);
+  await expect(trust.set(ctx, "acme", keys(6), null)).rejects.toThrow("case-insensitively");
+  expect(trust.lookup(ctx, "acme")).toBeNull();
+  expect((await trust.set(ctx, "Acme", keys(6), acme.fingerprint)).fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  expect(() => createPublisherTrust({ Acme: keys(1), acme: keys(2) })).toThrow("case-insensitively");
+  writeFileSync(path, JSON.stringify({ version: 1, publishers: { fixture: keys(4) } }, null, 2) + "\n", { mode: 0o600 });
+  expect(() => trust.lookup(ctx, "Acme")).toThrow("shadows");
+  writeFileSync(path, JSON.stringify({ version: 1, publishers: { Acme: keys(4), acme: keys(5) } }, null, 2) + "\n", { mode: 0o600 });
+  expect(() => trust.lookup(ctx, "Acme")).toThrow("case-colliding");
+});

@@ -10,11 +10,32 @@ export interface PublisherKey { key: string; fingerprint: string; source: "shipp
 interface Store { version: 1; publishers: Record<string, string> }
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/;
 const STORE_MAX_BYTES = 64 * 1024;
-
+const ED25519_P = (1n << 255n) - 19n;
+/** The eight canonical encodings of the small-order Ed25519 points (plus two sign-bit aliases); the identity key would verify every message. */
+const SMALL_ORDER_KEYS = new Set([
+  "0100000000000000000000000000000000000000000000000000000000000000",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "0000000000000000000000000000000000000000000000000000000000000000",
+  "0000000000000000000000000000000000000000000000000000000000000080",
+  "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+  "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+  "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+  "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+  // x = 0 with the sign bit set: non-canonical aliases of the identity and the order-2 point.
+  "0100000000000000000000000000000000000000000000000000000000000080",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+]);
+/** Refuse small-order points and non-canonical encodings (y >= p), which could alias a small-order point. */
+export function assertStrongPublisherKey(bytes: Uint8Array): void {
+  const hex = Buffer.from(bytes).toString("hex");
+  const y = BigInt(`0x${Buffer.from(bytes).reverse().toString("hex")}`) & ((1n << 255n) - 1n);
+  if (bytes.length !== 32 || SMALL_ORDER_KEYS.has(hex) || y >= ED25519_P) throw new CoreError("invalid_input", "publisher key is a weak or non-canonical Ed25519 point");
+}
 function keyBytes(key: string): Buffer {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(key)) throw new CoreError("invalid_input", "publisher key must be canonical base64");
   const bytes = Buffer.from(key, "base64");
   if (bytes.length !== 32 || bytes.toString("base64") !== key) throw new CoreError("invalid_input", "publisher key must encode 32 bytes");
+  assertStrongPublisherKey(bytes);
   return bytes;
 }
 export function publisherFingerprint(key: string): string {
@@ -152,15 +173,26 @@ function writeStore(ctx: Ctx, store: Store): void {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
 }
+/** Publisher names are compared case-insensitively for collisions so `acme` cannot pose as `Acme`. */
+function foldedName(name: string): string { return name.toLowerCase(); }
 export function createPublisherTrust(shipped: Readonly<Record<string, string>>) {
   for (const [name, key] of Object.entries(shipped)) { publisherName(name); keyBytes(key); }
   const shippedCopy = Object.freeze({ ...shipped });
+  const shippedFolded = new Set(Object.keys(shippedCopy).map(foldedName));
+  if (shippedFolded.size !== Object.keys(shippedCopy).length) throw new CoreError("invalid_input", "shipped publisher names collide case-insensitively");
+  const assertNoShadowing = (store: Store) => {
+    const names = Object.keys(store.publishers);
+    if (names.some(name => shippedFolded.has(foldedName(name)))) {
+      throw new CoreError("plugin_refused", "user publisher store shadows a shipped publisher");
+    }
+    if (new Set(names.map(foldedName)).size !== names.length) {
+      throw new CoreError("plugin_refused", "user publisher store has case-colliding publisher names");
+    }
+  };
   const lookup = (ctx: Ctx, publisher: string): PublisherKey | null => {
     publisherName(publisher);
     const store = load(ctx);
-    if (Object.keys(store.publishers).some(name => Object.hasOwn(shippedCopy, name))) {
-      throw new CoreError("plugin_refused", "user publisher store shadows a shipped publisher");
-    }
+    assertNoShadowing(store);
     const shippedKey = Object.hasOwn(shippedCopy, publisher) ? shippedCopy[publisher] : undefined;
     if (shippedKey) return { key: shippedKey, fingerprint: publisherFingerprint(shippedKey), source: "shipped" };
     const key = Object.hasOwn(store.publishers, publisher) ? store.publishers[publisher] : undefined;
@@ -173,9 +205,11 @@ export function createPublisherTrust(shipped: Readonly<Record<string, string>>) 
     assertNoRedirectedParent(ctx.pacerHome); // The shared lock itself writes under this parent.
     return withLock(ctx, "plugins", async () => {
       if (Object.hasOwn(shippedCopy, publisher)) throw new CoreError("not_allowed", "shipped publisher key cannot be changed");
+      if (shippedFolded.has(foldedName(publisher))) throw new CoreError("not_allowed", "publisher name collides case-insensitively with a shipped publisher");
       const store = load(ctx);
-      if (Object.keys(store.publishers).some(name => Object.hasOwn(shippedCopy, name))) {
-        throw new CoreError("plugin_refused", "user publisher store shadows a shipped publisher");
+      assertNoShadowing(store);
+      if (Object.keys(store.publishers).some(name => name !== publisher && foldedName(name) === foldedName(publisher))) {
+        throw new CoreError("conflict", "publisher name collides case-insensitively with an existing publisher");
       }
       const old = Object.hasOwn(store.publishers, publisher) ? store.publishers[publisher] : undefined;
       const actual = old ? publisherFingerprint(old) : null;

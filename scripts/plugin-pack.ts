@@ -1,7 +1,7 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, linkSync, openSync, readdirSync, readSync, unlinkSync, writeSync, fsyncSync, type Stats } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { inspectArchive, MAX_ARCHIVE_BYTES, MAX_ENTRIES, MAX_FILE_BYTES } from "../src/plugins/archive";
+import { archiveSignedMessage, inspectArchive, MAX_ARCHIVE_BYTES, MAX_ENTRIES, MAX_FILE_BYTES } from "../src/plugins/archive";
 
 const BLOCK = 512;
 type Input = { path: string; directory: boolean; bytes: Buffer };
@@ -11,7 +11,7 @@ function octal(header: Buffer, offset: number, width: number, value: number): vo
   if (text.length >= width) throw new Error("tar header number too large");
   header.write(text.padStart(width - 1, "0") + "\0", offset, width, "ascii");
 }
-function header(entry: Input, entryPoint: string): Buffer {
+function header(entry: Input, entryPoint: string | null): Buffer {
   const block = Buffer.alloc(BLOCK);
   const name = entry.path + (entry.directory ? "/" : "");
   if (Buffer.byteLength(name) > 100) throw new Error("plugin archive path exceeds ustar name limit");
@@ -142,7 +142,7 @@ export async function packPlugin(folder: string, privateKeyFile: string, archive
   catch { throw new Error("invalid plugin manifest"); }
   const blocks: Buffer[] = [];
   for (const entry of entries) {
-    blocks.push(header(entry, `${basename(folder)}/${manifest.entry ?? ""}`));
+    blocks.push(header(entry, manifest.entry ? `${basename(folder)}/${manifest.entry}` : null));
     if (!entry.directory) blocks.push(entry.bytes, Buffer.alloc((BLOCK - entry.bytes.length % BLOCK) % BLOCK));
   }
   blocks.push(Buffer.alloc(1024));
@@ -153,9 +153,10 @@ export async function packPlugin(folder: string, privateKeyFile: string, archive
   let key: CryptoKey;
   try { key = await crypto.subtle.importKey("pkcs8", Uint8Array.from(keyBytes), "Ed25519", false, ["sign"]); }
   finally { keyBytes.fill(0); }
-  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", key, Uint8Array.from(archive))).toString("base64");
+  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", key, archiveSignedMessage(archive))).toString("base64");
   const published = publishAbsent(archiveFile, archive);
-  try { publishAbsent(`${archiveFile}.sig`, Buffer.from(signature + "\n")); }
+  // The `.sig` file is exactly the canonical base64 signature, with no trailing newline, as the verifier requires.
+  try { publishAbsent(`${archiveFile}.sig`, Buffer.from(signature)); }
   catch (error) {
     const current = lstatSync(archiveFile);
     if (current.dev === published.dev && current.ino === published.ino) unlinkSync(archiveFile);

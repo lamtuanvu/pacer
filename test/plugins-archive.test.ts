@@ -3,7 +3,8 @@ import { appendFileSync, chmodSync, closeSync, existsSync, lstatSync, mkdirSync,
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { fakeCtx, tmpDir } from "./helpers";
-import { extractArchive, inspectArchive, verifyArchive, verifyPublishedArchive, MAX_FILE_BYTES } from "../src/plugins/archive";
+import * as archiveModule from "../src/plugins/archive";
+import { archiveSignedMessage, extractArchive, inspectArchive, verifyPublishedArchive, MAX_FILE_BYTES, type InspectedArchive } from "../src/plugins/archive";
 import { createPublisherTrust } from "../src/plugins/publishers";
 import { packPlugin, publishAbsent, readBoundedPluginFile, readPluginInput } from "../scripts/plugin-pack";
 
@@ -43,11 +44,15 @@ function tar(entries: Entry[], trailer?: Uint8Array): Buffer {
 }
 
 const archive = (entries: Entry[], trailer?: Uint8Array) => gzipSync(tar(entries, trailer));
+const trustingOnly = (key: string) => ({ lookup: () => ({ key, fingerprint: "", source: "user" as const }) });
+/** Publisher-bound verification with a stub trust that maps every publisher to `publicKey`. */
+const verifyArchive = (inspection: InspectedArchive, signature: string, publicKey: string) =>
+  verifyPublishedArchive(fakeCtx(), inspection, signature, trustingOnly(publicKey));
 
 test("one-root signed archive extracts exactly its inspected regular files", async () => {
   const bytes = archive(validEntries);
   const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", keys.privateKey, bytes)).toString("base64");
+  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", keys.privateKey, archiveSignedMessage(bytes))).toString("base64");
   const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("base64");
   const inspected = inspectArchive(bytes);
   expect(inspected.manifest.id).toBe("fx-archive");
@@ -67,7 +72,7 @@ test("signature verification refuses an unrelated publisher key and malformed si
   const bytes = archive(validEntries);
   const a = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   const b = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", a.privateKey, bytes)).toString("base64");
+  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", a.privateKey, archiveSignedMessage(bytes))).toString("base64");
   const wrongKey = Buffer.from(await crypto.subtle.exportKey("raw", b.publicKey)).toString("base64");
   await expect(verifyArchive(inspectArchive(bytes), signature, wrongKey)).rejects.toThrow();
   await expect(verifyArchive(inspectArchive(bytes), "not base64!", wrongKey)).rejects.toThrow();
@@ -75,7 +80,7 @@ test("signature verification refuses an unrelated publisher key and malformed si
 
 async function signed(bytes: Uint8Array) {
   const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", keys.privateKey, Uint8Array.from(bytes))).toString("base64");
+  const signature = Buffer.from(await crypto.subtle.sign("Ed25519", keys.privateKey, archiveSignedMessage(bytes))).toString("base64");
   const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("base64");
   return { signature, publicKey };
 }
@@ -228,8 +233,10 @@ test("packer uses a private key file, creates a signed archive without replaceme
   writeFileSync(keyPath, `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----\n`, { mode: 0o600 });
   const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("base64");
   await packPlugin(dir, keyPath, output);
-  expect(existsSync(`${output}.sig`)).toBe(true);
-  await verifyArchive(inspectArchive(readFileSync(output)), readFileSync(`${output}.sig`, "utf8").trim(), publicKey);
+  const sig = readFileSync(`${output}.sig`, "utf8");
+  expect(sig).toMatch(/^[A-Za-z0-9+/]{86}==$/); // Exactly the signature: no trailing newline.
+  await verifyArchive(inspectArchive(readFileSync(output)), sig, publicKey);
+  await expect(verifyArchive(inspectArchive(readFileSync(output)), `${sig}\n`, publicKey)).rejects.toThrow("encoding");
   await expect(packPlugin(dir, keyPath, output)).rejects.toThrow();
   expect(readFileSync(output).length).toBeGreaterThan(0);
   expect(readdirSync(root).filter(name => name.endsWith(".tmp"))).toEqual([]);
@@ -244,4 +251,50 @@ test("packer uses a private key file, creates a signed archive without replaceme
   chmodSync(keyPath, 0o600);
   symlinkSync("main.js", join(dir, "link"));
   await expect(packPlugin(dir, keyPath, join(root, "linked.tgz"))).rejects.toThrow("symlink");
+});
+
+test("signatures are domain-separated: a bare Ed25519 signature over the gzip bytes is refused", async () => {
+  const bytes = archive(validEntries);
+  const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+  const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("base64");
+  const bare = Buffer.from(await crypto.subtle.sign("Ed25519", keys.privateKey, bytes)).toString("base64");
+  await expect(verifyArchive(inspectArchive(bytes), bare, publicKey)).rejects.toThrow("signature invalid");
+  expect(Buffer.from(archiveSignedMessage(bytes)).subarray(0, 24).toString("ascii")).toBe("pacer-plugin-archive/v1\0");
+});
+
+test("a small-order publisher key never verifies, even with the forgery that would accept any archive", async () => {
+  const identity = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]);
+  const forged = Buffer.concat([identity, Buffer.alloc(32)]).toString("base64"); // R = identity, S = 0
+  await expect(verifyArchive(inspectArchive(archive(validEntries)), forged, identity.toString("base64"))).rejects.toThrow("weak");
+});
+
+test("a manifest without entry grants no execute bit, including to a file named 'undefined'", async () => {
+  const surfaceManifest = JSON.stringify({ id: "fx-archive", version: "1.0.0", publisher: "Fixture", host: "*", contributes: {}, capabilities: [] });
+  const bytes = archive([
+    validEntries[0]!, { path: "fx-archive/pacer-plugin.json", data: Buffer.from(surfaceManifest) },
+    { path: "fx-archive/undefined", data: Buffer.from("#!/bin/sh\n") },
+  ]);
+  const { signature, publicKey } = await signed(bytes);
+  const verified = await verifyArchive(inspectArchive(bytes), signature, publicKey);
+  const out = join(tmpDir(), "stage");
+  mkdirSync(out, { mode: 0o700 });
+  extractArchive(verified, out);
+  expect(lstatSync(join(out, "undefined")).mode & 0o777).toBe(0o600);
+  expect(lstatSync(join(out, "pacer-plugin.json")).mode & 0o777).toBe(0o600);
+});
+
+test("the verified manifest is deeply frozen", async () => {
+  const nested = JSON.stringify({ id: "fx-archive", version: "1.0.0", publisher: "Fixture", host: "*", entry: "main.js", contributes: {}, capabilities: [] });
+  const bytes = archive([validEntries[0]!, { path: "fx-archive/pacer-plugin.json", data: Buffer.from(nested) }, validEntries[2]!]);
+  const { signature, publicKey } = await signed(bytes);
+  const verified = await verifyArchive(inspectArchive(bytes), signature, publicKey);
+  expect(Object.isFrozen(verified.manifest)).toBe(true);
+  expect(Object.isFrozen(verified.manifest.contributes)).toBe(true);
+  expect(Object.isFrozen(verified.manifest.capabilities)).toBe(true);
+  expect(() => { (verified.manifest.contributes as Record<string, unknown>).views = []; }).toThrow();
+  expect(() => { (verified.manifest.capabilities as unknown[]).push("x"); }).toThrow();
+});
+
+test("publisher-bound verification is the only exported verify entry point", () => {
+  expect(Object.keys(archiveModule).filter(name => name.toLowerCase().includes("verify"))).toEqual(["verifyPublishedArchive"]);
 });

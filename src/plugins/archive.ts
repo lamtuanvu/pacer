@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { parseManifest } from "./manifest";
 import { PLUGIN_ID, type PluginManifest } from "./protocol";
-import type { PublisherKey } from "./publishers";
+import { assertStrongPublisherKey, type PublisherKey } from "./publishers";
 import type { Ctx } from "../types";
 
 export const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
@@ -12,6 +12,11 @@ export const MAX_ENTRIES = 10_000;
 const BLOCK = 512;
 const MAX_TAR_BYTES = MAX_FILE_BYTES + MAX_ENTRIES * 2 * BLOCK + 1024;
 const decoder = new TextDecoder("utf-8", { fatal: true });
+/** Domain separation: an archive signature is Ed25519 over this context string followed by the exact gzip bytes. */
+export const ARCHIVE_SIGNATURE_CONTEXT = "pacer-plugin-archive/v1\0";
+export function archiveSignedMessage(archive: Uint8Array): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(Buffer.concat([Buffer.from(ARCHIVE_SIGNATURE_CONTEXT, "ascii"), archive]));
+}
 
 export interface InspectedArchive {
   readonly manifest: PluginManifest;
@@ -23,6 +28,13 @@ type PrivateArchive = { compressed: Buffer; files: FileEntry[] };
 const inspectedArchives = new WeakMap<InspectedArchive, PrivateArchive>();
 const verifiedArchives = new WeakMap<VerifiedArchive, PrivateArchive>();
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 function field(block: Buffer, start: number, width: number): string {
   const bytes = block.subarray(start, start + width);
   const nul = bytes.indexOf(0);
@@ -120,7 +132,7 @@ export function inspectArchive(input: Uint8Array): InspectedArchive {
     if (!files.some(file => file.path === `${root}/${parsed.manifest.entry}`)) throw new Error("manifest entry missing from archive");
   }
   const entries = Object.freeze(files.map(file => Object.freeze({ path: file.path, size: file.bytes.length })));
-  const inspection = Object.freeze({ manifest: Object.freeze(parsed.manifest), entries });
+  const inspection = Object.freeze({ manifest: deepFreeze(structuredClone(parsed.manifest)), entries });
   inspectedArchives.set(inspection, { compressed, files });
   return inspection;
 }
@@ -130,21 +142,26 @@ function strictBase64(value: string, length: number): Buffer {
   if (bytes.length !== length || bytes.toString("base64") !== value) throw new Error("invalid signature or key length");
   return bytes;
 }
-export async function verifyArchive(inspection: InspectedArchive, signature: string, publicKey: string): Promise<VerifiedArchive> {
+async function verifyWithKey(inspection: InspectedArchive, signature: string, publicKey: string): Promise<VerifiedArchive> {
   const privateData = inspectedArchives.get(inspection);
   if (!privateData) throw new Error("archive inspection provenance missing");
-  const key = await crypto.subtle.importKey("raw", Uint8Array.from(strictBase64(publicKey, 32)), "Ed25519", false, ["verify"]);
-  if (!await crypto.subtle.verify("Ed25519", key, Uint8Array.from(strictBase64(signature, 64)), Uint8Array.from(privateData.compressed))) throw new Error("archive signature invalid");
+  const keyBytes = strictBase64(publicKey, 32);
+  assertStrongPublisherKey(keyBytes);
+  const key = await crypto.subtle.importKey("raw", Uint8Array.from(keyBytes), "Ed25519", false, ["verify"]);
+  if (!await crypto.subtle.verify("Ed25519", key, Uint8Array.from(strictBase64(signature, 64)), archiveSignedMessage(privateData.compressed))) throw new Error("archive signature invalid");
   const verified = Object.freeze({ manifest: inspection.manifest, entries: inspection.entries, verified: true as const });
   verifiedArchives.set(verified, privateData);
   return verified;
 }
-/** Verify against the trusted key of the manifest's publisher; an unknown publisher fails closed. */
+/**
+ * The only verification entry point: verify against the trusted key of the manifest's publisher; an unknown publisher fails closed.
+ * `signature` is the exact `.sig` file content: 88 characters of canonical base64 with no trailing newline or whitespace.
+ */
 export async function verifyPublishedArchive(ctx: Ctx, inspection: InspectedArchive, signature: string,
   trust: { lookup(ctx: Ctx, publisher: string): PublisherKey | null }): Promise<VerifiedArchive> {
   const publisher = trust.lookup(ctx, inspection.manifest.publisher);
   if (!publisher) throw new Error("unknown publisher; no trusted key");
-  return verifyArchive(inspection, signature, publisher.key);
+  return verifyWithKey(inspection, signature, publisher.key);
 }
 export function extractArchive(archive: VerifiedArchive, destination: string): void {
   const privateData = verifiedArchives.get(archive);
@@ -152,10 +169,11 @@ export function extractArchive(archive: VerifiedArchive, destination: string): v
   const stat = lstatSync(destination);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()) || readdirSync(destination).length) throw new Error("destination must be an empty private owned directory");
   const root = archive.manifest.id;
+  const entryPath = archive.manifest.entry ? `${root}/${archive.manifest.entry}` : null;
   for (const file of privateData.files) {
     const path = join(destination, file.path.slice(root.length + 1));
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const mode = file.path === `${root}/${archive.manifest.entry}` ? 0o700 : 0o600;
+    const mode = file.path === entryPath ? 0o700 : 0o600;
     const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
     try {
       let written = 0;
