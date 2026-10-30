@@ -4,6 +4,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { record, type Session } from "./core";
 import { authorizeSeedRepair } from "./repair";
+import { authorizeSeedPluginRemove } from "./plugin-remove";
 import { authorizeFixtureRequest } from "./ota-request";
 import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
 import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
@@ -56,7 +57,7 @@ export function safeTerminalFolder(root: string, cwd: unknown): boolean {
 
 /**
  * A shell with no folder starts in the service's home. A ui-seeded sandbox sets HOME to its own `home/` (sandboxEnv),
- * so that default stays disposable; any other sandbox keeps the caller's HOME and must name a folder.
+ * so that default stays disposable. Any other sandbox, including the single-purpose plugin-remove seed, must name a folder.
  */
 export function safeShellCreate(session: Pick<Session, "root" | "seed">, body: Record<string, unknown> | null): boolean {
   if (body?.kind !== "shell") return false;
@@ -110,7 +111,7 @@ export function startProxy(session: Session) {
       const trace = traceOp ? createOtaRequestTrace(session, traceOp) : undefined;
       const op = refusedOp(req.method, url.pathname);
       const unsafeTerminal = req.method === "POST" && url.pathname === "/v3/ops/terminal.create" && !await safeTerminalCreate(session, req);
-      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req, trace))) {
+      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeSeedPluginRemove(session, req) && !await authorizeFixtureRequest(session, req, trace))) {
         const blocked = unsafeTerminal ? "terminal.create" : op!;
         const message = `Live validation D8: ${blocked} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${blocked}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
