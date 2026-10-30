@@ -2,11 +2,11 @@
 macro_rules! desktop_log {
     ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
 }
-mod client_control;
 mod actions;
 mod approvals;
 mod capture;
 mod client;
+mod client_control;
 mod link;
 mod logging;
 mod logic;
@@ -37,7 +37,10 @@ use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
 #[tauri::command]
-async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Result<permission_setup::SetupResult, String> {
+async fn native_validation_setup(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<permission_setup::SetupResult, String> {
     authorized(&window, &app)?;
     let result = permission_setup::request().await?;
     authorized(&window, &app)?;
@@ -178,18 +181,46 @@ fn native_titlebar_supported(window: WebviewWindow, app: AppHandle) -> Result<bo
     Ok(cfg!(target_os = "macos"))
 }
 #[tauri::command]
-fn desktop_update_connection(window: WebviewWindow, app: AppHandle, supports: Option<Vec<String>>) -> Result<Value, String> {
+fn desktop_update_connection(
+    window: WebviewWindow,
+    app: AppHandle,
+    supports: Option<Vec<String>>,
+) -> Result<Value, String> {
     authorized(&window, &app)?;
     let shell = app.state::<Shell>();
-    let alive = shell.native.lock().unwrap().as_ref().is_some_and(|native| native.alive());
+    let alive = shell
+        .native
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|native| native.alive());
     let error = *shell.native_update_error.lock().unwrap();
     let takeover = shell.takeover.lock().unwrap().is_some();
-    let supports_takeover = supports.as_ref().is_some_and(|items| items.iter().any(|item| item == "service-takeover"));
-    let mut result = logic::desktop_update_connection(pacer_desktop::ota::trust::ReleaseTrust::configured().is_some(), alive, error, takeover, supports_takeover);
+    let supports_takeover = supports
+        .as_ref()
+        .is_some_and(|items| items.iter().any(|item| item == "service-takeover"));
+    let mut result = logic::desktop_update_connection(
+        pacer_desktop::ota::trust::ReleaseTrust::configured().is_some(),
+        alive,
+        error,
+        takeover,
+        supports_takeover,
+    );
     if alive {
-        if let (Some(user_home), Some(bundled), Ok(config)) = (std::env::var_os("HOME"), client::bundled_binary(), app.path().app_config_dir()) {
-            if pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten().is_some_and(|consent| !consent.keep)
-                && matches!(link::state(std::path::Path::new(&user_home), &bundled), link::LinkState::Foreign(_)) {
+        if let (Some(user_home), Some(bundled), Ok(config)) = (
+            std::env::var_os("HOME"),
+            client::bundled_binary(),
+            app.path().app_config_dir(),
+        ) {
+            if pacer_desktop::ota::takeover::detect::read_consent(&config)
+                .ok()
+                .flatten()
+                .is_some_and(|consent| !consent.keep)
+                && matches!(
+                    link::state(std::path::Path::new(&user_home), &bundled),
+                    link::LinkState::Foreign(_)
+                )
+            {
                 result["terminalCommandDifferent"] = serde_json::json!(true);
             }
         }
@@ -199,7 +230,9 @@ fn desktop_update_connection(window: WebviewWindow, app: AppHandle, supports: Op
 #[tauri::command]
 fn takeover_open(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     authorized(&window, &app)?;
-    if app.state::<Shell>().takeover.lock().unwrap().is_none() { return Err("No service takeover was detected".into()) }
+    if app.state::<Shell>().takeover.lock().unwrap().is_none() {
+        return Err("No service takeover was detected".into());
+    }
     recovery(&app, "takeover");
     app.state::<Shell>().expired.notify_one();
     Ok(())
@@ -285,12 +318,16 @@ fn show_service_version_notice(window: &WebviewWindow, raw_version: &str) {
     let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(raw_version))
         == logic::ServiceRelease::Older
     {
-        format!("Service {} is older than this app · New controls are unavailable", logic::display_service_release(Some(raw_version)))
+        format!(
+            "Service {} is older than this app · New controls are unavailable",
+            logic::display_service_release(Some(raw_version))
+        )
     } else {
         "Service version unverified · New controls may be unavailable".into()
     };
     let label = serde_json::to_string(&label).unwrap();
-    let script = format!(r#"(() => {{
+    let script = format!(
+        r#"(() => {{
         const root = document.getElementById('app');
         if (!root) return;
         const ensure = () => {{
@@ -312,7 +349,8 @@ fn show_service_version_notice(window: &WebviewWindow, raw_version: &str) {
         }};
         ensure();
         new MutationObserver(ensure).observe(root, {{childList:true,subtree:true}});
-    }})()"#);
+    }})()"#
+    );
     let _ = window.eval(&script);
 }
 
@@ -552,7 +590,8 @@ fn windowClose(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn notifyRoute(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
     authorized(&window, &app)?;
-    *app.state::<Shell>().route.lock().unwrap() = logic::remembered_route(&logic::route(&route).ok_or("Invalid route")?);
+    *app.state::<Shell>().route.lock().unwrap() =
+        logic::remembered_route(&logic::route(&route).ok_or("Invalid route")?);
     Ok(())
 }
 fn show(app: &AppHandle) {
@@ -582,10 +621,17 @@ fn shell_url(url: &Url) -> bool {
 }
 fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -> bool {
     if logic::dismiss_relink(url, current)
-        && app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
+        && app
+            .state::<Shell>()
+            .diagnosis
+            .lock()
+            .unwrap()
+            .as_ref()
             .is_some_and(|d| d.page == "relink")
     {
-        app.state::<Shell>().relink_dismissed.store(true, Ordering::SeqCst);
+        app.state::<Shell>()
+            .relink_dismissed
+            .store(true, Ordering::SeqCst);
         app.state::<Shell>().startup.lock().unwrap().ready();
         return false; // Allow the requested local starting page to load.
     }
@@ -595,21 +641,44 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
     }
     let bundled = logic::bundled_shell(current);
     if let Some(action) = logic::shell_action_url(url) {
-        if matches!(action, logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss) {
+        if matches!(
+            action,
+            logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss
+        ) {
             // Only the token the bundled takeover page received authorizes these.
             // The token is consumed by any well-formed attempt, including a rejected one.
             let candidate = takeover_candidate_key(app);
-            if main && app.state::<Shell>().main_page.lock().unwrap().authorize_takeover(url, action, candidate.as_deref()) {
-                app.state::<Shell>().shell_action.lock().unwrap().get_or_insert(action);
+            if main
+                && app
+                    .state::<Shell>()
+                    .main_page
+                    .lock()
+                    .unwrap()
+                    .authorize_takeover(url, action, candidate.as_deref())
+            {
+                app.state::<Shell>()
+                    .shell_action
+                    .lock()
+                    .unwrap()
+                    .get_or_insert(action);
                 app.state::<Shell>().wake.notify_one();
             } else {
-                desktop_log!("pacer lifecycle: rejected a takeover action without a valid page token");
+                desktop_log!(
+                    "pacer lifecycle: rejected a takeover action without a valid page token"
+                );
             }
             return true;
         }
-        if bundled && (action != logic::ShellAction::ContinueOldService
-            || app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
-                .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"))) {
+        if bundled
+            && (action != logic::ShellAction::ContinueOldService
+                || app
+                    .state::<Shell>()
+                    .diagnosis
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService")))
+        {
             // The lifecycle loop is the sole owner of setup and service mutations.
             app.state::<Shell>()
                 .shell_action
@@ -676,16 +745,34 @@ fn render_diagnosis_in(app: &AppHandle, labels: &[&str]) {
 /// Binds a takeover token to the candidate the page shows: its registration
 /// hash, process incarnation and program identity.
 fn takeover_candidate_key(app: &AppHandle) -> Option<String> {
-    app.state::<Shell>().takeover.lock().unwrap().as_ref().and_then(|view| serde_json::to_string(&view.candidate).ok())
+    app.state::<Shell>()
+        .takeover
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|view| serde_json::to_string(&view.candidate).ok())
 }
 /// Delivers inspection, progress and a single-use action token to the bundled
 /// takeover page only. Inspection data is never available over IPC.
 fn render_takeover(app: &AppHandle) {
     let shell = app.state::<Shell>();
-    let inspection = shell.takeover.lock().unwrap().as_ref().map(|view| view.inspection.clone());
+    let inspection = shell
+        .takeover
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|view| view.inspection.clone());
     let progress = shell.takeover_progress.lock().unwrap().clone();
-    let Some(window) = app.get_webview_window("main") else { return };
-    let Some(kind) = window.url().ok().and_then(|url| logic::takeover_page(Some(&url))) else { return };
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(kind) = window
+        .url()
+        .ok()
+        .and_then(|url| logic::takeover_page(Some(&url)))
+    else {
+        return;
+    };
     // No action is possible while a transaction runs; only an error re-enables the offer.
     let in_flight = progress.as_ref().is_some_and(|p| p["state"] != "error");
     // Never hold the page lock across webview calls, which run on the main thread.
@@ -696,9 +783,18 @@ fn render_takeover(app: &AppHandle) {
         shell.main_page.lock().unwrap().revoke_takeover_token();
         None
     } else {
-        let Ok(random) = pacer_desktop::ota::journal::random_id() else { return };
+        let Ok(random) = pacer_desktop::ota::journal::random_id() else {
+            return;
+        };
         let candidate = takeover_candidate_key(app);
-        let Some(token) = shell.main_page.lock().unwrap().issue_takeover_token(candidate.as_deref(), random) else { return };
+        let Some(token) = shell
+            .main_page
+            .lock()
+            .unwrap()
+            .issue_takeover_token(candidate.as_deref(), random)
+        else {
+            return;
+        };
         Some(token)
     };
     let payload = serde_json::json!({"inspection":inspection,"progress":progress,"token":token});
@@ -917,14 +1013,22 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
     auth.set_fragment(Some(shell.route.lock().unwrap().trim_start_matches('#')));
     let window = app.get_webview_window("main").ok_or("Missing window")?;
     if let Some(version) = shell.old_service_ack.lock().unwrap().as_deref() {
-        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version)) == logic::ServiceRelease::Older {
-            format!("older service {}", logic::display_service_release(Some(version)))
-        } else { "service version unverified".into() };
+        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version))
+            == logic::ServiceRelease::Older
+        {
+            format!(
+                "older service {}",
+                logic::display_service_release(Some(version))
+            )
+        } else {
+            "service version unverified".into()
+        };
         let _ = window.set_title(&format!("pacer — {label}"));
     } else {
         let _ = window.set_title("pacer");
     }
-    window.navigate(auth)
+    window
+        .navigate(auth)
         .map_err(|_| "Unable to load the desktop sign-in page".into())
 }
 fn set_error_dot(app: &AppHandle, error: bool) {
@@ -966,10 +1070,23 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     let online = app.state::<Shell>().session.lock().unwrap().is_some();
     let old_service = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
     if let Some(version) = &old_service {
-        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version)) == logic::ServiceRelease::Older {
-            format!("Service {} needs an update", logic::display_service_release(Some(version)))
-        } else { "Service version unverified".into() };
-        menu.append(&MenuItem::with_id(app, "old-service", &label, false, None::<&str>)?)?;
+        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version))
+            == logic::ServiceRelease::Older
+        {
+            format!(
+                "Service {} needs an update",
+                logic::display_service_release(Some(version))
+            )
+        } else {
+            "Service version unverified".into()
+        };
+        menu.append(&MenuItem::with_id(
+            app,
+            "old-service",
+            &label,
+            false,
+            None::<&str>,
+        )?)?;
     }
     app.state::<Shell>()
         .actions
@@ -997,12 +1114,26 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     )?)?;
     tray.set_title(Some(&model.title))?;
     let tooltip = old_service
-        .map(|version| if logic::service_release(env!("CARGO_PKG_VERSION"), Some(&version)) == logic::ServiceRelease::Older {
-            format!("pacer — service {} needs an update", logic::display_service_release(Some(&version)))
-        } else { "pacer — service version unverified".into() })
+        .map(|version| {
+            if logic::service_release(env!("CARGO_PKG_VERSION"), Some(&version))
+                == logic::ServiceRelease::Older
+            {
+                format!(
+                    "pacer — service {} needs an update",
+                    logic::display_service_release(Some(&version))
+                )
+            } else {
+                "pacer — service version unverified".into()
+            }
+        })
         .unwrap_or(model.tooltip);
     tray.set_tooltip(Some(&tooltip))?;
-    if app.state::<Shell>().tray_alert.swap(model.alert, Ordering::SeqCst) != model.alert {
+    if app
+        .state::<Shell>()
+        .tray_alert
+        .swap(model.alert, Ordering::SeqCst)
+        != model.alert
+    {
         set_error_dot(app, model.alert);
     }
     tray.set_menu(Some(menu))
@@ -1212,7 +1343,7 @@ fn main() {
         }
         Some("--pacer-identity") => {
             let mut identity = pacer_desktop::ota::trust::build_identity();
-            identity.as_object_mut().unwrap().extend(serde_json::json!({ "schema": 1, "role": "desktop", "bundleId": "dev.pacer.desktop", "version": env!("CARGO_PKG_VERSION"), "arch": std::env::consts::ARCH }).as_object().unwrap().clone());
+            identity.as_object_mut().unwrap().extend(serde_json::json!({ "schema": 1, "role": "desktop", "bundleId": pacer_desktop::ota::trust::APP_ID, "version": env!("CARGO_PKG_VERSION"), "arch": std::env::consts::ARCH }).as_object().unwrap().clone());
             #[cfg(feature = "ota-fixture")]
             {
                 identity["fixtureIsolationProtocol"] = serde_json::json!(1);
@@ -1246,11 +1377,15 @@ fn main() {
         }
     });
     let shell = Shell::default();
-    let maintenance_launch = std::env::args().any(|argument| argument == "--pacer-maintenance-launch");
+    let maintenance_launch =
+        std::env::args().any(|argument| argument == "--pacer-maintenance-launch");
     if let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() {
         match pacer_desktop::ota::control::read_launch_ticket(&trust) {
             Ok(ticket) => {
-                desktop_log!("pacer lifecycle: native maintenance launch={}", ticket.is_some());
+                desktop_log!(
+                    "pacer lifecycle: native maintenance launch={}",
+                    ticket.is_some()
+                );
                 if maintenance_launch && ticket.is_none() {
                     desktop_log!("Native maintenance launch ticket is missing");
                     std::process::exit(2);
@@ -1356,13 +1491,28 @@ fn main() {
                                 .lock()
                                 .unwrap()
                                 .invalidate();
-                            window.app_handle().state::<Shell>().main_page.lock().unwrap().started();
+                            window
+                                .app_handle()
+                                .state::<Shell>()
+                                .main_page
+                                .lock()
+                                .unwrap()
+                                .started();
                             return;
                         }
-                        window.app_handle().state::<Shell>().main_page.lock().unwrap().finished(payload.url().clone());
+                        window
+                            .app_handle()
+                            .state::<Shell>()
+                            .main_page
+                            .lock()
+                            .unwrap()
+                            .finished(payload.url().clone());
                         check_main_document(&window, payload.url());
                         if shell_url(payload.url()) {
-                            desktop_log!("pacer lifecycle: shell page loaded: {}", payload.url().query().unwrap_or(""));
+                            desktop_log!(
+                                "pacer lifecycle: shell page loaded: {}",
+                                payload.url().query().unwrap_or("")
+                            );
                             render_diagnosis(window.app_handle());
                             render_takeover(window.app_handle());
                         }
@@ -1373,7 +1523,9 @@ fn main() {
                         let origin = app.state::<Shell>().origin.lock().unwrap().clone();
                         if let Some(origin) = origin {
                             if logic::local_origin(payload.url()).as_deref() == Some(&origin) {
-                                if let Some(version) = app.state::<Shell>().old_service_ack.lock().unwrap().clone() {
+                                if let Some(version) =
+                                    app.state::<Shell>().old_service_ack.lock().unwrap().clone()
+                                {
                                     show_service_version_notice(&window, &version);
                                 }
                                 let handle = app.clone();
@@ -1390,14 +1542,24 @@ fn main() {
                         }
                     })
                     .on_navigation(move |url| {
-                        let current = nav.state::<Shell>().main_page.lock().unwrap().current().cloned();
+                        let current = nav
+                            .state::<Shell>()
+                            .main_page
+                            .lock()
+                            .unwrap()
+                            .current()
+                            .cloned();
                         if shell_action(&nav, url, current.as_ref(), true) {
                             return false;
                         }
                         let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
                         match logic::main_navigation(url, current.as_ref(), origin.as_deref()) {
                             logic::Navigation::Allow => {
-                                nav.state::<Shell>().main_page.lock().unwrap().navigating(url);
+                                nav.state::<Shell>()
+                                    .main_page
+                                    .lock()
+                                    .unwrap()
+                                    .navigating(url);
                                 true
                             }
                             logic::Navigation::OpenExternal => {
@@ -1566,7 +1728,10 @@ mod manifest_tests {
         for tail in main_source.split(".permission(\"allow-").skip(1) {
             let permission = tail.split('"').next().expect("permission name");
             let command = permission.replace('-', "_");
-            assert!(commands.contains(&format!("\"{command}\"")), "missing AppManifest command {command} for allow-{permission}");
+            assert!(
+                commands.contains(&format!("\"{command}\"")),
+                "missing AppManifest command {command} for allow-{permission}"
+            );
         }
     }
 }

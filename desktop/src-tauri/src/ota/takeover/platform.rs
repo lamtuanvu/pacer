@@ -329,6 +329,16 @@ fn not_ready<T>(result: Result<T, OtaError>) -> Result<Option<T>, OtaError> {
     }
 }
 
+/// A paired root can be registered before its core accepts native handshakes.
+/// Keep polling within the takeover deadline; an identity failure is final.
+fn not_ready_handshake<T>(result: Result<T, OtaError>) -> Result<Option<T>, OtaError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(OtaError::Unavailable | OtaError::Io) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// `/v3/hello` requires a session, so both the managed and the restored
 /// service are probed through the home's token exchange. Only the managed
 /// service must also serve a snapshot.
@@ -551,8 +561,10 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                         executable: &service.executable,
                     };
                     // The helper is the peer, so it authenticates in the helper role.
+                    let remaining = deadline.millis.saturating_sub(now.millis);
+                    let until = std::time::Instant::now() + std::time::Duration::from_millis(remaining);
                     let Some(connection) =
-                        not_ready(control::authenticate_helper(&endpoint, &self.trust))?
+                        not_ready_handshake(control::authenticate_helper_until(&endpoint, &self.trust, Some(until)))?
                     else {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         continue;
@@ -883,6 +895,13 @@ mod restore_tests {
         ] {
             assert_eq!(not_ready::<()>(Err(error.clone())), Err(error));
         }
+    }
+
+    #[test]
+    fn managed_handshake_io_is_retried_without_ignoring_identity_failures() {
+        assert_eq!(not_ready_handshake::<()>(Err(OtaError::Io)), Ok(None));
+        assert_eq!(not_ready_handshake::<()>(Err(OtaError::Unavailable)), Ok(None));
+        assert_eq!(not_ready_handshake::<()>(Err(OtaError::Identity)), Err(OtaError::Identity));
     }
 
     #[test]

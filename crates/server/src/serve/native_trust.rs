@@ -2,6 +2,41 @@
 use std::io;
 use std::path::PathBuf;
 
+/// Code-signing identifiers for one build flavour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeIdentifiers {
+    pub app: &'static str,
+    pub cli: &'static str,
+    pub helper: &'static str,
+}
+pub const RELEASE_IDENTIFIERS: NativeIdentifiers = NativeIdentifiers {
+    app: "dev.pacer.desktop",
+    cli: "dev.pacer.cli",
+    helper: "dev.pacer.desktop.update-helper",
+};
+pub const FIXTURE_IDENTIFIERS: NativeIdentifiers = NativeIdentifiers {
+    app: "dev.pacer.desktop.fixture",
+    cli: "dev.pacer.desktop.fixture.cli",
+    helper: "dev.pacer.desktop.fixture.update-helper",
+};
+pub const fn native_identifiers(fixture: bool) -> NativeIdentifiers {
+    if fixture {
+        FIXTURE_IDENTIFIERS
+    } else {
+        RELEASE_IDENTIFIERS
+    }
+}
+/// Only the live harness's fixture build compiles with the flag "1"; release builds clear it.
+const fn compiled_fixture(flag: Option<&str>) -> bool {
+    match flag {
+        Some(value) => matches!(value.as_bytes(), [b'1']),
+        None => false,
+    }
+}
+/// Compile-time selection, like the signer pins. Runtime environment cannot change it.
+pub const IDENTIFIERS: NativeIdentifiers =
+    native_identifiers(compiled_fixture(option_env!("PACER_BUILD_DESKTOP_FIXTURE")));
+
 #[derive(Clone, Copy)]
 pub enum NativeRole {
     Cli,
@@ -16,12 +51,12 @@ pub struct NativeTrust {
 }
 impl NativeTrust {
     pub fn from_pins(team: Option<&str>, certificate: Option<&str>) -> io::Result<Option<Self>> {
-        let Some(cli) = signer_requirement(team, certificate, "dev.pacer.cli")? else {
+        let Some(cli) = signer_requirement(team, certificate, IDENTIFIERS.cli)? else {
             return Ok(None);
         };
-        let desktop = signer_requirement(team, certificate, "dev.pacer.desktop")?
+        let desktop = signer_requirement(team, certificate, IDENTIFIERS.app)?
             .ok_or_else(|| io::Error::other("native signing policy unavailable"))?;
-        let helper = signer_requirement(team, certificate, "dev.pacer.desktop.update-helper")?
+        let helper = signer_requirement(team, certificate, IDENTIFIERS.helper)?
             .ok_or_else(|| io::Error::other("native helper signing policy unavailable"))?;
         Ok(Some(Self {
             cli,

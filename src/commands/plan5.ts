@@ -1,3 +1,5 @@
+import { isExecutorSession } from "../install/role";
+import { UPGRADE_CLI_REFUSAL } from "../service/upgrade";
 import { checkUpdateReport } from "../update/check";
 import { defaultUpdateDeps, parseUpdateArgs, runUpdate } from "../update/update";
 import { currentVersion } from "../update/version";
@@ -12,11 +14,13 @@ export const COMMANDS: Command[] = [
   { name: "--version", usage: usage("--version", "same as version"), run: printVersion },
   {
     name: "update",
-    usage: usage("update [--check [--json]] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary and refresh installed integrations"),
+    usage: usage("update [--check [--json]] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary, refresh integrations, restart the service; running work keeps going"),
     run: async (args, ctx) => {
       const o = parseUpdateArgs(args);
       if (typeof o === "string") return { code: 2, out: "", err: o };
       if (o.check && !o.to) return checkUpdateReport(ctx, o.json, { base: o.base });
+      // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
+      if (!o.check && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer update: ${UPGRADE_CLI_REFUSAL}` };
       return runUpdate(o, defaultUpdateDeps(ctx));
     },
   },

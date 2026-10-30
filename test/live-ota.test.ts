@@ -400,6 +400,7 @@ test("paired initial layout fixes current to candidate and external to immutable
     for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
     writeFileSync(join(source.path, "Contents/Info.plist"), "fixture " + index);
     writeFileSync(join(source.path, "Contents/Resources/pacer"), "cli " + index);
+    writeFileSync(join(source.path, "Contents/Resources/pacer-update-helper"), "helper " + index);
     writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "shim " + index);
     writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
   }
@@ -407,6 +408,7 @@ test("paired initial layout fixes current to candidate and external to immutable
   const ready = readOtaRecord(f.session.id, f.options);
   expect(appDigest(ready.currentApp)).toBe(ready.sources[1].sha256!);
   expect(appDigest(ready.candidateApp)).toBe(ready.sources[1].sha256!);
+  expect(readFileSync(join(ready.currentApp, "Contents/Resources/pacer-update-helper"), "utf8")).toBe("helper 1");
   expect(readFileSync(join(ready.root, "external/pacer"), "utf8")).toBe("cli 0");
   expect(readFileSync(join(ready.root, "external/libpacer-native.dylib"), "utf8")).toBe("shim 0");
   expect(otaFixturePolicy(ready)).not.toHaveProperty("initialLayout");

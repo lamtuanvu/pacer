@@ -11,10 +11,40 @@ thread_local! {
     static TRUST_TEST_SPAWN_STARTED: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
-pub const APP_ID: &str = "dev.pacer.desktop";
-pub const CLI_ID: &str = "dev.pacer.cli";
-pub const NATIVE_SHIM_ID: &str = "dev.pacer.desktop.native-shim";
-pub const HELPER_ID: &str = "dev.pacer.desktop.update-helper";
+/// Bundle and code-signing identifiers for one build flavour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Identifiers {
+    pub app: &'static str,
+    pub cli: &'static str,
+    pub native_shim: &'static str,
+    pub helper: &'static str,
+}
+pub const RELEASE_IDENTIFIERS: Identifiers = Identifiers {
+    app: "dev.pacer.desktop",
+    cli: "dev.pacer.cli",
+    native_shim: "dev.pacer.desktop.native-shim",
+    helper: "dev.pacer.desktop.update-helper",
+};
+/// Fixture builds run beside the user's app and never satisfy a release check.
+pub const FIXTURE_IDENTIFIERS: Identifiers = Identifiers {
+    app: "dev.pacer.desktop.fixture",
+    cli: "dev.pacer.desktop.fixture.cli",
+    native_shim: "dev.pacer.desktop.fixture.native-shim",
+    helper: "dev.pacer.desktop.fixture.update-helper",
+};
+pub const fn identifiers(fixture: bool) -> Identifiers {
+    if fixture {
+        FIXTURE_IDENTIFIERS
+    } else {
+        RELEASE_IDENTIFIERS
+    }
+}
+/// Selected only by the compiled `ota-fixture` feature, never by runtime input.
+pub const IDENTIFIERS: Identifiers = identifiers(cfg!(feature = "ota-fixture"));
+pub const APP_ID: &str = IDENTIFIERS.app;
+pub const CLI_ID: &str = IDENTIFIERS.cli;
+pub const NATIVE_SHIM_ID: &str = IDENTIFIERS.native_shim;
+pub const HELPER_ID: &str = IDENTIFIERS.helper;
 pub const STABLE_FEED: &str =
     "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
 /// Public build diagnostics, also checked before a staged bundle is production-signed.
@@ -910,5 +940,65 @@ mod tests {
         assert!(verified.is_ok());
         std::fs::write(root.join("record.json"), b"{}").unwrap();
         assert!(trust.verify_static(&binary, CodeRole::Helper).is_err());
+    }
+    #[test]
+    fn identifiers_follow_the_compiled_build_flavour() {
+        assert_eq!(identifiers(false), RELEASE_IDENTIFIERS);
+        assert_eq!(identifiers(true), FIXTURE_IDENTIFIERS);
+        assert_eq!(IDENTIFIERS, identifiers(cfg!(feature = "ota-fixture")));
+        assert_eq!(
+            [APP_ID, CLI_ID, NATIVE_SHIM_ID, HELPER_ID],
+            [
+                IDENTIFIERS.app,
+                IDENTIFIERS.cli,
+                IDENTIFIERS.native_shim,
+                IDENTIFIERS.helper
+            ]
+        );
+        assert_eq!(FIXTURE_IDENTIFIERS.app, "dev.pacer.desktop.fixture");
+        assert_eq!(FIXTURE_IDENTIFIERS.cli, "dev.pacer.desktop.fixture.cli");
+        assert_eq!(
+            FIXTURE_IDENTIFIERS.native_shim,
+            "dev.pacer.desktop.fixture.native-shim"
+        );
+        assert_eq!(
+            FIXTURE_IDENTIFIERS.helper,
+            "dev.pacer.desktop.fixture.update-helper"
+        );
+        let all = [
+            RELEASE_IDENTIFIERS.app,
+            RELEASE_IDENTIFIERS.cli,
+            RELEASE_IDENTIFIERS.native_shim,
+            RELEASE_IDENTIFIERS.helper,
+            FIXTURE_IDENTIFIERS.app,
+            FIXTURE_IDENTIFIERS.cli,
+            FIXTURE_IDENTIFIERS.native_shim,
+            FIXTURE_IDENTIFIERS.helper,
+        ];
+        let unique: std::collections::BTreeSet<&str> = all.iter().copied().collect();
+        assert_eq!(unique.len(), all.len());
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    #[test]
+    fn release_build_requires_only_release_identifiers() {
+        assert_eq!(IDENTIFIERS, RELEASE_IDENTIFIERS);
+        assert_eq!(APP_ID, "dev.pacer.desktop");
+        assert_eq!(CLI_ID, "dev.pacer.cli");
+        assert_eq!(NATIVE_SHIM_ID, "dev.pacer.desktop.native-shim");
+        assert_eq!(HELPER_ID, "dev.pacer.desktop.update-helper");
+        let trust = ReleaseTrust::from_production(&public_key(), Some("ABCDE12345"), None).unwrap();
+        for role in [CodeRole::Desktop, CodeRole::Cli, CodeRole::Helper] {
+            let requirement = trust.requirement(role);
+            for fixture in [
+                FIXTURE_IDENTIFIERS.app,
+                FIXTURE_IDENTIFIERS.cli,
+                FIXTURE_IDENTIFIERS.helper,
+            ] {
+                assert!(
+                    !requirement.contains(&format!("identifier \"{fixture}\"")),
+                    "{requirement}"
+                );
+            }
+        }
     }
 }
