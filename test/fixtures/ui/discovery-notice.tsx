@@ -1,8 +1,7 @@
 import { render } from "preact";
 import { DiscoveryNotice } from "../../../app/src/shell/DiscoveryNotice";
 import { NoticeStack } from "../../../app/src/ds/NoticeCard";
-import { Rail } from "../../../app/src/shell/Rail";
-import { resolveRoute, type Route } from "../../../app/src/router";
+import { NoticeFrame } from "./notice-frame";
 import { TaskContext } from "../../../app/src/screens/task-shared";
 import { ActionContext } from "../../../app/src/data/action-context";
 import { createActionRunner } from "../../../app/src/data/actions";
@@ -24,10 +23,6 @@ const state = { ...initialState(), connected: true, features: { readModel: true,
   snapshot: { ...emptySnapshot(), attention: ids.map(id => ({ id: `discovery:${id}`, kind: "discovery" })) } as never };
 const api = { call: async (op: string) => op === "discovery.list" ? list : {} } as never;
 render(<TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={runner}>
-  {/* The shell frame: the status bar in the wide layout, the real bottom navigation in the narrow one. */}
-  <div className={`pc-app${narrow ? " pc-app--narrow" : " pc-app--with-status"}`}>
-    <main id="main-content" tabIndex={-1}><button id="work">Continue working</button></main>
-    {narrow ? <Rail route={resolveRoute("#/") as Route} counts={null} narrow /> : <footer className="pc-statusbar" aria-label="Status bar" />}
-  </div>
+  <NoticeFrame narrow={narrow} />
   <NoticeStack narrow={narrow}><DiscoveryNotice /></NoticeStack>
 </ActionContext.Provider></TaskContext.Provider>, document.getElementById("app")!);

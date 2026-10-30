@@ -3,6 +3,7 @@ import { renderToString } from "preact-render-to-string";
 import { updateNotice, updateNoticeKey } from "../src/view-model/updates";
 import { UpdateNoticeCard } from "../app/src/ds/UpdateNoticeCard";
 import { desktopStatus } from "./fixtures/desktop-update/status";
+import { overlaps } from "./fixtures/ui/geometry";
 
 test("notice offers only a ready, authorized version and respects per-installation dismissal", () => {
   const ready = desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart"] });
@@ -94,15 +95,15 @@ test.skipIf(!browserPath)("a discovery notice and the update notice stack in the
   const build = await Bun.build({ entrypoints: ["test/fixtures/ui/notice-stack.tsx"], target: "browser", format: "iife" });
   expect(build.success).toBe(true);
   const script = await build.outputs[0]!.text();
-  const css = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n");
+  const css = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css", "app/src/shell/assistant/assistant.css"].map(path => Bun.file(path).text()))).join("\n");
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
-    for (const [width, height] of [[1440, 900], [375, 700]] as const) {
+    for (const [[width, height], launcher] of [[1440, 900], [1024, 700], [375, 700]].flatMap(size => ["closed", "open"].map(state => [size, state] as const))) {
       const page = await browser.newPage({ viewport: { width, height } });
       page.setDefaultTimeout(5000);
       page.on("pageerror", error => console.error(error.message));
-      await page.route("http://localhost/notice-stack", route => route.fulfill({ contentType: "text/html", body: `<style>${css}</style><div id="app"></div><script>${script}</script>` }));
-      await page.goto("http://localhost/notice-stack");
+      await page.route("http://localhost/notice-stack?*", route => route.fulfill({ contentType: "text/html", body: `<style>${css}</style><div id="app"></div><script>${script}</script>` }));
+      await page.goto(`http://localhost/notice-stack?launcher=${launcher}`);
       const found = page.getByRole("complementary", { name: "Machine found" }), update = page.getByRole("complementary", { name: "Desktop update" });
       await found.waitFor(); await update.waitFor();
       const [a, b] = [(await found.boundingBox())!, (await update.boundingBox())!];
@@ -113,6 +114,10 @@ test.skipIf(!browserPath)("a discovery notice and the update notice stack in the
         expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(floor);
       }
+      // Neither notice covers the Ask pacer launcher, closed or in its open-sheet position (narrow hides it while open).
+      const button = page.locator(".pc-aurora-launcher");
+      expect(await button.count()).toBe(width < 560 && launcher === "open" ? 0 : 1);
+      if (await button.count()) for (const box of [a, b]) expect(overlaps((await button.boundingBox())!, box), `${width} ${launcher}`).toBe(false);
       // Each notice keeps its one primary action (UI-14).
       for (const notice of [found, update]) expect(await notice.locator(".pc-btn--primary").count()).toBe(1);
       // Tab through the page: every notice control is reached, and every stop is on screen and not covered.

@@ -10,6 +10,7 @@ import { reduceStore } from "../app/src/data/store";
 import { uiHref } from "../app/src/data/actions";
 import { actionRoute } from "../app/src/tray/model";
 import { settingsNote } from "../app/src/screens/settings/General";
+import { overlaps } from "./fixtures/ui/geometry";
 
 const id = "a".repeat(26);
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(m => m[1]);
@@ -258,15 +259,15 @@ test.skipIf(!browserPath)("keyboard rename saves once and keeps focus on Rename 
   } finally { await browser.close(); }
 });
 
-async function mountNotice(width: number, height: number) {
+async function mountNotice(width: number, height: number, launcher = "closed") {
   const result = await Bun.build({ entrypoints: ["test/fixtures/ui/discovery-notice.tsx"], target: "browser", format: "iife" });
   if (!result.success) throw Error(result.logs.join("\n"));
-  const css = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n");
+  const css = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css", "app/src/shell/assistant/assistant.css"].map(path => Bun.file(path).text()))).join("\n");
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   const page = await browser.newPage({ viewport: { width, height } });
   page.setDefaultTimeout(5000);
-  await page.route("http://localhost/discovery-notice", route => route.fulfill({ contentType: "text/html", body: `<style>${css}</style><div id="app"></div>` }));
-  await page.goto("http://localhost/discovery-notice");
+  await page.route("http://localhost/discovery-notice?*", route => route.fulfill({ contentType: "text/html", body: `<style>${css}</style><div id="app"></div>` }));
+  await page.goto(`http://localhost/discovery-notice?launcher=${launcher}`);
   await page.addScriptTag({ content: await result.outputs[0]!.text() });
   return { browser, page };
 }
@@ -298,10 +299,14 @@ test.skipIf(!browserPath)("the found-machine notice actions work by keyboard and
   } finally { await browser.close(); }
 }, 30_000);
 
-test.skipIf(!browserPath)("the shared notice sits above the status bar and the narrow bottom navigation (Q3)", async () => {
-  for (const [width, height] of [[1440, 900], [1024, 700], [375, 700]] as const) {
-    const { browser, page } = await mountNotice(width, height);
+test.skipIf(!browserPath)("the shared notice sits above the status bar, the narrow bottom navigation and the Ask pacer launcher (Q3)", async () => {
+  for (const [[width, height], launcher] of [[1440, 900], [1024, 700], [375, 700]].flatMap(size => ["closed", "open"].map(state => [size, state] as const))) {
+    const { browser, page } = await mountNotice(width, height, launcher);
     try {
+      // The launcher stays visible and uncovered, closed or in its open-sheet position (narrow hides it while open).
+      const button = page.locator(".pc-aurora-launcher");
+      expect(await button.count()).toBe(width < 560 && launcher === "open" ? 0 : 1);
+      if (await button.count()) expect(overlaps((await button.boundingBox())!, (await page.getByRole("complementary", { name: "Machine found" }).boundingBox())!), `${width} ${launcher}`).toBe(false);
       const notice = await page.getByRole("complementary", { name: "Machine found" }).boundingBox();
       expect(notice!.x).toBeGreaterThanOrEqual(0);
       expect(notice!.x + notice!.width).toBeLessThanOrEqual(width);
