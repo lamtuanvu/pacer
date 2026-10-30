@@ -156,6 +156,8 @@ export function attentionStatus(item: { kind: string; taskId?: string }, tasks: 
 export const offlineWords = "pacer not running · pacer serve";
 /** The name shown for the machine pacer runs on, wherever a host is named. */
 export const localHostWords = "This Mac";
+/** Task boards distinguish local execution from a named remote host. */
+export const localTaskHostWords = "Local Mac";
 /** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>

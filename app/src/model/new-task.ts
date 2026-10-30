@@ -33,8 +33,8 @@ export const WORKSPACES: { id: Workspace; title: string; sub: string; tag?: { la
   { id: "worktree", title: "New worktree", sub: "Isolated copy · your checkout stays untouched", tag: { label: "Recommended", tone: "good" } },
   { id: "current", title: "Current checkout", sub: "Writes to your checkout directly" },
 ];
-/** The board's chips, limited to kinds the service accepts ("review" is not a task kind, so research takes its place). */
-export const KIND_CHIPS = ["feature", "debug", "tests", "docs", "refactor", "research"] as const;
+/** Board order, limited to kinds the service accepts. Review needs a backend kind first. */
+export const KIND_CHIPS = ["feature", "debug", "tests", "docs", "refactor"] as const;
 export const kindLabel = (kind: string) => kind === "unfamiliar-code" ? "Unfamiliar code" : kind.charAt(0).toUpperCase() + kind.slice(1);
 
 function parseList<T>(raw: string, valid: (value: unknown) => value is T): T[] {
@@ -102,6 +102,7 @@ export function newTaskPayload(draft: NewTaskDraft, ctx: SubmitContext) {
     ...(kind ? { kind: kind.value } : {}),
     ...(draft.executor ? { executor: draft.executor } : {}),
     worktree: draft.workspace === "current" ? "current" as const : "new" as const,
+    dispatch: { allowDelegation: true, maxConcurrent: 3 },
     source: "ui" as const,
     request_id: ctx.requestId,
   };
@@ -142,6 +143,10 @@ export interface RouteCardView {
 const agentOf = (executor: string) => executor.split("@")[0]!.split("#")[0]!;
 const named = (executor: string, accounts: Account[]): RouteAgent => ({ executor, agent: agentOf(executor), name: executorLabel(executor, accounts) || agentInfo(agentOf(executor)).name });
 const fact = (facts: RouteReason["facts"], key: string) => facts[key] === null || facts[key] === undefined ? "" : String(facts[key]);
+const percentFact = (facts: RouteReason["facts"], key: string) => {
+  const value = facts[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value)) : "";
+};
 const day = (unix: string) => {
   const at = Number(unix);
   if (!Number.isFinite(at) || at <= 0) return "";
@@ -152,7 +157,7 @@ export function reasonText(reason: RouteReason, accounts: Account[] = []): strin
   const f = reason.facts, who = reason.subject ? executorLabel(reason.subject, accounts) : "";
   switch (reason.code) {
     case "quota_exhausted": { const at = day(fact(f, "resetsAt")); return `${who || "This agent"} is out of budget${at ? ` · resets ${at}` : ""}`; }
-    case "capacity_comfortable": return `${who || "This agent"} has spare capacity${fact(f, "headroomPct") ? ` · ${fact(f, "headroomPct")}% headroom` : ""}${fact(f, "pacePct") ? `, pace ${fact(f, "pacePct")}%` : ""}`;
+    case "capacity_comfortable": return `${who || "This agent"} has spare capacity${percentFact(f, "headroomPct") ? ` · ${percentFact(f, "headroomPct")}% headroom` : ""}${percentFact(f, "pacePct") ? `, pace ${percentFact(f, "pacePct")}%` : ""}`;
     case "step_match": return `${fact(f, "kind") ? `${kindLabel(fact(f, "kind"))} work` : "This work"} matches ladder step ${fact(f, "stepId") || "1"}`;
     case "repo_access": return `Has access to this repository${fact(f, "host") ? ` on ${fact(f, "host")}` : ""}`;
     case "host_unreachable": return `${fact(f, "host") || "The remote host"} can't be reached right now`;

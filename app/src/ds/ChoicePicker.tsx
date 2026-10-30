@@ -2,6 +2,7 @@ import { forwardRef } from 'preact/compat';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Button } from './Button';
 import { AgentMark } from './AgentMark';
+import { Icon } from './icons';
 import { agentKey, markAgent } from '../../../src/view-model/agents';
 import { classNames as classes } from './classNames';
 import { useDensity } from './Density';
@@ -18,6 +19,7 @@ export interface ChoiceOption {
 
 export interface ChoicePickerProps {
   sizing?: "content";
+  variant?: "repository";
   value: string;
   options: readonly ChoiceOption[];
   onValueChange(value: string): void;
@@ -43,7 +45,7 @@ function ChoiceLabel({ agent, label, className }: { agent?: string; label: strin
 /** Controlled single-choice field; the trigger is the labeled and focusable control. */
 export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(function ChoicePicker({
   value, options, onValueChange, placeholder = 'Choose…', searchable,
-  required, disabled, name, id, className, sizing, ...aria
+  required, disabled, name, id, className, sizing, variant, ...aria
 }, ref) {
   const generated = useId();
   const density = useDensity();
@@ -161,7 +163,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     if (target.bottom > container.bottom) box.scrollTop += target.bottom - container.bottom;
     else if (target.top < container.top) box.scrollTop -= container.top - target.top;
   }, [open, active, query]);
-  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, sizing === "content" && "pc-choice-picker--content", className)}>
+  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, variant && `pc-choice-picker--${variant}`, sizing === "content" && "pc-choice-picker--content", className)}>
     <Button ref={(node: HTMLButtonElement | null) => {
       trigger.current = node;
       if (typeof ref === 'function') ref(node);
@@ -169,7 +171,8 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     }} id={id} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined}
       aria-required={required || undefined} {...aria} onClick={() => open ? close() : begin()}
       onKeyDown={onKeyDown as never} className="pc-choice-picker__trigger">
-      <ChoiceLabel agent={selected?.agent} label={selected?.label ?? placeholder} className="pc-choice-picker__value" />
+      {variant === "repository" ? <span className="pc-choice-picker__identity"><Icon name="repo" /><strong className="pc-choice-picker__value">{selected?.label ?? placeholder}</strong>{selected?.description && <span className="pc-choice-picker__branch" title={selected.description}>{selected.description}</span>}</span>
+        : <ChoiceLabel agent={selected?.agent} label={selected?.label ?? placeholder} className="pc-choice-picker__value" />}
       <span className="pc-choice-picker__chevron" aria-hidden="true" />
     </Button>
     {open && <span data-room={roomToken} className={classes('pc-choice-picker__popover', placement === 'above' && 'pc-choice-picker__popover--above')}

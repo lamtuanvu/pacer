@@ -1179,3 +1179,18 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 
 /* The Dispatch ledger retains its board rhythm in either control density. */
 .pc-list-row--dispatch{padding:calc(var(--space-2\.5) - var(--size-1)) var(--space-5)}
+
+/* Repository identity is a scoped picker variant; other pickers retain their density. */
+.pc-choice-picker--repository .pc-choice-picker__trigger,.pc-choice-picker--repository .pc-choice-picker__identity{gap:var(--space-2\.5)}
+.pc-choice-picker--repository .pc-choice-picker__identity{flex:1}
+.pc-choice-picker--repository .pc-choice-picker__value{font-weight:var(--type-body-strong-weight)}
+.pc-choice-picker__branch{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);color:var(--ink-muted)}
+.pc-choice-picker--repository svg{flex:none;width:var(--size-16);height:var(--size-16)}
+.pc-search-input{display:flex;align-items:center;gap:var(--space-2);height:var(--size-36);box-sizing:border-box;padding:0 var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card);color:var(--ink-muted)}
+.pc-search-input>svg{flex:none;width:var(--size-16);height:var(--size-16)}
+.pc-search-input .pc-input.pc-control--normal:not(.pc-textarea),.pc-search-input .pc-input.pc-control--compact:not(.pc-textarea),.pc-search-input .pc-input.pc-control--touch:not(.pc-textarea){flex:1;min-width:0;width:100%;min-height:0;height:100%;padding:0;border:0;border-radius:0;background:transparent}
+.pc-search-input:focus-within{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+
+.pc-search-input:has(.pc-control--touch){height:var(--control-touch)}
+.pc-choice-picker--repository .pc-choice-picker__trigger{font-size:var(--type-body-size)}
+.pc-choice-picker__branch{font-size:var(--type-code-size)}

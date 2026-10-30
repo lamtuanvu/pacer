@@ -127,7 +127,7 @@ Dispatch follows the canvas board. Its header holds the page title with a live l
 (connected agents and the last update), the period switch (Today, 7 days or 30
 days; 7 days by default, shown only when the service has task insights), one
 "All repos · N" button that opens the repository menu, and New task, which opens
-the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+the New task composer (shortcut D). Below it:
 Planner budget and Next task goes to in one split section (the planner's pace, its
 week caption with the 5-hour window when its account reports one, the next agent,
 the chain after it ending in the queue, and the active strategy); the period at a
@@ -267,3 +267,16 @@ uses the first sentence or line of the goal, strips Markdown formatting, and
 shortens it to about 80 characters at a word boundary. Unfinished trailing bracket
 groups are omitted. The full execution goal remains in the brief. Selecting a task
 keeps the Sessions navigator, its loaded history and scroll position in place.
+
+The Tasks list keeps its selected-task card inside the content area, after the
+Activity bar, rather than opening Scope and Inspector beside it. The card shows
+linked work, notes and recent activity. At tablet widths it reflows below the
+list, preserving readable task titles. Local task hosts are labelled Local Mac.
+
+New task repository choices show a repository icon, label and current base branch.
+The composer accepts new attachments up to 10 MB per file. Tasks submitted by the
+composer let the planner split work, with at most three concurrent descendants
+and no deadline. Branch names remain assigned by the service at launch; the UI
+shows that limitation. Acceptance checks are user supplied until the service
+exposes repository defaults; Review is not offered as a task kind because the
+service does not accept it.
