@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { processIdentitySync } from "./control/lease";
 import { basename, join, resolve } from "node:path";
-import { atomicWrite, checkout, launch, record, run, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
+import { atomicWrite, checkout, launch, record, run, SANDBOX_PASSTHROUGH, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
 
 export async function tui(session: Session, action: string, keys: string[], out?: string): Promise<string> {
   if (!Bun.which("tmux")) throw Error("tmux is required for the TUI; record this surface as UNVERIFIED if unavailable");
@@ -13,7 +13,7 @@ export async function tui(session: Session, action: string, keys: string[], out?
     case "start": {
       // tmux's server may predate this sandbox: pass the environment explicitly.
       const env = sandboxEnv(session);
-      const assignments = ["HOME", "PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", "PACER_ROLE"].filter(key => env[key] !== undefined)
+      const assignments = ["HOME", "PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...SANDBOX_PASSTHROUGH].filter(key => env[key] !== undefined)
         .map(key => `${key}=${env[key]!}`);
       const command = ["/usr/bin/env", ...assignments, env.PACER_BIN!, "dashboard"].map(shellQuote).join(" ");
       args = ["new-session", "-d", "-x", "120", "-y", "40", "-s", target, "-c", join(session.root, "repo"), command];
