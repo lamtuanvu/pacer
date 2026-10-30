@@ -1020,6 +1020,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "execution.auto_clean",
         "task_retention_days",
         "execution.local_max_tasks",
         "execution.local_memory_pressure_limit",

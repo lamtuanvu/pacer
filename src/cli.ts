@@ -287,7 +287,7 @@ function renderTask(t: TaskRecord): string {
   ];
   if(t.archived)lines.push(`archive: ${t.archivePath}`);
   if(t.executorFallback)lines.push(`executor: ${fallbackText(t.executorFallback)}`);
-  if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
+  if(t.placement?.mode)lines.push(`placement: ${t.placement.requested === "current" && t.placement.mode === "new" ? "current overridden to " : ""}${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
   }
@@ -323,7 +323,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
   } catch (e) {
@@ -496,7 +496,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
-          const r=core.tasks.dismiss(ctx,pos);
+          const r=await core.tasks.dismiss(ctx,pos);
           return {code:r.unknown.length?2:0,out:r.dismissed.map(t=>`${t.id} dismissed`).join("\n"),err:r.unknown.map(id=>`pacer: unknown task ${id}`).join("\n")};
         }
         if(cmd==="retry") {

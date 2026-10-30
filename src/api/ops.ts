@@ -468,17 +468,19 @@ export const OPS: Record<string, OpDef> = {
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
   "attention.snooze": op({ description: "Snooze a raised attention item.", params: z.object({id:z.string().min(1).max(256),for:z.enum(["1h","4h","1d"])}), handler: (ctx,p) => attention.snooze(ctx,p.id,p.for) }),
-  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
+  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: async (ctx, p) => {
     const dismissed: string[] = [], unknown: string[] = [];
+    let pending: ReturnType<typeof core.tasks.dismiss> | undefined;
     // Lock in a stable order and check every revision before dismissing any task.
     const ids = [...new Set<string>(p.ids)].sort();
     const locked = (index: number): void => {
       if (index < ids.length) { withTaskLock(ctx, ids[index]!, () => locked(index + 1)); return; }
       for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(ctx, t, p.expect_rev); }
-      const r = core.tasks.dismiss(ctx, p.ids);
-      dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
+      pending = core.tasks.dismiss(ctx, p.ids);
     };
     locked(0);
+    const r = await pending!;
+    dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
     return { dismissed, unknown };
   } }),
   "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),

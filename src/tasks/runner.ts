@@ -1,3 +1,4 @@
+import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
@@ -156,6 +157,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
+      await autoCleanTask(ctx, id);
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
       }).catch(() => {});

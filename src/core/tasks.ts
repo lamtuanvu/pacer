@@ -1,26 +1,17 @@
 import { beginWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
-import { taskDiff, cleanTaskRuns } from "../tasks/diff";
-import { repoFs, cachedPath, withTimeout } from "./path-probe";
+import { taskDiff } from "../tasks/diff";
 import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
-import { join, normalize } from "node:path";
-import { appendActivity, type ActivityEntry } from "../activity/log";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
+import { join } from "node:path";
 import { executorName } from "../link/notification";
-import { loadStrategy } from "../config/strategy";
-import { repoKey } from "../config/hosts";
-import { SCRIPTS } from "../remote/scripts";
-import { runRemote } from "../remote/ssh";
-import { transferred } from "../remote/transfer";
 import { boundedGitRead } from "./git";
-import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { restoreTaskWorktree } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
-import { cleanSettledSessions } from "../session/retention";
-import { cleanHostWorktree, reconcileHostWork } from "../exec/cleanup";
 import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
@@ -35,11 +26,9 @@ import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 
-export function taskActivity(ctx: Ctx, task: TaskRecord, kind: ActivityEntry["kind"], text: string): void {
-  const executor = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor;
-  appendActivity(ctx, { kind, level: "info", text, repo: (task.repo ?? repoFor(ctx, task.brief.repo)).key, taskId: task.id,
-    ...(executor ? { executor } : {}), ...(task.run?.host ? { host: task.run.host } : {}) });
-}
+export { taskActivity } from "../tasks/activity";
+import { taskActivity } from "../tasks/activity";
+import { autoCleanTask } from "../tasks/cleanup";
 
 export function checkRev(ctx: Ctx, t: TaskRecord, expect?: number): void {
   if (expect !== undefined && expect !== t.rev) {
@@ -207,11 +196,13 @@ export async function review(
     const result = await retry(ctx, id, { executor, ...(verdict === "send_back" ? { feedback: v.note } : {}) }, deps);
     return { task: apiTask(ctx, record(verdict, executor)), retry: apiTask(ctx, readTask(ctx, result.retry.id) ?? result.retry) };
   }
-  return { task: apiTask(ctx, record(verdict, executor)) };
+  const task = record(verdict, executor);
+  await autoCleanTask(ctx, id);
+  return { task: apiTask(ctx, task) };
 }
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
-export function dismiss(ctx: Ctx, ids: string[]): { dismissed: TaskRecord[]; unknown: string[] } {
+export async function dismiss(ctx: Ctx, ids: string[]): Promise<{ dismissed: TaskRecord[]; unknown: string[] }> {
   const dismissed: TaskRecord[] = [], missing: string[] = [];
   for (const id of ids) {
     const t = taskDismiss(ctx, id);
@@ -220,6 +211,7 @@ export function dismiss(ctx: Ctx, ids: string[]): { dismissed: TaskRecord[]; unk
       taskActivity(ctx, t, "verdict", `Dismissed “${taskTitle(t)}”`);
     } else missing.push(id);
   }
+  await Promise.all(dismissed.map(task => autoCleanTask(ctx, task.id)));
   return { dismissed, unknown: missing };
 }
 
@@ -291,47 +283,77 @@ async function retryTask(
     }
   }
   const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
-  try { return await withLock(ctx, `retry-${id}`, async () => withTaskLock(ctx, id, () => {
-    const task = readTask(ctx, id);
-    if (!task) throw unknown(id);
-    checkRev(ctx, task, o.expectRev);
-    const answering = o.answerText !== undefined;
-    if (answering && (task.state !== "needs_input" || !task.question || task.question.answer !== undefined || task.retriedBy)) {
-      throw new CoreError("conflict", "task is not waiting for an answer", undefined, {task: apiTask(ctx, task)});
-    }
-    const executor = answering ? task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor : o.executor;
-    if (answering && !executor) throw new CoreError("invalid_input", "task has no executor to answer on");
-    const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
-    if (prior && ["queued", "running"].includes(prior.state)) {
-      throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
-    }
-    // Pacer forgets a lane worktree it removes; a recorded path that is missing was removed out of band.
-    const reuseWorktree = !answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
-    if (reuseWorktree && !task.run?.host && !existsSync(reuseWorktree)) throw new CoreError("conflict", "Task worktree is unavailable; restore it before retrying");
-    const input: DelegateInput = {
-      ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
-      admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
-      ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
-      ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
-      ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
-      ...(task.force ? { force: true } : {}),
-      ...(executor ? { executor } : {}),
-      ...(task.interactive ? { interactive: true } : {}),
-      ...(task.group ? { group: task.group } : {}),
+  try { return await withLock(ctx, `retry-${id}`, async () => {
+    // Ancestors can own the checkout reused by this task. Serialize against their
+    // cleaners too, until the new task's reference and retriedBy are persisted.
+    const ids = new Set<string>();
+    for (let t = readTask(ctx, id); t && !ids.has(t.id); t = t.retryOf ? readTask(ctx, t.retryOf) : null) ids.add(t.id);
+    const locks = [...ids].sort();
+    const locked = async (index: number): Promise<{retry: TaskRecord; of: TaskRecord}> => {
+      if (index < locks.length) return withLock(ctx, `clean-${locks[index]}`, () => locked(index + 1));
+      const current = readTask(ctx, id);
+      if (current) checkRev(ctx, current, o.expectRev);
+      let restored: string | undefined;
+      let missingBranch = false;
+      const recorded = o.answerText === undefined && current
+        ? [current.result?.worktree, current.worktree, !current.run?.host ? current.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined;
+      if (recorded && current && !current.run?.host && !existsSync(recorded)) {
+        // A cleaned checkout's branch retains committed executor work.
+        const owner = [...ids].map(key => readTask(ctx, key)).find(t => t && recorded.includes(`/${t.id}`)) ?? current;
+        const result = await restoreTaskWorktree(ctx, current.brief.repo, recorded, owner.id);
+        if ("error" in result) throw new CoreError("conflict", result.error);
+        restored = result.path;
+        missingBranch = result.missingBranch;
+      }
+      return withTaskLock(ctx, id, () => {
+        const task = readTask(ctx, id);
+        if (!task) throw unknown(id);
+        checkRev(ctx, task, o.expectRev);
+        const answering = o.answerText !== undefined;
+        if (answering && (task.state !== "needs_input" || !task.question || task.question.answer !== undefined || task.retriedBy)) {
+          throw new CoreError("conflict", "task is not waiting for an answer", undefined, {task: apiTask(ctx, task)});
+        }
+        const executor = answering ? task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor : o.executor;
+        if (answering && !executor) throw new CoreError("invalid_input", "task has no executor to answer on");
+        const prior = task.retriedBy ? readTask(ctx, task.retriedBy) : null;
+        if (prior && ["queued", "running"].includes(prior.state)) {
+          throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
+        }
+        // Restore retained branches above; a missing branch starts a fresh checkout.
+        const reuseWorktree = missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
+        const input: DelegateInput = {
+          ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
+          admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+          ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
+          ...(missingBranch ? {worktree: "new" as const} : {}),
+          ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
+          ...(missingBranch ? {worktree_reason: "previous worktree and branch are gone; creating a new worktree"}
+            : task.placement?.reason !== undefined ? {worktree_reason: task.placement.reason} : {}),
+          ...(task.force ? { force: true } : {}),
+          ...(executor ? { executor } : {}),
+          ...(task.interactive ? { interactive: true } : {}),
+          ...(task.group ? { group: task.group } : {}),
+        };
+        let next: TaskRecord;
+        try {
+          next = (deps.delegate ?? ((c, i) => apiDelegate(c, i)))(ctx, input);
+        } catch (e) {
+          throw toCoreError(e);
+        }
+        if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => {
+          t.retryOf = task.id;
+          if (o.fromPanel) t.fromPanel = true;
+          if (missingBranch) t.placement = {...t.placement, requested: t.placement?.requested ?? "new", why: "previous worktree and branch are gone; creating a new worktree"};
+        });
+        const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
+        const retried = readTask(ctx, next.id) ?? next;
+        taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
+        if (answerFromBase) taskActivity(ctx, retried, "message", `The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0, 12)}`);
+        return { retry: retried, of };
+      });
     };
-    let next: TaskRecord;
-    try {
-      next = (deps.delegate ?? ((c, i) => apiDelegate(c, i)))(ctx, input);
-    } catch (e) {
-      throw toCoreError(e);
-    }
-    if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => { t.retryOf = task.id; if (o.fromPanel) t.fromPanel = true; });
-    const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
-    const retried = readTask(ctx, next.id) ?? next;
-    taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
-    if (answerFromBase) taskActivity(ctx, retried, "message", `The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0, 12)}`);
-    return { retry: retried, of };
-  })); } finally { finishUnlaunchedWorkSync(ctx, lease); }
+    return locked(0);
+  }); } finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
 /** Re-delegate a brief; serializes with answers on the same task. */
@@ -347,175 +369,4 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 
-const NOT_OWN_WORKTREE = "worktree path is not this task's worktree; not deleted";
-const WORKTREE_CHANGED = "worktree changed during cleanup; not deleted";
-
-/** A directory checked by verifiedTaskWorktreeRoot, identified by device and inode. */
-type DirId = { path: string; dev: bigint; ino: bigint };
-
-/** This task's own worktree root, <worktrees>/<repo-tag>/<task-id>, or why the recorded path is not it.
- *  `real` is the same directory under the canonical worktrees root. The repo-tag and task directories may not
- *  be symlinks; folders above the worktrees folder may be (macOS /var → /private/var, a linked home) and are
- *  resolved. The worktrees folder itself may be a symlink (moved to another disk); `symlinkedRoot` reports it
- *  so the direct delete can refuse it. `ids` pins the three checked directories for unchangedDirs before that delete. */
-export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean; symlinkedRoot: boolean; ids: DirId[] } | { invalid: string } {
-  const root = taskWorktreesDir(ctx);
-  if (!wt.startsWith(root + "/")) return { invalid: NOT_OWN_WORKTREE };
-  const parts = wt.slice(root.length + 1).split("/");
-  if (parts.length < 2 || parts.some(p => p === "" || p === "." || p === "..") || parts[1] !== t.id || normalize(wt) !== wt) return { invalid: NOT_OWN_WORKTREE };
-  const [tag, id] = parts as [string, string], path = join(root, tag, id);
-  let rootSt: BigIntStats;
-  try { rootSt = lstatSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, symlinkedRoot: false, ids: [] }; throw e; }
-  const symlinkedRoot = rootSt.isSymbolicLink();
-  if (symlinkedRoot) try { rootSt = statSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, symlinkedRoot, ids: [] }; throw e; }
-  if (!rootSt.isDirectory()) return { invalid: "worktrees folder is not a directory; not deleted" };
-  const canonical = realpathSync(root), tagDir = join(canonical, tag), real = join(tagDir, id);
-  const ids: DirId[] = [{ path: canonical, dev: rootSt.dev, ino: rootSt.ino }];
-  for (const dir of [tagDir, real]) {
-    let st: BigIntStats;
-    try { st = lstatSync(dir, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false, symlinkedRoot, ids: [] }; throw e; }
-    if (st.isSymbolicLink() || !st.isDirectory() || realpathSync(dir) !== dir) return { invalid: NOT_OWN_WORKTREE };
-    ids.push({ path: dir, dev: st.dev, ino: st.ino });
-  }
-  return { path, real, exists: true, symlinkedRoot, ids };
-}
-
-/** True when `path` is still the same real directory as `d`, which verifiedTaskWorktreeRoot checked. */
-function sameDir(path: string, d: DirId): boolean {
-  try { const st = lstatSync(path, { bigint: true }); return !st.isSymbolicLink() && st.isDirectory() && st.dev === d.dev && st.ino === d.ino; }
-  catch { return false; }
-}
-
-/** True when every directory is still the same real directory that verifiedTaskWorktreeRoot checked. */
-function unchangedDirs(ids: DirId[]): boolean {
-  return ids.every(d => sameDir(d.path, d));
-}
-
-/** Name prefix of a task worktree moved aside for deletion, directly inside the worktrees folder. */
-const DELETE_PREFIX = ".pacer-delete-";
-
-/** Renames the verified task directory to a fresh, never-reused name directly in the canonical worktrees root, then
- *  checks the renamed path is still that directory and the root is unchanged. Returns the renamed path, or null after
- *  moving it back when its original path is free (a failed check) or leaving it in place (anything else). */
-function moveAside(ids: DirId[], id: string): string | null {
-  const [root, , task] = ids as [DirId, DirId, DirId];
-  const aside = join(root.path, `${DELETE_PREFIX}${id}-${randomBytes(8).toString("hex")}`);
-  try { renameSync(task.path, aside); } catch { return null; }
-  let real: string | null = null;
-  try { real = realpathSync(aside); } catch { /* checked below */ }
-  if (real === aside && sameDir(aside, task) && sameDir(root.path, root)) return aside;
-  // Never overwrite: move it back only when nothing took the original path.
-  try { lstatSync(task.path); } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") try { renameSync(aside, task.path); } catch { /* left for the leftover report */ }
-  }
-  return null;
-}
-
-/** Folders moved aside by an earlier forced clean that stopped before deleting them, reported and never deleted. */
-function leftoverDeletes(ctx: Ctx): { id: string; reason: string }[] {
-  const root = taskWorktreesDir(ctx);
-  let names: string[];
-  try { names = readdirSync(root); } catch { return []; }
-  return names.filter(n => n.startsWith(DELETE_PREFIX)).sort()
-    .map(n => ({ id: n, reason: `unfinished forced cleanup; not deleted, remove ${join(root, n)} by hand` }));
-}
-
-/** Test seams: run after verification and before the forced delete's identity re-check, and before its rename. */
-export const cleanTestHooks: { beforeRecheck?: (real: string) => void; beforeRename?: (real: string) => void } = {};
-
-/** True when cleanTaskRuns would still remove something for this task. */
-function hasDisposableRuns(ctx: Ctx, t: TaskRecord): boolean {
-  const root = join(ctx.pacerHome, "runs", t.id);
-  if (!existsSync(root)) return false;
-  return readdirSync(root, { withFileTypes: true }).some(e => !e.isDirectory() || !existsSync(join(root, e.name, "diff.json"))
-    || readdirSync(join(root, e.name)).some(name => name !== "diff.json"));
-}
-
-/** Prunes run files after the worktree is gone; a failure keeps the task so the next clean retries it. */
-function pruneRuns(ctx: Ctx, t: TaskRecord): string | null {
-  try { cleanTaskRuns(ctx, t); return null; }
-  catch (e) { return `worktree deleted; run files could not be pruned: ${e instanceof Error ? e.message : String(e)}`; }
-}
-
-/** Removes settled, reviewed/dismissed/resolved task worktrees. Local branches stay. */
-export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
-  const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
-  const shared = (t: TaskRecord, path: string) => listTasksWhere(ctx).some(other => other.id !== t.id
-    && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(path).real
-    && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
-  if (!o.dryRun) await reconcileHostWork(ctx);
-  for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
-    if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved)) continue;
-    // One task's failure is reported as kept; it never stops the rest of the run.
-    try {
-      const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
-      if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
-      if (host) {
-        const failed = o.dryRun ? null : pruneRuns(ctx, t);
-        if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
-        if ("removed" in host) removed.push(t.id);
-        continue;
-      }
-      if (t.run?.mode !== "new") continue;
-      const top = await withTimeout(() => repoFs.realpath(t.brief.repo)).catch(error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return null; throw error; });
-      if (top === null && t.run.host) { kept.push({ id: t.id, reason: "source repository is missing; remote cleanup needs it" }); continue; }
-      const wt = t.run.host ? taskWorktreePath(ctx, top!, t.id) : t.run.workdir;
-      if (!(wt + "/").startsWith(root)) continue;
-      const own = verifiedTaskWorktreeRoot(ctx, t, wt);
-      if ("invalid" in own) { kept.push({ id: t.id, reason: own.invalid }); continue; }
-      if (!t.run.host && !own.exists) {
-        // The worktree is already gone, possibly by an earlier clean whose run-file pruning failed: retry that.
-        if (!hasDisposableRuns(ctx, t)) continue;
-        const failed = o.dryRun ? null : pruneRuns(ctx, t);
-        if (failed) kept.push({ id: t.id, reason: failed }); else removed.push(t.id);
-        continue;
-      }
-      if (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; })) continue;
-      const path = own.path;
-      if (shared(t, wt)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
-      if (top === null) {
-        // Without the repository git cannot check or remove the worktree; --force deletes only this task's verified directory.
-        if (!o.force) { kept.push({ id: t.id, reason: "source repository is missing; use --force to delete the worktree" }); continue; }
-        if (own.symlinkedRoot) { kept.push({ id: t.id, reason: "worktrees folder is a symlink; not deleted" }); continue; }
-        cleanTestHooks.beforeRecheck?.(own.real);
-        if (!unchangedDirs(own.ids)) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
-        if (!o.dryRun) {
-          cleanTestHooks.beforeRename?.(own.real);
-          const aside = moveAside(own.ids, t.id);
-          if (!aside) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
-          // Node has no handle-based recursive delete, so a window remains between moveAside's checks and this
-          // rmSync: a same-user process that replaces the worktrees folder itself, or renames another directory
-          // into the aside name, gets that directory deleted. Accepted for this path only; see .project/decisions.md.
-          rmSync(aside, { recursive: true, force: true });
-          const failed = pruneRuns(ctx, t);
-          if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
-        }
-        removed.push(t.id); continue;
-      }
-      if (existsSync(path) && !o.force && (await worktreeDirty(ctx, path)) !== false) { kept.push({ id: t.id, reason: "uncommitted changes; use --force" }); continue; }
-      if (o.dryRun) { removed.push(t.id); continue; }
-      if (t.run.host) {
-        try {
-          const host = loadStrategy(ctx).hosts[t.run.host];
-          const origin = await ctx.run(["git", "-C", top, "remote", "get-url", "origin"], 10000);
-          const key = repoKey(origin.stdout.trim()), checkout = key && host?.repos[key];
-          if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
-            kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
-          }
-          const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
-          if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
-        } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
-      }
-      if (existsSync(path)) {
-        const r = await removeTaskWorktree(ctx, top, path, { force: o.force });
-        if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
-      }
-      const failed = pruneRuns(ctx, t);
-      if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
-      removed.push(t.id);
-    } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); }
-  }
-  kept.push(...leftoverDeletes(ctx));
-  if (!o.dryRun) cleanSettledSessions(ctx);
-  return { removed, kept };
-}
+export { clean, cleanTask, autoCleanTask, autoCleanSweep, cleanTestHooks, verifiedTaskWorktreeRoot } from "../tasks/cleanup";
