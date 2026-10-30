@@ -133,6 +133,19 @@ test("an allowed network does not claim advertising while discovery is unavailab
   expect(settings()).toMatch(/>Advertising</);
 });
 
+test("only the current allowed network reads as advertising; another allowed network reads as allowed (R1)", () => {
+  const meta = (html: string, label: string) => new RegExp(`<strong>${label}</strong>[\\s\\S]*?class="[^"]*meta[^"]*"[^>]*>([^<]*)<`).exec(html)?.[1];
+  const away = { current: "k3", network: { key: "k3", label: "Network 9606b2", advertise: null, muted: false, name: "pacer-k3x9" },
+    networks: [{ key: "k1", label: "home-wifi", advertise: true, muted: false }, { key: "k3", label: "Network 9606b2", advertise: null, muted: false }] };
+  const html = settings(away);
+  expect(html).toContain("Not advertising on Network 9606b2");
+  expect(meta(html, "home-wifi")).toBe("Allowed");
+  expect(html).not.toMatch(/>Advertising</);
+  expect(meta(settings(), "home-wifi")).toBe("Advertising");
+  expect(meta(settings({ ...away, enabled: false }), "home-wifi")).toBe("Allowed (paused)");
+  expect(meta(settings({ ...away, available: false, network: null }), "home-wifi")).toBe("Allowed (not running)");
+});
+
 test("busy or unchanged Rename and the name field stay focusable instead of natively disabled (Q2)", () => {
   const rename = (html: string) => /<button[^>]*>Rename<\/button>/.exec(html)![0];
   const field = (html: string) => /<input[^>]*maxLength="64"[^>]*>|<input[^>]*maxlength="64"[^>]*>/.exec(html)![0];
@@ -293,8 +306,9 @@ test.skipIf(!browserPath)("the shared notice sits above the status bar and the n
       expect(notice!.x).toBeGreaterThanOrEqual(0);
       expect(notice!.x + notice!.width).toBeLessThanOrEqual(width);
       expect(notice!.y).toBeGreaterThanOrEqual(0);
-      // Wide layouts clear the status bar; narrow ones clear the 56 px bottom navigation (no status bar there).
-      const floor = width < 560 ? height - 56 : (await page.getByRole("contentinfo", { name: "Status bar" }).boundingBox())!.y;
+      // Wide layouts clear the status bar; narrow ones clear the rendered bottom navigation, safe-area padding included (no status bar there).
+      const floor = (await (width < 560 ? page.getByRole("navigation", { name: "pacer" }) : page.getByRole("contentinfo", { name: "Status bar" })).boundingBox())!.y;
+      expect(floor).toBeLessThan(height);
       expect(notice!.y + notice!.height).toBeLessThanOrEqual(floor);
     } finally { await browser.close(); }
   }

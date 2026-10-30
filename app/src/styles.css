@@ -98,9 +98,13 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 }
 /* Compact desktop chrome; narrow screens retain their touch layout. */
 .pc-app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:0}
-:root{--frame-top:var(--size-36);--frame-status:var(--size-28)}
-/* The fixed bottom-right notices render outside .pc-app (hence the frame tokens on :root) and clear the status bar when it shows. */
-html:has(.pc-app--with-status) .pc-update-notice{bottom:calc(var(--frame-status) + var(--space-4));max-height:calc(100dvh - var(--frame-status) - var(--space-4) * 2)}
+/* --frame-nav is the narrow bottom navigation's height: 56 px items over at least 20 px of bottom padding.
+   A larger safe area grows the padding, so offsets use max(var(--frame-nav), 56 px + safe area) — the bar's own box. */
+:root{--frame-top:var(--size-36);--frame-status:var(--size-28);--frame-nav:calc(var(--size-56) + var(--space-5))}
+/* The fixed bottom-right notice stack renders outside .pc-app (hence the frame tokens on :root) and clears the status bar when it shows. */
+html:has(.pc-app--with-status) .pc-notice-stack{bottom:var(--frame-status);max-height:calc(100dvh - var(--frame-status))}
+/* On narrow screens it clears the bottom navigation instead (no status bar there). */
+.pc-notice-stack--narrow{bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));max-height:calc(100dvh - max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom))))}
 .pc-app--with-status{padding-bottom:var(--frame-status)}
 /* A sticky SaveBar clears the fixed status bar and the narrow bottom navigation that the shell owns. */
 .pc-app--with-status .pc-save-bar{bottom:var(--frame-status)}
@@ -301,7 +305,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 
 
 .pc-rail__badge--bad{background:var(--bad-bg);color:var(--bad-fg)}
-.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--size-56) + max(var(--space-5),env(safe-area-inset-bottom)));width:100%;border-radius:0}
+.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));width:100%;border-radius:0}
 /* Hide unified titlebar in narrow mode (uses bottom bar instead) */
 .pc-app--narrow .pc-titlebar{display:none}
 /* In narrow mode, body stacks panel + work vertically */
@@ -728,6 +732,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-app--narrow .pc-topbar h1{font-weight:var(--type-display-weight)}
 
 .pc-app--narrow .pc-topbar .pc-command-trigger,.pc-app--narrow .pc-topbar>.pc-icon-button{border-color:transparent;background:transparent;color:var(--ink-secondary)}
-.pc-bottom-bar{padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
+.pc-bottom-bar{box-sizing:border-box;min-height:var(--frame-nav);padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
 
 .pc-bottom-bar .pc-rail__item.on{background:transparent}

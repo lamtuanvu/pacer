@@ -35,11 +35,11 @@ export function discoveryNoticeFrom(list: DiscoveryList | undefined, attention: 
 }
 
 /** One prompt at a time, a found machine first; each card has one primary action (UI-14). */
-export function DiscoveryNoticeView({ found, network, onAction, busy = false, narrow = false, children }: {
-  found: FoundPrompt | null; network: NetworkPrompt | null; onAction: (action: DiscoveryAction) => void; busy?: boolean; narrow?: boolean; children?: ComponentChildren;
+export function DiscoveryNoticeView({ found, network, onAction, busy = false, children }: {
+  found: FoundPrompt | null; network: NetworkPrompt | null; onAction: (action: DiscoveryAction) => void; busy?: boolean; children?: ComponentChildren;
 }) {
   const act = (action: DiscoveryAction) => () => { if (!busy) onAction(action); };
-  if (found) return <NoticeCard label="Machine found" busy={busy} narrow={narrow} title={<>Found pacer on <strong>{found.name}</strong></>} actions={<>
+  if (found) return <NoticeCard label="Machine found" busy={busy} title={<>Found pacer on <strong>{found.name}</strong></>} actions={<>
     <Button variant="primary" aria-disabled={busy} onClick={act("pair")}>Pair</Button>
     <Button aria-disabled={busy} onClick={act("later")}>Later</Button>
     <Button variant="quiet" aria-disabled={busy} onClick={act("ignore")}>Not mine</Button>
@@ -49,7 +49,7 @@ export function DiscoveryNoticeView({ found, network, onAction, busy = false, na
     <Disclosure summary="Details"><code>{found.discoveryId}</code></Disclosure>
     {children}
   </NoticeCard>;
-  if (network) return <NoticeCard label="Network question" busy={busy} narrow={narrow} title={<>Let your other machines find this one on {network.label}?</>} actions={<>
+  if (network) return <NoticeCard label="Network question" busy={busy} title={<>Let your other machines find this one on {network.label}?</>} actions={<>
     <Button variant="primary" aria-disabled={busy} onClick={act("allow")}>Allow</Button>
     <Button aria-disabled={busy} onClick={act("deny")}>Not on this network</Button>
   </>}>
@@ -60,7 +60,7 @@ export function DiscoveryNoticeView({ found, network, onAction, busy = false, na
 }
 
 /** Prompts are answered here or from Needs you; an answered prompt stays hidden for this app session. */
-export function DiscoveryNotice({ hidden = false, narrow = false }: { hidden?: boolean; narrow?: boolean }) {
+export function DiscoveryNotice({ hidden = false }: { hidden?: boolean }) {
   const { state, api } = useTaskContext(), runner = useActions(), notifications = useNotifications();
   const eligible = !hidden && !state.sessionEnded && state.connected && state.features.ops.has("discovery.list");
   const attention = (state.snapshot?.attention ?? []).filter(a => a.kind === "discovery" || a.kind === "discovery-network");
@@ -97,5 +97,5 @@ export function DiscoveryNotice({ hidden = false, narrow = false }: { hidden?: b
     finally { pending.current = false; setBusy(false); }
   }
   if (!eligible) return null;
-  return <DiscoveryNoticeView found={found} network={network} busy={busy} narrow={narrow} onAction={action => void respond(action)}><ErrorMessage error={error} /></DiscoveryNoticeView>;
+  return <DiscoveryNoticeView found={found} network={network} busy={busy} onAction={action => void respond(action)}><ErrorMessage error={error} /></DiscoveryNoticeView>;
 }

@@ -18,11 +18,11 @@ export function networkStateLine(network: DiscoveryNetwork | null): string {
   return `${network.advertise ? "Advertising" : "Not advertising"} on ${network.label}`;
 }
 /**
- * A saved answer. An allowed network reads as advertising only while the radio runs:
- * paused while discovery is off, not running while discovery is unavailable in this mode.
+ * A saved answer. The radio advertises only on the current network, so only that network reads as advertising, and only while the radio runs:
+ * paused while discovery is off, not running while discovery is unavailable in this mode, and simply allowed on any other network.
  */
-const advertising = (n: KnownNetwork, enabled: boolean, available: boolean) => n.advertise === null ? "Not asked yet" : !n.advertise ? "Not advertising"
-  : !enabled ? "Allowed (paused)" : available ? "Advertising" : "Allowed (not running)";
+const advertising = (n: KnownNetwork, current: string | null, enabled: boolean, available: boolean) => n.advertise === null ? "Not asked yet" : !n.advertise ? "Not advertising"
+  : !enabled ? "Allowed (paused)" : !available ? "Allowed (not running)" : n.key === current ? "Advertising" : "Allowed";
 
 /** The operation the Discovery switch runs. The switch is machine-local discovery state, so it works before setup. */
 export const discoverySwitchCall = (on: boolean): [string, { enabled: boolean }] => ["discovery.set", { enabled: on }];
@@ -59,7 +59,7 @@ export function DiscoveryView({ available, enabled, name, network, networks, cur
     <p className="u3-muted" role="status">{!enabled ? "Discovery is off" : available ? networkStateLine(network) : "Discovery isn’t available in this mode"}</p>
     <SettingRow variant="board" layout="stacked" label="Networks" description="pacer asks once on each new network before advertising there.">
       {networks.length ? <div>{networks.map(n => <ListRow key={n.key} content={<><strong>{n.label}</strong>{n.key === current && <span className="u3-muted"> · This network</span>}</>}
-        meta={[advertising(n, enabled, available), n.muted && "Prompts muted"].filter(Boolean).join(" · ")}
+        meta={[advertising(n, current, enabled, available), n.muted && "Prompts muted"].filter(Boolean).join(" · ")}
         actions={<>
           {n.advertise ? <Button size="sm" aria-label={`Stop advertising on ${n.label}`} aria-disabled={busy} onClick={change(n.key, { advertise: false })}>Stop</Button>
             : <Button size="sm" aria-label={`Allow advertising on ${n.label}`} aria-disabled={busy} onClick={change(n.key, { advertise: true })}>Allow</Button>}

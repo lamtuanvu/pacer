@@ -24,6 +24,7 @@ import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
 import { readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
 import { resetDesktopPageScroll } from "./shell/page-scroll";
+import { NoticeStack } from "./ds/NoticeCard";
 void readRoundedWindowSupport().then(supported => {
   if (supported) document.documentElement.dataset.pacerDesktop = "";
 });
@@ -124,12 +125,12 @@ function App() {
     }}>
       <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
-    {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />
-    )}
-    {DiscoveryNotice && (
-      <DiscoveryNotice narrow={narrow} hidden={help || sessionEnded || discoveryNoticeHiddenOn(route)} />
-    )}
+    {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
+        the update notice stays in the corner and its Restart and Later never move. */}
+    <NoticeStack narrow={narrow}>
+      {DiscoveryNotice && <DiscoveryNotice hidden={help || sessionEnded || discoveryNoticeHiddenOn(route)} />}
+      {UpdateNotice && <UpdateNotice hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />}
+    </NoticeStack>
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
