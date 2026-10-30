@@ -105,6 +105,8 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
+Dispatch starts with Scope and Inspector closed. Open either from the title-bar panel toggles; each window remembers its own choices across navigation and reloads. With no task selected, Inspector offers the most recently updated running task in the current repository scope as a link to its details.
+
 Dispatch follows the canvas board. Its header holds the page title with a live line
 (connected agents and the last update), the period switch (Today, 7 days or 30
 days; 7 days by default, shown only when the service has task insights), one

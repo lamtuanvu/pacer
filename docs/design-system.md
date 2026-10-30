@@ -679,3 +679,12 @@ opened-file tabs; file Source/Preview and file side-panel tabs; Tasks filter;
 Needs you kind filter; Inspector Task/Agents/plugin panels; workspace terminals;
 and command search scopes. Surface styles retain only specialized layout and
 sizes; selected decoration and motion belong to SelectionStrip.
+
+### Dispatch ledger row spacing
+
+`ListRowLink layout="dispatch"` retains the specialized Dispatch ledger padding
+(9px block, 20px inline) in normal and compact control density. DS owns this
+spacing; Dispatch owns its seven-column responsive grid and 12px column gap.
+The variant retains native link semantics, focus and hover states, and whole-row
+keyboard navigation, with no nested interactive controls. Production consumer:
+`app/src/screens/dispatch/Dispatch.tsx` Live dispatch ledger.

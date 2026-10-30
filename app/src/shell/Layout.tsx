@@ -96,8 +96,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
   const workPanels = !narrow && wide && !!context && !state.sessionEnded && (route.name === "dispatch" || (route.name === "sessions" && !route.id));
-  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, true);
-  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, true);
+  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, route.name !== "dispatch", route.name === "dispatch");
+  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, route.name !== "dispatch", route.name === "dispatch");
   const newTaskPanels = !narrow && wide && route.name === "new-task";
   const taskPanels = !narrow && wide && route.name === "sessions" && route.view !== "trace" && !!route.id && !!context && !state.sessionEnded;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.

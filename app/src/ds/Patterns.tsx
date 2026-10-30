@@ -33,9 +33,9 @@ export function ListRow({ leading, content, meta, actions, children, className, 
   </div>;
 }
 /** Whole-row navigation is appropriate only when the row has no secondary controls. */
-export function ListRowLink({ className, children, ...props }: JSX.AnchorHTMLAttributes<HTMLAnchorElement>) {
+export function ListRowLink({ className, children, layout, ...props }: JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { layout?: "dispatch" }) {
   const density = useDensity();
-  return <a {...props} className={classes('pc-list-row', `pc-list-row--${density}`, 'pc-list-row--link', className)}>{children}</a>;
+  return <a {...props} className={classes('pc-list-row', `pc-list-row--${density}`, layout && `pc-list-row--${layout}`, 'pc-list-row--link', className)}>{children}</a>;
 }
 export function SelectableRow({ selected, className, ...props }: ButtonProps & { selected?: boolean }) {
   return <Button {...props} variant="quiet" aria-pressed={selected ?? props['aria-pressed']}
