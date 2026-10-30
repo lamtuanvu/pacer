@@ -1,7 +1,7 @@
 import type { ComponentType } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Button } from "../../ds/Button";
-import { LoadingState } from "../../ds/Patterns";
+import { Skeleton } from "../../ds/Patterns";
 import type { RouteQuery } from "../../router";
 
 type Props = { id?: string; panel?: string; query: RouteQuery };
@@ -13,5 +13,5 @@ export function LazyWorkspace(props: Props) {
     void import("./Workspace").then(m=>{if(active)setView(()=>m.Workspace);}).catch(()=>{if(active)setError(true);});
     return ()=>{active=false;};
   },[attempt]);
-  return View ? <View {...props}/> : error ? <div role="alert">Could not load workspace. <Button onClick={()=>retry(n=>n+1)}>Try again</Button></div> : <LoadingState label="Loading workspace…"/>;
+  return View ? <View {...props}/> : error ? <div role="alert">Could not load workspace. <Button onClick={()=>retry(n=>n+1)}>Try again</Button></div> : <Skeleton layout="rows" label="Loading workspace"/>;
 }
