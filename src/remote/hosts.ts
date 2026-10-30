@@ -16,9 +16,12 @@ import { openInTerminal } from "../terminal/open";
 import { readHostReachability } from "./eligibility";
 import { sshAliases } from "./ssh-config";
 import { SCRIPTS } from "./scripts";
-import { runRemote } from "./ssh";
 import { transferred } from "./transfer";
 import { probeCodexUsage } from "./usage";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
+import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
+import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
 
 export interface HostFacts {
   os: string | null;
@@ -160,15 +163,14 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
     else steps?.fail(name, detail);
   };
   steps?.start("ssh");
-  // A no-op isolates connectivity from tool failures in the diagnostic probe.
-  const connected = await runRemote(ctx, host, SCRIPTS.ECHO_STDIN, [], { stdin: "", timeoutMs: 15000 }).catch(() => null);
-  if (!connected || connected.code !== 0) {
+  const probe = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias).catch(() => null);
+  if (!probe?.ok) {
     for (const name of names) add(name, false, name === "ssh" ? "unreachable" : "skipped");
     return finish();
   }
   add("ssh", true);
   steps?.start("git");
-  const probe = await runRemote(ctx, host, SCRIPTS.PROBE, []).catch(() => null), tools = fields(probe?.stdout ?? "");
+  const tools = probe.facts ?? {};
   Object.assign(facts, { os: tools.os || null, glibc: tools.glibc || null, arch: tools.arch || null, git: tools.git?.replace(/^git version\s+/, "") || null, setsid: tools.setsid || null,
     tools: { ...(tools.codex ? { codex: tools.codex } : {}), ...(tools.claude ? { claude: tools.claude } : {}) } });
   // Bun's Linux release binaries require glibc >= 2.17 (bun.com/docs/installation).
@@ -199,18 +201,19 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   }
   steps?.start("account homes");
   const missing: string[] = [];
-  for (const [account, cfg] of Object.entries(host.accounts)) {
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [cfg.home, "home"]).catch(() => ({ code: 255 }));
-    if (r.code) missing.push(account);
+  for (const account of Object.keys(host.accounts)) {
+    const result = await pluginRegistry(ctx).checkConfiguredAccountHome(ctx, alias, account).catch(() => null);
+    if (!result?.ok) missing.push(account);
   }
   add("account homes", !missing.length, missing.length ? `missing: ${missing.join(", ")}` : "");
   for (const [key, path] of repos) {
     steps?.start(`checkout ${key}`);
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]).catch(() => ({ code: 255, stdout: "" })), facts = fields(r.stdout);
-    const checkoutOk = r.code === 0 && facts.git === "1" && repoKey(facts.origin ?? "") === key;
-    add(`checkout ${key}`, checkoutOk, checkoutOk ? "" : facts.exists !== "1" ? "missing checkout" : facts.git !== "1" ? "not a git checkout" : "origin mismatch");
+    const repoCheck = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias, path).catch(() => null);
+    const repoFacts = repoCheck?.facts ?? {};
+    const checkoutOk = !!repoCheck?.ok && repoFacts.git === "1" && repoKey(repoFacts.origin ?? "") === key;
+    add(`checkout ${key}`, checkoutOk, checkoutOk ? "" : repoFacts.exists !== "1" ? "missing checkout" : repoFacts.git !== "1" ? "not a git checkout" : "origin mismatch");
     steps?.start(`identity ${key}`);
-    const identityOk = !!local.name && !!local.email && facts.name === local.name && facts.email === local.email;
+    const identityOk = !!local.name && !!local.email && repoFacts.name === local.name && repoFacts.email === local.email;
     // Never put identity values or remote paths in returned diagnostics.
     add(`identity ${key}`, identityOk, identityOk ? "" : "repo-local identity does not match local repo");
   }
@@ -237,17 +240,32 @@ export async function addAccount(ctx: Ctx, alias: string, account: string, home:
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
 }
 
-export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi }
+const SETUP_CLONE_PREVIEW = Symbol("setup-clone-preview");
+export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi;
+  [SETUP_CLONE_PREVIEW]?: ConfiguredHostCloneSnapshot }
+async function checkoutExists(ctx: Ctx, alias: string, path: string): Promise<boolean> {
+  const result = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias, path).catch(() => null);
+  const exists = result?.facts?.exists;
+  if (result?.checks.length !== 1 || result.checks[0]?.name !== "checkout" ||
+    (exists !== "0" && exists !== "1")) throw new CoreError("invalid_input", `host ${alias} unreachable`);
+  return exists === "1";
+}
 export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptions): Promise<HostCheck> {
   if (o.consent !== true) throw new CoreError("invalid_input", "host repo setup requires consent: true");
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   if (o.clone !== false) {
+    const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
+      hostFingerprint: JSON.stringify(host) };
+    const preview = o[SETUP_CLONE_PREVIEW];
+    if (preview && (preview.alias !== snapshot.alias || preview.key !== snapshot.key ||
+      preview.path !== snapshot.path || preview.origin !== snapshot.origin ||
+      preview.hostFingerprint !== snapshot.hostFingerprint))
+      throw new CoreError("capability_denied", "configured clone changed after consent");
     o.steps?.start("Clone");
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
-    if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
-    if (fields(r.stdout).exists !== "1") {
-      const cloned = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "clone", local.origin]);
+    if (!await checkoutExists(ctx, alias, path)) {
+      const grant = await issueConfiguredHostClone(ctx, alias, repo, o.consent, preview ?? snapshot);
+      const cloned = await pluginRegistry(ctx).cloneConfiguredHost(ctx, grant);
       if (cloned.code) throw new CoreError("invalid_input", `clone failed on ${alias}`);
       o.steps?.pass("Clone");
     } else o.steps?.skip("Clone", "checkout already exists");
@@ -255,7 +273,12 @@ export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptio
   if (o.identity !== false) {
     o.steps?.start("Set identity");
     if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
-    const set = await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, [path, local.name, local.email]);
+    const grant = await issueConfiguredHostIdentity(ctx, alias, repo);
+    const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+    if (caller !== "pacer-remote-caller") throw new CoreError("plugin_unavailable", "bundled remote caller plugin is unavailable");
+    const set = await registry.callWithIssuedHostIdentity<{
+      code: number; stdout: string; stderr: string; timedOut: boolean }>(ctx, caller,
+      "remoteCaller.identity", { alias, path, name: local.name, email: local.email }, grant);
     if (set.code) throw new CoreError("invalid_input", `identity setup failed on ${alias}`);
     o.steps?.pass("Set identity");
   } else o.steps?.skip("Set identity");
@@ -285,13 +308,14 @@ export async function setupJob(ctx: Ctx, alias: string, key: string, o: Omit<Set
 export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confirm: (question: string) => Promise<boolean>) {
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
-  const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
-  if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
+  const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
+    hostFingerprint: JSON.stringify(host) };
+  const exists = await checkoutExists(ctx, alias, path);
   const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
-  const clone = fields(r.stdout).exists !== "1" && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
+  const clone = !exists && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
   if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
   const identity = await confirm(`Set repo-local identity on ${alias} to ${local.name} <${local.email}>?`);
-  return setup(ctx, alias, repo, { clone, identity, consent: true });
+  return setup(ctx, alias, repo, { clone, identity, consent: true, [SETUP_CLONE_PREVIEW]: snapshot });
 }
 
 export function terminal(ctx: Ctx, alias: string, opener = openInTerminal, options: {builtin?:boolean} = {}) {
@@ -323,7 +347,8 @@ export async function clean(ctx: Ctx, alias: string, o: { dryRun?: boolean } = {
       if (!checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
         kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
       }
-      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, received ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
+      const grant = await issueConfiguredHostClean(ctx, alias, t.id, received);
+      const r = await pluginRegistry(ctx).cleanConfiguredHost(ctx, grant);
       if (r.code) kept.push({ id: t.id, reason: "remote cleanup failed" });
       else removed.push(t.id);
     } catch { kept.push({ id: t.id, reason: "remote cleanup failed" }); }

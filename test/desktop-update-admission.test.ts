@@ -231,46 +231,55 @@ test("invalid delegation releases its unused pre-admission", async () => {
 });
 
 import { RemoteRunIO } from "../src/remote/run-io";
-test("ambiguous detached SSH start stays blocked after its caller returns", async () => {
-  const ctx = context();
-  ctx.run = async () => ({ code: 255, stdout: "", stderr: "response lost after detached launch" });
+import { pluginRegistry } from "../src/plugins";
+function remoteAdmissionFixture() {
+  const ctx = context(), record = task(ctx);
+  const local = join(ctx.pacerHome, "runs", record.id, "1");
+  const remote = join(ctx.home, ".pacer-remote", "runs", record.id, "1");
   const host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
-  const io = new RemoteRunIO(ctx, host, "/remote/run", join(ctx.pacerHome, "runs", "remote", "1"));
-  expect(await io.start(["executor"], "/remote", {}, "", { session: "pipe" })).toHaveProperty("error");
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box\n");
+  updateTask(ctx, record.id, current => { current.state = "done";
+    current.run = { host: "box", mode: "new", remoteDir: remote, remoteWorktree: ctx.home,
+      workdir: ctx.home, dir: local, attempt: 1, executor: "codex@box", startedAt: 1, logFile: "unused" }; });
+  return { ctx, host, local, remote, io: new RemoteRunIO(ctx, host, remote, local), registry: pluginRegistry(ctx) };
+}
+test("ambiguous detached SSH start stays blocked after its caller returns", async () => {
+  const { ctx, io, registry } = remoteAdmissionFixture();
+  registry.startConfiguredHost = async () => ({ code: 255, stdout: "", stderr: "response lost after detached launch", timedOut: false });
+  expect(await io.start(["executor"], ctx.home, {}, "", { session: "pipe" })).toHaveProperty("error");
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(false);
 });
 
 test("remote completion is bound to host, directory and nonce after caller reconstruction", async () => {
-  const ctx = context(), local = join(ctx.pacerHome, "runs", "remote", "1");
-  const host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
-  ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\npid=42\n", stderr: "" });
-  const io = new RemoteRunIO(ctx, host, "/remote/run", local);
-  expect(await io.start(["executor"], "/remote", {}, "", { session: "pipe" })).toHaveProperty("pid");
+  const { ctx, host, local, remote, io, registry } = remoteAdmissionFixture();
+  registry.startConfiguredHost = async () => ({ code: 0, stdout: "pid=42\n", stderr: "", timedOut: false });
+  expect(await io.start(["executor"], ctx.home, {}, "", { session: "pipe" })).toHaveProperty("pid");
   const first = JSON.parse(readFileSync(join(local, "admission.json"), "utf8")).lease;
-  expect(await io.start(["executor"], "/remote", {}, "", { session: "pipe" })).toHaveProperty("pid");
+  expect(await io.start(["executor"], ctx.home, {}, "", { session: "pipe" })).toHaveProperty("pid");
   const second = JSON.parse(readFileSync(join(local, "admission.json"), "utf8")).lease;
   // An old remote completion cannot clear the replacement launch's lease.
   let receipt = first;
-  ctx.run = async () => ({ code: 0, stdout: `__PACER_BEGIN__\npid=42\nalive=0\nexit=0\nout=0\nerr=0\nadmission_complete=${receipt}\n`, stderr: "" });
-  const reconstructed = new RemoteRunIO(ctx, host, "/remote/run", local);
+  registry.reportConfiguredHost = async () => ({ code: 0, stdout: `pid=42\nalive=0\nexit=0\nout=0\nerr=0\nadmission_complete=${receipt}\n`, stderr: "", timedOut: false });
+  const reconstructed = new RemoteRunIO(ctx, host, remote, local);
   await reconstructed.read();
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(false);
   receipt = second;
-  await new RemoteRunIO(ctx, host, "/wrong/run", local).read();
+  await new RemoteRunIO(ctx, host, join(ctx.home, ".pacer-remote", "runs", "wrong", "1"), local).read().catch(() => undefined);
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(false);
   await reconstructed.read();
   // The replacement is complete; the older unresolved launch remains protected.
   expect((await reserveIdle(ctx, "tx-a")).blockers).toHaveLength(1);
 });
 
-test("missing remote process and synthetic stop exit do not prove detached completion", async () => {
-  const ctx = context(), local = join(ctx.pacerHome, "runs", "remote", "1");
-  const host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
-  ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\npid=42\n", stderr: "" });
-  const io = new RemoteRunIO(ctx, host, "/remote/run", local);
-  await io.start(["executor"], "/remote", {}, "", { session: "pipe" });
-  ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\nalive=0\nexit=137\ncode=137\nkilled=0\nout=0\nerr=0\n", stderr: "" });
-  await io.read(); await io.stop({ graceMs: 1, sleep: Bun.sleep });
+test("missing remote process and lost stop do not prove detached completion", async () => {
+  const { ctx, io, registry } = remoteAdmissionFixture();
+  registry.startConfiguredHost = async () => ({ code: 0, stdout: "pid=42\n", stderr: "", timedOut: false });
+  await io.start(["executor"], ctx.home, {}, "", { session: "pipe" });
+  registry.reportConfiguredHost = async () => ({ code: 0, stdout: "alive=0\nexit=137\ncode=137\nkilled=0\nout=0\nerr=0\n", stderr: "", timedOut: false });
+  await io.read();
+  registry.stopConfiguredHost = async () => ({ code: 255, stdout: "", stderr: "response lost", timedOut: false });
+  expect(await io.stop({ graceMs: 1, sleep: Bun.sleep })).toEqual({ code: 137, killed: false });
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(false);
 });
 

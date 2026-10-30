@@ -27,8 +27,9 @@ import { claudeResultFromStream, captureClaudeStreamUsageFile } from "../usage/c
 import { readAccountUsage } from "../usage";
 import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
-import { SCRIPTS } from "../remote/scripts";
-import { runRemote } from "../remote/ssh";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
+import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
 import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchModeChoice } from "./launch";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
@@ -250,8 +251,9 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   if (end.kind === "lost") exec.stderr += host ? `\npacer: host ${host.alias} unreachable or wrapper missing after the contact grace period` : "\npacer: the attempt's wrapper vanished without an exit record";
   if (host && run.lastMessageFile) {
     try {
-      const last = await runRemote(ctx, host, SCRIPTS.READ_FROM, [run.remoteDir!, "last.md", "0", "262144"]);
-      if (last.code === 0) writeFileSync(run.lastMessageFile, last.stdout);
+      const grant = issueConfiguredHostReadFrom(ctx, host.alias, run.remoteDir!, run.dir, "last.md", 0, 262_144);
+      const last = await pluginRegistry(ctx).readFromConfiguredHost(ctx, grant);
+      if (last.code === 0 && !last.timedOut) writeFileSync(run.lastMessageFile, Buffer.from(last.stdout, "hex"));
     } catch { /* mirrored output remains available */ }
   }
   try {
@@ -583,8 +585,10 @@ async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecor
   await receiveQuestion(ctx,task,host,run);
   if (result.exec.timedOut) return result;
   if (result.exec.code !== 0) {
-    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree!, run.baseSha!, run.remoteBranch ?? `pacer/${task.id}`]);
-    if (preflight.code || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
+    // A refused issuance is a failed preflight: keep the result without transferring.
+    const preflight = await Promise.resolve().then(() => pluginRegistry(ctx).preflightConfiguredHostAttempt(ctx,
+      issueConfiguredHostAttemptPreflight(ctx, task.id, run.attempt))).catch(() => null);
+    if (!preflight || preflight.code || preflight.timedOut || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
   }
   // A runner may die after transfer but before recording the attempt. Reuse the
   // review worktree only when its branch matches the recorded transfer.

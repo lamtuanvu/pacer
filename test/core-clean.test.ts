@@ -1,6 +1,7 @@
 import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { shutdownPlugins } from "../src/plugins";
 import { dirname, join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
@@ -501,7 +502,7 @@ for (const sweep of [false, true]) test(`automatic ${sweep ? "sweep" : "task cle
   expect(readActivity(ctx).entries).toEqual([]);
 });
 
-for (const received of [true, false]) test(`remote task cleanup passes ${received ? "the transferred branch" : "no untransferred branch"}`, async () => {
+for (const received of [true, false]) for (const force of [false, true]) test(`remote task cleanup goes through pacer-ssh and passes ${received ? "the transferred branch" : "no untransferred branch"}${force ? " with force" : ""}`, async () => {
   const {ctx, t} = await finished();
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code
 providers: {claude-code: {}, codex: {}}
@@ -509,21 +510,28 @@ hosts: {devbox: {ssh: devbox, repos: {github.com/o/r: ~/src/r}}}
 `);
   updateTask(ctx, t.id, x => {
     x.run!.host = "devbox";
-    x.run!.remoteWorktree = `~/.pacer-remote/worktrees/${t.id}`;
-    x.run!.remoteDir = `~/.pacer-remote/runs/${t.id}/1`;
-    x.run!.remoteBranch = `pacer/${t.id}-remote`;
+    x.run!.remoteWorktree = `/home/fixture/.pacer-remote/worktrees/fixture-tag/${t.id}-1`;
+    x.run!.remoteDir = `/home/fixture/.pacer-remote/runs/${t.id}/1`;
+    x.run!.remoteBranch = `pacer/${t.id}-1`;
     if (received) x.run!.transferredHead = "abc123";
   });
-  const ssh: string[][] = [];
+  // The bundled pacer-ssh provider spawns this fixture in place of ssh; nothing reaches a real host.
+  const sshPath = join(ctx.home, "ssh-fixture"), sshLog = join(ctx.home, "ssh-argv.log");
+  writeFileSync(sshPath, `#!/bin/sh\nprintf '%s\\0' "$*" >> '${sshLog}'\nnonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')\nprintf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"\n`);
+  chmodSync(sshPath, 0o700);
+  ctx.which = name => name === "ssh" ? sshPath : null;
   ctx.run = async (argv, timeout) => {
-    if (argv[0] === "ssh") { ssh.push(argv); return {code: 0, stdout: "", stderr: ""}; }
+    if (argv[0] === "ssh") throw new Error("direct SSH is not allowed");
     if (argv.includes("get-url")) return {code: 0, stdout: "https://github.com/o/r.git", stderr: ""};
     if (argv.includes("--verify")) return {code: 0, stdout: "abc123", stderr: ""};
     return realRun(argv, timeout);
   };
-  expect((await tasks.cleanTask(ctx, t.id)).removed).toEqual([t.id]);
-  expect(ssh).toHaveLength(1);
-  expect(ssh[0]!.at(-1)).toEndWith(received ? ` pacer/${t.id}-remote ''` : "'' ''");
+  try {
+    expect((await tasks.cleanTask(ctx, t.id, {force})).removed).toEqual([t.id]);
+    const ssh = readFileSync(sshLog, "utf8").split("\0").filter(Boolean);
+    expect(ssh).toHaveLength(1);
+    expect(ssh[0]).toEndWith(`${received ? ` pacer/${t.id}-1` : " ''"}${force ? " force" : ""}`);
+  } finally { await shutdownPlugins(ctx); }
 });
 
 for (const force of [false, true]) test(`remote CLEAN sixth argument ${force ? "forces removal" : "keeps dirty checkout"}`, async () => {

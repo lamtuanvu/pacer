@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.6.0",
-  "version": "1.6.0",
+  "title": "pacer plugin protocol 1.7.0",
+  "version": "1.7.0",
   "$defs": {
     "pluginMetadata": {
       "oneOf": [
@@ -200,6 +200,142 @@
       ],
       "additionalProperties": false
     },
+    "streamProgressEvent": {
+      "type": "object",
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "streamId",
+        "seq",
+        "base64"
+      ],
+      "additionalProperties": false
+    },
+    "streamAckParams": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "request",
+        "streamId",
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "streamAckResult": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "streamInputFrame": {
+      "type": "object",
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "request": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "streamId",
+        "seq",
+        "base64",
+        "request"
+      ],
+      "additionalProperties": false
+    },
+    "streamInputAckParams": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "request",
+        "streamId",
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "streamInputAckResult": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "additionalProperties": false
+    },
     "callMetadata": {
       "type": "object",
       "properties": {
@@ -236,33 +372,177 @@
         "contributes": {
           "default": {},
           "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "enum": [
-              "diagnostic",
-              "agentSession",
-              "observation",
-              "decision",
-              "ui",
-              "assistant",
-              "pairing",
-              "usage",
-              "classifier",
-              "notifier",
-              "endpoint",
-              "planner",
-              "policy"
-            ]
-          },
-          "additionalProperties": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
+          "properties": {
+            "diagnostic": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
             },
-            "additionalProperties": {
-              "$ref": "#/$defs/manifest___schema0"
+            "agentSession": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "observation": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "decision": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "ui": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "assistant": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "pairing": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "usage": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "classifier": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "notifier": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "endpoint": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "planner": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "policy": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "hostRunner": {
+              "type": "object",
+              "properties": {
+                "kinds": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "ssh"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              },
+              "required": [
+                "kinds"
+              ],
+              "additionalProperties": false
+            },
+            "remoteCaller": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
+            "executor": {
+              "type": "object",
+              "properties": {
+                "backends": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "direct"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              },
+              "required": [
+                "backends"
+              ],
+              "additionalProperties": false
             }
-          }
+          },
+          "additionalProperties": false
         },
         "capabilities": {
           "default": [],
@@ -285,7 +565,8 @@
                   "identity.sign",
                   "net.p2p",
                   "fs.write",
-                  "usage.state"
+                  "usage.state",
+                  "hosts"
                 ]
               },
               "scopes": {
@@ -393,33 +674,177 @@
             "contributes": {
               "default": {},
               "type": "object",
-              "propertyNames": {
-                "type": "string",
-                "enum": [
-                  "diagnostic",
-                  "agentSession",
-                  "observation",
-                  "decision",
-                  "ui",
-                  "assistant",
-                  "pairing",
-                  "usage",
-                  "classifier",
-                  "notifier",
-                  "endpoint",
-                  "planner",
-                  "policy"
-                ]
-              },
-              "additionalProperties": {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
+              "properties": {
+                "diagnostic": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
                 },
-                "additionalProperties": {
-                  "$ref": "#/$defs/helloParams___schema0"
+                "agentSession": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "observation": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "decision": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "ui": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "assistant": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "pairing": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "usage": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "classifier": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "notifier": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "endpoint": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "planner": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "policy": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "hostRunner": {
+                  "type": "object",
+                  "properties": {
+                    "kinds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "string",
+                          "const": "ssh"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 1,
+                      "maxItems": 1
+                    }
+                  },
+                  "required": [
+                    "kinds"
+                  ],
+                  "additionalProperties": false
+                },
+                "remoteCaller": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
+                },
+                "executor": {
+                  "type": "object",
+                  "properties": {
+                    "backends": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "string",
+                          "const": "direct"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 1,
+                      "maxItems": 1
+                    }
+                  },
+                  "required": [
+                    "backends"
+                  ],
+                  "additionalProperties": false
                 }
-              }
+              },
+              "additionalProperties": false
             },
             "capabilities": {
               "default": [],
@@ -442,7 +867,8 @@
                       "identity.sign",
                       "net.p2p",
                       "fs.write",
-                      "usage.state"
+                      "usage.state",
+                      "hosts"
                     ]
                   },
                   "scopes": {
@@ -523,7 +949,8 @@
               "identity.sign",
               "net.p2p",
               "fs.write",
-              "usage.state"
+              "usage.state",
+              "hosts"
             ]
           }
         }
@@ -3483,6 +3910,742 @@
         }
       ]
     },
+    "hostRunner.check.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "home": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "sshTarget": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@][A-Za-z0-9._@-]*$"
+        },
+        "controlPath": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^\\/[^\\u0000-\\u001f]*\\/cm-%C$"
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.check.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "checks": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "detail": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "name",
+              "ok",
+              "detail"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "facts": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.open.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "sshTarget": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@][A-Za-z0-9._@-]*$"
+        },
+        "controlPath": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^\\/[^\\u0000-\\u001f]*\\/cm-%C$"
+        }
+      },
+      "required": [
+        "alias",
+        "sshTarget"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.open.result": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.run.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "script": {
+          "type": "string",
+          "enum": [
+            "CODEX_USAGE",
+            "PROBE",
+            "CHECK_REPO",
+            "SET_IDENTITY",
+            "ECHO_STDIN",
+            "PREPARE",
+            "QUESTION",
+            "QUESTION_CLEAR",
+            "PREFLIGHT",
+            "BUNDLE_OUT",
+            "CLEAN",
+            "BINARY",
+            "SESSION_FILES",
+            "SESSION_PIPE",
+            "SESSION_SOCKET",
+            "START",
+            "REPORT",
+            "READ_FROM",
+            "FOLLOW",
+            "STOP"
+          ]
+        },
+        "args": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 524288
+        },
+        "completionNonce": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "session",
+        "script",
+        "args",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.run.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.upload.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "script": {
+          "type": "string",
+          "const": "BINARY"
+        },
+        "args": {
+          "minItems": 2,
+          "maxItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 300000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 4096
+        },
+        "completionNonce": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "session",
+        "script",
+        "args",
+        "timeoutMs",
+        "maxBytes",
+        "completionNonce"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.upload.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.stream.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "script": {
+          "type": "string",
+          "enum": [
+            "CODEX_USAGE",
+            "PROBE",
+            "CHECK_REPO",
+            "SET_IDENTITY",
+            "ECHO_STDIN",
+            "PREPARE",
+            "QUESTION",
+            "QUESTION_CLEAR",
+            "PREFLIGHT",
+            "BUNDLE_OUT",
+            "CLEAN",
+            "BINARY",
+            "SESSION_FILES",
+            "SESSION_PIPE",
+            "SESSION_SOCKET",
+            "START",
+            "REPORT",
+            "READ_FROM",
+            "FOLLOW",
+            "STOP"
+          ]
+        },
+        "args": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 52428800
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "session",
+        "script",
+        "args",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.stream.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "code",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.fetch.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "script": {
+          "type": "string",
+          "enum": [
+            "CODEX_USAGE",
+            "PROBE",
+            "CHECK_REPO",
+            "SET_IDENTITY",
+            "ECHO_STDIN",
+            "PREPARE",
+            "QUESTION",
+            "QUESTION_CLEAR",
+            "PREFLIGHT",
+            "BUNDLE_OUT",
+            "CLEAN",
+            "BINARY",
+            "SESSION_FILES",
+            "SESSION_PIPE",
+            "SESSION_SOCKET",
+            "START",
+            "REPORT",
+            "READ_FROM",
+            "FOLLOW",
+            "STOP"
+          ]
+        },
+        "args": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 52428800
+        }
+      },
+      "required": [
+        "session",
+        "script",
+        "args",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.fetch.result": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}\\.bundle$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 52428800
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "name",
+        "bytes",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.close.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "hostRunner.close.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.reachability.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.reachability.result": {
+      "type": "object",
+      "properties": {
+        "reachable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reachable"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.fetch.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 52428800
+        }
+      },
+      "required": [
+        "alias",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.fetch.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.identity.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "alias",
+        "path",
+        "name",
+        "email"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.identity.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.questionRead.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "alias",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.questionRead.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.usageRead.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.usageRead.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "executor.available.params": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "strategy"
+      ],
+      "additionalProperties": false
+    },
+    "executor.available.result": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "additionalProperties": false
+    },
     "classifier.adapters.params": {
       "type": "object",
       "properties": {},
@@ -5941,6 +7104,188 @@
       ],
       "additionalProperties": false
     },
+    "capability.hosts.open.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.open.result": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.run.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "script": {
+          "type": "string",
+          "enum": [
+            "CODEX_USAGE",
+            "PROBE",
+            "CHECK_REPO",
+            "SET_IDENTITY",
+            "ECHO_STDIN",
+            "PREPARE",
+            "QUESTION",
+            "QUESTION_CLEAR",
+            "PREFLIGHT",
+            "BUNDLE_OUT",
+            "CLEAN",
+            "BINARY",
+            "SESSION_FILES",
+            "SESSION_PIPE",
+            "SESSION_SOCKET",
+            "START",
+            "REPORT",
+            "READ_FROM",
+            "FOLLOW",
+            "STOP"
+          ]
+        },
+        "args": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 524288
+        }
+      },
+      "required": [
+        "session",
+        "script",
+        "args",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.run.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.fetch.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 52428800
+        }
+      },
+      "required": [
+        "session",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.fetch.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.close.params": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.close.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
     "capability.planner.run.params": {
       "type": "object",
       "properties": {
@@ -6819,6 +8164,242 @@
       },
       "required": [
         "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stageBundle.params": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        },
+        "maxBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 52428800
+        }
+      },
+      "required": [
+        "argv",
+        "timeoutMs",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stageBundle.result": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 52428800
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "handle",
+        "bytes",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.open.params": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "argv",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.open.result": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "handle"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.read.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "length": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65536
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        },
+        "pollMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "handle",
+        "length",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.read.result": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "eof": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base64",
+        "eof"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.write.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "handle",
+        "base64",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.write.result": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65536
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.close.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "graceful": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "handle"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.close.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 32
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "code",
+        "signal",
+        "terminated"
       ],
       "additionalProperties": false
     },

@@ -1,4 +1,10 @@
 import {POLICY_METHODS,POLICY_CAPABILITY_METHODS,POLICY_METHOD_CAPABILITY} from "./policy-protocol";
+import {HOST_RUNNER_METHODS,hostRunnerContribution,hostRunnerStreamId} from "./host-runner-protocol";
+import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
+import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
+import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
+export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
+export { executorContribution, executorAvailableParams, executorAvailableResult } from "./executor-protocol";
 export {POLICY_DECISIONS,POLICY_EVENT_TYPES,POLICY_TASK_STATES,POLICY_OBSERVATIONS_FEATURE,pluginMetadata,readOwnerMetadata,policyBeforeParams,policyVerdict,policyEvent} from "./policy-protocol";
 import { z } from "zod";
 import { PLANNER_METHODS, PLANNER_CAPABILITY_METHODS, PLANNER_METHOD_CAPABILITY } from "./planner-protocol";
@@ -22,29 +28,52 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.6.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.7.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "usage.state"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "usage.state", "hosts"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 /** Extension points and capabilities added in 1.6.0; a manifest that uses one gates on that host. */
 export const M0_EXTENSION_POINTS = ["usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const satisfies readonly ExtensionPoint[];
 export const M0_CAPABILITIES = ["fs.write", "usage.state"] as const satisfies readonly Capability[];
+/** Extension points and capabilities added in 1.7.0 for SSH host runners; a manifest that uses one gates on that host. */
+export const HOSTS_EXTENSION_POINTS = ["hostRunner", "remoteCaller", "executor"] as const satisfies readonly ExtensionPoint[];
+export const HOSTS_CAPABILITIES = ["hosts"] as const satisfies readonly Capability[];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 /** Host signatures use this plugin id in the signing domain, so no plugin may claim it. */
 export const RESERVED_PLUGIN_IDS = ["pacer"] as const;
 const SEMVER_RANGE = /^(\^|~|>=)?\d+(\.\d+){0,2}$|^\*$/;
+const genericContribution = z.record(z.string(), z.json());
+/** Keep the published manifest schema as strict as runtime validation. */
+export const manifestContributes = z.object({
+  diagnostic: genericContribution.optional(),
+  agentSession: genericContribution.optional(),
+  observation: genericContribution.optional(),
+  decision: genericContribution.optional(),
+  ui: genericContribution.optional(),
+  assistant: genericContribution.optional(),
+  pairing: genericContribution.optional(),
+  usage: genericContribution.optional(),
+  classifier: genericContribution.optional(),
+  notifier: genericContribution.optional(),
+  endpoint: genericContribution.optional(),
+  planner: genericContribution.optional(),
+  policy: genericContribution.optional(),
+  hostRunner: hostRunnerContribution.optional(),
+  remoteCaller: genericContribution.optional(),
+  executor: executorContribution.optional(),
+}).strict();
 
 export const manifestSchema = z.object({
   id: z.string().regex(PLUGIN_ID, "id is 2-64 lowercase letters, digits and hyphens").refine(id => !(RESERVED_PLUGIN_IDS as readonly string[]).includes(id), { error: issue => `plugin id ${String(issue.input)} is reserved` }),
   version: z.string().refine(isVersion, "version is semver (MAJOR.MINOR.PATCH)"),
   publisher: z.string().min(1).max(128),
   host: z.string().regex(SEMVER_RANGE, "host is a semver range such as ^1 or ^1.2.0"),
-  contributes: z.partialRecord(z.enum(EXTENSION_POINTS), z.record(z.string(), z.json())).default({}),
+  contributes: manifestContributes.default({}),
   capabilities: z.array(z.object({ name: z.enum(CAPABILITIES), scopes: z.array(z.string().min(1)).optional() })).default([]),
   entry: z.string().min(1).optional(),
   reentrant: z.boolean().default(false),
@@ -53,6 +82,9 @@ export const manifestSchema = z.object({
   const extraction = M0_EXTENSION_POINTS.filter(point => m.contributes[point] !== undefined);
   const effects = m.capabilities.filter(c => (M0_CAPABILITIES as readonly string[]).includes(c.name)).map(c => c.name);
   if ((extraction.length || effects.length) && !hostFloorAtLeast(m.host, "1.6.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...extraction, ...effects].join(", ")} sets host to >=1.6.0` });
+  const hostRunners = HOSTS_EXTENSION_POINTS.filter(point => m.contributes[point] !== undefined);
+  const hostGrants = m.capabilities.filter(c => (HOSTS_CAPABILITIES as readonly string[]).includes(c.name)).map(c => c.name);
+  if ((hostRunners.length || hostGrants.length) && !hostFloorAtLeast(m.host, "1.7.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...hostRunners, ...hostGrants].join(", ")} sets host to >=1.7.0` });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
     if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });
@@ -93,6 +125,19 @@ export const resultChunkParams = z.object({ request: z.number().int().positive()
   base64: z.string().max(349528).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict();
 export const resultChunkAck = z.object({ bytes: z.number().int().nonnegative().safe() }).strict();
 export const chunkedResult = z.object({ _chunkedResult: z.object({ bytes: z.number().int().nonnegative().safe() }).strict() }).strict();
+
+/** Private stream transport, scoped to the exact pending hostRunner.stream request. */
+export const STREAM_ACK_METHOD = "$/streamAck";
+export const streamProgressEvent = z.object({ streamId: hostRunnerStreamId, seq: z.number().int().nonnegative().safe(),
+  base64: z.string().min(4).max(87_384).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict();
+export const streamAckParams = z.object({ request: z.number().int().positive().safe(), streamId: hostRunnerStreamId,
+  seq: z.number().int().nonnegative().safe() }).strict();
+export const streamAckResult = z.object({ seq: z.number().int().nonnegative().safe() }).strict();
+export const STREAM_INPUT_METHOD = "$/streamInput";
+export const STREAM_INPUT_ACK_METHOD = "$/streamInputAck";
+export const streamInputFrame = streamProgressEvent.extend({ request: z.number().int().positive().safe() }).strict();
+export const streamInputAckParams = streamAckParams;
+export const streamInputAckResult = streamAckResult;
 
 export const helloParams = z.object({
   protocol: z.string(), pacer: z.string(), manifest: manifestSchema, features: z.array(z.string().min(1).max(64)).max(16).optional(),
@@ -144,6 +189,9 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
       z.object({kind: z.literal("command"), argv: z.array(z.string()).min(1), idPath: z.array(z.string()).min(1).max(8)})]), deadlineMs: 5000}),
   ...PLANNER_METHODS,
   ...POLICY_METHODS,
+  ...HOST_RUNNER_METHODS,
+  ...REMOTE_CALLER_METHODS,
+  ...EXECUTOR_METHODS,
   ...CLASSIFIER_METHODS,
   ...NOTIFIER_METHODS,
   ...ENDPOINT_METHODS,
@@ -167,6 +215,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
+  ...HOSTS_METHODS,
   ...PLANNER_CAPABILITY_METHODS,
   ...POLICY_CAPABILITY_METHODS,
   ...SCOPED_CAPABILITY_METHODS,
@@ -188,7 +237,7 @@ function isCanonicalBase64(s: string): boolean {
   return s.length % 4 === 0 && Buffer.from(s, "base64").toString("base64") === s;
 }
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;

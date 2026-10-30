@@ -44,6 +44,8 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
+| `crates/plugin-hosts-protocol` | `pacer-plugin-hosts-protocol`: generated `hostRunner.*` and `capability.hosts.*` plugin types, CRATE-3 area split ([ADR 0016](../docs/decisions/0016-plugin-hosts-protocol-area.md)) |
+| `crates/plugin-exec-protocol` | `pacer-plugin-exec-protocol`: generated `executor.*` and `capability.process.*` plugin types, CRATE-3 area split ([ADR 0017](../docs/decisions/0017-plugin-exec-protocol-area.md)) |
 
 Dependency direction: clients → `src/api` → core → adapters. Source: [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md).
 

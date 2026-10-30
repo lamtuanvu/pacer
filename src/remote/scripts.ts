@@ -26,7 +26,7 @@ printf 'home=%s\\n' "$HOME"`,
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 case "$1" in
   home) test -d "$path" ;;
-  clone) git clone -- "$2" "$path" ;;
+  clone) [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1; git clone -- "$2" "$path" ;;
   *)
     if [ ! -d "$path" ]; then printf 'exists=0\\n'; exit 0; fi
     printf 'exists=1\\n'
@@ -77,7 +77,10 @@ printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
 cat "$file"`,
-  QUESTION_CLEAR: `rm -f -- "$1/.pacer-question"`,
+  // Preserve the fixed script ID for protocol compatibility, but never unlink
+  // a question after acceptance: another writer may have replaced the file.
+  QUESTION_CLEAR: `echo 'question clear is retired' >&2
+exit 1`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
@@ -85,6 +88,14 @@ ancestor=0
 git merge-base --is-ancestor "$base" "$branch" && ancestor=1
 printf 'ancestor=%s\\n' "$ancestor"
 status=$(git -c core.quotePath=true status --porcelain --untracked-files=all) || exit 1
+if [ -n "$4" ] && [ -n "$5" ] && [ -f .pacer-question ]; then
+  question_hash=$(git hash-object -- .pacer-question) || exit 1
+  case "\${#question_hash}" in 40) expected_hash="$4" ;; 64) expected_hash="$5" ;; *) expected_hash="" ;; esac
+  if [ -n "$expected_hash" ] && [ "$question_hash" = "$expected_hash" ] &&
+    [ "$(git hash-object -- .pacer-question)" = "$expected_hash" ]; then
+    status=$(printf '%s\\n' "$status" | sed '/^?? \\.pacer-question$/d')
+  fi
+fi
 printf 'dirty=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d' | wc -l | tr -d ' ')"
 printf 'dirty_files=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d;s/^...//' | head -n 20 | paste -sd ',' -)"
 printf 'commits=%s\\n' "$(git rev-list --count "$base..$branch")"
@@ -138,33 +149,28 @@ else
   chmod 700 "$tmp" && mv -f "$tmp" "$file" || exit 1
 fi
 printf '%s\\n' "$file"`,
-  SESSION_FILES: `D="$1"; offset="$2"; previous_inode="$3"; previous_ckpt="$4"; previous_rotated="$5"
+  SESSION_FILES: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-# Retry if a checkpoint/rotation changes while copying the retained generation.
+# Return only bounded metadata. File bytes are read separately in fixed ranges.
 for attempt in 1 2 3; do
   before=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)
   inode=$(ls -i "$D/session.log" 2>/dev/null | awk '{print $1}')
-  bytes=0; [ ! -f "$D/session.log" ] || bytes=$(wc -c < "$D/session.log")
-  start="$offset"
-  [ "$inode" = "$previous_inode" ] && [ "$bytes" -ge "$start" ] || start=0
-  data="session.log.inode=$inode
-session.log.offset=$start
-"
+  data=""
   for file in session.ckpt session.log.1 session.log session.state; do
-    case "$file" in session.ckpt|session.log.1) sum=$(cksum "$D/$file" 2>/dev/null) ;; *) sum=""; [ ! -f "$D/$file" ] || sum=present ;; esac
-    data="$data$file.sum=$sum
-"
-    case "$file" in
-      session.ckpt) [ "$sum" != "$previous_ckpt" ] || continue ;;
-      session.log.1) [ "$sum" != "$previous_rotated" ] || continue ;;
-    esac
-    hex=""
+    bytes=""; sum=""
     if [ -f "$D/$file" ]; then
+      if [ "$file" = session.state ]; then
+        sum=$(cksum "$D/$file" 2>/dev/null) || sum=""
+        bytes=""; [ -z "$sum" ] || bytes=$(printf '%s\n' "$sum" | awk '{print $2}')
+      else bytes=$(wc -c < "$D/$file" | tr -d ' ') || exit 1; fi
       if [ "$file" = session.log ]; then
-        hex=$(tail -c +"$((start + 1))" "$D/$file" | od -An -v -tx1 | tr -d ' \n')
-      else hex=$(od -An -v -tx1 "$D/$file" | tr -d ' \n'); fi
+        sum="$inode"
+      elif [ "$file" != session.state ]; then
+        sum=$(cksum "$D/$file") || exit 1
+      fi
     fi
-    data="$data$file=$hex
+    data="$data$file.bytes=$bytes
+$file.sum=$sum
 "
   done
   after=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)

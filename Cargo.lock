@@ -980,6 +980,8 @@ version = "0.2.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-decision-protocol",
+ "pacer-plugin-exec-protocol",
+ "pacer-plugin-hosts-protocol",
  "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
  "serde",
@@ -1004,6 +1006,25 @@ dependencies = [
  "regress",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-plugin-exec-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pacer-plugin-hosts-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

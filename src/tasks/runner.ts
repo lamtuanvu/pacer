@@ -37,7 +37,7 @@ import { join } from "node:path";
 import { gitInfo, realpathSafe } from "../core/git";
 import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
-import { pidAlive } from "../link/store";
+import { pidAlive } from "../link/pid";
 import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";

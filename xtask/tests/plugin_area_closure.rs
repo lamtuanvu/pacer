@@ -33,6 +33,7 @@ fn generated_extension_areas_have_complete_local_schema_closures() {
     for includes in [
         (|name: &str| name.starts_with("agentSession.")) as fn(&str) -> bool,
         |name: &str| name.starts_with("decision."),
+        |name: &str| name.starts_with("hostRunner.") || name.starts_with("capability.hosts."),
     ] {
         for (name, value) in defs {
             if includes(name) {

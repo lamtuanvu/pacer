@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Plugin protocol 1.7.0 (additive): the `hostRunner` (`hostRunner.check`, `open`, `run`, `upload`, `stream`, `fetch`, `close`), `remoteCaller` (`remoteCaller.reachability`, `fetch`, `identity`, `questionRead`) and staged `executor` (`executor.available`) extension points; the `hosts` capability (`capability.hosts.open`, `run`, `fetch`, `close`) with host-owned broker sessions on configured SSH aliases; bounded `capability.process.duplex.*` and `capability.process.stageBundle`; and the private `$/streamAck` and `$/streamInputAck` stream transport for an owner-bound `hostRunner.stream`. A manifest that uses any of these sets `host` to `>=1.7.0`. Their Rust types are generated into the new `pacer-plugin-hosts-protocol` and `pacer-plugin-exec-protocol` crates; `pacer_plugin::types` keeps their names.
+- SSH host runners now run through the bundled `pacer-ssh` host-runner plugin and the `pacer-remote-caller` plugin: reachability, host checks and setup, clone and cleanup, prepare, start, stop, reports, output and question reads, Codex usage, binary checks and uploads, runtime probes, session discovery, full-session paging, interactive full-session viewers and result-bundle transfer. Each SSH effect uses a one-use host-issued grant for a configured alias and a fixed script; there is no direct-SSH fallback, so disabling either plugin makes SSH hosts unavailable rather than bypassing it.
 - Upgrading the service no longer interrupts running agents or terminal commands. `pacer update`, **Settings → Updates** and `pacer service install|restart` restart the service onto the new version. Each task's runner then hands its live attempt to a new-version runner that reattaches to the same agent, without re-certifying, requeueing or new grants, and session hosts keep running. Waiting interactive lanes with live workers count as running work; they stay on the previous runner until answered, and a failed worker release is reported as not stopped. Every path reports "Updated to v<version>. N tasks and M sessions kept running; K stayed on the previous runner." `pacer status` and **Settings → Updates** list work still on an older runner or host. Sessions outside the three-minor support window show **Reopen to update**. New operations `service.handover` and `service.work`. This starts with the first upgrade *from* this version: upgrading *into* it uses the old code, and on Linux that first upgrade still stops running work.
 - Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
 - Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
@@ -28,6 +30,22 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Empty polls add about 200 ms plus SSH round-trip latency.
+- Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
+- Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
+- Check a remote attempt's committed work after a failed executor exit through the bundled SSH host runner. A disabled or uncertain provider stops that transfer decision without a direct SSH retry.
+- Probe the remote platform for full-session binary setup through the bundled SSH host runner with a one-use persisted-run grant. A disabled or failing provider stops startup without a direct SSH retry.
+- Install remote agent binaries through the bundled SSH host runner using a one-use, hash-bound upload. Uploads over 128 MiB are refused; a missing completion receipt stops the attempt without a direct SSH retry.
+- Stop persisted remote task runs through the bundled SSH host runner's fixed STOP script with a one-use grant. A missing completion receipt leaves that stop operation unsettled even if a later stop succeeds; there is no direct SSH fallback.
+- Clean eligible remote task worktrees through the bundled SSH host runner with a one-use task grant and completion receipt. Disabled providers and ambiguous completion do not trigger a direct SSH retry.
+- Run consented remote checkout clones through the bundled SSH host runner with a one-use configured grant and completion receipt. Missing receipts leave the operation unsettled and never trigger a direct SSH retry.
+- Check remote checkout existence for setup and clone consent through the bundled SSH host runner's fixed read-only script. Plugin refusal stops setup without a direct SSH retry.
+- Check configured remote account folders, checkouts and repository identity through the bundled SSH host runner's fixed read-only script. Plugin refusal does not retry these checks through direct SSH.
+- Run the initial `pacer host check` SSH and tool diagnostic through the bundled SSH host runner. Disabled or failing plugins report the host unreachable; paused hosts remain diagnosable.
+- Check remote runner reachability through the bundled remote caller and fixed SSH provider. A disabled or failing plugin reports the host unreachable without trying direct SSH.
+- Read configured remote Codex usage through the bundled remote caller and fixed SSH provider with a one-use account/host grant. Plugin refusal produces no direct SSH retry; previously cached readings remain available.
+- Receive remote task questions through one-use host-issued `remoteCaller` reads; keep the accepted text durable and ignore the remote question file at preflight only while its exact content matches.
+- Receive committed SSH task results through the bundled remote caller and host-issued, verified bundle; import its immutable bytes and compare-and-swap the local branch without a direct host fetch fallback.
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
 - Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.6.0 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
 - OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.6.0 adds `notifier.deliver`.
@@ -169,6 +187,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Close an SSH session viewer when an owned duplex broker reply is lost, using a finite per-call deadline while leaving the remote task running.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
 - Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
@@ -206,6 +225,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Route `pacer host setup` repository identity updates through the bundled remote caller and SSH provider with a one-use host-issued grant. Setup reports a plugin error if either required plugin is disabled.
 - Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
 
 - Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
