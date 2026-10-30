@@ -11,6 +11,7 @@ import { createCaptureWriter, recordStep } from "./evidence";
 import { ControlError, parseResult, type ControlRequest, type ControlResult } from "./contract";
 import { acquireLease, processIdentity, sameProcess, type ProcessIdentity } from "./lease";
 import { spawn } from "node:child_process";
+import { upgradeLogin } from "../upgrade";
 
 interface WorkerState { identity: ProcessIdentity; socket: string; token: string; run_id: string; source_hash: string }
 function controlSourceHash(): string {
@@ -71,9 +72,9 @@ async function serve(session: Session): Promise<void> {
   if (!executablePath) throw new ControlError("observer_unavailable", "set PACER_LIVE_BROWSER to an installed Chromium executable");
   const browser = await chromium.launch({ executablePath, headless: process.env.PACER_LIVE_HEADLESS === "1", timeout: 15000 });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
-  const origin = `http://127.0.0.1:${session.port}`;
+  const origin = `http://127.0.0.1:${session.stopped ? session.innerPort : session.port}`;
   try {
-    const login = await run([sandboxEnv(session).PACER_BIN!, "open", "--print"], session, false);
+    const login = session.stopped ? await upgradeLogin(session, "settings") : await run([sandboxEnv(session).PACER_BIN!, "open", "--print"], session, false);
     const url = login.stdout.match(/http:\/\/127\.0\.0\.1:[0-9]+\/app\/auth\?[^\s]+/)?.[0];
     if (login.code || !url || new URL(url).origin !== origin) throw new ControlError("observer_unavailable", "sandbox login URL unavailable");
     const page = await context.newPage(); await page.goto(url, { timeout: 15000 });

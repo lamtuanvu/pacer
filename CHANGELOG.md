@@ -37,6 +37,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
 - Resolve interactive agent reports from the authenticated launch run directory, so an overridden `PACER_HOME` no longer prevents completion. Report invalid launch paths, task states, attempts and tokens with actionable errors.
 - Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
+- Keep the Reopen to update notice compact in narrow sessions and make its new-task or new-terminal action reachable by keyboard before the terminal input.
 - Retry the paired core's startup handshake during desktop service takeover; a transient refusal could cause a real 0.12.0 takeover to roll back.
 - Restore takeover live validation after the fixture and takeover changes merged; the five takeover scenarios had not worked together on main.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.

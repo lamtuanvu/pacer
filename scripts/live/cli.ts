@@ -9,7 +9,7 @@ import { executorRefusal } from "./guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
-import { buildUpgradeFixtures, cleanupUpgrade, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
+import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
@@ -29,7 +29,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
-  upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
+  upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
@@ -111,8 +111,8 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   }
   if (command === "upgrade") {
     const action = positionals[0];
-    if (!id || positionals.length !== 1 || flags.size) throw Error("usage: live upgrade build|start|pacer|install|kickstart|identity|cleanup --id <id>");
-    const allowed = action === "start" ? ["--id", "--from"] : action === "identity" ? ["--id", "--task", "--terminal"] : ["--id"];
+    if (!id || positionals.length !== 1 || flags.size) throw Error("usage: live upgrade build|start|pacer|login [--screen <screen>]|fail-handover|install|kickstart|identity|cleanup --id <id>");
+    const allowed = action === "start" ? ["--id", "--from"] : action === "identity" ? ["--id", "--task", "--terminal"] : action === "login" ? ["--id", "--screen"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported upgrade option");
     if (action !== "pacer" && separator >= 0) throw Error("Forwarded arguments require live upgrade pacer");
     const session = loadSession(id);
@@ -126,7 +126,9 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
       const result = action === "pacer" ? await upgradePacer(session, forwarded) : await upgradeInstall(session);
       process.stdout.write(result.stdout); process.stderr.write(result.stderr);
       return result.code;
-    } else if (action === "kickstart") await kickstartUpgradeService(session);
+    } else if (action === "login") console.log((await upgradeLogin(session, options.get("--screen"))).stdout.trim());
+    else if (action === "fail-handover") console.log(forceUpgradeHandoverFailure(session));
+    else if (action === "kickstart") await kickstartUpgradeService(session);
     else if (action === "identity") console.log(JSON.stringify(upgradeIdentity(session, options.get("--task"), options.get("--terminal")), null, 2));
     else if (action === "cleanup") await cleanupUpgrade(session);
     else throw Error("Unsupported upgrade action");
