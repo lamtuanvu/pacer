@@ -14,9 +14,9 @@ import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
 export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
-export interface TerminalViewProps { preview?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
+export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false}:TerminalViewProps){
  const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
@@ -65,7 +65,14 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
    })));
   }}):undefined;
   term.open(mount.current);
-  const applyTheme=()=>{const style=getComputedStyle(mount.current!);const token=(name:string)=>style.getPropertyValue(name).trim();term.options.theme={background:token('--surface-page'),foreground:token('--ink'),cursor:token('--ink'),selectionBackground:token('--line'),black:token('--ink'),red:token('--bad-fg'),green:token('--good-fg'),yellow:token('--warn-fg'),blue:token('--info-fg'),magenta:token('--link'),cyan:token('--info-fg'),white:token('--ink-secondary'),brightBlack:token('--ink-muted'),brightRed:token('--bad-fill'),brightGreen:token('--good-fill'),brightYellow:token('--warn-fill'),brightBlue:token('--link'),brightMagenta:token('--link'),brightCyan:token('--info-fg'),brightWhite:token('--ink')};};
+  const applyTheme=()=>{
+   const style=getComputedStyle(mount.current!);
+   const token=(name:string)=>style.getPropertyValue(`--terminal-${name}`).trim();
+   term.options.minimumContrastRatio=4.5;
+   term.options.theme={background:token('background'),foreground:token('foreground'),cursor:token('foreground'),cursorAccent:token('background'),selectionBackground:token('selection'),
+    black:token('black'),red:token('red'),green:token('green'),yellow:token('yellow'),blue:token('blue'),magenta:token('magenta'),cyan:token('cyan'),white:token('white'),
+    brightBlack:token('bright-black'),brightRed:token('bright-red'),brightGreen:token('bright-green'),brightYellow:token('bright-yellow'),brightBlue:token('bright-blue'),brightMagenta:token('bright-magenta'),brightCyan:token('bright-cyan'),brightWhite:token('bright-white')};
+  };
   applyTheme();const observer=new MutationObserver(applyTheme);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','class']});const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',applyTheme);
   const endpoint=new URL(url??`/v2/tasks/${encodeURIComponent(id)}/session`,location.href);endpoint.protocol=['https:','wss:'].includes(endpoint.protocol)?'wss:':'ws:';
   let lastYou=false,lastCols=cols,lastRows=rows;
@@ -75,10 +82,10 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
    // A hidden pane (another tab is open) measures 0×0; fitting it would shrink the agent's PTY.
    if(!pane.current.clientWidth||!pane.current.clientHeight)return;
    if(client.current?.state.you){mount.current.style.transform='';mount.current.style.width='100%';mount.current.style.height='100%';if(resize){fit.fit();client.current.resize(term.cols,term.rows);}return;}
-   // PTY geometry is authoritative. Compact previews scroll at full font size.
+   // Followers preserve authoritative PTY geometry and scroll at the normal font size.
    mount.current.style.width=`${term.cols*term.options.fontSize!*0.61}px`;mount.current.style.height=`${term.rows*term.options.fontSize!*1.2}px`;
    const screen=mount.current.querySelector<HTMLElement>('.xterm-screen');
-   if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;const factor=conversation||preview?1:Math.min(1,pane.current.clientWidth/Math.max(1,screen.offsetWidth),pane.current.clientHeight/Math.max(1,screen.offsetHeight));mount.current.style.transform=`scale(${factor})`;}
+   if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;mount.current.style.transform='';}
   };
   const connection=new SessionClient({url:endpoint.href,label,cols,rows,control:control&&live,autoControl:!takeRequested,onSnapshot:s=>{term.reset();term.resize(s.cols,s.rows);term.write(s.scrollbackAnsi);term.write(s.screenAnsi,scale);},onOutput:bytes=>term.write(bytes),onState:s=>{setState(s);term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}});
   client.current=connection;
@@ -136,7 +143,8 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
    <span className="pc-session-control__size">{state.cols}×{state.rows}</span>{readerToggle}
   </div>,footer):<>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
-  {!preview&&<TerminalControls control={control} live={live} driving={driving} shell={shell} state={state} takeover={takeover} onControl={toggleControl} onReconnect={reconnect}/>}
+  {externalControls&&state.status==='error'&&<Button onClick={reconnect}>Reconnect</Button>}
+  {!preview&&!externalControls&&<TerminalControls control={control} live={live} driving={driving} shell={shell} state={state} takeover={takeover} onControl={toggleControl} onReconnect={reconnect}/>}
   </>}
  </section>;
 }

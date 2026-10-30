@@ -866,10 +866,27 @@ dot, ellipsized title, 18px host chip and mono repository, then status and token
 Session toggles and collapsed 26px icon targets or expanded 28px minimum rows are
 sibling controls, with independent keyboard targets. The Tasks tree supplies status
 and attention vocabulary. The frame's active-panel actions live right of search;
-board IconButtons are 28px with native title tooltips, ink-filled takeover and bad
-end-session tone. Session control remains owned by the panel, with confirmation on
+board IconButtons are quiet 28px controls with native title tooltips; only the
+end-session action uses bad tone. Takeover and handback retain the shared hover,
+focus, busy and touch-target treatments, with plain ownership text in the header. Session control remains owned by the panel, with confirmation on
 end; file panels hand local workspace paths to VS Code's registered file URI handler.
 Desktop geometry uses generated tokens; live status respects reduced motion.
 
 Workspace control glyphs (`take-over`, `hand-back`, `stop-session`) follow the approved
 board 26 SVG paths. Board IconButton geometry has no border and uses a 16px glyph.
+
+### Terminal palette and authoritative geometry
+
+`terminal-*` color tokens in `tokens.local.json` own the dark terminal surface,
+default foreground, selection, cursor and 16 ANSI colors in both app themes.
+The renderer requests a 4.5:1 minimum text contrast; it does not rewrite output
+ANSI sequences. Explicit indexed black backgrounds match the terminal surface.
+Terminal wrappers and the xterm viewport consume `terminal-background`, while
+search, status and app chrome keep their normal app-theme tokens. Production
+consumers include workspace sessions, shell/split terminals, and conversation
+terminals via LinkedTerminal. Overview previews use plain task.log output.
+Workspace passes `externalControls` to TerminalView so its
+shared frame toolbar owns takeover/handback without a second action row. The
+terminal retains its status, Screen reader control, errors and reconnect action.
+Followers scroll at normal font size and retain PTY
+dimensions; only a visible controller fits/resizes. No upstream provenance changes.

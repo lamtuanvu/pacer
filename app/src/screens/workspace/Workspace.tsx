@@ -107,14 +107,30 @@ function WorkspaceCard({task,activePanel,node,detail,tokens,members,selected,exp
 function RecentDecisions({task,tree}:{task:TaskDetail;tree?:TraceTree}) {return <section><h2>Recent decisions</h2>{traceSteps(task,tree).slice(-3).map((s,n)=><p key={n} className="pc-trace__cap">✓ {s.title}</p>)}</section>;}
 function AgentPanel({id,detail,work,openFile}:{id:string;detail?:TaskDetail;work:boolean;openFile:(r:string)=>void}) {
  const {api,state}=useTaskContext(),session=useQuery<SessionInfo>('task.session',{id});
- const [wantsControl,setWantsControl]=useState(false),[driving,setDriving]=useState(false),[takeRequested,setTakeRequested]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>();
- const controls=useRef<TerminalActions|null>(null),dialogs=useDialogs();
- const take=async(initial?:'starting'|'driving')=>{setBusy(true);try{if(!initial&&session.data?.host==='builtin'&&session.data.live){setWantsControl(true);setTakeRequested(true);}else await takeoverSession({id,state:initial,call:api.call.bind(api),starting:()=>{},ready:info=>{session.setData(info);setWantsControl(true);setTakeRequested(true);}});}catch(e){setError(e);}finally{setBusy(false);}};
+ const [driving,setDriving]=useState(false),[takeRequested,setTakeRequested]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>();
+ const controls=useRef<TerminalActions|null>(null),takeVersion=useRef(0),dialogs=useDialogs();
+ const take=async(initial?:'starting'|'driving')=>{
+  const version=++takeVersion.current;
+  setBusy(true);
+  try{
+   if(!initial&&session.data?.host==='builtin'&&session.data.live)setTakeRequested(true);
+   else await takeoverSession({id,state:initial,call:api.call.bind(api),starting:()=>{},ready:info=>{
+    if(version!==takeVersion.current)return;
+    session.setData(info);setTakeRequested(true);
+   }});
+  }catch(e){if(version===takeVersion.current)setError(e);}
+  finally{if(version===takeVersion.current)setBusy(false);}
+ };
+ const handBack=()=>{
+  // A pending startup poll must not reclaim input after an explicit handback.
+  takeVersion.current++;setBusy(false);
+  controls.current?.release();setDriving(false);setTakeRequested(false);
+ };
+ useEffect(()=>()=>{takeVersion.current++;},[id]);
  useEffect(()=>{const params=new URLSearchParams(location.hash.split('?')[1]);const pending=params.get('takeover');if(pending==='1'&&!session.data)return;if(pending){params.delete('takeover');history.replaceState(null,'',`${location.hash.split('?')[0]}?${params}`);void take(pending==='starting'||pending==='driving'?pending:undefined);}},[id,session.data?.host,session.data?.live]);
- const initialized=useRef(false);useEffect(()=>{if(session.data&&!initialized.current){initialized.current=true;if(session.data.driving)setWantsControl(true);}},[session.data]);
  const t=state.snapshot?.tasks.find(task=>task.id===id)??detail,s=session.data,live=!!s?.live&&!!t&&['running','queued','needs_input'].includes(t.state);
  const end=async()=>{if(!await dialogs.confirm('End this session? The output and changes are kept.','End session','End session'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});session.reload();}catch(e){setError(e);}};
- return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details"><AgentMark agent={markAgent(t?.executor??'unknown')} size={18}/><div><b>{executorLabel(t?.executor)} · {t?.title??t?.goal}</b><span>{t?.repo?.label} · {detail?.branch} · {driving?"You're driving":'Following · read-only'}</span></div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" className="pc-workspace-handback" variant="quiet" icon="hand-back" aria-label="Hand back" title="Hand back" onClick={()=>{controls.current?.release();setDriving(false);setWantsControl(false);setTakeRequested(false);}}/>:(s?.takeover.available||s?.host==='builtin'&&live)&&<IconButton geometry="board" className="pc-workspace-takeover" icon="take-over" variant="primary" aria-label="Take over" title="Take over" busy={busy} onClick={()=>void take()}/>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" aria-label="End session" title="End session" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??session.error}/>{!s?<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={wantsControl} resize={wantsControl} onControlChange={setDriving} takeRequested={takeRequested} onTakeSent={()=>setTakeRequested(false)} onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>;
+ return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details"><AgentMark agent={markAgent(t?.executor??'unknown')} size={18}/><div><b>{executorLabel(t?.executor)} · {t?.title??t?.goal}</b><span>{t?.repo?.label} · {detail?.branch} · {driving?"You're driving":'Following · read-only'}</span></div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" aria-label="Hand back" title="Hand back" onClick={handBack}/>:(s?.takeover.available||s?.host==='builtin'&&live)&&<IconButton geometry="board" icon="take-over" variant="quiet" aria-label="Take over" title="Take over" busy={busy} onClick={()=>void take()}/>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" aria-label="End session" title="End session" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??session.error}/>{!s?<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} externalControls onControlChange={setDriving} takeRequested={takeRequested} onTakeSent={()=>setTakeRequested(false)} onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>;
 }
 function ShellPanel({panel:p}:{panel:Panel}) {return <><FrameSlot name="title"><div className="pc-workspace-panel-details"><div><b>Your shell · {p.shell?.title}</b><span>{p.shell?.cwd} · login shell</span></div></div></FrameSlot><LazyTerminal id={p.shell!.id} url={p.shell!.attach.ws} cols={p.shell!.cols} rows={p.shell!.rows} live={p.shell!.live} control resize shell/></>;}
 export function workspaceEditorHref(root:string, file:SessionFileResult) {

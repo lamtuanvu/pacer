@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Open available live workspace sessions interactively and fit the visible pane without an extra takeover click. Occupied sessions keep their controller until confirmed takeover; followers scroll at normal font size. Handback preserves the terminal, hidden tabs never resize it, and available sessions reconnect with control. Terminal colors use a coherent dark palette in both app themes, and workspace toolbar controls share quiet compact styling with danger reserved for ending a session.
+
 ### Added
 
 - Upgrading the service no longer interrupts running agents or terminal commands. `pacer update`, **Settings → Updates** and `pacer service install|restart` restart the service onto the new version. Each task's runner then hands its live attempt to a new-version runner that reattaches to the same agent, without re-certifying, requeueing or new grants, and session hosts keep running. Waiting interactive lanes with live workers count as running work; they stay on the previous runner until answered, and a failed worker release is reported as not stopped. Every path reports "Updated to v<version>. N tasks and M sessions kept running; K stayed on the previous runner." `pacer status` and **Settings → Updates** list work still on an older runner or host. Sessions outside the three-minor support window show **Reopen to update**. New operations `service.handover` and `service.work`. This starts with the first upgrade *from* this version: upgrading *into* it uses the old code, and on Linux that first upgrade still stops running work.

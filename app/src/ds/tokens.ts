@@ -64,7 +64,26 @@ export type ColorToken =
   | "board-chart-3"
   | "board-chart-4"
   | "board-chart-5"
-  | "board-on-series";
+  | "board-on-series"
+  | "terminal-background"
+  | "terminal-foreground"
+  | "terminal-selection"
+  | "terminal-black"
+  | "terminal-red"
+  | "terminal-green"
+  | "terminal-yellow"
+  | "terminal-blue"
+  | "terminal-magenta"
+  | "terminal-cyan"
+  | "terminal-white"
+  | "terminal-bright-black"
+  | "terminal-bright-red"
+  | "terminal-bright-green"
+  | "terminal-bright-yellow"
+  | "terminal-bright-blue"
+  | "terminal-bright-magenta"
+  | "terminal-bright-cyan"
+  | "terminal-bright-white";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -131,4 +150,23 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "board-chart-4": { light: "#7f8f6f", dark: "#7f8f6f" },
   "board-chart-5": { light: "#b9b4a8", dark: "#b9b4a8" },
   "board-on-series": { light: "#ffffff", dark: "#ffffff" },
+  "terminal-background": { light: "#000000", dark: "#000000" },
+  "terminal-foreground": { light: "#e6edf3", dark: "#e6edf3" },
+  "terminal-selection": { light: "#334155", dark: "#334155" },
+  "terminal-black": { light: "#000000", dark: "#000000" },
+  "terminal-red": { light: "#ff7b72", dark: "#ff7b72" },
+  "terminal-green": { light: "#7ee787", dark: "#7ee787" },
+  "terminal-yellow": { light: "#e3b341", dark: "#e3b341" },
+  "terminal-blue": { light: "#79c0ff", dark: "#79c0ff" },
+  "terminal-magenta": { light: "#d2a8ff", dark: "#d2a8ff" },
+  "terminal-cyan": { light: "#a5d6ff", dark: "#a5d6ff" },
+  "terminal-white": { light: "#d4d4d4", dark: "#d4d4d4" },
+  "terminal-bright-black": { light: "#8b949e", dark: "#8b949e" },
+  "terminal-bright-red": { light: "#ffa198", dark: "#ffa198" },
+  "terminal-bright-green": { light: "#aff5b4", dark: "#aff5b4" },
+  "terminal-bright-yellow": { light: "#f8e3a1", dark: "#f8e3a1" },
+  "terminal-bright-blue": { light: "#a5d6ff", dark: "#a5d6ff" },
+  "terminal-bright-magenta": { light: "#e2c5ff", dark: "#e2c5ff" },
+  "terminal-bright-cyan": { light: "#b3f0ff", dark: "#b3f0ff" },
+  "terminal-bright-white": { light: "#ffffff", dark: "#ffffff" },
 };

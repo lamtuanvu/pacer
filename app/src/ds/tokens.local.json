@@ -170,6 +170,177 @@
         },
         "usage": "Accessible foreground on the scheme-independent Codex heatmap series.",
         "provisional": "Insights heatmap contrast correction."
+      },
+      {
+        "name": "terminal-background",
+        "value": {
+          "light": "#000000",
+          "dark": "#000000"
+        },
+        "usage": "Theme-independent dark terminal background; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-foreground",
+        "value": {
+          "light": "#e6edf3",
+          "dark": "#e6edf3"
+        },
+        "usage": "Theme-independent dark terminal foreground; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-selection",
+        "value": {
+          "light": "#334155",
+          "dark": "#334155"
+        },
+        "usage": "Theme-independent dark terminal selection; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-black",
+        "value": {
+          "light": "#000000",
+          "dark": "#000000"
+        },
+        "usage": "Theme-independent dark terminal black; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-red",
+        "value": {
+          "light": "#ff7b72",
+          "dark": "#ff7b72"
+        },
+        "usage": "Theme-independent dark terminal red; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-green",
+        "value": {
+          "light": "#7ee787",
+          "dark": "#7ee787"
+        },
+        "usage": "Theme-independent dark terminal green; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-yellow",
+        "value": {
+          "light": "#e3b341",
+          "dark": "#e3b341"
+        },
+        "usage": "Theme-independent dark terminal yellow; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-blue",
+        "value": {
+          "light": "#79c0ff",
+          "dark": "#79c0ff"
+        },
+        "usage": "Theme-independent dark terminal blue; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-magenta",
+        "value": {
+          "light": "#d2a8ff",
+          "dark": "#d2a8ff"
+        },
+        "usage": "Theme-independent dark terminal magenta; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-cyan",
+        "value": {
+          "light": "#a5d6ff",
+          "dark": "#a5d6ff"
+        },
+        "usage": "Theme-independent dark terminal cyan; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-white",
+        "value": {
+          "light": "#d4d4d4",
+          "dark": "#d4d4d4"
+        },
+        "usage": "Theme-independent dark terminal white; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-black",
+        "value": {
+          "light": "#8b949e",
+          "dark": "#8b949e"
+        },
+        "usage": "Theme-independent dark terminal bright-black; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-red",
+        "value": {
+          "light": "#ffa198",
+          "dark": "#ffa198"
+        },
+        "usage": "Theme-independent dark terminal bright-red; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-green",
+        "value": {
+          "light": "#aff5b4",
+          "dark": "#aff5b4"
+        },
+        "usage": "Theme-independent dark terminal bright-green; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-yellow",
+        "value": {
+          "light": "#f8e3a1",
+          "dark": "#f8e3a1"
+        },
+        "usage": "Theme-independent dark terminal bright-yellow; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-blue",
+        "value": {
+          "light": "#a5d6ff",
+          "dark": "#a5d6ff"
+        },
+        "usage": "Theme-independent dark terminal bright-blue; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-magenta",
+        "value": {
+          "light": "#e2c5ff",
+          "dark": "#e2c5ff"
+        },
+        "usage": "Theme-independent dark terminal bright-magenta; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-cyan",
+        "value": {
+          "light": "#b3f0ff",
+          "dark": "#b3f0ff"
+        },
+        "usage": "Theme-independent dark terminal bright-cyan; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
+      },
+      {
+        "name": "terminal-bright-white",
+        "value": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "usage": "Theme-independent dark terminal bright-white; ANSI palette and agent output remain on the same dark surface.",
+        "provisional": "Terminal palette; pending upstream design-system adoption."
       }
     ]
   },
