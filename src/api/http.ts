@@ -74,9 +74,15 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       // A window or process id the client picks once, so two instances of one client contend for a lane's driving lease.
       const instance=req.headers.get("X-Pacer-Client-Instance")??"";
       const clientInstance=/^[A-Za-z0-9._:-]{1,64}$/.test(instance)?{label:client??(label==="app"?"app":"http"),id:instance}:undefined;
+      const base = deps.getCtx(), parent = base.operation;
+      const operation = {
+        signal: parent ? AbortSignal.any([parent.signal, req.signal]) : req.signal,
+        ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}),
+      };
+      const requestCtx: Ctx = { ...base, operation };
       const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
-        : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client,clientInstance});
+        : await (version===3?callOp:callV2Op)(requestCtx, pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client,clientInstance});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);

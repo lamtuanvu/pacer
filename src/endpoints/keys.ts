@@ -74,3 +74,8 @@ export async function deleteKey(ctx: Ctx, name: string, source: KeySource): Prom
   try { rmSync(join(ctx.pacerHome, "secrets", `${name}.key`), {force: true}); }
   catch { throw Error("endpoint key file deletion failed"); }
 }
+
+/** Stable host environment name; the value is resolved only for a child launch. */
+export function endpointKeyEnv(name: string): string {
+  return `PACER_KEY_${name.toUpperCase().replaceAll("-", "_")}`;
+}

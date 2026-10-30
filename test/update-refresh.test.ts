@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { refreshIntegrations } from "../src/commands/update-refresh";
 import { writeManifest } from "../src/install/manifest";
 import { pluginDir } from "../src/plugin/install";
-import { fakeCtx, installLegacyPlugin } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
+import { installLegacyPlugin } from "./helpers";
 
 test("refresh runs replacement reconciliation once for default and named records and reports each outcome", async () => {
   const calls: string[][] = [];

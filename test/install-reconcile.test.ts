@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER } from "./install-helpers";
 import { installPlanner } from "../src/install";
 import { readManifest, writeManifest } from "../src/install/manifest";
@@ -68,7 +68,10 @@ test("legacy Claude install accepts unrelated settings edits when owned hooks ar
   settings.theme = "dark";
   writeFileSync(path, JSON.stringify(settings));
 
+  const unchangedImage = readFileSync(path, "utf8"), unchangedInode = statSync(path).ino;
   expect((await reconcileIntegrations(ctx, { target: "claude-code" }))[0].state).toBe("refreshed");
+  expect(readFileSync(path, "utf8")).toBe(unchangedImage);
+  expect(statSync(path).ino).toBe(unchangedInode);
   expect(JSON.parse(readFileSync(path, "utf8")).theme).toBe("dark");
   expect(readManifest(ctx).planners["claude-code"].files.find(item => item.path === path)?.managed).toBeDefined();
 });
@@ -206,4 +209,36 @@ test("malformed config diagnostics do not disclose configuration contents", asyn
   const result = await reconcileIntegrations(ctx);
   expect(JSON.stringify(result)).not.toContain("secret-value-that-must-not-be-logged");
   expect(result[0].state).toBe("conflict");
+});
+
+
+test("no-op reconcile ownership images stay bound through final manifest settlement", async () => {
+  const { writeNative } = await import("../src/plugins/write-native");
+  const { ctx, root, skill } = await connected("claude-code");
+  const settingsPath = join(root, "settings.json");
+  const manifest = readManifest(ctx);
+  delete manifest.planners["claude-code"].files.find(file => file.path === settingsPath)!.managed;
+  writeFileSync(skill, "old release skill");
+  const skillRecord = manifest.planners["claude-code"].files.find(file => file.path === skill)!;
+  skillRecord.afterHash = sha256("old release skill"); delete skillRecord.managed;
+  writeManifest(ctx, manifest);
+  const beforeManifest = readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8");
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8")); settings.theme = "dark";
+  writeFileSync(settingsPath, JSON.stringify(settings));
+  const native = writeNative(), rename = native.renameAt;
+  let changed = false;
+  native.renameAt = (from, old, to, name) => {
+    rename(from, old, to, name);
+    if (!changed && name === "SKILL.md") {
+      changed = true; settings.theme = "concurrent";
+      writeFileSync(settingsPath, JSON.stringify(settings));
+    }
+  };
+  try {
+    expect((await reconcileIntegrations(ctx, { target: "claude-code" }))[0].state).toBe("conflict");
+    expect(changed).toBe(true);
+    expect(readFileSync(skill, "utf8")).toBe("old release skill");
+    expect(JSON.parse(readFileSync(settingsPath, "utf8")).theme).toBe("concurrent");
+    expect(readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8")).toBe(beforeManifest);
+  } finally { native.renameAt = rename; }
 });

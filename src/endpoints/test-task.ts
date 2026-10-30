@@ -6,10 +6,11 @@ import { launchFor, runnerEnv } from "../exec/launch";
 import { execProcess, executorEnv, type ExecSpec, type ExecResult } from "../exec/process";
 import type { Ctx } from "../types";
 import { captureClaudeStreamUsage } from "../usage/claude";
+import { testManagedEndpoint } from "../plugins/endpoint-test";
 import { configProviders, signedInProviders } from "./detect";
 import { redactEndpointError, writeEndpointState, type EndpointState } from "./state";
 
-export interface TestTaskDeps { spawn?: (spec: ExecSpec) => Promise<ExecResult> }
+export interface TestTaskDeps { endpointTest?: typeof testManagedEndpoint; spawn?: (spec: ExecSpec) => Promise<ExecResult> }
 
 /** Runs a small task in a disposable repository, never in a user's checkout. */
 export async function runTestTask(ctx: Ctx, runnerId: string, deps: TestTaskDeps = {}): Promise<void> {
@@ -70,6 +71,11 @@ export async function testEndpoint(ctx: Ctx, name: string, deps: TestTaskDeps = 
   let state: EndpointState;
   try {
     // Preserve the endpoint test's existing repository location and timeout.
+    if (account.connection) {
+      state = await (deps.endpointTest ?? testManagedEndpoint)(ctx, strategy.accounts, name, runner);
+      writeEndpointState(ctx, name, state);
+      return state;
+    }
     await runInTestRepo(ctx, runner.id, deps, "endpoints", 120000);
     state = {state: "ready", checked_at: new Date(ctx.now * 1000).toISOString()};
   } catch (error) {

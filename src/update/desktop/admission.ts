@@ -48,16 +48,18 @@ export function beginWorkSync(ctx: Ctx, blocker: Blocker): string {
 export async function beginWork(ctx: Ctx, blocker: Blocker): Promise<string> { return beginWorkSync(ctx, blocker); }
 
 /** A private unguessable lease is passed to exactly one child, which claims before starting work. */
-export function claimWorkSync(ctx: Ctx, leaseId: string): void {
+export function claimWorkSync(ctx: Ctx, leaseId: string): boolean {
   const identity = ownProcessIdentity();
-  mutate(ctx, state => {
+  return mutate(ctx, state => {
     const lease = state.leases.find(item => item.id === leaseId);
     if (!lease || (lease.state === "active" && lease.owner !== incarnation)) {
       throw new CoreError("conflict", "Desktop work lease has no claimable owner");
     }
     // Reservations cannot coexist with leases; treat inconsistent state as unsafe.
     if (state.reservation) throw new CoreError("conflict", "Desktop update maintenance is reserved");
+    const newlyClaimed=lease.state!=="active";
     lease.owner = incarnation; lease.process = identity; lease.state = "active";
+    return newlyClaimed;
   });
 }
 

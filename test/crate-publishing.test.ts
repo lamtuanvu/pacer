@@ -18,7 +18,7 @@ test("independent crate versions ignore generated VCS and lock metadata but dete
 test("the independent protocol crates publish before the SDK that depends on all of them", () => {
   const root = join(import.meta.dir, "..");
   const manifest = (folder: string) => Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string; publish?: boolean }; dependencies?: Record<string, unknown> };
-  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-protocol", "plugin-sdk"]);
+  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-protocol", "plugin-sdk"]);
   const names = pluginCrateFolders.map(folder => manifest(folder).package.name);
   for (const [index, folder] of pluginCrateFolders.entries()) {
     const { package: metadata, dependencies = {} } = manifest(folder);
@@ -31,7 +31,7 @@ test("the independent protocol crates publish before the SDK that depends on all
 });
 
 test("protocol area crate archives hash like the other plugin crates", async () => {
-  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol"]) {
+  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]) {
     const bytes = await new Bun.Archive({ [`${name}-0.1.0/Cargo.toml`]: `[package]\nname="${name}"\n`, [`${name}-0.1.0/src/lib.rs`]: "source" }, { compress: "gzip" }).bytes();
     expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
   }
@@ -94,4 +94,34 @@ test("independent protocol dry-run refusal prevents all uploads and SDK packagin
  const calls: string[]=[];
  await expect(publishPluginCrates({crates:[{name:"pacer-plugin-protocol",version:"0.1.0"},{name:"pacer-plugin",version:"0.1.0"}],package:async c=>{calls.push(`package ${c.name}`);return "a".repeat(64)},publishedChecksum:async()=>null,dryRun:async c=>{calls.push(`dry ${c.name}`);throw Error("protocol refusal")},publish:async c=>{calls.push(`publish ${c.name}`)}})).rejects.toThrow("protocol refusal");
  expect(calls).toEqual(["package pacer-plugin-protocol","dry pacer-plugin-protocol"]);
+});
+
+test("0.2 release graph packages every independent area before the SDK", async () => {
+  const { readFileSync } = await import("node:fs");
+  const metadata = pluginCrateFolders.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
+  for (const item of metadata) expect(item.package).toMatchObject({ version: "0.2.0", publish: true });
+  const sdk = metadata.at(-1)!;
+  for (const item of metadata.slice(0, -1)) expect(sdk.dependencies[item.package.name]).toMatchObject({ version: "0.2.0" });
+  expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
+  const calls: string[] = [];
+  await expect(publishPluginCrates({
+    crates: metadata.map(item => ({ name: item.package.name, version: item.package.version })),
+    package: async item => { calls.push(item.name); return "a".repeat(64); },
+    publishedChecksum: async () => null,
+    dryRun: async item => { if (item.name === "pacer-plugin-install-protocol") throw Error("install refused"); },
+    publish: async () => {},
+  })).rejects.toThrow("install refused");
+  expect(calls).toEqual(["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]);
+});
+
+test("new publishable area archives use the same bounded canonical content checks", async () => {
+  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]) {
+    const bytes = await new Bun.Archive({
+      [`${name}-0.2.0/Cargo.toml`]: `[package]\nname="${name}"\nversion="0.2.0"\n`,
+      [`${name}-0.2.0/src/lib.rs`]: "pub struct Distinct;",
+    }, { compress: "gzip" }).bytes();
+    expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+  }
+  const privateArea = await new Bun.Archive({ "pacer-plugin-policy-protocol-0.0.0/Cargo.toml": "private", "pacer-plugin-policy-protocol-0.0.0/src/lib.rs": "private" }, { compress: "gzip" }).bytes();
+  await expect(crateContentHash(privateArea)).rejects.toThrow("Invalid plugin crate archive path");
 });

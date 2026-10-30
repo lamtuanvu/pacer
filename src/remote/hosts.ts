@@ -92,9 +92,9 @@ export function suggest(ctx: Ctx): string[] {
   const used = new Set(Object.values(loadStrategy(ctx).hosts).map(h => h.ssh));
   return sshAliases(ctx.home).filter(alias => !used.has(alias));
 }
-export function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paused?: boolean; session?: "recording" | "full" }): HostSummary {
+export async function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paused?: boolean; session?: "recording" | "full" }): Promise<HostSummary> {
   const before=configured(ctx, alias);
-  applyEdit(ctx, doc => {
+  await applyEdit(ctx, doc => {
     if (o.max_tasks !== undefined) doc.setIn(["hosts", alias, "max_tasks"], o.max_tasks);
     if (o.session !== undefined) doc.setIn(["hosts", alias, "session"], o.session);
     if (o.paused !== undefined) doc.setIn(["hosts", alias, "paused"], o.paused);
@@ -219,19 +219,19 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   return finish();
 }
 
-export function mapRepo(ctx: Ctx, alias: string, key: string, path: string) {
+export async function mapRepo(ctx: Ctx, alias: string, key: string, path: string) {
   configured(ctx, alias);
   key = key.toLowerCase();
   if (!canonical(key)) throw new CoreError("invalid_input", "invalid repo key", "Use the canonical host/owner/repo form, e.g. github.com/acme/api.");
-  applyEdit(ctx, doc => doc.setIn(["hosts", alias, "repos", key], path));
+  await applyEdit(ctx, doc => doc.setIn(["hosts", alias, "repos", key], path));
   return { alias, key, path };
 }
 
-export function addAccount(ctx: Ctx, alias: string, account: string, home: string) {
+export async function addAccount(ctx: Ctx, alias: string, account: string, home: string) {
   configured(ctx, alias);
   const cfg = loadStrategy(ctx).accounts[account];
   if (!cfg || !["codex", "claude"].includes(cfg.kind)) throw new CoreError("invalid_input", "host account must be a configured codex or claude account");
-  applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
+  await applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
   // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
   const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
@@ -342,20 +342,20 @@ export function cleanJob(ctx: Ctx, alias: string) {
 }
 
 /** Add an SSH alias using the strategy validator, without connecting to it. */
-export function add(ctx: Ctx, {alias, ssh}: {alias: string; ssh: string}) {
+export async function add(ctx: Ctx, {alias, ssh}: {alias: string; ssh: string}) {
   const s = loadStrategy(ctx);
   if (alias === "local" || !/^[a-z0-9][a-z0-9-]*$/.test(alias)) throw new CoreError("invalid_input", "invalid or reserved host alias", "Use lowercase letters, digits and hyphens; local is reserved.");
   if (Object.hasOwn(s.hosts, alias)) throw new CoreError("conflict", `host ${alias} already exists`, "Choose a different alias or remove the existing host.");
-  applyEdit(ctx, doc => doc.setIn(["hosts", alias], {ssh}));
+  await applyEdit(ctx, doc => doc.setIn(["hosts", alias], {ssh}));
   return {alias};
 }
-export function remove(ctx: Ctx, alias: string) {
+export async function remove(ctx: Ctx, alias: string) {
   if (alias === "local") throw new CoreError("invalid_input", "local is reserved", "Only configured SSH hosts can be removed.");
   const s = loadStrategy(ctx);
   configured(ctx, alias);
   // Strategy runners include explicit declarations even when enabled: false.
   const reference = Object.values(s.runners).find(r => r.host === alias);
   if (reference) throw new CoreError("conflict", `${alias} is used by ${reference.id}`, "Remove its runners first.");
-  applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
+  await applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
   return {removed: true as const};
 }

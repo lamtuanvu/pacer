@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
@@ -8,6 +8,9 @@ import { computeStatus } from "../src/engine/status";
 import type { UsageReading } from "../src/types";
 import { markExhausted } from "../src/usage/reactive";
 import { fakeCtx, withLoginIndicators, tmpDir } from "./helpers";
+import { fakeCtx as fakeUsageCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+
+afterEach(cleanupUsageFixtures);
 
 const strategy = (accountsMode = "spread", policy = "priority") => validateStrategy({
   accounts: { plan: { kind: "claude" }, a: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } }, b: { kind: "endpoint", usage: "metered", budget: { weekly_tokens: 1000 } } },
@@ -112,7 +115,7 @@ test("migration omits redundant runners without trailing whitespace", () => {
 
 test("live metered readings count the runner model once per account", async () => {
   const s = strategy();
-  const ctx = fakeCtx({ now, run: async argv => argv[0] === "opencode" ? { code: 0, stderr: "", stdout: JSON.stringify({ models: [
+  const ctx = fakeUsageCtx({ now, run: async argv => argv[0] === "opencode" ? { code: 0, stderr: "", stdout: JSON.stringify({ models: [
     { model: { providerID: "api", id: "one" }, tokens: { input: 100, output: 50 } },
     { model: { providerID: "api", id: "two" }, tokens: { input: 200, output: 50 } },
     { model: { providerID: "api", id: "three" }, tokens: { input: 50, output: 50 } },
@@ -227,7 +230,7 @@ for (const usageSource of [undefined, "orca"] as const) {
 
 test("reactive and metered accounts never query Orca for usage", async () => {
   const calls: string[][] = [];
-  const ctx = fakeCtx({ now, run: async argv => {
+  const ctx = fakeUsageCtx({ now, run: async argv => {
     calls.push([...argv]);
     return { code: 0, stderr: "", stdout: JSON.stringify({ models: [
       { model: { providerID: "api", id: "one" }, tokens: { input: 100, output: 50 } },

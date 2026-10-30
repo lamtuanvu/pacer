@@ -6,7 +6,7 @@ import { uninstallPlanner } from "../src/install/uninstall";
 import { runDoctor } from "../src/install/doctor";
 import { PACER_SKILL } from "../src/install/skill";
 import { readManifest } from "../src/install/manifest";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER, snapshot } from "./install-helpers";
 import { main } from "../src/cli";
 
@@ -42,12 +42,15 @@ for(const [planner,relative,content,marker] of [
 }
 test("claude-code --no-mcp removes MCP through the claude CLI and never edits ~/.claude.json",async()=>{
  const calls:string[][]=[],ctx=fakeCtx({which:()=>"/usr/bin/claude",run:async(argv:string[])=>{calls.push(argv);return {code:0,stdout:"",stderr:""};}}),path=join(ctx.home,".claude.json"),content='{"mcpServers":{"pacer":{"command":"old"}}}';
+ const binary=join(ctx.pacerHome,"fixture-claude"),log=join(ctx.pacerHome,"fixture-calls.jsonl");mkdirSync(ctx.pacerHome,{recursive:true});
+ writeFileSync(binary,`#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(log)},JSON.stringify([${JSON.stringify(binary)},...process.argv.slice(2)])+'\\n');`,{mode:0o700});ctx.which=name=>name==="claude"?binary:null;
  writeFileSync(path,content);await installPlanner({ctx,pacerArgv:PACER,mcp:false},"claude-code");
- expect(calls).toContainEqual(["/usr/bin/claude","mcp","remove","-s","user","pacer"]);expect(calls.some(a=>a.includes("add"))).toBe(false);expect(readFileSync(path,"utf8")).toBe(content);
+ calls.push(...readFileSync(log,"utf8").trim().split("\n").map(line=>JSON.parse(line)));
+ expect(calls).toContainEqual([binary,"mcp","remove","-s","user","pacer"]);expect(calls.some(a=>a.includes("add"))).toBe(false);expect(readFileSync(path,"utf8")).toBe(content);
 });
 test("skill is short, describes CLI fields and executor/worktree rules",()=>{
  expect(PACER_SKILL.split("\n").length).toBeLessThan(80);expect(PACER_SKILL).toStartWith("---\nname: pacer\ndescription:");
-  for(const s of ['budget','pace','worktree_reason','timeout_min','brief-file -','pacer wait','pacer review','pacer stop','report-limit','PACER_WORK_GRANT','pacer dispatch child','uncommitted','parallel'])expect(PACER_SKILL).toContain(s);
+  for(const s of ['budget','pace','worktree_reason','timeout_min','brief-file -','pacer wait','pacer review','pacer stop','report-limit','PACER_WORK_GRANT','pacer dispatch child','uncommitted','parallel','a grant cannot retry or answer its own task','## Other product actions','pacer api describe runner.settings.save','expect_rev','Never replay an uncertain mutation blindly','pacer session io','pacer attachment','pending is not success','Do not read private task files, credentials or logs.'])expect(PACER_SKILL).toContain(s);
 });
 test("install CLI accepts MCP options, defaults to skill, and rejects conflicting flags",async()=>{
  const ctx=fakeCtx({env:{PACER_BIN:PACER[0]}});

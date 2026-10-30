@@ -68,10 +68,10 @@ for (const mark of ["block", "exhausted"] as const) test(`fresh ${mark} during s
   expect(launched).toEqual(["cursor"]);
 });
 
-test("explicit exhausted executor is refused before creating a task", () => {
+test("explicit exhausted executor is refused before creating a task", async () => {
   const ctx = fakeCtx();
   markExhausted(ctx, strategy.runners.codex.account, ctx.now + 3600, { manual: true });
-  expect(() => delegate(ctx, { brief: { goal: "g", repo: ctx.home }, executor: "codex" }, () => 1, strategy)).toThrow(/exhausted/i);
+  await expect(delegate(ctx, { brief: { goal: "g", repo: ctx.home }, executor: "codex" }, () => 1, strategy)).rejects.toThrow(/exhausted/i);
 });
 
 test("review retry persists and executes in the original worktree with uncommitted work", async () => {
@@ -118,10 +118,10 @@ test("new worktree fetches default remote tip instead of current feature HEAD an
   } finally { cliDeps.spawnRunner = original; }
 }, 30_000);
 
-for (const id of ["codex", "codex#codex"]) test(`explicit blocked alias ${id} fails without spawning`, () => {
+for (const id of ["codex", "codex#codex"]) test(`explicit blocked alias ${id} fails without spawning`, async () => {
   const ctx = fakeCtx();
   blockExecutor(ctx, "codex#codex");
-  expect(() => delegate(ctx, { brief: { goal: "g", repo: ctx.home }, executor: id }, () => { throw Error("must not spawn"); }, strategy)).toThrow(/Blocked by you/);
+  await expect(delegate(ctx, { brief: { goal: "g", repo: ctx.home }, executor: id }, () => { throw Error("must not spawn"); }, strategy)).rejects.toThrow(/Blocked by you/);
 });
 
 test("limit fallback cannot run an executor newly blocked by the preceding attempt", async () => {

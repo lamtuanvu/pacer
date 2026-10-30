@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "agent": "cursor",
+  "now": 1700000000,
+  "pacerArgv": [
+    "pacer"
+  ],
+  "before": {
+    "$HOME/.cursor/hooks.json": {
+      "text": "{\"version\":1,\"hooks\":{\"sessionStart\":[{\"command\":\"other-hook\",\"timeout\":5}]}}\n",
+      "mode": 384
+    },
+    "$HOME/.cursor/mcp.json": {
+      "text": "{\n\t// User comment\n\t\"mcpServers\": {\"other\": {\"command\":\"other\", \"args\":[\"mcp\"]}}\n}\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "after": {
+    "$HOME/.cursor/hooks.json": {
+      "text": "{\n  \"version\": 1,\n  \"hooks\": {\n    \"sessionStart\": [\n      {\n        \"command\": \"other-hook\",\n        \"timeout\": 5\n      },\n      {\n        \"command\": \"pacer session-start --planner cursor\",\n        \"timeout\": 15\n      }\n    ],\n    \"subagentStart\": [\n      {\n        \"command\": \"pacer guard --planner cursor\",\n        \"timeout\": 15\n      }\n    ]\n  }\n}\n",
+      "mode": 384
+    },
+    "$HOME/.cursor/hooks.json.pacer-bak-20231115-051320": {
+      "text": "{\"version\":1,\"hooks\":{\"sessionStart\":[{\"command\":\"other-hook\",\"timeout\":5}]}}\n",
+      "mode": 384
+    },
+    "$HOME/.cursor/mcp.json": {
+      "text": "{\n\t// User comment\n\t\"mcpServers\": {\n\t  \"pacer\": {\n\t    \"command\": \"pacer\",\n\t    \"args\": [\n\t      \"mcp\"\n\t    ]\n\t  },\"other\": {\"command\":\"other\", \"args\":[\"mcp\"]}}\n}\n",
+      "mode": 384
+    },
+    "$HOME/.cursor/mcp.json.pacer-bak-20231115-051320": {
+      "text": "{\n\t// User comment\n\t\"mcpServers\": {\"other\": {\"command\":\"other\", \"args\":[\"mcp\"]}}\n}\n",
+      "mode": 384
+    },
+    "$HOME/.cursor/skills/pacer/SKILL.md": {
+      "text": "---\nname: pacer\ndescription: Route and delegate work by subscription budget, answer budget and pace questions, and wait on or review delegated tasks.\n---\n\n# pacer\n\nUse the pacer CLI as the primary interface; MCP is an optional adapter.\nExecutors (PACER_ROLE=executor) must complete their assigned task directly and must not delegate.\n\n1. Run `pacer status --json` and read the planner mode and budget.\n2. Run `pacer route <kind> --json` to choose an available executor.\n3. Write a brief JSON file, then run `pacer delegate --brief-file brief.json --json`.\n   To avoid shell quoting, pipe the JSON to `pacer delegate --brief-file - --json`.\n4. Use the returned `id` with `pacer watch <id> --json` to stream output and state changes until settled.\n   It emits one JSON event per line (default timeout 600 seconds, max 3000). Exit 0 means settled,\n   not necessarily successful; inspect the final state. Exit 2 means timeout or error; check the final event.\n   Watch again after a timeout; Ctrl-C stops watching without stopping the task.\n   Use `pacer wait <id> --json` for completion only, or `pacer tasks <id> --json` for a snapshot.\n   Use these commands instead of polling private task files or tailing executor logs.\n5. Review the diff and run acceptance yourself, then `pacer review <id> --accept --json`\n   or `pacer review <id> --reject --json`; optionally correct `--kind <kind>`.\n\nUse `pacer stop <id> --json` to cancel and `pacer dismiss <id...>` to hide settled cards.\nIf an executor hits a provider limit, run `pacer report-limit <provider>` so routing skips it.\n\n## Brief fields\n\nJSON object: `goal` (required string), `repo` (absolute path, defaults to cwd),\n`kind`, `scope`, `acceptance` (verification command), `constraints`, `context`,\n`executor`, `timeout_min` (1–240), `worktree` (current/new/auto),\n`worktree_reason` (one line, max 200 characters).\nCommand-line flags override file fields. Give a kind tag and a concrete acceptance command.\n\nChoose current for uncommitted work, read-only research/review, installed dependencies/build\noutput, or a small follow-up there. Choose new when another task or the user is editing there,\nfor parallel tasks on the same repo, or exploratory/risky work. Give a worktree_reason;\nomit the choice to let pacer decide (auto).\n\nStrict/emergency: delegate execution and reserve planner budget for decisions/review.\nNormal: delegate substantial execution. Relaxed: execute directly or delegate when useful.\nReview and verify before reporting completion; the worker's report is evidence to check.\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "manifest": {
+    "version": 1,
+    "planners": {
+      "cursor": {
+        "planner": "cursor",
+        "installedAt": 1700000000,
+        "pacerArgv": [
+          "pacer"
+        ],
+        "files": [
+          {
+            "path": "$HOME/.cursor/mcp.json",
+            "action": "edited",
+            "backup": "$HOME/.cursor/mcp.json.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "json-member",
+                "path": [
+                  "mcpServers",
+                  "pacer"
+                ]
+              }
+            ],
+            "afterHash": "5e8158159f9f73a0b33c102ce585e52cb95f9b20cb2b15524f8f03f73f102c77",
+            "managed": {
+              "schema": 1,
+              "hash": "62e37ce77433a64f1d0fcc6dbc1de9e6ac9bf980851d9a07a8319258411996a8"
+            }
+          },
+          {
+            "path": "$HOME/.cursor/skills/pacer/SKILL.md",
+            "action": "created",
+            "exact": true,
+            "undo": [],
+            "afterHash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c",
+            "managed": {
+              "schema": 1,
+              "hash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c"
+            }
+          },
+          {
+            "path": "$HOME/.cursor/hooks.json",
+            "action": "edited",
+            "backup": "$HOME/.cursor/hooks.json.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "hooks",
+                "format": "cursor",
+                "commands": [
+                  "pacer session-start --planner cursor",
+                  "pacer guard --planner cursor"
+                ],
+                "restore": []
+              }
+            ],
+            "afterHash": "df769dae73b7b08faaa6c96a84d35fabacb05c65ab85942f5bf613cc6de69701",
+            "managed": {
+              "schema": 1,
+              "hash": "df9b4b6656165070fd8eb9c7f090fd663479f2de577983b19581fba769b1e49d"
+            }
+          }
+        ],
+        "commands": [],
+        "notes": [
+          "Cursor has no user rule file; pacer's policy arrives through the sessionStart hook."
+        ],
+        "mcp": true
+      }
+    }
+  },
+  "installCalls": [],
+  "uninstall": {
+    "report": {
+      "planner": "cursor",
+      "restored": [
+        "$HOME/.cursor/hooks.json",
+        "$HOME/.cursor/mcp.json"
+      ],
+      "removed": [
+        "$HOME/.cursor/skills/pacer/SKILL.md"
+      ],
+      "reverted": [],
+      "notes": []
+    },
+    "calls": []
+  },
+  "unrelatedEdit": {
+    "path": "$HOME/.cursor/mcp.json",
+    "append": "// User edit after install\n"
+  }
+}

@@ -552,9 +552,12 @@ for (const branchKept of [true, false]) test(`retry after cleanup ${branchKept ?
   let input!: Parameters<typeof tasks.delegate>[1];
   const result = await tasks.retry(ctx, t.id, {}, {delegate: (c, i) => {
     input = i;
-    const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
-    updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
-    return readTask(c, next.id)!;
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
   }});
   if (branchKept) {
     expect(input.reuseWorktree).toBe(w.workdir);
@@ -583,9 +586,12 @@ for (const ancestor of [false, true]) test(`retry waits for cleanup of ${ancesto
   const retrying = tasks.retry(ctx, target.id, {}, {delegate: (c, i) => {
     delegated = true;
     expect(existsSync(i.reuseWorktree!)).toBe(true);
-    const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
-    updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
-    return readTask(c, next.id)!;
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
   }});
   await Bun.sleep(75);
   expect(delegated).toBe(false);
@@ -609,9 +615,12 @@ for (const ancestor of [false, true]) test(`cleanup waits while retry restores $
     return realRun(argv, timeout);
   };
   const retrying = tasks.retry(ctx, target.id, {}, {delegate: (c, i) => {
-    const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
-    updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
-    return readTask(c, next.id)!;
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {x.worktree = i.reuseWorktree;});
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
   }});
   await ready;
   let cleaned = false;
@@ -626,14 +635,17 @@ for (const ancestor of [false, true]) test(`cleanup waits while retry restores $
 
 async function retryReusing(ctx: ReturnType<typeof fakeCtx>, id: string) {
   return (await tasks.retry(ctx, id, {}, {delegate: (c, i) => {
-    const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
-    updateTask(c, next.id, x => {
-      x.state = "running";
-      x.worktree = i.reuseWorktree;
-      x.run = {dir: join(c.pacerHome, "runs", next.id, "1"), attempt: 1, executor: "codex", startedAt: 1,
-        mode: "new", workdir: i.reuseWorktree!, logFile: ""};
-    });
-    return readTask(c, next.id)!;
+    const create = () => {
+      const next = createTask(c, {brief: i.brief, kind: null, requestedExecutor: null, timeoutS: 60});
+      updateTask(c, next.id, x => {
+        x.state = "running";
+        x.worktree = i.reuseWorktree;
+        x.run = {dir: join(c.pacerHome, "runs", next.id, "1"), attempt: 1, executor: "codex", startedAt: 1,
+          mode: "new", workdir: i.reuseWorktree!, logFile: ""};
+      });
+      return readTask(c, next.id)!;
+    };
+    return i.commitWith ? i.commitWith(create) : create();
   }})).retry;
 }
 

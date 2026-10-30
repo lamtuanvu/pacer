@@ -1,3 +1,4 @@
+import { CoreError } from "../core/errors";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { withLock, withLockSync } from "../core/lock";
 import { assertPacerHomeAllowed } from "../ctx";
@@ -217,11 +218,14 @@ export function readTask(ctx: Ctx, id: string): TaskRecord | null {
 
 // Preserve the per-task cross-process operation lock and synchronous reentrancy.
 const heldTaskLocks = new Set<string>();
+const preparingTaskLocks = new Set<string>();
 export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
   assertPacerHomeAllowed(ctx.pacerHome);
   if (!isTaskId(id)) return action();
   const key = resolve(ctx.pacerHome, "tasks", id);
   if (heldTaskLocks.has(key)) return action();
+  // An asynchronous preparer must be able to settle on this event loop.
+  if (preparingTaskLocks.has(key)) throw new CoreError("conflict", "Task admission is being prepared; retry the change");
   return withLockSync(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
@@ -240,6 +244,29 @@ export function withTaskLockAsync<T>(ctx: Ctx, id: string, action: () => T): Pro
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
+  });
+}
+
+/** Own the task file lock during bounded final artifact checks, without granting
+ * synchronous reentrancy until the final synchronous commit actually begins.
+ * Policy calls must finish before entering this boundary. */
+export function withTaskPreparation<P,T>(ctx:Ctx,id:string,prepare:()=>Promise<P>,commit:(prepared:P)=>T):Promise<T> {
+  assertPacerHomeAllowed(ctx.pacerHome);
+  if(!isTaskId(id)) return Promise.reject(new CoreError("invalid_input","Invalid task preparation id"));
+  const key=resolve(ctx.pacerHome,"tasks",id);
+  if(heldTaskLocks.has(key)) return Promise.reject(new CoreError("conflict","Cannot prepare admission inside a synchronous task commit"));
+  if(commit.constructor.name==="AsyncFunction") return Promise.reject(new CoreError("invalid_input","Task admission commit must be synchronous"));
+  return withLock(ctx,`task-${id}`,async()=>{
+    preparingTaskLocks.add(key);
+    try {
+      const prepared=await prepare();
+      heldTaskLocks.add(key);
+      try {
+        const result=commit(prepared);
+        if(result!==null&&(typeof result==="object"||typeof result==="function")&&typeof (result as {then?:unknown}).then==="function") throw new CoreError("invalid_input","Task admission commit must be synchronous");
+        return result;
+      } finally {heldTaskLocks.delete(key);}
+    } finally {preparingTaskLocks.delete(key);}
   });
 }
 

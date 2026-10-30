@@ -3,7 +3,7 @@ import type { ClientSnapshot } from "../../view-model/snapshot";
 import { counts, plannerMeter } from "../../view-model/selectors";
 import { meterText } from "../../view-model/format";
 import { agentInfo } from "../../view-model/agents";
-import { modeWords, paceStatus, type StatusTone } from "../../view-model/words";
+import { compactPolicyWords, policyWords, modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";
 import { box, clip, fit, glyph, heading, lineWidth, meter, pad, paint, rule, span, statusSpans, toneRole, wrap, type Line, type PaintRow } from "../frame";
 import { SCREEN_LABELS, selectedItem, type Item, type Overlay, type ScreenId, type UiState } from "../state";
@@ -194,20 +194,36 @@ function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, scr
   }
   for (const hint of view.hints ?? []) { const [key, ...label] = hint.split(" "); add(key!, label.join(" ")); }
   const help: Line = [span("?", { bold: true }), span(" help", { fg: "secondary" })];
-  // Only a known state is claimed; before a check the footer shows the version alone.
   const words: Partial<Record<UpdateState, [string, Style]>> = {
     available: ["update available", { fg: "warn", bold: true }], current: ["up to date", { fg: "muted" }],
     disabled: ["update checks off", { fg: "muted" }], failed: ["update check failed", { fg: "warn" }],
   };
   const known = input.update ? words[input.update] : undefined;
+  const policy = span(policyWords(input.s.policy), { fg: "muted" });
+  const compactPolicy = span(compactPolicyWords(input.s.policy), { fg: "muted" });
   const version = span(`pacer ${input.version}`, { fg: "muted" });
+  const separator = span(` ${glyph(theme, "·")} `, { fg: "muted" });
+  const join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
   // Narrow terminals keep one item: the version, unless there is something to notice.
-  const right: Line = !known ? [version]
-    : width >= 100 ? [version, span(` ${glyph(theme, "·")} `, { fg: "muted" }), span(known[0], known[1])]
+  const plain: Line = !known ? [version]
+    : width >= 100 ? [version, separator, span(known[0], known[1])]
     : input.update === "current" ? [version] : [span(known[0], known[1])];
   // Drop whole hints from the end, never the first (the primary) or "? help", so no key is shown cut in half.
-  const room = width - lineWidth(right) - 2, join = (list: Line[]) => list.flatMap((g, i) => i ? [span("  "), ...g] : g);
-  while (groups.length > 1 && lineWidth(join([...groups, help])) > room) groups.splice(groups.length - 1, 1);
+  const kept = (right: Line) => {
+    const room = width - lineWidth(right) - 2;
+    let n = groups.length;
+    while (n > 1 && lineWidth(join([...groups.slice(0, n), help])) > room) n--;
+    return n;
+  };
+  // Key hints outrank the policy token: it shows, shortened if need be, only where it costs no hint.
+  // To make room for it the version gives way first, then a muted update notice. A warn-toned notice
+  // ("update available", "update check failed") outranks the policy token and never gives way to it.
+  const shown = kept(plain), notice: Line = known && input.update !== "current" ? [span(known[0], known[1])] : [];
+  const warns = known?.[1].fg === "warn";
+  const options: Line[] = [[policy, separator, ...plain], [compactPolicy, separator, ...plain],
+    ...(notice.length ? [[policy, separator, ...notice], [compactPolicy, separator, ...notice]] : []), ...(warns ? [] : [[policy], [compactPolicy]])];
+  const right = options.find(line => kept(line) >= shown) ?? plain;
+  groups.splice(kept(right));
   return ends(join([...groups, help]), right, width, theme);
 }
 

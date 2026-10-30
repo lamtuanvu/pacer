@@ -1,3 +1,4 @@
+import { policySummary } from "../plugins/policy";
 import { authObservation } from "../usage/auth";
 import type { EligibilityDecision, EvidenceScope, ReconciledEvidence } from "../evidence/types";
 import { accountEvidenceScope, mergeEvidence } from "../core/evidence";
@@ -45,6 +46,7 @@ export interface AccountStatus {
 }
 
 export interface Status {
+  policy?: import("../view-model/words").PolicySummary;
   generatedAt: number;
   strategy: string;
   planner: string;
@@ -195,7 +197,7 @@ export async function computeStatus(
   const planner = byAccount[s.planner.account];
   const modeHold = readHold(ctx);
   const status: Status & { accounts: AccountStatus[] } = {
-    paused: readPause(ctx), modeHold,
+    policy: policySummary(ctx), paused: readPause(ctx), modeHold,
     generatedAt: ctx.now,
     strategy: s.name,
     planner: s.planner.agent === "opencode" && !s.accounts[s.planner.account] ? "opencode" : formatRunnerId({...s.planner, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}),

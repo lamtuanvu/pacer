@@ -5,10 +5,10 @@ import { lineFields, renderLine } from "../src/render/line";
 const snapshot = () => structuredClone(fixture) as ClientSnapshot;
 const rgb = (s: string, hex: string) => `\x1b[38;2;${hex.match(/../g)!.map(x => parseInt(x, 16)).join(";")}m${s}\x1b[0m`;
 for (const [width, plain, colored] of [
-  [120, "▬┃ Claude Code 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
-  [60, "▬┃ Claude Code 63%·77  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
-  [40, "▬┃ 63%·77 ▸2 ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} 63%·77 ${rgb("▸2", "93c5fd")} ${rgb("⚑4", "fcd34d")}`],
-  [20, "▬┃63 ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")}63 ${rgb("⚑4", "fcd34d")}`],
+  [120, "▬┃ Claude Code 63%·77  policy: unknown  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  policy: unknown  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
+  [60, "▬┃ Claude Code 63%·77  policy: unknown  ▸2  ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} ${rgb("Claude Code", "D97757")} 63%·77  policy: unknown  ${rgb("▸2", "93c5fd")}  ${rgb("⚑4", "fcd34d")}`],
+  [40, "▬┃ 63%·77 policy: unknown ▸2 ⚑4", `${rgb("▬", "a3e635")}${rgb("┃", "a3e635")} 63%·77 policy: unknown ${rgb("▸2", "93c5fd")} ${rgb("⚑4", "fcd34d")}`],
+  [20, "policy:unknown ⚑4", `policy:unknown ${rgb("⚑4", "fcd34d")}`],
 ] as const) {
   test(`fixture golden at ${width} columns`, () => {
     expect(renderLine(snapshot(), { width, color: false })).toBe(plain);
@@ -22,8 +22,8 @@ test("offline and unknown usage", () => {
 });
 test("mode only when non-normal; needs hidden at zero", () => {
   const s = snapshot(); s.planner!.mode = "relaxed"; s.counts!.attention = 0;s.attention=[];
-  expect(renderLine(s, { color: false, width: 120 })).toBe("▬┃ Claude Code 63%·77  ▸2  relaxed");
-  expect(renderLine(s, { color: false, width: 60 })).toBe("▬┃ Claude Code 63%·77  ▸2");
+  expect(renderLine(s, { color: false, width: 120 })).toBe("▬┃ Claude Code 63%·77  policy: unknown  ▸2  relaxed");
+  expect(renderLine(s, { color: false, width: 60 })).toBe("▬┃ Claude Code 63%·77  policy: unknown  ▸2");
 });
 test("ahead and out use service verdicts and colour only the tick", () => {
   const s = snapshot(); s.planner!.verdict = "ahead";
@@ -41,12 +41,22 @@ test("Codex uses its shared identity and invalid counts stay unknown", () => {
   expect(renderLine(s)).toContain(rgb("Codex", "fafafa"));
   s.counts!.running = -1; s.counts!.attention = NaN;
   expect(lineFields(s)).toMatchObject({ running: null, attention: 4 });
-  expect(renderLine(s, { color: false })).toBe("▬┃ Codex 63%·77  ⚑4");
+  expect(renderLine(s, { color: false })).toBe("▬┃ Codex 63%·77  policy: unknown  ⚑4");
 });
-test("narrow ahead/out states preserve the needs-you count", () => {
+test("narrow ahead/out states preserve policy and attention", () => {
   const s = snapshot();
   for (const verdict of ["ahead", "out"] as const) {
     s.planner!.verdict = verdict;
-    expect(renderLine(s, { color: false, width: 20 })).toBe("▬┃63 ⚑4");
+    expect(renderLine(s, { color: false, width: 20 })).toBe("policy:unknown ⚑4");
+  }
+});
+
+test("narrow policy metadata preserves actionable attention before brand and meter", () => {
+  for (const policy of [undefined, { mode: "open" as const, plugins: 0 }, { mode: "closed" as const, plugins: 0 }, { mode: "closed" as const, plugins: 2 }]) {
+    const s = snapshot(); s.policy = policy;
+    const expected = `${policy ? `policy:${policy.mode}/${policy.plugins}` : "policy:unknown"} ⚑4`;
+    expect(renderLine(s, { color: false, width: 20 })).toBe(expected);
+    expect(renderLine(s, { color: true, width: 20 }).replace(/\x1b\[[0-9;]*m/g, "")).toBe(expected);
+    expect(expected.length).toBeLessThanOrEqual(20);
   }
 });

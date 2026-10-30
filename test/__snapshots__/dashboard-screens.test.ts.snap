@@ -40,7 +40,7 @@ exports[`golden frames (NO_COLOR) home at 120x40 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  x dismiss  . actions (3)  f repo scope  d delegate  ? help                              pacer 0.0.0-test"
+ ⏎ Run checks  x dismiss  . actions (3)  f repo scope  d delegate  ? help            policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
@@ -67,7 +67,7 @@ exports[`golden frames (NO_COLOR) home at 80x24 1`] = `
  ↓ 15 more
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help  pacer 0.0.0-test"
+ ⏎ Run checks  x dismiss  . actions (3)  f repo scope  ? help   policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
@@ -110,7 +110,7 @@ exports[`golden frames (NO_COLOR) review at 120x40 1`] = `
                                                       │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  . actions (2)  ? help                                                                   pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help                                                 policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
@@ -137,7 +137,7 @@ exports[`golden frames (NO_COLOR) review at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  . actions (2)  ? help                           pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help         policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] = `
@@ -164,7 +164,7 @@ exports[`golden frames (NO_COLOR) review detail (narrow drill-in) at 80x24 1`] =
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  . actions (2)  ? help                           pacer 0.0.0-test"
+ ⏎ Run checks  . actions (2)  ? help         policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
@@ -207,7 +207,7 @@ exports[`golden frames (NO_COLOR) sessions at 120x40 1`] = `
                                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- s stop  . actions (1)  ? help                                                                         pacer 0.0.0-test"
+ s stop  . actions (1)  ? help                                                       policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
@@ -234,7 +234,7 @@ exports[`golden frames (NO_COLOR) sessions at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- s stop  . actions (1)  → details  ? help                      pacer 0.0.0-test"
+ s stop  . actions (1)  → details  ? help    policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`] = `
@@ -261,7 +261,7 @@ exports[`golden frames (NO_COLOR) sessions detail (narrow drill-in) at 80x24 1`]
  
  ──────────────────────────────────────────────────────────────────────────────
  
- s stop  . actions (1)  ? help                                 pacer 0.0.0-test"
+ s stop  . actions (1)  ? help               policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
@@ -304,7 +304,7 @@ exports[`golden frames (NO_COLOR) settings sections at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ open section  j k sections  ? help                                                                  pacer 0.0.0-test"
+ ⏎ open section  j k sections  ? help                                                policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
@@ -331,7 +331,7 @@ exports[`golden frames (NO_COLOR) settings sections at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ open section  j k sections  ? help                          pacer 0.0.0-test"
+ ⏎ open section  j k sections  ? help        policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = `
@@ -374,7 +374,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 120x40 1`] = 
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Change planner  ← → adjust  Esc sections  ? help                                                    pacer 0.0.0-test"
+ ⏎ Change planner  ← → adjust  Esc sections  ? help                                  policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
@@ -401,7 +401,7 @@ exports[`golden frames (NO_COLOR) settings › Planner & pacing at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Change planner  ← → adjust  Esc sections  ? help            pacer 0.0.0-test"
+ ⏎ Change planner  ← → adjust  Esc sections  ? help             policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
@@ -444,7 +444,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- a add account  l link orca account  Esc sections  ? help                                              pacer 0.0.0-test"
+ a add account  l link orca account  Esc sections  ? help                            policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
@@ -471,7 +471,7 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- a add account  l link orca account  Esc sections  ? help      pacer 0.0.0-test"
+ a add account  l link orca account  Esc sections  ? help       policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
@@ -514,7 +514,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run check  a add executor  Esc sections  ? help                                                     pacer 0.0.0-test"
+ ⏎ Run check  a add executor  Esc sections  ? help                                   policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
@@ -541,7 +541,7 @@ exports[`golden frames (NO_COLOR) settings › Executors at 80x24 1`] = `
  ↓ 7 more
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run check  a add executor  Esc sections  ? help             pacer 0.0.0-test"
+ ⏎ Run check  a add executor  Esc sections  ? help              policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
@@ -584,7 +584,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ← → adjust  Esc sections  ? help                                                                      pacer 0.0.0-test"
+ ← → adjust  Esc sections  ? help                                                    policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
@@ -611,7 +611,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ← → adjust  Esc sections  ? help                              pacer 0.0.0-test"
+ ← → adjust  Esc sections  ? help            policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
@@ -654,7 +654,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  p pause new work  . actions (2)  Esc sections  ? help                                   pacer 0.0.0-test"
+ ⏎ Run checks  p pause new work  . actions (2)  Esc sections  ? help                 policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
@@ -681,7 +681,7 @@ exports[`golden frames (NO_COLOR) settings › Remote hosts at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Run checks  p pause new work  . actions (2)  ? help         pacer 0.0.0-test"
+ ⏎ Run checks  p pause new work  . actions (2)  ? help          policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
@@ -724,7 +724,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit executor order  n add rule  x remove rule  . actions (3)  Esc sections  ? help                 pacer 0.0.0-test"
+ ⏎ Edit executor order  n add rule  x remove rule  . actions (3)  Esc sections  ? help                  policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
@@ -751,7 +751,7 @@ exports[`golden frames (NO_COLOR) settings › Routing at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit executor order  n add rule  x remove rule  ? help      pacer 0.0.0-test"
+ ⏎ Edit executor order  n add rule  x remove rule  ? help       policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] = `
@@ -794,7 +794,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 120x40 1`] 
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit project order  x use global strategy  n add project order  . actions (3)  ? help               pacer 0.0.0-test"
+ ⏎ Edit project order  x use global strategy  n add project order  . actions (3)  Esc sections  ? help  policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] = `
@@ -821,7 +821,7 @@ exports[`golden frames (NO_COLOR) settings › Project strategies at 80x24 1`] =
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Edit project order  x use global strategy  ? help           pacer 0.0.0-test"
+ ⏎ Edit project order  x use global strategy  ? help            policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
@@ -864,7 +864,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- n new from a brief  . actions (1)  Esc sections  ? help                                               pacer 0.0.0-test"
+ n new from a brief  . actions (1)  Esc sections  ? help                             policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
@@ -891,7 +891,7 @@ exports[`golden frames (NO_COLOR) settings › Strategies at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- n new from a brief  . actions (1)  Esc sections  ? help       pacer 0.0.0-test"
+ n new from a brief  . actions (1)  Esc sections  ? help        policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
@@ -934,7 +934,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Check now  Esc sections  ? help                                                                     pacer 0.0.0-test"
+ ⏎ Check now  Esc sections  ? help                                                   policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
@@ -961,7 +961,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Check now  Esc sections  ? help                             pacer 0.0.0-test"
+ ⏎ Check now  Esc sections  ? help           policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
@@ -1004,7 +1004,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Notifications  ← → change  Esc sections  ? help                                                     pacer 0.0.0-test"
+ ⏎ Notifications  ← → change  Esc sections  ? help                                   policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
@@ -1031,7 +1031,7 @@ exports[`golden frames (NO_COLOR) settings › Notifications at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Notifications  ← → change  Esc sections  ? help             pacer 0.0.0-test"
+ ⏎ Notifications  ← → change  Esc sections  ? help              policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
@@ -1074,7 +1074,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Switch theme  Esc sections  ? help                                                                  pacer 0.0.0-test"
+ ⏎ Switch theme  Esc sections  ? help                                                policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
@@ -1101,7 +1101,7 @@ exports[`golden frames (NO_COLOR) settings › Appearance at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Switch theme  Esc sections  ? help                          pacer 0.0.0-test"
+ ⏎ Switch theme  Esc sections  ? help        policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 1`] = `
@@ -1144,7 +1144,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
  
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Install service  ? help                                                                             pacer 0.0.0-test"
+ ⏎ Install service  ? help                                                           policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) setup replaces work screens while setup is incomplete 2`] = `
@@ -1171,7 +1171,7 @@ exports[`golden frames (NO_COLOR) setup replaces work screens while setup is inc
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Install service  ? help                                     pacer 0.0.0-test"
+ ⏎ Install service  ? help                   policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`color, plain and ASCII renditions home in truecolor uses token colors 1`] = `
@@ -1214,7 +1214,7 @@ exports[`color, plain and ASCII renditions home in truecolor uses token colors 1
  
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Run checks\x1B[0m  \x1B[1mx\x1B[0m\x1B[38;2;161;161;170m dismiss\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (3)\x1B[0m  \x1B[1mf\x1B[0m\x1B[38;2;161;161;170m repo scope\x1B[0m  \x1B[1md\x1B[0m\x1B[38;2;161;161;170m delegate\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                              \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
+ \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Run checks\x1B[0m  \x1B[1mx\x1B[0m\x1B[38;2;161;161;170m dismiss\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (3)\x1B[0m  \x1B[1mf\x1B[0m\x1B[38;2;161;161;170m repo scope\x1B[0m  \x1B[1md\x1B[0m\x1B[38;2;161;161;170m delegate\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m            \x1B[38;2;161;161;170mpolicy: unknown\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions review in truecolor uses token colors 1`] = `
@@ -1257,7 +1257,7 @@ exports[`color, plain and ASCII renditions review in truecolor uses token colors
                                                      \x1B[38;2;63;63;70m │ \x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Run checks\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (2)\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                                   \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
+ \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Run checks\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (2)\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                 \x1B[38;2;161;161;170mpolicy: unknown\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions sessions in truecolor uses token colors 1`] = `
@@ -1300,7 +1300,7 @@ exports[`color, plain and ASCII renditions sessions in truecolor uses token colo
                                                \x1B[38;2;63;63;70m │ \x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m stop\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (1)\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                                         \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
+ \x1B[1ms\x1B[0m\x1B[38;2;161;161;170m stop\x1B[0m  \x1B[1m.\x1B[0m\x1B[38;2;161;161;170m actions (1)\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                       \x1B[38;2;161;161;170mpolicy: unknown\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions settings in truecolor uses token colors 1`] = `
@@ -1343,7 +1343,7 @@ exports[`color, plain and ASCII renditions settings in truecolor uses token colo
                                \x1B[38;2;63;63;70m │ \x1B[0m
  \x1B[38;2;63;63;70m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1B[0m
  
- \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Change planner\x1B[0m  \x1B[1m←\x1B[0m\x1B[38;2;161;161;170m → adjust\x1B[0m  \x1B[1mEsc\x1B[0m\x1B[38;2;161;161;170m sections\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                                    \x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
+ \x1B[1m⏎\x1B[0m\x1B[38;2;161;161;170m Change planner\x1B[0m  \x1B[1m←\x1B[0m\x1B[38;2;161;161;170m → adjust\x1B[0m  \x1B[1mEsc\x1B[0m\x1B[38;2;161;161;170m sections\x1B[0m  \x1B[1m?\x1B[0m\x1B[38;2;161;161;170m help\x1B[0m                                  \x1B[38;2;161;161;170mpolicy: unknown\x1B[0m\x1B[38;2;161;161;170m · \x1B[0m\x1B[38;2;161;161;170mpacer 0.0.0-test\x1B[0m"
 `;
 
 exports[`color, plain and ASCII renditions plain mode drops glyphs and borders but keeps every label 1`] = `
@@ -1386,7 +1386,7 @@ exports[`color, plain and ASCII renditions plain mode drops glyphs and borders b
  
  ------------------------------------------------------------------------------
  
- a mark accepted  s send back  r reject  ? help                pacer 0.0.0-test"
+ a mark accepted  s send back  r reject  ? help                 policy: unknown"
 `;
 
 exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
@@ -1413,7 +1413,7 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
  v 15 more
  ------------------------------------------------------------------------------
  
- Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"
+ Enter Run checks  x dismiss  . actions (3)  ? help             policy: unknown"
 `;
 
 exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 1`] = `
@@ -1456,7 +1456,7 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ← → adjust  Esc sections  ? help                                                                      pacer 0.0.0-test"
+ ← → adjust  Esc sections  ? help                                                    policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 2`] = `
@@ -1483,5 +1483,5 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ← → adjust  Esc sections  ? help                              pacer 0.0.0-test"
+ ← → adjust  Esc sections  ? help            policy: unknown · pacer 0.0.0-test"
 `;

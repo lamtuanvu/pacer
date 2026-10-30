@@ -24,24 +24,28 @@ if (args.includes("--rust-input")) {
     for (const stream of corpus.streams) {
       const baseline = await reference(stream);
       const selfCheck = await compareReplay(baseline,baseline.replay);
+      const prospective = await compareReplay(baseline,baseline.prospectiveReplay);
       const checkpoint = await reference({...stream,data:baseline.replay});
       const entry = candidate?.entries.find(e => e.id === stream.id);
       const replay = entry ? Buffer.from(entry.replayBase64,"base64").toString("utf8") : baseline.replay;
       const native = entry ? await compareReplay(baseline,replay) : undefined;
       const checkpointComparison = entry ? await compareReplay(checkpoint,replay) : undefined;
       const oraclePixels = browser ? await browser.compare(`${stream.id}-reference-roundtrip`,stream.data,baseline.replay) : undefined;
+      const prospectivePixels = browser ? await browser.compare(`${stream.id}-prospective-reference`,stream.data,baseline.prospectiveReplay) : undefined;
       const sourcePixels = browser && entry ? await browser.compare(`${stream.id}-source`,stream.data,replay) : undefined;
       const pixels = browser ? await browser.compare(stream.id,baseline.replay,replay) : undefined;
       entries.push({id:stream.id,tags:stream.tags,referenceRoundtrip:selfCheck.differences,referenceDetails:selfCheck.details,
         nativeDifferences:native?.differences,nativeDetails:native?.details,
         checkpointDifferences:checkpointComparison?.differences,checkpointDetails:checkpointComparison?.details,
-        oraclePixels,sourcePixels,pixels});
+        oraclePixels,sourcePixels,pixels,
+        prospectiveReference:{differences:prospective.differences,details:prospective.details,pixels:prospectivePixels}});
     }
     const hashFile = async (file:string|URL) => createHash("sha256").update(await Bun.file(file).bytes()).digest("hex");
     const referenceVerdict = entries.some(e => e.referenceRoundtrip.length || e.oraclePixels?.equal === false) ? "FAIL" : "PASS";
     const nativeVerdict = !candidate ? "UNVERIFIED" : entries.some(e => e.nativeDifferences?.length || e.sourcePixels?.equal === false || e.checkpointDifferences?.length || e.pixels?.equal === false)
       ? "FAIL" : !browser ? "UNVERIFIED" : "PASS";
     const report = {schema:1,corpusSha256:corpus.sha256,
+      spikeReferenceSourceSha256:await hashFile(new URL("./replay.ts",import.meta.url)),
       referenceSourceSha256:await hashFile(new URL("../../../src/session/screen.ts",import.meta.url)),
       adapterSourceSha256:await hashFile(option("--adapter") ?? new URL("./vt100.rs",import.meta.url)),
       candidateSha256:candidatePath ? await hashFile(candidatePath) : null,dimensions:{cols:120,rows:40},
@@ -54,6 +58,8 @@ if (args.includes("--rust-input")) {
     await writeFile(join(output,"report.json"),JSON.stringify(report,null,2)+"\n");
     console.log(JSON.stringify({verdict:report.verdict,streams:entries.length,
       referenceRoundtripFailures:entries.filter(e => e.referenceRoundtrip.length).map(e => ({id:e.id,differences:e.referenceRoundtrip})),
+      prospectiveReferenceStateFailures:entries.filter(e => e.prospectiveReference.differences.length).map(e => e.id),
+      prospectiveReferencePixelFailures:entries.filter(e => e.prospectiveReference.pixels?.equal === false).map(e => e.id),
       referencePixelFailures:entries.filter(e => e.oraclePixels?.equal === false).map(e => e.id),
       sourcePixelFailures:entries.filter(e => e.sourcePixels?.equal === false).map(e => e.id),
       checkpointFailures:entries.filter(e => e.checkpointDifferences?.length).map(e => ({id:e.id,differences:e.checkpointDifferences})),

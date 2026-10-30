@@ -1,4 +1,6 @@
-import { claudeConnectPreview } from "../install/claude";
+import { policySummary } from "../plugins/policy";
+import { policyWords } from "../view-model/words";
+import { plannerPreview } from "../plugins/planner-preview";
 import { parseRunnerId, formatRunnerId, runnerDefaults } from "../config/runner-id";
 import { readManifest } from "../install/manifest";
 import { accountFolder } from "../install/role";
@@ -58,7 +60,7 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     try { return await rl.question(text); } finally { rl.close(); }
   });
   try {
-    const agents = agentPlans(ctx.home, ctx.pacerHome, ctx.which, ctx.env).filter(a => !selected || selected.includes(a.id));
+    const agents = await Promise.all(agentPlans(ctx.home,ctx.pacerHome,ctx.which,ctx.env).filter(a=>!selected||selected.includes(a.id)).map(async a=>({...a,...await plannerPreview(ctx,a.id,a.id==="opencode"?join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"opencode"):join(ctx.home,a.id==="claude-code"?".claude":`.${a.id}`),a.id,a.id==="codex"?ctx.env.CODEX_HOME:undefined)})));
     if (selected?.some(id => !agents.some(a => a.id === id))) return { code: 2, out: "", err: "requested agent CLI is not on PATH" };
     const path = join(ctx.pacerHome, "strategy.yaml");
     const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
@@ -118,7 +120,7 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       const installed = targetFolder ? !!readManifest(ctx).planners[targetKey] : agent.installed;
       let connected = installed;
       if (!connected) {
-        const detail = agent.id === "claude-code" ? claudeConnectPreview(ctx.home, targetFolder ?? join(ctx.home, ".claude")) : undefined;
+        const detail = agent.id === "claude-code" ? (await plannerPreview(ctx,agent.id,targetFolder??join(ctx.home,".claude"))).detail : undefined;
         const preview = `${agent.name}:\n${(targetFolder ? [targetFolder] : agent.files).join("\n")}${detail ? `\n${detail}` : ""}\nUndo: ${targetFolder ? `pacer uninstall ${targetKey}` : agent.undo}\nNo MCP servers will be added.`;
         print(preview);
         const consent = yes || (!tty && !!selected) || (tty && (deps.confirm ? await deps.confirm(preview) : /^y(?:es)?$/i.test((await question(`Connect ${agent.name}? [y/N] `)).trim())));
@@ -129,6 +131,8 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     }
     const migration = migrationLines(path, migrateStrategy(path));
     migration.forEach(print);
+    const policy = policySummary(ctx);
+    print(policyWords(policy));
     print(`Setup: planner ${planner}; strategy ready; login service ${serviceInstalled ? "installed" : "skipped"}; ${results.filter(a => a.installed).length} agents connected.`);
     print("Next:\n  Ask your planner for some work and it will delegate.\n  pacer open — watch work and budgets\n  pacer doctor — check your setup");
     if (tty) {
@@ -151,6 +155,6 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       if (!tty) (deps.print ?? console.log)(lines.join("\n"));
       return (deps.dashboard ?? runDashboard)([], ctx);
     }
-    return { code: 0, out: json ? JSON.stringify({ planner, strategy: path, service: serviceInstalled, agents: results, applied: true, migration }) : tty ? "" : lines.join("\n"), err: "" };
+    return { code: 0, out: json ? JSON.stringify({ policy, planner, strategy: path, service: serviceInstalled, agents: results, applied: true, migration }) : tty ? "" : lines.join("\n"), err: "" };
   } catch (e) { return { code: 1, out: json ? "" : tty ? "" : lines.join("\n"), err: `pacer init: ${(e as Error).message}` }; }
 }

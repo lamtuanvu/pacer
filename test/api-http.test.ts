@@ -8,13 +8,13 @@ import { startServer } from "../src/serve/http";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
-let stop: (() => void) | undefined;
-afterEach(() => stop?.());
+let stop: (() => void | Promise<void>) | undefined;
+afterEach(async () => { await stop?.(); stop = undefined; });
 
-async function serve() {
+async function serve(reactive = false) {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
-  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\nproviders:\n  claude-code: {${reactive ? "usage: reactive" : ""}}\n  codex: {${reactive ? "usage: reactive" : ""}}\n`);
   const spawned: string[] = [];
   const s = startServer(() => ctx, { port: 0, sseIntervalMs: 50, tailMs: 50, pumpMs: 0, opDeps: { spawnRunner: (_c, id) => { spawned.push(id); return 1; } } });
   stop = s.stop;
@@ -62,7 +62,7 @@ test("unknown op and unknown task map to 404 with codes", async () => {
 });
 
 test("SSE resumes from Last-Event-ID", async () => {
-  const { ctx, url, h } = await serve();
+  const { ctx, url, h } = await serve(true);
   await publish(ctx, [{ type: "alert", data: { key: "a", level: "info", title: "a", body: "", at: ctx.now } }, { type: "alert", data: { key: "b", level: "info", title: "b", body: "", at: ctx.now } }]);
   const first = await fetch(`${url}/v2/events?since=0`, { headers: h });
   const text = await readSse(first, 2);
@@ -73,7 +73,7 @@ test("SSE resumes from Last-Event-ID", async () => {
 });
 
 test("SSE on a fresh outbox whose oldest entry is newer than since sends reset first", async () => {
-  const { ctx, url, h } = await serve();
+  const { ctx, url, h } = await serve(true);
   appendOutbox(ctx, [{ seq: 1000, envelope: { type: "alert", data: { key: "z", level: "info", title: "z", body: "", at: ctx.now } } }]);
   const gap = await readSse(await fetch(`${url}/v2/events?since=500`, { headers: h }), 2);
   expect(gap.indexOf("event: reset")).toBeGreaterThanOrEqual(0);

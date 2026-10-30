@@ -4,7 +4,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 
 export const RUST_FIXTURES = ["rust-good", "rust-slow", "rust-crasher"] as const;
-export const FIXTURES = [...RUST_FIXTURES, "good", "slow", "crasher", "undeclared", "over-privileged", "old-protocol", "serial", "reentrant", "claims", "ui", "identity-sign", "pairing", "bad-manifest", "mismatch"] as const;
+export const FIXTURES = [...RUST_FIXTURES, "good", "slow", "crasher", "undeclared", "over-privileged", "old-protocol", "observations", "serial", "reentrant", "claims", "ui", "identity-sign", "pairing", "bad-manifest", "mismatch", "shadow"] as const;
 export type FixtureName = (typeof FIXTURES)[number];
 const FOLDER_IDS: Partial<Record<FixtureName, string>> = { "bad-manifest": "fx-bad", mismatch: "fx-mismatch" };
 let rustBuilt = false;

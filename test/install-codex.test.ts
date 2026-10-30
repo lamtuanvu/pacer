@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { blockText } from "../src/install/blocks";
-import { codexMcpBlock, installCodex } from "../src/install/codex";
+import { codexMcpBlock, installCodex } from "./install-plugin-adapter";
 import { policyText } from "../src/install/policy";
-import { runInstall } from "../src/install/txn";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { runInstall } from "./install-plugin-adapter";
+import { uninstallPlanner } from "./install-plugin-adapter";
 import { fakeCtx } from "./helpers";
 import { PACER, snapshot } from "./install-helpers";
 

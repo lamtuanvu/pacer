@@ -352,3 +352,18 @@ test("a conversation's blocked requested executor is explained like a delegated 
   expect(conversation.reasons.some(r => r.code === "blocked_by_user")).toBe(true);
   expect(conversation.reasons.some(r => r.text.includes("waits for this executor"))).toBe(false);
 });
+
+test("a disabled classifier plugin or invalid classifier config is an explicit uncertainty, not a throw (F2)", async () => {
+  const { ctx, strategy, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ planner: "claude-code", providers: { "claude-code": {} }, plugins: { disabled: ["pacer-classify"] } }));
+  for (const via of ["dispatch", "delegate"] as const) {
+    const r = await explainDispatch(ctx, { ...input(), via }, deps);
+    expect(r.kind).toEqual({ value: null, source: "unknown" });
+    expect(r.uncertainty.find(u => u.code === "classifier_unavailable")?.facts).toEqual({ error: "plugin_unavailable" });
+  }
+  const broken = { ...strategy, classifier: { ...strategy.classifier, timeout_ms: -1 } } as typeof strategy;
+  const r = await explainDispatch(ctx, input(), { ...deps, strategy: broken });
+  expect(r.uncertainty.find(u => u.code === "classifier_unavailable")?.facts).toEqual({ error: "invalid_config" });
+  // A given kind never consults the classifier.
+  expect((await explainDispatch(ctx, { ...input(), kind: "docs" }, deps)).uncertainty.some(u => u.code === "classifier_unavailable")).toBe(false);
+});

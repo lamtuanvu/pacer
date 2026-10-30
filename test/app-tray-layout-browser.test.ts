@@ -314,3 +314,45 @@ for (const width of [340, 260]) browserTest(`tray planner name never runs under 
     }
   } finally { await browser.close(); }
 }, 20000);
+
+// PR #494 live run: the policy row sat outside the padded planner block and started at x≈0 (UI-16).
+browserTest("tray policy caption shares the planner inset in light and dark themes", async () => {
+  const build = await Bun.build({ entrypoints: ["tray-policy-fixture"], target: "browser", plugins: [{
+    name: "tray-policy-fixture", setup(builder) {
+      builder.onResolve({ filter: /^tray-policy-fixture$/ }, () => ({ path: "tray-policy-fixture", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: process.cwd(), contents: `/** @jsxImportSource preact */
+        import { render } from "preact";
+        import { Tray } from "./app/src/tray/Tray";
+        import fixture from "./test/fixtures/ui/snapshot.json";
+        const api = { call: async () => ({}) };
+        const ipc = { desktop: true, loginItem: async () => true, open: async () => {}, resize: async () => {}, hide: async () => {}, quit: async () => {} };
+        render(<Tray snapshot={{...fixture, policy:{mode:"closed",plugins:123456}}} api={api} ipc={ipc} />, document.getElementById("app"));
+      ` }));
+    }
+  }] });
+  expect(build.success).toBe(true);
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    for (const scheme of ["light", "dark"] as const) {
+      const page = await browser.newPage({ viewport: { width: 340, height: 560 }, colorScheme: scheme });
+      await page.setContent('<div id="app"></div>');
+      await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") });
+      await page.evaluate(async source => { await import(URL.createObjectURL(new Blob([source], { type: "text/javascript" }))); }, await build.outputs[0]!.text());
+      const policy = page.locator(".tray-policy");
+      expect(await policy.textContent()).toBe("policy: closed (123456 plugins) · a failing plugin blocks the action");
+      expect(await policy.evaluate(node => node.closest(".tray-planner") !== null)).toBe(true);
+      const box = (await policy.boundingBox())!, caption = (await page.locator(".tray-caption").boundingBox())!, name = (await page.locator(".tray-planner .tray-line").boundingBox())!;
+      // Same left inset as the planner rows above it, and contained within the 340px popover.
+      expect(box.x).toBe(caption.x);
+      expect(box.x).toBe(name.x);
+      expect(box.x).toBeGreaterThanOrEqual(12);
+      expect(box.x + box.width).toBeLessThanOrEqual(caption.x + caption.width + 0.5);
+      expect(await policy.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      // Below the usage caption, inside the section's bottom border.
+      expect(box.y).toBeGreaterThan(caption.y + caption.height - 0.5);
+      const section = (await page.locator(".tray-planner").boundingBox())!;
+      expect(box.y + box.height).toBeLessThanOrEqual(section.y + section.height);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20000);

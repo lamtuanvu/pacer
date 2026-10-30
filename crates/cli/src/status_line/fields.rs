@@ -21,6 +21,14 @@ pub fn fields(input: Option<&Value>) -> Value {
     let Some(input) = input else {
         return offline;
     };
+    // Policy is a backend fact, never inferred from local configuration.
+    // Omit missing older-service metadata just as the TypeScript fields do.
+    let with_policy = |mut fields: Value| {
+        if let Some(policy) = input.get("policy") {
+            fields["policy"] = policy.clone();
+        }
+        fields
+    };
     if input.get("generatedAt").is_some() {
         let p = input["providers"]
             .as_array()
@@ -29,7 +37,9 @@ pub fn fields(input: Option<&Value>) -> Value {
         let agent = p["agent"]
             .as_str()
             .unwrap_or_else(|| runner_agent(input["planner"].as_str().unwrap_or_default()));
-        return json!({"online":true,"planner":agent_info(agent).0,"agent":agent,"usedPct":p["binding"]["usedPct"],"pacePct":p["binding"]["pace"],"verdict":coalesce(&[&p["verdict"], &json!("UNKNOWN")]),"resetsAt":p["binding"]["resetsAt"],"running":null,"attention":null,"mode":input["mode"]});
+        return with_policy(
+            json!({"online":true,"planner":agent_info(agent).0,"agent":agent,"usedPct":p["binding"]["usedPct"],"pacePct":p["binding"]["pace"],"verdict":coalesce(&[&p["verdict"], &json!("UNKNOWN")]),"resetsAt":p["binding"]["resetsAt"],"running":null,"attention":null,"mode":input["mode"]}),
+        );
     }
     let p = planner_meter(input);
     let c = counts(input);
@@ -45,11 +55,13 @@ pub fn fields(input: Option<&Value>) -> Value {
     let Some(agent) = agent.filter(|a| !a.is_empty()) else {
         return offline;
     };
-    json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
+    with_policy(
+        json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
         "usedPct":coalesce(&[&p["usedPct"],&legacy["usedPct"]]),
         "pacePct":coalesce(&[&p["pacePct"],&legacy["pacePct"]]),
         "verdict":coalesce(&[&p["verdict"],&legacy["verdict"],&json!("unknown")]),
         "resetsAt":coalesce(&[&p["resetsAt"],&legacy["resetsAt"]]),
         "running":count(&c["running"]),"attention":count(&c["attention"]),
-        "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])})
+        "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])}),
+    )
 }

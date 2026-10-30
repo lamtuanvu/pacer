@@ -8,10 +8,10 @@ import { appendWorkEvent, boundedJson, dispatchDatabase } from "./store";
 import { getWork, pendingDependencies } from "./work";
 import { readTask } from "../tasks/store";
 
-export async function resolveTaskDispatch(ctx:Ctx,task:TaskRecord,strategy:Strategy,status:Status,tried:ReadonlySet<string>):Promise<DispatchPreview>{
+export async function resolveTaskDispatch(ctx:Ctx,task:TaskRecord,strategy:Strategy,status:Status,tried:ReadonlySet<string>,excludedRunners?:ReadonlySet<string>):Promise<DispatchPreview>{
  const work=getWork(ctx,task.id)!;
  return previewDispatch(ctx,{repo:task.brief.repo,goal:task.brief.goal,kind:work.options.kind??task.kind??undefined,requirements:work.options.requirements,preferences:work.options.preferences,model:work.options.model},
-  {strategy,status:async()=>status,taskId:task.id,includePlanner:work.options.allowDelegation,excludeCandidates:tried,difficulty:work.options.difficulty});
+  {strategy,status:async()=>status,taskId:task.id,includePlanner:work.options.allowDelegation,excludeCandidates:tried,excludeRunners:excludedRunners,difficulty:work.options.difficulty});
 }
 export function reserveDispatch(ctx:Ctx,id:string,candidate:Candidate,preview:DispatchPreview):boolean {
  const db=dispatchDatabase(ctx);return db.transaction(()=>{

@@ -91,7 +91,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     if (isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
     const input = parseDelegateBrief(a, process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t = core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef}, spawnFn);
+    const t = await core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef}, spawnFn);
     return json(summarizeTask(t));
   });
 

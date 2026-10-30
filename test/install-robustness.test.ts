@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { installClaude } from "../src/install/claude";
-import { installCodex } from "../src/install/codex";
-import { installCursor } from "../src/install/cursor";
-import { installOpencode } from "../src/install/opencode";
+import { installClaude } from "./install-plugin-adapter";
+import { installCodex } from "./install-plugin-adapter";
+import { installCursor } from "./install-plugin-adapter";
+import { installOpencode } from "./install-plugin-adapter";
 import { removeHooks } from "../src/install/hookjson";
-import { runInstall } from "../src/install/txn";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { runInstall } from "./install-plugin-adapter";
+import { uninstallPlanner } from "./install-plugin-adapter";
 import { fakeCtx } from "./helpers";
 import { PACER, recordingRun } from "./install-helpers";
 

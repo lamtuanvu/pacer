@@ -1,9 +1,12 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import {expect, test} from "bun:test";
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {readMetered} from "../src/usage/metered";
 import type {ProviderCfg} from "../src/config/strategy";
-import {fakeCtx} from "./helpers";
+
 
 const stats = readFileSync(join(import.meta.dir, "fixtures", "opencode-stats-cost.json"), "utf8");
 const cfg = (o: Partial<ProviderCfg>): ProviderCfg => ({id: "opencode#openrouter", via: "opencode", model: "openrouter/z-ai/glm-5.3", usage: "metered", allowPaid: false, cooldownS: 0, quotaSource: null, weeklyTokens: null, weeklyUsd: null, ...o});

@@ -290,6 +290,37 @@ their provider CLI. Those commands may still report delayed provider data.
 Cursor and Antigravity only report observed limit hits; pacer does not invent a
 numeric quota percentage for them. Unmetered accounts have no quota to refresh.
 
+### Usage reader plugin (unreleased)
+
+The bundled `pacer-usage` plugin reads Claude Code quota telemetry, Codex session
+logs, Ark Coding Plan quotas and metered OpenCode statistics. Account budgets,
+reading timestamps, freshness, spending and conflicting observations keep their
+existing meaning. Pacer still owns aggregation, authentication state, exhausted
+marks and remote observation merging. Reactive and unmetered accounts do not
+start a usage plugin.
+
+Claude and Codex reads are passive: they use captured telemetry or the selected
+account's logs without launching a prompt or reading native credentials. The
+other readers run only these read-only provider commands:
+
+```sh
+arkcli usage plan --product coding-plan
+opencode stats --models --cost --json --days 7
+```
+
+If no enabled reader is available, or the selected reader fails, fetching new
+usage reports a readable error and unknown usage; there is no built-in fallback. Existing cached
+observations retain their original capture time. Use the [plugin commands](cli.md#plugins-unreleased)
+to inspect or enable `pacer-usage`.
+
+The bundle is enabled by default. `plugins.disabled` in the strategy file can
+include `pacer-usage`, or use `pacer plugin disable pacer-usage`. Its declared
+capabilities are scoped `fs.read`, `process.spawn` and `usage.state`. The last
+provides access only to host-selected usage cache and cursor stores, without
+arbitrary file writes. Installed plugins require an explicit grant for their
+requested capabilities. Usage requests contain selected account identity and
+budget settings, not endpoint keys or credential contents.
+
 ### Sign-in state
 
 `signedIn` is the account's local sign-in on this machine. One check supplies it

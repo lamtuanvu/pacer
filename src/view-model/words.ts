@@ -156,3 +156,23 @@ export const compactVerdictWords = (verdict: string): string =>
 
 /** Human-facing percentages never expose floating-point precision. */
 export const percentage = (value: number): string => `${Math.round(value)}%`;
+
+/** Policy metadata is independent of planner pacing mode; missing old-service data stays unknown. */
+export interface PolicySummary { mode: "open" | "closed"; plugins: number }
+export function policyWords(policy?: PolicySummary): string {
+  if (!policy) return "policy: unknown";
+  return policy.mode === "closed" ? `policy: closed (${policy.plugins} ${policy.plugins === 1 ? "plugin" : "plugins"})` : "policy: open";
+}
+/** What the mode does, without repeating the plugin count the closed words already carry (UI-15). */
+export function policyDetail(policy?: PolicySummary): string {
+  if (!policy) return "not reported by this service";
+  if (policy.mode === "closed") return "a failing plugin blocks the action";
+  return `${policy.plugins} enabled ${policy.plugins === 1 ? "plugin" : "plugins"} · a failing plugin is ignored`;
+}
+/** Visible app caption: the mode and its detail as text, not a hover-only title. */
+export const policyCaption = (policy?: PolicySummary): string => `${policyWords(policy)} · ${policyDetail(policy)}`;
+
+/** Width-constrained terminals: slash separates the mode from the enabled plugin count. */
+export function compactPolicyWords(policy?: PolicySummary): string {
+  return policy ? `policy:${policy.mode}/${policy.plugins}` : "policy:unknown";
+}

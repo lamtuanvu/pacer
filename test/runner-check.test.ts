@@ -1,3 +1,4 @@
+import { withVersionFixtures } from "./planner-detect-fixtures";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { checkRunner, readRunnerCheck, type RunnerCheckDeps } from "../src/core/
 import { runTestTask } from "../src/endpoints/test-task";
 import { callOp } from "../src/api/ops";
 import { getJob, registerJobDaemon } from "../src/jobs/registry";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 
 for (const session of ["headless", "interactive"]) test(`Claude ${session} readiness captures the named account quotas and rechecks usage`, async () => {
   const ctx = setup();
@@ -113,7 +114,7 @@ test("runner.check and runner.add return jobs, including daemon background work"
   expect(readRunnerCheck(ctx, "cursor")?.passed).toBe(true);
 });
 test("readiness uses real account and limits readers and the shared launcher", async () => {
-  const ctx = setup(), sessions = join(ctx.home, "team/sessions");
+  const ctx = withVersionFixtures(setup()), sessions = join(ctx.home, "team/sessions");
   mkdirSync(sessions, {recursive: true});
   writeFileSync(join(sessions, "rollout-test.jsonl"), JSON.stringify({rate_limits: {primary: {used_percent: 3, window_minutes: 10080}}}) + "\n");
   // Signed in: the login indicator only checks that Codex wrote its auth file.

@@ -46,7 +46,7 @@ export async function saveExecutorSettings(ctx: Ctx, input: ExecutorSettingsInpu
     // validation precedes it; all editable fields still commit in one edit.
     const prepared = ensureAccounts(ctx), source = readFileSync(path, 'utf8');
     if (!prepared.migrated && source !== text) throw new CoreError('conflict', 'Executor settings changed. Reload saved settings.');
-    prepared.edit(doc => {
+    await prepared.edit(doc => {
       if (doc.toString() !== source) throw new Error('strategy changed during edit; retry');
       const raw = doc.getIn(['runners']);
       const declarations = (isNode(raw) ? raw.toJSON() : raw) as Record<string, unknown> | undefined;

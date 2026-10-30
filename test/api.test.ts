@@ -23,13 +23,13 @@ test("validation collects every problem", () => {
   expect(validateInput(s, { brief: { goal: "g", repo: tmpDir() }, executor: "claude-code" })).toEqual(['"claude-code" is the planner; pick an executor']);
 });
 
-test("delegate creates a queued task and starts the runner; bad input creates nothing", () => {
+test("delegate creates a queued task and starts the runner; bad input creates nothing", async () => {
   const ctx = fakeCtx();
   const spawned: string[] = [];
-  const t = delegate(ctx, { brief: { goal: "Fix", repo: tmpDir() }, kind: "debug", timeoutMin: 5 }, (_c, id) => { spawned.push(id); return 1; }, s);
+  const t = (await delegate(ctx, { brief: { goal: "Fix", repo: tmpDir() }, kind: "debug", timeoutMin: 5 }, (_c, id) => { spawned.push(id); return 1; }, s));
   expect(t).toMatchObject({ state: "queued", kind: "debug", requestedExecutor: null, timeoutS: 300 });
   expect(spawned).toEqual([t.id]);
-  expect(() => delegate(ctx, { brief: { goal: "", repo: "x" } }, () => 1, s)).toThrow(DelegateError);
+  await expect(delegate(ctx, { brief: { goal: "", repo: "x" } }, () => 1, s)).rejects.toThrow(DelegateError);
   expect(listTasks(ctx).length).toBe(1);
 });
 
@@ -40,7 +40,7 @@ test("selfCommand re-runs the script under bun, or the compiled binary alone", (
 
 test("taskWait returns at a terminal state or at the timeout", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   const early = await taskWait(ctx, t.id, 0.2, 50);
   expect(early?.state).toBe("queued");
   updateTask(ctx, t.id, (x) => { x.state = "done"; });
@@ -50,7 +50,7 @@ test("taskWait returns at a terminal state or at the timeout", async () => {
 
 test("dead runner is detected", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const r = await superviseTask(ctx, t.id);
   expect(r?.state).toBe("failed");
@@ -59,7 +59,7 @@ test("dead runner is detected", async () => {
 
 test("a finished task is not overwritten by dead-runner detection", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
   updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const kill = process.kill;
@@ -73,9 +73,9 @@ test("a finished task is not overwritten by dead-runner detection", async () => 
   expect(r?.result).toEqual(result);
 });
 
-test("stop does not overwrite a finished task", () => {
+test("stop does not overwrite a finished task", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   const result = { status: "done" as const, executor: "codex", model: "m", files: "a.ts", report: "finished", backend: "direct" as const };
   updateTask(ctx, t.id, (x) => { x.state = "running"; x.runnerPid = 999_999; x.attemptStartedAt = ctx.now; });
   const kill = process.kill;
@@ -91,7 +91,7 @@ test("stop does not overwrite a finished task", () => {
 
 test("stop kills the running executor and the task ends stopped", async () => {
   const ctx = fakeCtx({ env: { PATH: process.env.PATH, HOME: process.env.HOME } });
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   const running = runTask(ctx, t.id, {
     loadStrategy: () => s,
     computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
@@ -110,9 +110,9 @@ test("stop kills the running executor and the task ends stopped", async () => {
   expect(r.result?.status).toBe("stopped");
 });
 
-test("stopping a queued task with no live runner finalizes it; terminal tasks are unchanged", () => {
+test("stopping a queued task with no live runner finalizes it; terminal tasks are unchanged", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
   const r = taskStop(ctx, t.id);
   expect(r?.state).toBe("stopped");
   expect(r?.result?.report).toBe("stopped before an executor ran");
@@ -123,7 +123,7 @@ test("stopping a queued task with no live runner finalizes it; terminal tasks ar
 
 test("a queued task without a runner fails after ten minutes but fresh tasks stay queued", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s));
   expect(taskStatus(ctx, t.id)?.state).toBe("queued");
   expect(taskStatus({ ...ctx, now: ctx.now + 600 }, t.id)?.state).toBe("queued");
   const old = await superviseTask({ ...ctx, now: ctx.now + 601 }, t.id);
@@ -131,9 +131,9 @@ test("a queued task without a runner fails after ten minutes but fresh tasks sta
   expect(old?.result).toMatchObject({ status: "failed", report: "the pacer runner never started" });
 });
 
-test("queued-runner expiry does not overwrite a terminal task or a recorded runner", () => {
+test("queued-runner expiry does not overwrite a terminal task or a recorded runner", async () => {
   const ctx = fakeCtx();
-  const t = delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => undefined, s));
   updateTask(ctx, t.id, (x) => { x.runnerPid = process.pid; });
   expect(taskStatus({ ...ctx, now: ctx.now + 61 }, t.id)?.state).toBe("queued");
   taskStop(ctx, t.id);
@@ -144,7 +144,7 @@ test("stop kills the executor's grandchild too", async () => {
   const ctx = fakeCtx({ env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   const repo = tmpDir();
   const pidFile = join(repo, "gc.pid");
-  const t = delegate(ctx, { brief: { goal: "g", repo } }, () => undefined, s);
+  const t = (await delegate(ctx, { brief: { goal: "g", repo } }, () => undefined, s));
   const running = runTask(ctx, t.id, {
     loadStrategy: () => s,
     computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
@@ -175,12 +175,12 @@ test("stop kills the executor's grandchild too", async () => {
 });
 
 test("legacy running records with attempts reconcile a dead runner immediately",async()=>{
- const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
+ const ctx=fakeCtx();const t=(await delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s));
  updateTask(ctx,t.id,x=>{x.state="running";x.attempts=[{executor:"codex",model:null,startedAt:1,endedAt:2,exitCode:1,timedOut:false,limitHit:true,log:""}];});
  expect((await superviseTask(ctx,t.id))?.state).toBe("failed");
 });
  test("legacy running records without attempts expire after ten minutes",async()=>{
- const ctx=fakeCtx();const t=delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s);
+ const ctx=fakeCtx();const t=(await delegate(ctx,{brief:{goal:"g",repo:tmpDir()}},()=>undefined,s));
  updateTask(ctx,t.id,x=>{x.state="running";});
  expect(taskStatus(ctx,t.id)?.state).toBe("running");
  expect((await superviseTask({...ctx,now:ctx.now+601},t.id))?.state).toBe("failed");

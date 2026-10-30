@@ -1,3 +1,4 @@
+import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -33,7 +34,7 @@ test("candidates group signed-in, config, catalog and local providers and mark a
   writeFileSync(join(ctx.home, ".config", "opencode", "opencode.json"), JSON.stringify({provider: {terastor: {name: "TeraStor AI", options: {apiKey: "sk-never-read"}}}}));
   const ollama = (async (url: string) => url.includes(":11434") ? Response.json({data: [{id: "qwen3-coder:30b"}]}) : Promise.reject(Error("refused"))) as unknown as typeof fetch;
   const accounts = {openrouter: {name: "openrouter", kind: "endpoint", source: "opencode", provider: "openrouter"} as AccountCfg};
-  const d = await detectCandidates(ctx, {fetch: ollama, catalog, accounts});
+  const d = await detectCandidates(ctx, {discover: discoveryFromFetch(ollama), catalog, accounts});
   expect(d.candidates.map(c => [c.group, c.provider, c.added])).toEqual([
     ["signed_in", "openrouter", "openrouter"], ["signed_in", "terastor", null],
     ["local", "ollama", null],
@@ -46,7 +47,7 @@ test("candidates group signed-in, config, catalog and local providers and mark a
 
 test("without opencode only local servers are offered", async () => {
   const {ctx, calls} = ctxWith({}, false);
-  const d = await detectCandidates(ctx, {fetch: noServers, catalog: null, accounts: {}});
+  const d = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts: {}});
   expect(d).toMatchObject({opencode: false, catalog: "offline", candidates: []});
   expect(d.notes[0]).toContain("Install OpenCode");
   expect(calls).toEqual([]);
@@ -62,4 +63,27 @@ test("opencode model ids are read for one provider", async () => {
 test("failed opencode model listing returns null, not empty array", async () => {
   const {ctx} = ctxWith({"opencode models": {code: 1, stdout: ""}});
   expect(await opencodeModelIds(ctx, "openrouter")).toBeNull();
+});
+
+test("one failing local-server probe does not fail detection and keeps signed-in candidates (F3)", async () => {
+  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
+  let calls = 0;
+  const discover = (async (_ctx: unknown, input: {baseUrl: string}) => {
+    calls++;
+    if (calls === 1) throw Object.assign(Error("no enabled plugin provides OpenAI-compatible endpoints"), {code: "plugin_unavailable"});
+    return {listed: true, models: [{id: "m"}]};
+  }) as unknown as Parameters<typeof detectCandidates>[1]["discover"];
+  const d = await detectCandidates(ctx, {discover, catalog: null, accounts: {}});
+  expect(d.candidates.some(c => c.group === "signed_in" && c.provider === "openrouter")).toBe(true);
+  expect(d.candidates.filter(c => c.group === "local")).toHaveLength(calls - 1);
+  expect(d.notes).toContain("Could not check local model servers: no enabled plugin provides OpenAI-compatible endpoints");
+});
+
+test("detection with the endpoint plugin disabled still lists signed-in providers (F3)", async () => {
+  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({planner: "claude-code", providers: {"claude-code": {}}, plugins: {disabled: ["pacer-endpoints"]}}));
+  const d = await detectCandidates(ctx, {catalog: null, accounts: {}});
+  expect(d.candidates.map(c => c.group)).toEqual(["signed_in"]);
+  expect(d.notes.some(n => n.startsWith("Could not check local model servers"))).toBe(true);
 });

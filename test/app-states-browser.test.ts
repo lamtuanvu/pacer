@@ -179,3 +179,21 @@ browserTest("Layout gates its separate UI API client and reenables it on reconne
     expect(writes).toBe(1);
   } finally { await page.close(); }
 });
+
+for (const state of ["policy-open", "policy-closed"] as const) for (const scheme of ["light", "dark"] as const) {
+  browserTest(`wide Dispatch header keeps its controls on the title row with the ${state} caption at 1440 ${scheme}`, async () => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
+    try {
+      await page.goto(`${server.url}?state=${state}`);
+      await page.locator(".pc-dispatch__policy").waitFor();
+      const box = (selector: string) => page.locator(selector).evaluate(n => { const r = n.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; });
+      const title = await box(".pc-dispatch__title"), controls = await box(".pc-dispatch__controls"), caption = await box(".pc-dispatch__policy");
+      // One row, as at base: the controls start beside the title block, not on a line below it.
+      expect(controls.top).toBeLessThan(title.bottom);
+      expect(title.right).toBeLessThanOrEqual(controls.left);
+      // The caption wraps inside the title column instead of pushing the controls down.
+      expect(caption.right).toBeLessThanOrEqual(controls.left);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    } finally { await page.close(); }
+  });
+}
