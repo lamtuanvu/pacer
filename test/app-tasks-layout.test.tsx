@@ -82,8 +82,8 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[32,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
-   // Tasks rows use the board's 600 weight for both selected and unselected titles.
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[32,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
+   // Only the current task title is emphasized; other root titles retain 600.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
    // The board fills the content area beside the 52px activity rail; the tree and aside share a row.
    expect(geometry.width).toBe(width-52-(scopeOpen?248:0));

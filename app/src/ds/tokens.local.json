@@ -385,6 +385,14 @@
         "lineHeight": "17px",
         "fontWeight": 400,
         "provisional": "TaskFailed board acceptance output typography."
+      },
+      {
+        "name": "task-child",
+        "fontSize": "13px",
+        "lineHeight": "19px",
+        "fontWeight": 500,
+        "usage": "Unselected subtask titles in task cards and the session navigator.",
+        "provisional": "Session board subtask title weight; selected rows retain session-title weight."
       }
     ]
   },

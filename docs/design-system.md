@@ -721,3 +721,21 @@ loaded; no new dependency or upstream component was introduced.
 restores the default. `--pc-panel-width` is the narrowly checked, unitless geometry
 adapter for this user-selected measurement; CSS multiplies by `--size-1`. Other
 styles and custom properties remain subject to the ordinary token checks.
+
+### Board-sized buttons and subtasks
+
+Small action buttons inherit device control density (Comfortable 32px, Compact
+28px). Component geometry takes precedence: segmented items are 30px (Compact
+26px) with a 3px track inset; chips, chrome and specialized icon buttons retain
+their own sizes. Only status-bar chrome buttons lose side padding; usage-popover
+actions retain the shared 12px inset. Repository SearchPicker triggers use the
+600-weight small button without a chevron; search, Escape and focus restoration
+remain unchanged.
+
+`SubtaskToggle` owns the shared task-card and session-navigator disclosure chip:
+22px border-box, 6px radius, 7px side padding, 12px/600 label, 13px branch icon,
+11px chevron rotating 180 degrees when expanded. Consumers supply `aria-expanded`,
+`aria-controls`, children and a toggle callback. The wrapper inset is 0 8px 4px
+24px. Native button keyboard behavior and visible focus apply; touch targets
+remain 44px. Only the current row gets the page-surface background and 650 title
+weight; unselected subtask titles use the provisional task-child 500 weight.

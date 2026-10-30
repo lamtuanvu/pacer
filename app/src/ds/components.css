@@ -5,7 +5,7 @@ a.pc-btn{text-decoration:none}
 .pc-btn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-btn:disabled,.pc-btn[aria-disabled=true]{opacity:.5;cursor:not-allowed}
 .pc-btn--md{min-height:var(--control-normal);padding:0 var(--space-4);border-radius:var(--radius-lg)}
-.pc-btn--sm{min-height:var(--control-compact);padding:0 var(--space-3);font-size:var(--type-caption-size)}
+.pc-btn--sm{min-height:var(--button-control);padding:0 var(--space-3);font-size:var(--type-caption-size)}
 .pc-btn--primary{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink);font-weight:var(--type-body-strong-weight)}
 .pc-btn--primary:hover{background:var(--ink);opacity:.88}
 .pc-btn--ghost{border-color:transparent;background:transparent}
@@ -165,9 +165,9 @@ a.pc-btn{text-decoration:none}
 .pc-btn--quiet{border-color:transparent;background:transparent;color:var(--ink-secondary)}
 .pc-btn--quiet:hover,.pc-btn[aria-expanded=true]{background:var(--surface-lane);color:var(--ink)}
 .pc-btn--danger{border-color:var(--bad-line);color:var(--bad-fg)}
-.pc-btn--compact{min-height:var(--control-compact);padding:0 var(--space-3);font-size:var(--type-caption-size);line-height:var(--type-caption-line);border-radius:var(--radius-md)}
+.pc-btn--compact{min-height:var(--button-control);padding:0 var(--space-3);font-size:var(--type-caption-size);line-height:var(--type-caption-line);border-radius:var(--radius-md)}
 .pc-btn.pc-btn--touch{min-height:var(--control-touch);min-width:var(--control-touch)}
-.pc-icon-button{padding:var(--space-1);aspect-ratio:1;flex:none}
+.pc-icon-button{width:var(--button-control);height:var(--button-control);padding:var(--space-1);aspect-ratio:1;flex:none}
 .pc-field{display:flex;flex-direction:column;gap:var(--space-1\.5);min-width:0;flex:1}
 .pc-field>label{font-size:var(--type-body-size);color:var(--ink-secondary)}
 .pc-field small,.pc-control-help{display:block;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
@@ -315,7 +315,7 @@ a.pc-btn{text-decoration:none}
 .pc-list-row--warn,.pc-list-row--outlined.pc-list-row--warn{border-color:var(--warn-line);background:var(--warn-tint)}
 /* Settings forms sit between compact tray/table actions and normal app controls. */
 .pc-btn--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-3);font-size:var(--type-body-size);line-height:var(--type-body-line);border-radius:var(--radius-md)}
-.pc-btn--settings.pc-btn--sm{min-height:var(--control-compact);font-size:var(--type-caption-size);line-height:var(--type-caption-line);padding:var(--space-1) var(--space-2)}
+.pc-btn--settings.pc-btn--sm{min-height:var(--button-control);font-size:var(--type-caption-size);line-height:var(--type-caption-line);padding:var(--space-1) var(--space-2)}
 .pc-input.pc-control--settings,.pc-range.pc-control--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-2)}
 .pc-range.pc-control--settings{padding:0}
 .pc-checkbox:has(.pc-control--settings){min-height:var(--control-settings)}
@@ -415,7 +415,7 @@ a.pc-btn{text-decoration:none}
 
 /* An explicit compact surface (desktop tray) stays compact at popover widths. */
 @media(max-width:560px){
- .pc-density--compact .pc-btn--compact{min-height:var(--control-compact);min-width:0}
+ .pc-density--compact .pc-btn--compact{min-height:var(--button-control);min-width:0}
  .pc-density--compact .pc-input.pc-control--compact{min-height:var(--control-compact);font-size:var(--type-caption-size)}
  .pc-density--compact .pc-range.pc-control--compact{min-height:var(--control-compact)}
 }
@@ -740,18 +740,18 @@ a.pc-btn{text-decoration:none}
 .pc-task-card__action:hover{background:var(--surface-lane);color:var(--ink)}
 .pc-task-card .pc-meta-row{gap:var(--space-1) var(--space-3\.5);padding-left:var(--space-5)}
 .pc-task-card .pc-meta-row svg{width:var(--size-14);height:var(--size-14)}
-.pc-task-card__kids{padding:0 var(--space-3) var(--space-1\.5) var(--space-8)}
-.pc-task-card__toggle{display:inline-flex;align-items:center;gap:var(--space-1\.5);height:var(--size-24);padding:0 var(--space-2);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-page);color:var(--ink);font:inherit;font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight);cursor:pointer}
-.pc-task-card__toggle svg{width:var(--size-14);height:var(--size-14)}
-.pc-task-card__chevron{width:var(--space-1\.5);height:var(--space-1\.5);border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg) translate(-1px,-1px)}
-.pc-task-card__toggle[aria-expanded="true"] .pc-task-card__chevron{transform:rotate(225deg)}
+.pc-task-card__kids{padding:0 var(--space-2) var(--space-1) var(--space-6)}
+.pc-task-card__toggle{box-sizing:border-box;display:inline-flex;align-items:center;gap:var(--size-5);height:var(--size-22);padding:0 var(--size-7);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-page);color:var(--ink);font:inherit;font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight);cursor:pointer}
+.pc-task-card__toggle svg{width:var(--type-body-size);height:var(--type-body-size)}
+.pc-task-card__toggle .pc-task-card__chevron{display:inline-flex;width:var(--type-label-size);height:var(--type-label-size)}
+.pc-task-card__toggle[aria-expanded="true"] .pc-task-card__chevron{transform:rotate(180deg)}
 .pc-task-card__children{display:flex;flex-direction:column;gap:var(--space-half);min-width:0;margin:0 0 0 var(--size-21);padding:0 0 var(--space-1) var(--space-7);border-left:1px solid var(--line);list-style:none}
 .pc-task-card__children>li{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
 .pc-task-card__child{display:flex;flex-direction:column;gap:var(--space-1\.5);min-width:0;padding:var(--space-2) var(--space-2\.5);border-radius:var(--radius-lg);color:inherit;text-decoration:none}
 .pc-task-card__child:hover{background:var(--surface-card)}
 .pc-task-card__child--selected,.pc-task-card__child--selected:hover{background:var(--surface-page)}
 .pc-task-card__child--selected .pc-task-card__child-title{font-weight:var(--type-headline-weight)}
-.pc-task-card__child-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--type-body-strong-weight)}
+.pc-task-card__child-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--type-task-child-weight)}
 @media(max-width:767px){.pc-task-card__title{line-height:var(--control-touch)}.pc-task-card__row--facts{flex-wrap:wrap}.pc-task-card__branch{flex-basis:100%;order:3}.pc-task-card__action,.pc-task-card__toggle{min-width:var(--control-touch);min-height:var(--control-touch)}.pc-task-card__child{min-height:var(--control-touch)}}
 
 /* TaskCard compact: the Session board navigator row. */
@@ -978,7 +978,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
    providers inherit the app choice; the tray supplies its own compact token. */
 .pc-density--normal{--button-control:var(--control-normal)}
 .pc-density--compact{--button-control:var(--control-compact)}
-.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings):not(:where(.pc-icon-button,.pc-btn--touch,.pc-segmented *)):not(.pc-btn--xs){min-height:var(--button-control);padding-block:0}
+:where(.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings):not(.pc-icon-button,.pc-btn--touch,.pc-segmented *,.pc-btn--xs)){min-height:var(--button-control);padding-block:0}
 @media(max-width:560px),(pointer:coarse){
  .pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings,.pc-btn--touch):not(.tray .pc-btn){min-height:var(--control-touch);min-width:var(--control-touch)}
 }
@@ -1002,7 +1002,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-tabs .pc-btn,.pc-segmented .pc-btn{font-size:var(--type-body-size)}
 .pc-settings-path{white-space:normal;overflow-wrap:normal;word-break:normal}
 .pc-btn.pc-btn--normal.pc-topbar__new,.pc-btn.pc-btn--compact.pc-topbar__new{height:var(--size-26);min-height:var(--size-26)}
-.pc-statusbar .pc-btn.pc-btn--normal,.pc-statusbar .pc-btn.pc-btn--compact{height:var(--size-20);min-height:var(--size-20);padding:0}
+.pc-statusbar :is(.pc-statusbar__usage-button,.pc-statusbar__terminal,.pc-statusbar__help).pc-btn{height:var(--size-20);min-height:var(--size-20);padding:0}
 .pc-settings-board .pc-icon-button.pc-btn--sm{height:var(--size-28);min-height:var(--size-28);width:var(--size-28);min-width:var(--size-28)}
 
 .pc-choice-ladder{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--radius-md)}
@@ -1013,7 +1013,8 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .ny-chip.pc-btn.pc-btn--normal,.ny-chip.pc-btn.pc-btn--compact{height:var(--size-28);min-height:var(--size-28)}
 .pc-side-dialog__head .pc-icon-button.pc-btn{height:var(--size-28);min-height:var(--size-28);width:var(--size-28);min-width:var(--size-28)}
 
-.pc-chip.pc-chip--repo{border-radius:var(--radius-md);gap:var(--space-1)}
+.pc-chip.pc-chip--repo{padding:0 var(--space-3);font-weight:var(--type-body-strong-weight);border-radius:var(--radius-md);gap:var(--space-1)}
+.pc-chip--repo:not(.pc-btn--touch){min-height:var(--button-control)}
 .pc-chip--repo>svg{flex:none;width:var(--size-12);height:var(--size-12);color:var(--ink-secondary)}
 @media(min-width:561px) and (pointer:fine){.pc-chip--repo{--button-control:var(--size-32)}}
 .pc-layout-toggles .pc-btn[aria-pressed=true]{background:transparent;color:var(--ink-secondary)}
@@ -1051,8 +1052,6 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 :root[data-density="normal"]{--button-control:var(--control-normal)}
 :root[data-density="compact"]{--button-control:var(--control-compact)}
 @media(min-width:561px) and (pointer:fine){
- :root[data-density] .pc-btn.pc-btn--sm:not(.tray *):not(.pc-btn--touch){height:var(--button-control);min-height:var(--button-control);padding-block:0}
- :root[data-density] .pc-icon-button.pc-btn--sm:not(.tray *):not(.pc-btn--touch){width:var(--button-control);min-width:var(--button-control);padding:0}
  :root[data-density] :is(.pc-input:not(.pc-textarea):not(.pc-control--touch),.pc-choice-picker:not(.pc-choice-picker--touch) .pc-choice-picker__trigger,.pc-range:not(.pc-control--touch)):not(.tray *){min-height:var(--button-control)}
  :root[data-density="normal"] .pc-list-row:not(.pc-list-row--touch):not(.tray *){min-height:var(--control-normal);padding:var(--space-2) var(--space-3)}
  :root[data-density="compact"] .pc-list-row:not(.pc-list-row--touch):not(.tray *){min-height:var(--control-compact);padding:var(--space-1\.5) var(--space-2)}
@@ -1098,3 +1097,8 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-panel-resize.pc-btn:hover,.pc-panel-resize.pc-btn:focus-visible{background:var(--focus)}
 .pc-side-panel:has(>.pc-panel-resize){width:calc(var(--size-1) * var(--pc-panel-width));flex-basis:calc(var(--size-1) * var(--pc-panel-width))}
 .pc-side-panel:has(>.pc-panel-resize){z-index:var(--layer-sticky)}
+
+
+@media(min-width:561px) and (pointer:fine){:root[data-density="compact"] .pc-segmented .pc-btn{height:var(--size-26);min-height:var(--size-26)}}
+
+.pc-task-card__chevron svg{width:100%;height:100%}
