@@ -36,7 +36,7 @@ function routerAdvertisement(summary: string | null | undefined): string | undef
   return linkLocal(summary?.match(/^\s*RouterAdvertisement\s*:\s*from\s+([^\s,]+)/m)?.[1]);
 }
 
-// The default IPv6 router on iface. Mesh nodes and Thread border routers also advertise, so this one is preferred (S3).
+// The default IPv6 router on iface. Extra access points and Thread border routers also advertise, so this one is preferred (S3).
 function defaultRouter6(route: string | null, iface: string): string | undefined {
   const on = route?.match(/interface:\s*(\S+)/)?.[1];
   return on === undefined || on === iface ? linkLocal(route?.match(/gateway:\s*(\S+)/)?.[1]) : undefined;
