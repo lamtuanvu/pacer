@@ -44,7 +44,7 @@ describe("live guard (D3)", () => {
 
 test("sandbox environment keeps HOME and auth references but overrides pacer state", () => {
   const session = fixture();
-  const env = sandboxEnv(session, { HOME: "/real-home", PATH: "/tool-bin", PACER_HOME: "/wrong", PACER_PORT: "4317", PACER_BIN: "/installed-pacer", PACER_BACKEND: "orca", PACER_ROLE: "executor" });
+  const env = sandboxEnv(session, { HOME: "/real-home", PATH: "/tool-bin", PACER_HOME: "/wrong", PACER_PORT: "4317", PACER_BIN: "/installed-pacer", PACER_BACKEND: "orca", PACER_ROLE: "executor", PACER_TASK_ID: "t-outer", PACER_WORK_GRANT: "grant", PACER_REPORT_TOKEN: "token" });
   expect(env.HOME).toBe("/real-home");
   expect(env.PATH).toBe(`${session.root}/bin:/tool-bin`);
   expect(env.PACER_HOME).toBe(join(session.root, "home"));
@@ -52,7 +52,8 @@ test("sandbox environment keeps HOME and auth references but overrides pacer sta
   expect(env.PACER_PORT).toBe("49672");
   expect(env.PACER_NO_UPDATE_CHECK).toBe("1");
   expect(env.PACER_BACKEND).toBe("direct");
-  expect(env.PACER_ROLE).toBe("executor");
+  // An outer executor session must not leak its identity or tokens into the sandbox.
+  for (const key of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_REPORT_TOKEN"]) expect(env[key]).toBeUndefined();
   expect(env.PACER_ORCA_USER_DATA).toBe(join(session.root, "orca-profile"));
   expect(environmentScript(session)).not.toContain("export HOME=");
   expect(env.PACER_CORE_ARGV).toBeUndefined();

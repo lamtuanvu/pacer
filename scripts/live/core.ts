@@ -95,8 +95,11 @@ export function validateFrontDoor(frontDoor: string | undefined): void {
   if (frontDoor !== undefined && frontDoor !== "rust") throw Error(`Unknown front door: ${frontDoor} (expected rust)`);
 }
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
+  // The sandbox sets every PACER_* value it needs. Inherited ones, such as an executor's
+  // PACER_ROLE, task id, work grant or tokens, would make the sandbox act as that session.
+  const outside = Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.startsWith("PACER_")));
   return {
-    ...inherited,
+    ...outside,
     ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
