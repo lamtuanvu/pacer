@@ -5,7 +5,7 @@ import { Button } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { Field, TextInput } from "../../ds/Controls";
 import { useDialogs } from "../../ds/useDialogs";
-import { LoadingState } from "../../ds/Patterns";
+import { Skeleton } from "../../ds/Patterns";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
 
@@ -22,7 +22,7 @@ export function AssistantSettingsSection() {
     if (!settings.data) return;
     setAccount(settings.data.account); setRunner(settings.data.runner ?? ""); setTurns(String(settings.data.limits.turnsPerDay)); setDays(String(settings.data.retention.days));
   }, [settings.data?.rev]);
-  if (!settings.data || !candidates.data) return <Section id="assistant" title="Assistant"><LoadingState label="Loading assistant settings…" />{settings.error ? <ErrorMessage error={settings.error} /> : null}</Section>;
+  if (!settings.data || !candidates.data) return <Section id="assistant" title="Assistant"><Skeleton layout="settings" label="Loading assistant settings…" />{settings.error ? <ErrorMessage error={settings.error} /> : null}</Section>;
   const chosen = candidates.data.accounts.find(a => a.account === account);
   const runnerOptions = [{ value: "", agent: chosen?.runners[0]?.id ?? chosen?.account ?? "opencode", label: "The account’s default model" }, ...(chosen?.runners ?? []).map(r => ({ value: r.id, agent: r.id, label: r.model ? `${r.id} · ${r.model}` : r.id }))];
   const act = async (work: () => Promise<unknown>, message: string) => {

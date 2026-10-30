@@ -24,7 +24,7 @@ test('the executor pool offers only executors that are not already in a rule', (
  expect(html).toContain('Rule 1 task kinds');
 });
 test('Dispatcher owns saved setups and executor eligibility', () => {
- expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).toContain('Loading dispatcher');
+ expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).not.toContain('Loading dispatcher');
  const html=render(<SavedSetups initialData={settings.strategies}/>);
  expect(html).toContain('Saved setups');
  expect(html).toContain('id="saved-profiles"');
@@ -49,10 +49,10 @@ test('the update checkbox keeps its label inline', () => {
  expect(html).toMatch(new RegExp(`<input(?=[^>]*type="checkbox")(?=[^>]*id="${id}")`));
 });
 test('all General sections provide loading and empty states',()=>{
- expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
+ expect(render(<SettingsGeneral section="planner"/>)).not.toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
  const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
- for(const word of ['No accounts','No executors','Loading dispatcher','No saved setups'])expect(html).toContain(word);
+ for(const word of ['No accounts','No executors','No saved setups'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where it runs','Model and test'])expect(html).toContain(word);
@@ -67,7 +67,7 @@ test('host board includes management sections, facts and service supplied branch
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('disabled');expect(html).not.toContain('Full sessions');
 });
 test('host list and detail expose loading and empty states',()=>{
- expect(render(<SettingsGeneral section="machine" initialData={settings}/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).toContain('Loading');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).not.toContain('Loading');
  expect(render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,hosts:[]}})).toContain('Add a remote host');
 });
 test('job progress uses service words and steps, including error hints',()=>{

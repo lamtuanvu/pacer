@@ -10,7 +10,7 @@ import { taskPageStatus as taskStatus } from "../../../../src/view-model/words";
 import { ButtonLink, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { hrefFor, routes, withQuery, type RouteQuery } from "../../router";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
@@ -29,7 +29,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     const timer=setInterval(()=>{task.reload();tree.reload();},5000);
     return ()=>clearInterval(timer);
   },[id,task.data?.state]);
-  if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <LoadingState label="Loading dispatch trace…"/>;
+  if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
   const t=task.data, root=tree.data?.nodes.find(n=>n.taskId===id), nodes=tree.data?.nodes ?? [];
   const steps=traceSteps(t,tree.data), totals=tree.data?.totals.tokens ?? (t.work?undefined:t.tokens);
   const children=nodes.filter(n=>n.taskId!==id);

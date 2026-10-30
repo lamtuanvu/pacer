@@ -9,7 +9,7 @@ import { Icon } from "../../ds/icons";
 import type { TerminalActions } from "../../term/term";
 import { Field, TextInput } from "../../ds/Controls";
 import { Dialog } from "../../ds/Dialog";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { Page } from "../../ds/Page";
 import { useDialogs } from "../../ds/useDialogs";
 import { ApiError } from "../../data/api";
@@ -197,7 +197,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       {<IconButton className="pc-terminal-tool" variant="quiet" size="sm" aria-label="Hide panel (Ctrl+`)" aria-keyshortcuts="Control+`" title="Hide panel (Ctrl+`)" onClick={closePanel ?? (() => navigation.navigate(routes.dispatch()))}><Icon name="close" /></IconButton>}
     </div>
     <ErrorMessage error={error ?? loadError} />
-    {loading ? <LoadingState label="Loading terminals…" /> : !selected ? <EmptyState title="No terminals open" description="Use + to start a shell in the current repository, or choose a folder from the menu." /> : <div role="tabpanel" id={`terminal-${selected.id}-panel`} aria-labelledby={`terminal-${selected.id}-tab`} className="pc-workspace-terminal__panes">
+    {loading && !selected ? <Skeleton layout="rows" label="Loading terminals…" /> : !selected ? <EmptyState title="No terminals open" description="Use + to start a shell in the current repository, or choose a folder from the menu." /> : <div role="tabpanel" id={`terminal-${selected.id}-panel`} aria-labelledby={`terminal-${selected.id}-tab`} className="pc-workspace-terminal__panes">
       {pane(selected, true)}
       {secondary && <><div className="pc-terminal-split-sash" role="separator" aria-label="Resize terminal split" aria-orientation="vertical" aria-valuemin={20} aria-valuemax={80} aria-valuenow={Math.round(ratio / (1 + ratio) * 100)} tabIndex={0}
         onKeyDown={event => { const pct = ratio / (1 + ratio); const next = event.key === "ArrowLeft" ? pct - .05 : event.key === "ArrowRight" ? pct + .05 : event.key === "Home" ? .2 : event.key === "End" ? .8 : null; if (next !== null) { event.preventDefault(); const p = Math.max(.2, Math.min(.8, next)); setRatio(p / (1 - p)); } }}

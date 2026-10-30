@@ -97,7 +97,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     {error}
     <div className="pc-tasks-page__columns" role="tabpanel" id={`task-filter-${filter}-panel`} aria-labelledby={`task-filter-${filter}-tab`}>
       <section className="pc-tasks-page__tree" aria-label="Task tree">
-        <ResourceView value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
+        <ResourceView layout="list" value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
           {list => <TaskTree nodes={list} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label="Tasks" />}
         </ResourceView>
         {nodes && roots.length > 0 && <div className="pc-tasks-page__more">

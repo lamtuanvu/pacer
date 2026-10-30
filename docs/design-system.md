@@ -63,7 +63,7 @@ Comfortable (`normal`) is the default for new installs and existing installs wit
 | `PanelTabs` | optional `id`, `label`, `tabs: {id,label,icon?,badge?}[]`, controlled `value`, `onChange(id)`, `maxVisible` (default 4) | Compact tablist for panels; consumed by the Session screen's right panel (Changes, Details, Work). The tablist keyboard contract of `Tabs`: `aria-selected`, roving tabIndex and ArrowLeft/Right/Home/End through the shared `tabStep`. With the optional `id` each tab gets `id="<id>-<tab>-tab"` and `aria-controls="<id>-<tab>-panel"` for the consumer's labelled tabpanel; without it no ids or `aria-controls` render. Tabs past `maxVisible` move into a quiet "+N" IconButton named "+N more tabs" (`aria-haspopup="menu"`, `aria-expanded`) that opens a menu of the hidden tabs; the selected tab always stays in the strip. The menu focuses its first item, supports ArrowUp/Down/Home/End, Enter/Space chooses (focus moves to the chosen tab), Escape closes and returns focus to the "+N" button, and leaving it with Tab closes it. A badge renders through `CountBadge` with words ("3 items"); zero hides it. Labels ellipsize with the full label in `title`. |
 | `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
 | `Pagination` | Controlled `label`, zero-based `page`, `pageSize`, `total`, `onChange` | Dispatch and Needs you lists. Uses canonical small Buttons with inherited density. Range is a polite live status; only available Previous/Next actions render. Native Tab/Enter/Space activation. Paging moves focus to the persistent labelled navigation region so disappearing boundary buttons do not lose focus. Empty lists omit navigation. Authored locally; no upstream adaptation. |
-| `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children, optional `bodyTitle` that renders the title as a body-strong `<strong>` instead of a section heading (for an empty state inside a section that already has one) | Shell connection, task/session/settings resources, Dispatch and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
+| `Skeleton`, `EmptyState` | Skeleton `layout` (`task`, `list`, `settings`, `dashboard`, `rows`) and accessible `label`; empty title/description/children, optional `bodyTitle` that renders the title as a body-strong `<strong>` instead of a section heading (for an empty state inside a section that already has one) | Shell connection, task/session/settings resources, Dispatch and Review clear states, tray connecting. Skeletons appear after 150ms, cancel on unmount, and expose a named status with `aria-busy="true"`. Decorative blocks use surface-lane, 4px radius (title 6px, button 8px, pill 99px) and a 1.4s opacity pulse from 1 to .55; reduced motion removes animation. No visible label or spinner. Task layout mirrors Loading board 27: breadcrumb, title, pills, header buttons, now card, four tiles, four trace rows and three aside cards. Other layouts mirror page headers/rows and Dispatch tiles; rows is for embedded panels. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
 | `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen fills its available workspace. All width variants now share uncapped geometry. Page owns width, responsive gutters and page rhythm. PageHeader accepts the routed page heading; desktop page titles live in the page frame. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
 | `Stack`, `Cluster`, `Section`, `DisclosurePanel`, `ActionPanel` | Semantic compact/normal/section spacing and contained section/detail/action composition | Shared page composition. These are original local Preact components with no upstream adaptation. Consumers provide content and domain state; DS tokens own spacing, borders and responsive behavior. Specialized tables, diffs, terminal geometry and domain grids remain screen-owned. |
 | `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs; `Pill` also accepts `title` only; its accessible name comes from its full text | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
@@ -113,7 +113,7 @@ Adapted from [slev12397/beautiful-ui](https://github.com/slev12397/beautiful-ui/
 | `components/atoms/Switch.tsx` | `ds/Controls.tsx: Switch/Checkbox`, switch CSS | Controlled checked state, rounded track and travelling thumb. Combines existing checkbox styling with a native labelled input, disabled/help/indeterminate/ref support, and reduced-motion/forced-color behavior. |
 | `components/primitives/TaskRows.tsx` | `ds/Patterns.tsx: ListRow/ListRowLink/SelectableRow` | Leading status/identity, flexible clipped title, numeric/status metadata, bounded row and disclosure/action grammar. Removes scripted demonstration status sequence, demo tasks, staggered animation and nested assumptions. Service descriptors decide actual state; sibling actions preserve valid HTML. |
 | `components/primitives/ApprovalCard.tsx` | `ds/Patterns.tsx: ApprovalCard`, Review composition | Closed card, question/content body and separated action/footer framing. Combines with VerdictPanel and native Dialog rather than porting question auto-advance, odometers, GlideMenu or demo state. |
-| `components/primitives/LoadingState.tsx` | `ds/Patterns.tsx: LoadingState` | Small decorative 3×3 pixel grid paired with readable status. Removes video, network media, elapsed interval, orbit variants and label shimmer. Uses one restrained token-based pulse only while loading; freezes under reduced motion. |
+| Loading board 27 | `ds/Skeleton.tsx` (exported by `ds/Patterns.tsx`) | Original implementation of page-shaped loading blocks, delayed reveal, accessible busy container and reduced-motion support. Replaces the former upstream pixel grid adaptation. |
 
 No paid icon package, remote fonts, analytics, email capture, demo application, React or Tailwind runtime is included. Existing pacer SVG navigation/identity assets retain their own provenance.
 
@@ -739,3 +739,42 @@ remain unchanged.
 24px. Native button keyboard behavior and visible focus apply; touch targets
 remain 44px. Only the current row gets the page-surface background and 650 title
 weight; unselected subtask titles use the provisional task-child 500 weight.
+
+### Skeleton consumer migration
+
+All former loading-state calls use `Skeleton`; refresh-only indicators were removed from `session/resource` and `session/Session` so existing content stays mounted. Errors and their retry controls remain separate. No new dependency or screen chunk is introduced.
+
+| Consumer | Layout / regions |
+| --- | --- |
+| `plugins/Activity.tsx` | settings |
+| `plugins/LazyActivity.tsx` | settings |
+| `screens/LazyInsights.tsx` | dashboard |
+| `screens/setup/LazySetup.tsx` | settings |
+| `screens/settings/LazySettings.tsx` | settings |
+| `screens/LazyTaskRoute.tsx` | task |
+| `screens/Review.tsx` | task |
+| `screens/TaskResult.tsx` | rows, task |
+| `screens/dispatch/Dispatch.tsx` | rows |
+| `screens/dispatch/LazyDispatch.tsx` | dashboard (Dispatch), list (Needs you) |
+| `screens/insights/Insights.tsx` | dashboard, rows |
+| `screens/new-task/LazyNewTask.tsx` | settings |
+| `screens/new-task/NewTask.tsx` | rows |
+| `screens/review/LazyResultPage.tsx` | task |
+| `screens/review/ResultPage.tsx` | rows, task |
+| `screens/session/Session.tsx` | rows, task |
+| `screens/session/SessionPanel.tsx` | rows |
+| `screens/session/resource.tsx` | rows default, list for TasksPage |
+| `screens/settings/AssistantSettings.tsx` | settings |
+| `screens/settings/LazyAssistantSettings.tsx` | settings |
+| `screens/settings/LazyDispatcher.tsx` | settings |
+| `screens/settings/PluginSettingsPage.tsx` | settings |
+| `screens/settings/PluginsPage.tsx` | settings |
+| `screens/settings/shared.tsx` | settings |
+| `screens/terminal/Terminal.tsx` | rows |
+| `screens/trace/LazyTrace.tsx` | task |
+| `screens/trace/Trace.tsx` | task |
+| `screens/work/LazyWork.tsx` | task |
+| `screens/work/WorkView.tsx` | rows, task |
+| `shell/Layout.tsx` | route: task/list/settings/dashboard |
+| `tray/Tray.tsx` | rows |
+| `screens/session/TasksPage.tsx` | list via ResourceView |

@@ -20,7 +20,7 @@ import { Icon, type IconName } from "../../ds/icons";
 import { Kbd } from "../../ds/Kbd";
 import { Pill } from "../../ds/Pill";
 import { Page } from "../../ds/Page";
-import { EmptyState, ListRow, ListRowLink, LoadingState, SegmentedControl } from "../../ds/Patterns";
+import { EmptyState, ListRow, ListRowLink, Skeleton, SegmentedControl } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StatusGlyph } from "../../ds/StatusGlyph";
 import { StatusPill } from "../../ds/StatusPill";
@@ -125,7 +125,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
   return <section aria-busy={busy || undefined} className={`pc-card-section pc-live-dispatch${busy ? " pc-query-refreshing" : ""}`} aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading variant="headline" id="live-dispatch">Live dispatch</SectionHeading>
       <Pill tone="info">{runningNow} running</Pill><Pill tone="neutral">{queued} queued</Pill><span className="grow" /><span className="pc-dispatch-caption">Kind · routed to · why · tokens</span></div>
-    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : workLoading ? <LoadingState label="Loading dispatch…" /> : visible.length > 0 ? <ul className="pc-dispatch-ledger" aria-label="Running work and recent dispatch decisions">{visible.map(node => {
+    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : workLoading && !workRows.length ? <Skeleton layout="rows" label="Loading dispatch…" /> : visible.length > 0 ? <ul className="pc-dispatch-ledger" aria-label="Running work and recent dispatch decisions">{visible.map(node => {
       const task = snapshot.tasks.find(t => t.id === node.id);
       const running = task?.state === "running";
       // Preserve attention and conversational states; only ordinary active phases use the board's Working label.
@@ -250,9 +250,9 @@ function Glance({ period, insights }: { period: Period; insights: InsightsState 
       <div className="pc-glance__body"><span className="pc-glance__label">{tile.label}</span><span className="pc-glance__value">{tile.value}</span>
       {(tile.delta || tile.note) && <span className="pc-glance__note">{tile.delta && <span className={`pc-glance__delta pc-glance__delta--${tile.delta.tone}`}>{tile.delta.text}</span>}{tile.delta && tile.note ? " " : ""}{tile.note}</span>}</div>
     </li>)}</ul>
-      : <p className="pc-glance-strip__state muted">{!insights.supported ? "These figures need a newer pacer service with task insights."
-        : insights.loading ? <LoadingState label="Loading figures…" />
-        : "Could not load these figures. They are checked again on the next update."}</p>}
+      : <div className="pc-glance-strip__state muted">{!insights.supported ? "These figures need a newer pacer service with task insights."
+        : insights.loading ? <Skeleton layout="rows" label="Loading figures…" />
+        : "Could not load these figures. They are checked again on the next update."}</div>}
     {insights.current && insights.error && <div role="alert">Could not refresh figures. Showing the previous reading. <Button size="sm" onClick={insights.reload}>Try again</Button></div>}
   </section>;
 }
@@ -303,7 +303,7 @@ export function isFirstRun(snapshot: ClientSnapshot, checklist?: SetupChecklist)
 export function FirstRun({ detections, planner, query, error, retry }: { detections?: AgentDetection[]; planner?: string; query: RouteQuery; error?: unknown; retry?: () => void }) {
   return <section className="pc-first-run" aria-labelledby="first-run-title">
     <div><h2 id="first-run-title">Let your planner hand off work</h2><p>pacer keeps {planner ? agentInfo(planner).name : "your planner"} on pace by sending execution to the other agents you already pay for.</p></div>
-    {error ? <div><ErrorMessage error={error} /><Button size="sm" onClick={retry}>Check again</Button></div> : !detections ? <LoadingState label="Looking for agent CLIs…" /> : <ul className="pc-first-run__agents">{detections.map(agent => <li key={agent.agent}>
+    {error ? <div><ErrorMessage error={error} /><Button size="sm" onClick={retry}>Check again</Button></div> : !detections ? <Skeleton layout="rows" label="Looking for agent CLIs…" /> : <ul className="pc-first-run__agents">{detections.map(agent => <li key={agent.agent}>
       <AgentMark agent={agent.agent} size={20} labelled={false} /><span className="grow"><b>{agentInfo(agent.agent).name}</b> <span className="pc-dispatch-caption">{agent.version ?? (agent.found ? "CLI detected" : "not installed")}{agent.agent === planner ? " · will plan and review" : ""}</span></span>
       {agent.agent === planner ? <Pill tone="info">Planner</Pill> : agent.found ? <Pill tone="good">Found</Pill> : <TextAction href={withQuery(`#/settings/add-executor`, query)} title={agent.install_hint}><Pill tone="neutral">How to get it</Pill></TextAction>}
     </li>)}</ul>}

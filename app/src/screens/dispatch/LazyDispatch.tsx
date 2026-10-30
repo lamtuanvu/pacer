@@ -3,7 +3,7 @@ import type { ComponentType } from "preact";
 import type { RouteQuery } from "../../router";
 import { Button } from "../../ds/Button";
 import { Alert } from "../../ds/Alert";
-import { LoadingState } from "../../ds/Patterns";
+import { Skeleton } from "../../ds/Patterns";
 
 type Props = { query: RouteQuery };
 /** The Dispatch home and Needs you load on demand, so the app bundle does not carry them. */
@@ -18,5 +18,5 @@ export function LazyDispatch({ view, query }: Props & { view: "home" | "needs-yo
   const View = screens?.[view];
   return View ? <View query={query} /> : error
     ? <Alert tone="error" title={view === "home" ? "Could not load Dispatch" : "Could not load Needs you"}><Button onClick={() => retry(n => n + 1)}>Try again</Button></Alert>
-    : <LoadingState label={view === "home" ? "Loading Dispatch…" : "Loading Needs you…"} />;
+    : <Skeleton layout={view === "home" ? "dashboard" : "list"} label={view === "home" ? "Loading Dispatch…" : "Loading Needs you…"} />;
 }

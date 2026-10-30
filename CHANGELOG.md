@@ -8,6 +8,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Replace loading indicators with delayed, accessible page skeletons for tasks, lists, settings and Dispatch; keep loaded content visible during refresh.
+
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 

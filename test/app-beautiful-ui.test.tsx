@@ -3,7 +3,7 @@ import { render } from 'preact-render-to-string';
 import { Button, ButtonLink } from '../app/src/ds/Button';
 import { Field, TextInput, Checkbox, Switch, Range } from '../app/src/ds/Controls';
 import { DensityProvider } from '../app/src/ds/Density';
-import { ListRow, TextRow, SegmentedControl, ApprovalCard, LoadingState, EmptyState } from '../app/src/ds/Patterns';
+import { ListRow, TextRow, SegmentedControl, ApprovalCard, Skeleton, EmptyState } from '../app/src/ds/Patterns';
 
 test('busy button is disabled and forwards form attributes without losing its name', () => {
  const html=render(<Button busy name="approve" form="review" aria-describedby="reason">Accept</Button>);
@@ -30,8 +30,8 @@ test('rows keep content separate from secondary controls and respect compact den
  expect(html).toContain('pc-list-row--compact');expect(html).toContain('pc-list-row__actions');expect(html).not.toMatch(/<a[^>]*>[^]*<button[^]*<\/a>/);expect(html).toContain('pc-text-row__meta');
 });
 test('approval framing and asynchronous states announce meaningful content',()=>{
- const html=render(<><ApprovalCard title="Review changes" actions={<Button>Accept</Button>}>Evidence</ApprovalCard><LoadingState label="Loading sessions…" /><EmptyState title="No sessions" description="New tasks appear here." /></>);
- expect(html).toContain('Review changes');expect(html).toContain('Evidence');expect(html).toContain('role="status"');expect(html).toContain('Loading sessions…');expect(html).toContain('No sessions');
+ const html=render(<><ApprovalCard title="Review changes" actions={<Button>Accept</Button>}>Evidence</ApprovalCard><Skeleton label="Loading sessions…" /><EmptyState title="No sessions" description="New tasks appear here." /></>);
+ expect(html).toContain('Review changes');expect(html).toContain('Evidence');expect(html).not.toContain('Loading sessions…');expect(html).toContain('No sessions');
 });
 
 test('compound fields label the nested control and retain siblings and feedback',()=>{
