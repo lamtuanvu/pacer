@@ -98,3 +98,8 @@ export function executorTokenRole(agent: string, attempts: number, children: Tra
   const subtasks = children.filter(child => child.attempts.some(attempt => runnerAgent(attempt.executor) === agent)).length;
   return subtasks ? `${subtasks} ${subtasks === 1 ? "subtask" : "subtasks"}` : `${attempts} ${attempts === 1 ? "attempt" : "attempts"}`;
 }
+
+/** A checkout diff is not evidence of changes made by an unstarted task. */
+export function hasTaskExecution(task:Pick<TaskDetail,'attempts'|'worktree'|'startedAt'>) {
+ return task.attempts.length>0||!!task.worktree||task.startedAt!=null;
+}

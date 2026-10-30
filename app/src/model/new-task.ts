@@ -19,12 +19,13 @@ export interface NewTaskDraft {
   checks: string;
   /** JSON list of repository-relative paths mentioned with @. */
   mentions: string;
+  maxConcurrent: string;
   draftId: string;
   issueSource: string;
   /** Imported title/body lines, used to retire provenance when the text is removed. */
   issueText: string;
 }
-export const blankNewTask: NewTaskDraft = { request: "", repo: "", base: "", workspace: "worktree", kind: "", executor: "", checks: "[]", mentions: "[]", draftId: "", issueSource: "", issueText: "" };
+export const blankNewTask: NewTaskDraft = { request: "", repo: "", base: "", workspace: "worktree", kind: "", executor: "", checks: "[]", mentions: "[]", maxConcurrent: "3", draftId: "", issueSource: "", issueText: "" };
 export const NEW_TASK_DRAFT_KEY = "pacer.new-task.v1";
 
 export interface AcceptanceCheck { id: string; text: string; command: string; on: boolean }
@@ -102,7 +103,7 @@ export function newTaskPayload(draft: NewTaskDraft, ctx: SubmitContext) {
     ...(kind ? { kind: kind.value } : {}),
     ...(draft.executor ? { executor: draft.executor } : {}),
     worktree: draft.workspace === "current" ? "current" as const : "new" as const,
-    dispatch: { allowDelegation: true, maxConcurrent: 3 },
+    dispatch: { allowDelegation: true, maxConcurrent: /^[1-9]\d*$/.test(draft.maxConcurrent ?? "") ? Math.min(32, Number(draft.maxConcurrent)) : 3 },
     source: "ui" as const,
     request_id: ctx.requestId,
   };
@@ -113,12 +114,12 @@ export function submitState(input: { draft: NewTaskDraft; repoLabel?: string; bu
   const { draft, repoLabel, busy, failed, pendingUploads } = input;
   const where = draft.workspace === "current" ? "the current checkout" : "a new worktree";
   const empty = !draft.request.trim();
-  const label = busy ? "Delegating…" : failed ? (draft.workspace === "current" ? "Try again in a new worktree" : "Try again") : "Delegate task";
+  const label = busy ? "Starting…" : failed ? (draft.workspace === "current" ? "Try again in a new worktree" : "Try again") : "Start task";
   const note = empty ? "Write a request to continue"
     : pendingUploads ? "Finish or remove pending attachments to continue"
     : !repoLabel ? "Choose a repository"
     : failed ? "Your request, checks and agent choice are kept"
-    : `Starts in ${where} on ${repoLabel} · you can watch it in Tasks`;
+    : `Starts in ${where} on ${repoLabel} · opens its workspace`;
   return { label, note, disabled: busy || empty || pendingUploads || !repoLabel, retryInWorktree: failed && draft.workspace === "current" };
 }
 
@@ -230,14 +231,14 @@ export function routeCard(explanation: RouteExplanation, accounts: Account[] = [
   const why: RouteCardView["why"] = [...warnings, ...(advisory
     ? [{ glyph: "i" as const, tone: "neutral" as const, text: "pacer picks the agent when the task starts; this preview is advisory" }]
     : reasons.map(reason => ({ ...glyphFor(reason.outcome), text: reasonText(reason, accounts) })))];
-  const then = explanation.fallbacks.map(f => ({ ...named(f.runner, accounts), agent: agentOf(f.executor), excluded: f.state === "excluded", reason: f.reason ? reasonText(f.reason, accounts) : null }));
+  const then = explanation.fallbacks.filter(f => f.state !== "excluded").map(f => ({ ...named(f.runner, accounts), agent: agentOf(f.executor), excluded: f.state === "excluded", reason: f.reason ? reasonText(f.reason, accounts) : null }));
   const cost = explanation.planner;
   const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
   const week = window.used === null ? "" : `Week ${Math.round(window.used)}%${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;
   return {
     status: pill,
     lead: chosen && !advisory ? { ...named(chosen.runner, accounts), agent: agentOf(chosen.executor), step: uncertain ? "Likely goes to this agent · checked again at start" : step, pill } : null,
-    why: why.length ? why : [{ glyph: "i", tone: pill.tone, text: explanation.outcome === "queue" ? "The task waits until an agent can take it" : "No agent can take this task right now" }],
+    why: why.length ? [...new Map(why.map(reason => [reason.text, reason])).values()] : [{ glyph: "i", tone: pill.tone, text: explanation.outcome === "queue" ? "The task waits until an agent can take it" : "No agent can take this task right now" }],
     then: advisory ? [] : then,
     planner: {
       agent: planner?.agent ?? null,

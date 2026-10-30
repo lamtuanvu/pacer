@@ -711,8 +711,7 @@ Earlier-attempt panels show metadata because the current service has no replay
 operation for a selected historical attempt.
 
 The open panel owns the top-bar context and actions. Following agent terminals
-are read-only until Take over; Hand back releases control. End session keeps the
-existing confirmation. Shells reuse the terminal client and xterm. The right
+are read-only until the secondary **Take control** action; **Hand back** releases control. **Stop task** confirms the task stop. Queued tasks show a service-derived reason and next step without opening a session request; final states compose NowCard, Acceptance and TaskActions in the center. Compact CostTiles omit unmeasured values and show one unavailable message. The right inspector avoids repeating the center status and acceptance. Shells reuse the terminal client and xterm. The right
 inspector provides Overview, Changes and Notes; selecting a change opens a middle
 diff panel. `NowCard`, `CostTiles` and `Acceptance` own the shared overview patterns
 and compact presentation. All geometry and appearances use generated tokens,
@@ -866,8 +865,8 @@ dot, ellipsized title, 18px host chip and mono repository, then status and token
 Session toggles and collapsed 26px icon targets or expanded 28px minimum rows are
 sibling controls, with independent keyboard targets. The Tasks tree supplies status
 and attention vocabulary. The frame's active-panel actions live right of search;
-board IconButtons are 28px with native title tooltips, ink-filled takeover and bad
-end-session tone. Session control remains owned by the panel, with confirmation on
+board IconButtons are 28px with native title tooltips, secondary labelled control and bad
+stop-task tone. Session control remains owned by the panel, with confirmation on
 end; file panels hand local workspace paths to VS Code's registered file URI handler.
 Desktop geometry uses generated tokens; live status respects reduced motion.
 

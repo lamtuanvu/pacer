@@ -44,3 +44,5 @@
 .pc-workspace-session-toggle.pc-btn>svg{width:calc(var(--size-10) + var(--size-1));height:calc(var(--size-10) + var(--size-1))}.pc-workspace-session-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
 
 .pc-topbar .pc-workspace-handback.pc-btn{color:var(--ink)}
+.pc-workspace-state{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-6);max-width:100%;min-width:0}
+.pc-workspace-state>p,.pc-workspace-state>h2{margin:0}

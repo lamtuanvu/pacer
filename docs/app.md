@@ -12,7 +12,7 @@ snapshot. Selecting a task loads its details once; task events refresh those
 details after a short debounce. Open session panels retain their output stream.
 The task page (`#/tasks/<id>`) also follows events rather than polling task details.
 Task pages show the complete display title, with a copy-ID button in the breadcrumb.
-Open workspace is available in every state; ended sessions open read-only. Running
+Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero. Running
 cards name the agent and recorded phase and show up to two meaningful output lines,
 omitting echoed instructions and shortening home and temporary paths.
 The shared page-control worker checks for remote actions every ten seconds.
@@ -171,10 +171,7 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
-Running tasks open to the Session view so the agent workspace gets the main pane.
-Changes, Brief and Result are available in the task's view tabs. Opening a live
-session takes control when nobody else holds it; a control action appears when
-another viewer owns the session. Execution status and quality verdict are separate:
+Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions can be answered in the workspace. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.
@@ -285,3 +282,12 @@ and no deadline. Branch names remain assigned by the service at launch; the UI
 shows that limitation. Acceptance checks are user supplied until the service
 exposes repository defaults; Review is not offered as a task kind because the
 service does not accept it.
+
+
+## New task
+
+The initial composer asks for the outcome, repository and success checks, then **Start task**. Tasks default to a new isolated worktree. **Advanced options** retains workspace, base branch, kind, agent and parallel-agent limit choices (default three); drafts keep these choices across reloads. Attachments, file mentions and issue import remain available.
+
+Enabled command checks become the acceptance command and must pass before successful completion. Text checks become instructions in the brief. With no commands configured, the UI makes no automatic verification promise. The route preview names the likely agent, with fallback and budget information under **Routing details**. Unavailable agents are omitted from fallback suggestions. Preview details do not block submission.
+
+Successful creation opens the exact returned task workspace immediately. Submission is deduplicated while pending and retries retain the request ID. On failure the draft remains and focus returns to the outcome field.

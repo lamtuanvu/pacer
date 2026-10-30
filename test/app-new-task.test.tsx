@@ -32,15 +32,15 @@ function explanation(change: Partial<RouteExplanation> = {}): RouteExplanation {
 
 test("new_task_submit_state_follows_the_board", () => {
   expect(submitState({ draft: draft({ request: " " }), repoLabel: "econ-v1/node", busy: false, failed: false, pendingUploads: false }))
-    .toEqual({ label: "Delegate task", note: "Write a request to continue", disabled: true, retryInWorktree: false });
+    .toEqual({ label: "Start task", note: "Write a request to continue", disabled: true, retryInWorktree: false });
   expect(submitState({ draft: draft(), repoLabel: "econ-v1/node", busy: false, failed: false, pendingUploads: false }))
-    .toEqual({ label: "Delegate task", note: "Starts in a new worktree on econ-v1/node · you can watch it in Tasks", disabled: false, retryInWorktree: false });
+    .toEqual({ label: "Start task", note: "Starts in a new worktree on econ-v1/node · opens its workspace", disabled: false, retryInWorktree: false });
   expect(submitState({ draft: draft({ workspace: "current" }), repoLabel: "econ-v1/node", busy: false, failed: false, pendingUploads: false }).note)
-    .toBe("Starts in the current checkout on econ-v1/node · you can watch it in Tasks");
+    .toBe("Starts in the current checkout on econ-v1/node · opens its workspace");
   expect(submitState({ draft: draft({ workspace: "current" }), repoLabel: "econ-v1/node", busy: false, failed: true, pendingUploads: false }))
     .toEqual({ label: "Try again in a new worktree", note: "Your request, checks and agent choice are kept", disabled: false, retryInWorktree: true });
   expect(submitState({ draft: draft(), repoLabel: "econ-v1/node", busy: false, failed: true, pendingUploads: false }).label).toBe("Try again");
-  expect(submitState({ draft: draft(), repoLabel: "econ-v1/node", busy: true, failed: false, pendingUploads: false })).toMatchObject({ label: "Delegating…", disabled: true });
+  expect(submitState({ draft: draft(), repoLabel: "econ-v1/node", busy: true, failed: false, pendingUploads: false })).toMatchObject({ label: "Starting…", disabled: true });
   expect(submitState({ draft: draft(), repoLabel: "econ-v1/node", busy: false, failed: false, pendingUploads: true })).toMatchObject({ note: "Finish or remove pending attachments to continue", disabled: true });
   expect(submitState({ draft: draft(), busy: false, failed: false, pendingUploads: false })).toMatchObject({ note: "Choose a repository", disabled: true });
 });
@@ -141,7 +141,7 @@ test("route_card_ready_override_and_unavailable", () => {
   }));
   expect(skipped.lead?.step).toMatch(/^Ladder step 2 · .+ skipped$/);
   expect(skipped.why.at(-1)).toMatchObject({ glyph: "✕", tone: "bad" });
-  expect(skipped.then[0]).toMatchObject({ excluded: true });
+  expect(skipped.then).toEqual([]);
 
   const override = routeCard(explanation({ outcome: "override", reasons: [{ code: "override", outcome: "info", facts: {}, text: "" }] }));
   expect(override.lead).toMatchObject({ step: "Chosen by you · this task only", pill: { label: "Override", tone: "info" } });
@@ -282,4 +282,9 @@ test("routing_uncertainty_and_engine_fallback_are_visible_and_hedged", () => {
 
 test("routing_capacity_copy_rounds_percentages", () => {
   expect(reasonText({ code: "capacity_comfortable", facts: { headroomPct: 46.753, pacePct: 24.44636951446756 } } as never)).toBe("This agent has spare capacity · 47% headroom, pace 24%");
+});
+
+test('advanced concurrency preserves the saved choice and defaults old drafts safely',()=>{
+ expect(newTaskPayload({...blankNewTask,request:'Build it',repo:'r',maxConcurrent:'2'}, {requestId:'one',knownRepos:['r']}).dispatch.maxConcurrent).toBe(2);
+ expect(newTaskPayload({...blankNewTask,request:'Build it',repo:'r',maxConcurrent:''}, {requestId:'one',knownRepos:['r']}).dispatch.maxConcurrent).toBe(3);
 });
