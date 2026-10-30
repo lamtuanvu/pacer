@@ -13,8 +13,9 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-grow{flex:1;min-width:0}
 .tray-line strong{flex:0 0 auto;min-width:var(--size-28);max-width:calc(100% - var(--size-18) - var(--space-2) * 5 - var(--size-40) - var(--size-64) - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis}
 /* Preserve the full name at 340px; reserve the caption, mode and pill glyph
-   before constraining longer names or narrower windows. */
-.tray-line .pc-pill{flex:0 0 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
+   before constraining longer names or narrower windows. Let the pace pill
+   shrink so its label can ellipsize without pushing the mode outside the row. */
+.tray-line .pc-pill{flex:0 1 auto;min-width:calc(var(--type-pill-size) + var(--space-1) + var(--space-1\.5) * 2)}
 .tray-line .pc-glyph{flex:none}
 .tray-pace-label,.tray-mode-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tray-mode{flex:none;min-width:0;max-width:calc(100% - var(--size-64) - var(--size-18) - var(--space-2) * 5 - var(--type-pill-size) - var(--space-1) - var(--space-1\.5) * 2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -24,9 +25,9 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-paused{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-2) var(--space-3\.5);background:var(--warn-tint);border-bottom:1px solid var(--warn-line)}
 .tray-paused>svg{flex:none;color:var(--warn-fg)}
 .tray-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-half);padding:var(--space-1) var(--space-1\.5);border-bottom:1px solid var(--line)}
-.tray-count{display:flex;gap:0;flex-direction:column;align-items:flex-start;padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-md);white-space:nowrap}
+.tray-count{min-width:0;display:flex;gap:0;flex-direction:column;align-items:flex-start;padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-md);white-space:nowrap}
 .tray-count:hover{background:var(--surface-lane)}
-.tray-count b{font-size:var(--type-tray-count-size);line-height:var(--type-tray-count-line);font-weight:var(--type-tray-count-weight);color:var(--ink)}.tray-count b.tray-muted{color:var(--ink-muted)}.tray-count b.tray-idle{color:var(--warn-fg)}
+.tray-count b{width:100%;contain:inline-size;overflow:hidden;text-overflow:ellipsis;font-size:var(--type-tray-count-size);line-height:var(--type-tray-count-line);font-weight:var(--type-tray-count-weight);color:var(--ink)}.tray-count b.tray-muted{color:var(--ink-muted)}.tray-count b.tray-idle{color:var(--warn-fg)}
 .tray-count span{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .tray-muted{color:var(--ink-muted)}.tray-idle{color:var(--warn-fg)}
 .tray-section{padding:var(--space-2) 0 var(--space-1);border-bottom:1px solid var(--line)}
@@ -55,7 +56,7 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-footer{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-2\.5);border-top:1px solid var(--line);background:var(--surface-card)}
 .tray-footer .pc-btn{flex:none;padding-inline:var(--space-2)}.tray-footer .pc-kbd{padding:0 var(--size-5);border-radius:var(--radius-4)}.tray-footer .pc-icon-button{width:var(--size-36);height:var(--size-36);margin:0}
 .tray-more-open{background:var(--surface-lane)}
-.tray-menu{position:absolute;right:var(--space-2\.5);bottom:var(--size-56);z-index:var(--layer-overlay);width:var(--size-236);max-height:min(var(--size-340),calc(100dvh - var(--size-56)));overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-page);box-shadow:var(--shadow-tray-menu)}
+.tray-menu{position:absolute;right:var(--space-2\.5);bottom:var(--size-56);z-index:var(--layer-overlay);width:var(--size-236);max-height:min(var(--size-340),calc(100dvh - var(--size-56) - var(--size-2)));overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-page);box-shadow:var(--shadow-tray-menu)}
 .tray-menu .tray-menu-item{font-weight:var(--type-body-weight);display:flex;align-items:center;width:100%;height:var(--size-36);padding:0 var(--space-2\.5);gap:var(--space-2\.5);border-radius:var(--radius-sm);text-align:left}
 .tray-menu-item>svg{flex:none}
 .tray-menu-item:hover{background:var(--surface-lane)}
@@ -83,3 +84,22 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-login-icon{width:var(--size-16);height:var(--size-16);fill:none;stroke:currentColor;stroke-width:var(--stroke-icon);stroke-linecap:round;stroke-linejoin:round;flex:none}
 .tray-task-title{display:block;min-width:0;max-width:100%;color:var(--ink);text-decoration:none}
 .tray-task-title>strong{display:block}
+
+/* Keep full action labels and targets when the board's single row cannot fit. */
+@media(max-width:339px){
+  /* Caption widths set the column minimum. The numbers have inline size
+     containment so large values ellipsize instead of widening the tracks. */
+  .tray-counts{grid-template-columns:repeat(4,minmax(max-content,1fr))}
+  .tray-count{padding-inline:var(--space-1)}
+  .tray-footer{display:grid;grid-template-columns:minmax(0,1fr) var(--size-36)}
+  .tray-footer>a{grid-column:1;justify-self:start}
+  .tray-footer>a:nth-child(1){grid-row:1}
+  .tray-footer>a:nth-child(2){grid-row:2}
+  .tray-footer>.tray-grow{display:none}
+  .tray-footer>.pc-icon-button{grid-column:2}
+  .tray-footer>.pc-icon-button:nth-last-child(2){grid-row:1}
+  .tray-footer>.pc-icon-button:last-child{grid-row:2}
+  /* Match the taller footer clearance and keep the menu inside both borders. */
+  .tray-menu{bottom:calc(var(--size-56) + var(--space-12));max-height:min(var(--size-340),calc(100dvh - var(--size-56) - var(--space-12) - var(--size-2)))}
+  .tray--menu-open{min-height:min(calc(100dvh - var(--size-2)),calc(var(--size-340) + calc(var(--size-56) + var(--space-12))))}
+}

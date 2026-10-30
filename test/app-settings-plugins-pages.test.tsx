@@ -256,12 +256,12 @@ browserTest('App and plugin pages retain the shared frame and controls',async()=
     expect(await frame(editor)).toEqual(expected);
     expect((await style(editor,'.pc-setting-row')).align).toBe('start');
     expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});
-    expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'32px',height:'32px',radius:'6px'});
+    expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'28px',height:'28px',radius:'6px'});
     expect((await style(cards,'.pc-action-menu__trigger')).color).toBe('rgb(82, 82, 91)');
-    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px',radius:'6px'});
+    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'28px',height:'28px',padding:'0px',radius:'6px'});
     expect(await editor.locator('.pc-plugin-remove').first().evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--ink-secondary)';document.body.append(probe);const want=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===want;})).toBe(true);
     const row=await editor.locator('.pc-plugin-ordered>li').first().evaluate(node=>{const s=getComputedStyle(node);return {height:node.getBoundingClientRect().height,columns:s.gridTemplateColumns.split(' ').length,padding:s.padding,radius:s.borderRadius};});
-    expect(row).toMatchObject({height:44,columns:4,padding:'8px 10px',radius:'8px'});
+    expect(row).toMatchObject({height:46,columns:4,padding:'8px 10px',radius:'8px'});
     expect(await editor.getByRole('button',{name:'Move up: Run tests',exact:true}).count()).toBe(0);
     expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).count()).toBe(0);
     await editor.getByRole('button',{name:'Move down: Run tests',exact:true}).focus();await editor.keyboard.press('Enter');

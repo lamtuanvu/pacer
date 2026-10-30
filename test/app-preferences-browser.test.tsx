@@ -43,7 +43,7 @@ browserTest('density persists and announces shell changes; App does not duplicat
   expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBeNull();
   await page.waitForFunction(()=>document.documentElement.dataset.density==='normal');
   const height=()=>page.locator('.pc-topbar__new').evaluate(el=>el.getBoundingClientRect().height);
-  expect(await height()).toBe(32);
+  expect(await height()).toBe(26);
   expect(await page.getByRole('button',{name:'Density sample action'}).evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
   expect(await page.locator('.pc-list-row').first().evaluate(el=>getComputedStyle(el).padding)).toBe('8px 12px');
   await density.getByRole('button',{name:'Compact',exact:true}).click();
@@ -55,7 +55,7 @@ browserTest('density persists and announces shell changes; App does not duplicat
   await density.getByRole('button',{name:'Compact',exact:true}).click();
   expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBe('compact');
   await page.waitForFunction(()=>document.documentElement.dataset.density==='compact');
-  expect(await height()).toBe(28);
+  expect(await height()).toBe(26);
   expect(await page.getByRole('textbox',{name:'Touch sample input'}).evaluate(el=>el.getBoundingClientRect().height)).toBe(44);
   expect(await page.locator('.pc-list-row--touch').evaluate(el=>parseFloat(getComputedStyle(el).minHeight))).toBe(44);
   expect(await page.getByRole('button',{name:'Density sample action'}).evaluate(el=>el.getBoundingClientRect().height)).toBe(28);
@@ -63,10 +63,10 @@ browserTest('density persists and announces shell changes; App does not duplicat
   await page.reload();
   expect(await density.getByRole('button',{name:'Compact',exact:true}).getAttribute('aria-pressed')).toBe('true');
   await page.waitForFunction(()=>document.documentElement.dataset.density==='compact');
-  expect(await height()).toBe(28);
+  expect(await height()).toBe(26);
   await density.getByRole('button',{name:'Comfortable'}).click();
   await page.waitForFunction(()=>document.documentElement.dataset.density==='normal');
-  expect(await height()).toBe(32);
+  expect(await height()).toBe(26);
   const theme=page.getByRole('group',{name:'Theme',exact:true});
   for(const name of ['Dark','Light','System']) {
     await theme.getByRole('button',{name,exact:true}).click();
@@ -106,7 +106,7 @@ browserTest('density rolls back and reports an inline error when persistence is 
   await density.getByRole('button',{name:'Compact',exact:true}).click();
   await page.getByRole('alert').filter({hasText:"Couldn't save: storage denied"}).waitFor();
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-  expect(await page.locator('.pc-topbar__new').evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
+  expect(await page.locator('.pc-topbar__new').evaluate(el=>el.getBoundingClientRect().height)).toBe(26);
   expect(await density.getByRole('button',{name:'Comfortable'}).getAttribute('aria-pressed')).toBe('true');
  }finally{await page.close();}
 });

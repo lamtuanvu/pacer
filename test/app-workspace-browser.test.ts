@@ -128,3 +128,240 @@ browserTest('selecting a workspace task issues exactly one task.get and retained
   expect(await page.getByRole('button',{name:'End session',exact:true}).count()).toBe(0);
  } finally {await browser.close();}
 },15000);
+
+browserTest('workspace menu remains pointer reachable after panel resizing and viewport changes',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ const css=(await buildApp()).find(f=>f.path==='app.css')!.text;
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(3000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/#/workspace');
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});await page.addStyleTag({content:css});
+  await page.getByRole('button',{name:'New panel',exact:true}).waitFor();
+  const geometry=await page.evaluate(()=>{
+   const box=(selector:string)=>document.querySelector(selector)!.getBoundingClientRect();
+   return {main:box('.pc-main').toJSON(),workspace:box('.pc-workspace').toJSON(),strip:box('.pc-workspace-panels').height,status:box('.pc-statusbar').top};
+  });
+  expect(geometry.workspace.x).toBe(geometry.main.x);
+  expect(geometry.workspace.y).toBe(geometry.main.y);
+  expect(geometry.workspace.bottom).toBe(geometry.status);
+  expect(geometry.strip).toBe(31);
+  // Compare portal exit with native traversal from its trigger in the full frame.
+  const trigger=page.getByRole('button',{name:'New panel',exact:true});
+  for(const key of ['Tab','Shift+Tab']) {
+   await trigger.focus();await page.keyboard.press(key);
+   await page.evaluate(()=>{(window as any).workspaceTabTarget=document.activeElement;});
+   for(const edge of ['Home','End']) {
+    await trigger.focus();await page.keyboard.press('Enter');await page.keyboard.press(edge);
+    await page.keyboard.press(key);
+    expect(await page.getByRole('menu',{name:'New panel',exact:true}).count()).toBe(0);
+    expect(await page.evaluate(()=>document.activeElement===(window as any).workspaceTabTarget)).toBe(true);
+   }
+  }
+  await page.getByRole('button',{name:'New panel',exact:true}).click();
+  await page.keyboard.press('End');
+  expect(await page.getByRole('menuitem',{name:'Open a file…',exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+  await page.keyboard.press('Escape');
+  expect(await page.getByRole('button',{name:'New panel',exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+  await page.keyboard.press('Enter');
+  for(const width of [1440,1100,767,640,561,390,375]) {
+   await page.setViewportSize({width,height:900});
+   if(width===1100){await page.getByRole('separator',{name:'Resize Workspace',exact:true}).focus();await page.keyboard.press('End');}
+   if(width<=390) {
+    for(const control of [page.getByRole('button',{name:'Search',exact:true}),page.getByRole('button',{name:'End session',exact:true}),page.getByRole('button',{name:'Take over',exact:true}),page.getByRole('link',{name:'New task',exact:true})]) {
+     const bounds=await control.boundingBox();
+     expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);
+    }
+   }
+   const item=page.getByRole('menuitem',{name:'Open a file…',exact:true});
+   await page.waitForFunction(width => document.querySelector('.pc-app')?.classList.contains('pc-app--narrow') === (width <= 560), width);
+   const visibility = await page.getByRole('menu', {name:'New panel',exact:true}).evaluate(menu => Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')).map(item => {
+    const r=item.getBoundingClientRect(), range=document.createRange();range.selectNodeContents(item);const text=range.getBoundingClientRect();
+    const hit=(x:number,y:number)=>item.contains(document.elementFromPoint(x,y));
+    return {label:item.textContent,left:hit(r.left+1,r.top+r.height/2),right:hit(r.right-1,r.top+r.height/2),textLeft:hit(text.left+1,text.top+text.height/2),textRight:hit(text.right-1,text.top+text.height/2),fits:text.left>=r.left&&text.right<=r.right};
+   }));
+   for(const target of visibility) expect(target).toMatchObject({left:true,right:true,textLeft:true,textRight:true,fits:true});
+   await item.click({trial:true});
+   const box=await page.getByRole('menu',{name:'New panel',exact:true}).boundingBox();
+   expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+  }
+  await page.getByRole('menuitem',{name:'New task in this worktree…',exact:true}).click();
+  await page.getByRole('dialog',{name:'New task in this worktree',exact:true}).waitFor();
+ } finally {await browser.close();}
+},15000);
+
+browserTest('ended workspace metadata is truthful and failed session reads recover without a stuck skeleton',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {for(const mode of ['ended','loaderror','headless']) {
+  const page=await browser.newPage();page.setDefaultTimeout(3000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto(`http://pacer.test/?mode=${mode}#/workspace`);await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  if(mode==='ended') {
+   await page.getByLabel('Terminal stream fixture').waitFor({state:'attached'});
+   const text=await page.locator('.pc-topbar__context').innerText();
+   expect(text).toContain('Ended · read-only');expect(text).not.toContain('Following');expect(text).not.toMatch(/·\s*·/);
+  } else if(mode==='headless') {
+   await page.getByRole('button',{name:'Take over',exact:true}).waitFor();
+   expect(await page.locator('.pc-topbar__context').innerText()).toContain('Output · read-only');
+  } else {
+   await page.getByRole('alert').filter({hasText:'Session unavailable'}).waitFor();
+   expect(await page.getByLabel('Loading session').count()).toBe(0);
+   await page.getByRole('button',{name:'Retry session',exact:true}).click();
+   await page.getByRole('alert').filter({hasText:'attempt 2'}).waitFor();
+   expect(await page.getByLabel('Loading session').count()).toBe(0);
+   await page.evaluate(()=>(window as any).workspaceRecover());
+   await page.getByRole('button',{name:'Retry session',exact:true}).click();
+   await page.getByLabel('Terminal stream fixture').waitFor({state:'attached'});
+   expect(await page.getByRole('alert').count()).toBe(0);
+  }
+  await page.close();
+ }} finally {await browser.close();}
+},15000);
+
+
+browserTest('workspace long identity and status stay inside their context in both themes',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ expect(result.success).toBe(true);
+ const css=(await buildApp()).find(f=>f.path==='app.css')!.text;
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {for(const mode of ['accepted','longidentity']) {
+  const page=await browser.newPage();page.setDefaultTimeout(3000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto(`http://pacer.test/?mode=${mode}#/workspace`);
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});await page.addStyleTag({content:css});
+  await page.locator('.pc-workspace-panel-details b').waitFor();
+  for(const theme of ['dark','light'])for(const width of [1440,375,390,340]) {
+   await page.setViewportSize({width,height:900});
+   await page.locator(width<768?'.pc-app--narrow':'.pc-app:not(.pc-app--narrow)').waitFor();
+   await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+   const fit=await page.locator('.pc-workspace-panel-details').evaluate(node=>{
+    const box=(n:Element)=>n.getBoundingClientRect().toJSON();
+    const title=node.querySelector('b')!,pill=node.querySelector('.pc-pill')!,meta=node.querySelector(':scope>div>span')!;
+    const c=getComputedStyle(pill);
+    const luminance=(color:string)=>color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i]!,0);
+    const a=luminance(c.color),b=luminance(c.backgroundColor);
+    return {context:box(node.parentElement!),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
+   });
+   expect(fit.contrast).toBeGreaterThanOrEqual(4.5);
+   expect(fit.identity.left).toBeGreaterThanOrEqual(fit.context.left);
+   expect(fit.identity.right).toBeLessThanOrEqual(fit.context.right+.1);
+   for(const child of fit.children){expect(child.left).toBeGreaterThanOrEqual(fit.identity.left);expect(child.right).toBeLessThanOrEqual(fit.identity.right+.1);}
+   expect(fit.title.width).toBeGreaterThan(0);expect(fit.title.right).toBeLessThan(fit.pill.left);
+   expect(fit.fullTitle).toBe(fit.text);expect(fit.metadata).toBe(fit.metaText);
+   expect(fit.contrast).toBeGreaterThanOrEqual(4.5);
+   if(mode==='accepted')expect(fit.status).toBe('Accepted');
+   if(width<768)await page.getByRole('button',{name:'Search',exact:true}).click({trial:true});
+   await page.getByRole('button',{name:'New panel',exact:true}).click();
+   await page.keyboard.press('End');await page.keyboard.press('Escape');
+   expect(await page.getByRole('button',{name:'New panel',exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+  }
+  await page.close();
+ }}finally{await browser.close();}
+},30000);
+
+browserTest('workspace inline panels keep New panel reachable across the frame boundary', async () => {
+ const result = await Bun.build({entrypoints: ['test/fixtures/workspace-browser.tsx'], target: 'browser', format: 'esm', tsconfig: 'app/tsconfig.json', plugins: [countedTerminal]});
+ expect(result.success).toBe(true);
+ const css = (await buildApp()).find(f => f.path === 'app.css')!.text;
+ const browser = await chromium.launch({executablePath: process.env.PACER_TEST_BROWSER!, headless: true});
+ try {
+  for (const theme of ['light', 'dark'] as const) {
+   const page = await browser.newPage({viewport: {width: 1440, height: 900}, colorScheme: theme});
+   page.setDefaultTimeout(3000);
+   await page.route('http://pacer.test/**', r => r.fulfill({contentType: 'text/html', body: '<!doctype html><div id="app"></div>'}));
+   await page.goto('http://pacer.test/#/workspace');
+   await page.addStyleTag({content: css});
+   await page.addScriptTag({type: 'module', content: await result.outputs[0]!.text()});
+   // Descend and ascend: stale frame-slot portals must not duplicate the inline panels.
+   for (const width of [1440, 375, 560, 561, 640, 767, 768, 767, 561, 560, 768]) {
+    await page.setViewportSize({width, height: 900});
+    const trigger = page.getByRole('button', {name: 'New panel', exact: true});
+    await trigger.waitFor();
+    await page.waitForFunction(({width}) =>
+     !!document.querySelector('.pc-app--narrow') === (width <= 560) &&
+     document.querySelectorAll('.pc-side-panel').length === (width >= 768 ? 2 : 0) &&
+     document.querySelectorAll('.pc-workspace-task').length === 1, {width});
+    await trigger.scrollIntoViewIfNeeded();
+    const geometry = await page.evaluate(() => {
+     const rect = (s: string) => document.querySelector(s)!.getBoundingClientRect().toJSON();
+     const b = document.querySelector('[aria-label="New panel"]')!;
+     const r = b.getBoundingClientRect();
+     const w = document.querySelector('.pc-workspace')!;
+     return {list: rect('.pc-workspace-list'), center: rect('.pc-workspace-center'), task: rect('.pc-workspace-task'), button: r.toJSON(), direction: getComputedStyle(w).flexDirection,
+      hit: b.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)),
+      overflow: document.documentElement.scrollWidth > innerWidth};
+    });
+    expect(geometry.direction).toBe(width < 768 ? 'column' : 'row');
+    expect(geometry.overflow).toBe(false);
+    expect(geometry.button.width).toBeGreaterThan(0);
+    expect(geometry.hit).toBe(true);
+    if (width < 768) {
+     expect(geometry.list.bottom).toBeLessThanOrEqual(geometry.center.top + 1);
+     expect(geometry.center.bottom).toBeLessThanOrEqual(geometry.task.top + 1);
+     expect(geometry.center.width).toBeGreaterThanOrEqual(geometry.list.width - 1);
+    }
+    await trigger.click();
+    const file = page.getByRole('menuitem', {name: 'Open a file…', exact: true});
+    await file.click({trial: true});
+    await page.keyboard.press('End');
+    expect(await file.evaluate(n => n === document.activeElement)).toBe(true);
+    await page.keyboard.press('Escape');
+    expect(await trigger.evaluate(n => n === document.activeElement)).toBe(true);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Home');
+    expect(await page.getByRole('menuitem', {name: 'New shell in this worktree', exact: true}).evaluate(n => n === document.activeElement)).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.getByRole('link', {name: 'Open task page', exact: true}).click({trial: true});
+   }
+   await page.close();
+  }
+ } finally { await browser.close(); }
+}, 30000);
+
+
+browserTest('workspace header contains full identity, status and actions at intermediate widths', async () => {
+ const result = await Bun.build({entrypoints: ['test/fixtures/workspace-browser.tsx'], target: 'browser', format: 'esm', tsconfig: 'app/tsconfig.json', plugins: [countedTerminal]});
+ expect(result.success).toBe(true);
+ const css = (await buildApp()).find(f => f.path === 'app.css')!.text;
+ const browser = await chromium.launch({executablePath: process.env.PACER_TEST_BROWSER!, headless: true});
+ try {
+  for (const mode of ['longidentity', 'accepted', 'headless']) {
+   const page = await browser.newPage();
+   page.setDefaultTimeout(3000);
+   await page.route('http://pacer.test/**', r => r.fulfill({contentType: 'text/html', body: '<!doctype html><div id="app"></div>'}));
+   await page.goto(`http://pacer.test/?mode=${mode}&header=full#/workspace`);
+   await page.addStyleTag({content: css});
+   await page.addScriptTag({type: 'module', content: await result.outputs[0]!.text()});
+   await page.locator('.pc-workspace-panel-details b').waitFor();
+   for (const theme of ['light', 'dark']) for (const width of [1440, 375, 560, 561, 640, 767, 768, 800, 801, 1100, 1101, 768, 560, 561]) {
+    await page.setViewportSize({width, height: 900});
+    await page.waitForFunction(w => !!document.querySelector('.pc-app--narrow') === (w <= 560), width);
+    await page.evaluate(t => document.documentElement.dataset.theme = t, theme);
+    const geometry = await page.locator('.pc-topbar').evaluate(header => {
+     const identity = header.querySelector('.pc-workspace-panel-details')!;
+     const title = identity.querySelector('b')!.getBoundingClientRect();
+     const status = identity.querySelector('.pc-pill')!;
+     const sr = status.getBoundingClientRect();
+     const hr = header.getBoundingClientRect();
+     const controls = [...header.querySelectorAll('button:not(:disabled),a')].filter(n => n.getBoundingClientRect().width > 0);
+     return {overflow: document.documentElement.scrollWidth > innerWidth, titleWidth: title.width,
+      statusWidth: sr.width, statusFits: sr.left >= hr.left && sr.right <= hr.right && sr.top >= hr.top && sr.bottom <= hr.bottom && status.scrollWidth <= status.clientWidth,
+      controls: controls.map(n => {const r = n.getBoundingClientRect(); return {name: n.getAttribute('aria-label') ?? n.textContent, contained: r.left >= 0 && r.right <= innerWidth && r.top >= hr.top && r.bottom <= hr.bottom, hit: n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))};})};
+    });
+    expect(geometry.overflow).toBe(false);
+    expect(geometry.titleWidth).toBeGreaterThan(40);
+    expect(geometry.statusWidth).toBeGreaterThan(20);
+    expect(geometry.statusFits).toBe(true);
+    for (const control of geometry.controls) {
+     expect({...control, contained: true, hit: true}).toEqual(control);
+    }
+    await page.locator('[data-command-trigger]').click({trial: true});
+    await page.getByRole('link', {name: 'New task', exact: true}).click({trial: true});
+    if (mode === 'headless') await page.getByRole('button', {name: 'Take over', exact: true}).click({trial: true});
+   }
+   await page.close();
+  }
+ } finally { await browser.close(); }
+}, 30000);

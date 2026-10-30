@@ -52,6 +52,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep unavailable task file changes distinct from measured zero counts in Overview and the Now card.
+- Keep Workspace panel menus reachable after resizing, fit the workspace canvas to its frame, and keep narrow header controls visible. Long panel identities ellipsize inside the header while status pills retain theme contrast. Ended sessions show read-only metadata, failed session loads offer Retry, and the new-agent flow is accurately labelled as a new task in the selected worktree.
+- Keep the tray planner header contained at narrow widths by truncating the pace label before the planner name, and place footer actions in two rows below 340px so every control remains visible; constrain expanded More menus to the space above the taller footer in short windows, and keep all four count captions fully legible at 260px. Large counts ellipsize with exact values in their accessible names and tooltips; short-window menus retain their top border.
 - Keep the Reopen to update notice compact in narrow sessions and make its new-task or new-terminal action reachable by keyboard before the terminal input.
 - Retry the paired core's startup handshake during desktop service takeover; a transient refusal could cause a real 0.12.0 takeover to roll back.
 - Restore takeover live validation after the fixture and takeover changes merged; the five takeover scenarios had not worked together on main.

@@ -200,7 +200,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         { n: snapshot.counts?.running ?? model.active.length, label: "running", route: "/sessions" },
         { n: model.waiting, label: "waiting", route: "/tasks" },
         { n: model.done, label: "done today", route: "/tasks" },
-      ].map(cell => <TextAction key={cell.label} className="tray-count" href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></TextAction>)}</nav>
+      ].map(cell => <TextAction key={cell.label} className="tray-count" title={`${cell.n} ${cell.label}`} aria-label={`${cell.n} ${cell.label}`} href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></TextAction>)}</nav>
       {/* Update status sits above the fold: it can need action before the task lists. */}
       {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><TrayStatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span className="tray-chevron"><Icon name="chevron-right" /></span></TextAction>}
       {model.attention.length ? <section className="tray-section" aria-label="Needs you"><div className="tray-section-heading"><SectionHeading className="tray-attention-heading">Needs you</SectionHeading><TextAction href={appHref("/needs-you")} onClick={navigate("/needs-you")}>All {model.needsCount} in Needs you</TextAction></div>

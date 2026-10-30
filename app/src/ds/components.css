@@ -581,7 +581,7 @@ a.pc-btn{text-decoration:none}
 .pc-sheet .pc-radio-chip,.pc-sheet .pc-value-box,.pc-sheet .pc-btn,.pc-sheet .pc-search-picker__trigger,.pc-sheet .pc-choice-picker__trigger{height:auto;min-height:var(--control-touch)}
 .pc-attachment-picker--tool .pc-attachment-picker__trigger{gap:var(--space-1\.5);min-height:var(--control-compact);padding:0 var(--space-2);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--ink-secondary)}
 .pc-attachment-picker--tool:hover .pc-attachment-picker__trigger{background:var(--surface-lane);color:var(--ink)}
-/* AuroraSheet: assistant sheet. Solid at the bottom edge, masked to transparent at the top. Decoration moves only while generating and never under reduced motion. */
+/* AuroraSheet: assistant sheet. Solid at the bottom edge, masked to transparent at the top. Decoration follows the Shell board ambient motion and never moves under reduced motion. */
 .pc-work-wrap{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 .pc-work-wrap>.pc-work{flex:1;min-height:0}
 /* A zero-height sticky anchor at the bottom of the work area: the sheet rises from it, above the status bar, even when the page scrolls. */
@@ -1284,3 +1284,20 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-text-action--caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 
 .pc-btn.pc-icon-button--board{border:0}
+
+/* A workbench owns its viewport canvas, including the assistant overlay floor. */
+.pc-main--workbench,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench{padding:0;gap:0;min-height:0}
+.pc-app--narrow .pc-main--workbench{flex:none}
+/* Keep workspace identity on its own row where frame controls compete for space. */
+@media(max-width:1100px){
+ .pc-app .pc-topbar:has(.pc-workspace-panel-details){flex-wrap:wrap;height:auto;min-height:var(--size-48)}
+ .pc-app .pc-topbar:has(.pc-workspace-panel-details) h1{display:none}
+ .pc-app .pc-topbar:has(.pc-workspace-panel-details) .pc-topbar__context{order:-1;flex:1 1 100%;flex-direction:row;max-width:100%;overflow:hidden}
+}
+
+.pc-btn.pc-icon-button--panel{width:var(--size-24);min-width:var(--size-24);height:var(--size-24);min-height:var(--size-24);padding:0;border:0;border-radius:var(--radius-sm)}
+.pc-icon-button--panel>.pc-icon{width:var(--size-15);height:var(--size-15)}
+@media(pointer:coarse){.pc-btn.pc-icon-button--panel{width:var(--control-touch);min-width:var(--control-touch);height:var(--control-touch);min-height:var(--control-touch)}}
+
+/* Active-panel status remains part of the identity on narrow frames. */
+.pc-app--narrow .pc-topbar .pc-workspace-panel-details>.pc-pill{display:inline-flex}

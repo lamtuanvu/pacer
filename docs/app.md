@@ -7,6 +7,9 @@ pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available f
 
 ## Workspace reads
 
+Long active-panel identities ellipsize within the header; hover the identity or
+metadata for its full text. Status pills remain fully visible in both themes.
+
 Workspace (`#/workspace`) renders task cards from task history and the live
 snapshot. Selecting a task loads its details once; task events refresh those
 details after a short debounce. Open session panels retain their output stream.
@@ -23,6 +26,8 @@ both app themes, including ANSI colors and a contrast floor for agent text.
 The compact toolbar uses quiet icon buttons; only **End session** uses danger tone. Running
 cards name the agent and recorded phase and show up to two meaningful output lines,
 omitting echoed instructions and shortening home and temporary paths.
+Task file summaries distinguish unavailable changes from a measured empty diff: unavailable
+changes show no added/removed line totals, while measured zero counts remain visible.
 The shared page-control worker checks for remote actions every ten seconds.
 
 ## Open the app
@@ -179,6 +184,13 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
+The tray planner header keeps its caption and mode visible at narrow widths; the
+pace label truncates first, with the full status available in its tooltip. Below
+340px, the four task-count columns fit their full captions with compact insets,
+and footer actions use two rows so labels, shortcut hints and controls remain
+visible; the More menu stays above the footer and scrolls within short windows,
+even with a long expanded strategy list. Large count values ellipsize when space
+is tight; count links keep the exact value in their accessible name and tooltip.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when

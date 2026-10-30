@@ -144,8 +144,9 @@ browserTest(
     await page.evaluate(() => {
       location.hash = "#/tasks";
     });
-    await page.getByRole("complementary", { name: "Scope" }).waitFor();
-    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    await page.getByRole("heading", { name: "Tasks", exact: true }).waitFor();
+    expect(await page.getByRole("complementary", { name: "Scope" }).count()).toBe(0);
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
     await page.evaluate(() => {
       location.hash = "#/";
     });
