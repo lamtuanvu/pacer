@@ -1,4 +1,5 @@
 import { shortTitle } from "../src/core/short-title";
+import { displayTitle, taskHeading } from "../src/view-model/titles";
 import { expect, test } from "bun:test";
 import { apiTask, needsReview, snapshotTasks, supersededTaskIds } from "../src/api/read-model/tasks";
 import { fakeCtx } from "./helpers";
@@ -55,6 +56,8 @@ test("snapshots preserve the scheduling limit and capacity on queued tasks",()=>
 test("full titles restore generated short labels without changing the compact API fallback",()=>{
  const ctx=fakeCtx(),goal="Repair the review queue and preserve the complete title (no code edits are omitted)";
  const row=apiTask(ctx,record("done",ctx.now,{title:shortTitle(goal),brief:{goal,repo:ctx.home}}));
- expect(row.fullTitle).toBe("Repair the review queue and preserve the complete title…");
+ expect(row.fullTitle).toBe(goal);
  expect(row.title).toBe(shortTitle(goal));
+ expect(displayTitle({...row,goal})).toBe(goal);
+ expect(taskHeading(displayTitle({...row,goal}))).toBe(shortTitle(goal));
 });
