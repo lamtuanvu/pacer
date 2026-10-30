@@ -48,7 +48,7 @@ describe("live guard: executor sessions do not delegate onward", () => {
     ["dispatch", "submit", "--goal", "x", "--repo", "."], ["dispatch", "child", "--goal", "x"], ["dispatch", "retry", "w-1"],
     ["api", "call", "task.delegate", "--params-file", "-"], ["api", "call", "--params", "{}", "dispatch.submit"], ["api", "call", "task.retry_all"], ["api", "call", "dispatch.child"],
     ["api", "call", "task.review", "--params", '{"id":"t-1","verdict":"send_back","note":"n"}'], ["api", "call", "task.review", "--params-file", "-"],
-    ["answer", "t-1", "--text", "yes"], ["api", "call", "task.answer"], ["api", "call", "dispatch.answer"], ["api", "call", "task.takeover"],
+    ["answer", "t-1", "--text", "yes"], ["_run", "t-1"], ["api", "call", "task.answer"], ["api", "call", "dispatch.answer"], ["api", "call", "task.takeover"],
     ["api", "call", "session.create"], ["api", "call", "session.resume"],
   ];
   const allowed = [["status", "--json"], ["review", "t-1", "--accept"], ["wait", "t-1"], ["dispatch", "tree", "w-1"], ["api", "call", "task.list"], ["api", "call", "task.send"], ["api", "call", "task.review", "--params", '{"id":"t-1","verdict":"accept"}']];

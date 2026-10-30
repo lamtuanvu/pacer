@@ -27,7 +27,7 @@ export function refusal(args: string[]): string | undefined {
 const DELEGATION_OPS = ["task.delegate", "task.retry", "task.retry_all", "task.answer", "task.takeover", "dispatch.submit", "dispatch.child", "dispatch.retry", "dispatch.answer", "session.create", "session.resume"];
 function delegates(args: string[]): string | undefined {
   const [command, action] = args;
-  if (command === "delegate" || command === "retry" || command === "answer") return command;
+  if (command === "delegate" || command === "retry" || command === "answer" || command === "_run") return command;
   if (command === "review" && args.some(arg => arg === "--send-back" || arg === "--retry-on" || arg.startsWith("--retry-on="))) return "review --send-back/--retry-on";
   if (command === "dispatch" && ["submit", "child", "retry"].includes(action)) return `dispatch ${action}`;
   if (command !== "api" || action !== "call") return undefined;
