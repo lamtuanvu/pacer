@@ -3,12 +3,15 @@ import { taskAttentionReason } from "../api/read-model/tasks";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
 import type { Action, AttentionItem, AttentionKind } from "./types";
+import { discoveryPrompts, type DiscoveryRuleInput } from "../discovery/prompts";
 
 export interface RuleInput {
   now: number; tasks: ApiTask[]; executors: ExecutorRow[]; accounts: AccountSummary[];
   hosts?: HostSummary[]; planner: PlannerMeter | null; setup: SetupSummary;
   update: { latest: string; available: boolean } | null;
   retryTarget(t: ApiTask): string | null;
+  /** Absent when LAN discovery is off. */
+  discovery?: DiscoveryRuleInput;
 }
 const displayName = (id: string | null) => executorName(id ? parseRunnerId(id)?.agent ?? id : null);
 const open = (label: string, params: Action["params"]): Action => ({ label, op: "ui.open", params });
@@ -19,7 +22,7 @@ export function sortItems(items: AttentionItem[]): AttentionItem[] {
 export function deriveItems(input: RuleInput): AttentionItem[] {
   const items: AttentionItem[] = [];
   const add = (kind: AttentionKind, key: string, title: string, detail: string, actions: Action[], extra: Partial<AttentionItem> = {}) => {
-    items.push({ id: `${kind}:${key}`, kind, severity: kind === "stuck" ? "blocked" : ["review","update"].includes(kind) ? "decide" : "problem",
+    items.push({ id: `${kind}:${key}`, kind, severity: kind === "stuck" ? "blocked" : ["review","update","discovery","discovery-network"].includes(kind) ? "decide" : "problem",
       repo: null, title, detail, raisedAt: input.now, since: input.now, actions,
       notify: ["setup","update"].includes(kind) ? "all" : "important", ...extra });
   };
@@ -68,5 +71,6 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
   }
   for (const s of input.setup.items) if (s.required && s.status!=="done") add("setup",s.id,s.title,"Setup required",[open("Open settings",{view:"settings",section:s.id})]);
   if (input.update?.available) add("update",input.update.latest,`Update to ${input.update.latest}`,"An update is available",[{label:"Update",op:"update.apply",params:{}},{label:"Later",op:"attention.dismiss",params:{id:`update:${input.update.latest}`}}]);
+  for (const p of input.discovery ? discoveryPrompts(input.discovery) : []) add(p.kind, p.key, p.title, p.detail, p.actions, p.since === undefined ? {} : { since: p.since, raisedAt: p.since });
   return sortItems(items);
 }

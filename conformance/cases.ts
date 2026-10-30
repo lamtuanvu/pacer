@@ -152,6 +152,26 @@ export const CASES: ConformanceCase[] = [
     const refused = await doctor(h, "fx-identity-sign-other");
     assert(!refused.ok && /^capability_denied/.test(refused.error ?? ""), `an undeclared purpose is refused (got ${refused.error})`);
   } },
+  { name: "pairing: a plugin contributing pairing receives pairing.start and its {accepted} result is validated", async run(t) {
+    const peer = "a".repeat(26);
+    mkdirSync(join(t.home, ".pacer", "discovery"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(t.home, ".pacer", "discovery", "state.json"), JSON.stringify({ rev: 1, networksRev: 0, networks: {}, silenced: {}, prompts: [],
+      seen: { [peer]: { discoveryId: peer, name: "studio", version: "1.0.0", hints: "port=7", network: "", firstSeen: 1, lastSeen: 1 } } }), { mode: 0o600 });
+    const dir = t.install("pairing");
+    const bogus = t.install("pairing", { manifest: { id: "fx-pairing-bogus" }, fixture: { pairingResult: { bogus: 1 } } });
+    t.install("pairing", { manifest: { id: "fx-pairing-nocap", capabilities: [] } });
+    const h = await t.host(), by = await listed(h);
+    assert(by["fx-pairing-nocap"]?.state === "refused" && /net\.p2p/.test(by["fx-pairing-nocap"].error ?? ""), "contributes.pairing without net.p2p is refused");
+    const pair = () => h.call<{ ok: true; pairing: { handedOver: boolean; plugin?: string } }>("discovery.respond", { discoveryId: peer, action: "pair" });
+    await h.call("plugin.enable", { id: "fx-pairing-bogus", grant: true });
+    assert((await pair()).pairing.handedOver === false, "an invalid pairing.start result is not handed over");
+    assert(JSON.parse(readFileSync(join(bogus, "pairing-start.json"), "utf8")).discoveryId === peer, "the invalid plugin was asked");
+    await h.call("plugin.enable", { id: "fx-pairing", grant: true });
+    const r = await pair();
+    assert(r.pairing.handedOver && r.pairing.plugin === "fx-pairing", `an accepting plugin takes Pair (got ${JSON.stringify(r.pairing)})`);
+    const got = JSON.parse(readFileSync(join(dir, "pairing-start.json"), "utf8"));
+    assert(JSON.stringify(got) === JSON.stringify({ discoveryId: peer, name: "studio", hints: "port=7" }), `pairing.start carries the sanitized discovery id, name and hints (got ${JSON.stringify(got)})`);
+  } },
   { name: "grants: needs_grant until granted, and again when a version asks for more", async run(t) {
     const dir = t.install("good");
     const h = await t.host();

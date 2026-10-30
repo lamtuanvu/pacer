@@ -1,6 +1,6 @@
 import type { RepoRef } from "../api/read-model/types";
 
-export type AttentionKind = "question" | "review" | "failed" | "limit" | "stuck" | "account_signin" | "executor_down" | "host_down" | "planner_quota" | "setup" | "update";
+export type AttentionKind = "question" | "review" | "failed" | "limit" | "stuck" | "account_signin" | "executor_down" | "host_down" | "planner_quota" | "setup" | "update" | "discovery" | "discovery-network";
 export interface Action { label: string; op: string; params: Record<string, unknown>; style?: "primary" | "danger"; confirm?: string }
 export interface AttentionItem {
   id: string; kind: AttentionKind; severity: "decide" | "problem" | "blocked";

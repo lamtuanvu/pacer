@@ -395,11 +395,15 @@ a.pc-btn{text-decoration:none}
 @media(max-width:900px){.pc-page-columns{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:767px){.pc-page{padding:var(--space-4) max(var(--space-4),env(safe-area-inset-right)) var(--space-6) max(var(--space-4),env(safe-area-inset-left))}.pc-page-header__row{flex-wrap:wrap}.pc-page-header__actions{width:100%}}
 
+/* Bottom-right notices share one fixed stack, so notices shown together sit one above the other instead of covering each other.
+   The padding keeps the 16 px corner offset and room for the card shadows inside the scroller; only the cards take pointer input. */
+.pc-notice-stack{position:fixed;inset-inline-end:0;bottom:0;z-index:var(--layer-overlay);display:flex;flex-direction:column;gap:var(--space-3);box-sizing:border-box;width:min(calc(var(--size-360) + var(--space-4) * 2),100vw);max-height:100dvh;padding:var(--space-4);overflow:auto;pointer-events:none}
+.pc-notice-stack:empty{display:none}
+.pc-notice-stack>*{pointer-events:auto}
 /* Nonmodal update notification: canonical tokens, no entrance motion or focus stealing. */
-.pc-update-notice{position:fixed;inset-inline-end:var(--space-4);bottom:var(--space-4);z-index:var(--layer-overlay);width:min(var(--size-360),calc(100vw - var(--space-4) * 2));box-sizing:border-box;padding:var(--space-4);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover);display:grid;gap:var(--space-3);max-height:calc(100dvh - var(--space-4) * 2);overflow:auto}
+.pc-update-notice{flex-shrink:0;box-sizing:border-box;padding:var(--space-4);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover);display:grid;gap:var(--space-3)}
 .pc-update-notice p{margin:0}
 .pc-update-notice .row-actions{flex-wrap:wrap}
-.pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}
 
 /* Custom (undecorated) titlebar window controls: macOS traffic lights. */
 .pc-traffic{display:flex;align-items:center;gap:0;flex:none}

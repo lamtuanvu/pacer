@@ -102,6 +102,8 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
       // Plugin surfaces re-render on any plugin event; the catalog follows this counter.
       if (event.type === "plugin") return { ...state, invalidations: { ...state.invalidations, plugin: (state.invalidations.plugin ?? 0) + 1 } };
+      // A machine seen on the network changes discovery.list without a config change.
+      if (event.type === "discovery.found") return { ...state, invalidations: { ...state.invalidations, discovery: (state.invalidations.discovery ?? 0) + 1 } };
       // 2.1 entities carry fields the v1 envelope parser would strip, so they skip it.
       if (state.features.readModel && (event.type === "task" || READ_MODEL_EVENTS.includes(event.type))) return reduceReadModel(state, state.snapshot, event.type, event.data, event.seq, event.at);
       // Without the read model, an attention or counts event means the snapshot is out of date.
