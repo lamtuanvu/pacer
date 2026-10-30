@@ -36,6 +36,8 @@ test("Claude migration replaces legacy hooks and scripts and registers MCP", asy
   expect(JSON.parse(readFileSync(f.settings, "utf8"))).toEqual({ ...f.original, hooks: {
     SessionStart: [{ hooks: [{ type: "command", command: "other-start" }] }, { hooks: [{ command: "/opt/pacer/bin/pacer msg hook session --planner claude-code", timeout: 15, type: "command", statusMessage: "Checking subscription budgets" }] }],
     PreToolUse: [{ matcher: "Read", hooks: [{ type: "command", command: "other-tool" }] }, { matcher: "Agent|Task|Bash", hooks: [{ command: "/opt/pacer/bin/pacer guard --planner claude-code", timeout: 15, type: "command" }] }],
+    Stop: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook stop --planner claude-code", timeout: 10, type: "command" }] }],
+    UserPromptSubmit: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook prompt --planner claude-code", timeout: 10, type: "command" }] }],
   } });
   const script = readFileSync(f.script, "utf8");
   expect(script).toContain('# >>> pacer >>>\nprintf \'%s\' "$input" | /opt/pacer/bin/pacer statusline 2>/dev/null\n# <<< pacer <<<\n\nexit 0\n');
@@ -74,7 +76,7 @@ test("Claude moved binary replaces hooks and script block instead of duplicating
   await f.install(); await f.install(["/new/pacer"]);
   const settings = readFileSync(f.settings, "utf8");
   expect(settings).not.toContain("/opt/pacer");
-  expect(settings.match(/\/new\/pacer/g)).toHaveLength(2);
+  expect(settings.match(/\/new\/pacer/g)).toHaveLength(4);
   const script = readFileSync(f.script, "utf8");
   expect(script).not.toContain("/opt/pacer");
   expect(script.match(/# >>> pacer >>>/g)).toHaveLength(1);

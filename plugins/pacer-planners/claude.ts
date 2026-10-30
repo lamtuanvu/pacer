@@ -101,7 +101,7 @@ export function editStatuslineScript(
   return upsertBlock(text, body, "hash");
 }
 
-type ClaudeCommands = { session: string; guard: string; statusline: string };
+type ClaudeCommands = { session: string; guard: string; stop?: string; prompt?: string; statusline: string };
 export function editClaudeSettings(
   old: string | null,
   cmds: ClaudeCommands,
@@ -138,6 +138,8 @@ export function editClaudeSettings(
         command: cmds.guard,
         timeout: 15,
       },
+      ...(cmds.stop ? [{ event: "Stop", command: cmds.stop, timeout: 10 }] : []),
+      ...(cmds.prompt ? [{ event: "UserPromptSubmit", command: cmds.prompt, timeout: 10 }] : []),
     ],
     "claude-code",
   );
@@ -169,7 +171,7 @@ export function editClaudeSettings(
       {
         kind: "hooks",
         format: "claude",
-        commands: [cmds.session, cmds.guard],
+        commands: [cmds.session, cmds.guard, ...(cmds.stop ? [cmds.stop] : []), ...(cmds.prompt ? [cmds.prompt] : [])],
         restore: removed,
       },
       ...(createdStatusLine
@@ -241,6 +243,8 @@ export async function installClaude(tx: PlannerBuilder): Promise<void> {
       await tx.read(settingsPath),
       {
         session: `${command} msg hook session --planner claude-code`,
+        stop: `${command} msg hook stop --planner claude-code`,
+        prompt: `${command} msg hook prompt --planner claude-code`,
         guard: `${command} guard --planner claude-code`,
         statusline: `${command} statusline`,
       },

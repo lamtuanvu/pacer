@@ -50,6 +50,10 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     } else if (t.state === "running" && t.progress?.phase === "idle") {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
     }
+    if (t.liveness?.stalled) {
+      add("stalled", t.id, t.goal, `Conversation stalled: ${t.liveness.reason}`, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],
+        { ...extra, since: t.liveness.since, raisedAt: t.liveness.since });
+    }
     // An unanswered task question already raises the "question" item above.
     const legacyQuestion = t.state === "needs_input" && !!t.question && t.question.answer === undefined && !t.retriedBy;
     if (t.messages?.unreadForHuman && !t.dismissed && !legacyQuestion) {

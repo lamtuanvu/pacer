@@ -14,7 +14,7 @@ import { rootOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
-import { agentReport, isClosed, notifyMessage, renderTurnPrompt, report, reportReader } from "./turns";
+import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportReader } from "./turns";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
@@ -48,6 +48,8 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
   if (isClosed(t) || !store.pendingFor(ctx, to).length) return setBlocked(ctx, t, false);
   if (!betweenTurns(t, s)) return;
   if (s.controller) return setBlocked(ctx, t, true);
+  // Admission is fresh at the point the live driver claims the next turn, including broker nudges.
+  if ((await beginTurn(ctx, t.id, undefined, { quiet: true })).delivery !== "live") return;
   const root = rootOf(ctx, to);
   if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return;
   const turnId = `${t.id}#live.${store.turnsForTask(ctx, t.id) + 1}`;

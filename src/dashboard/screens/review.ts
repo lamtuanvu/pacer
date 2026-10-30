@@ -39,6 +39,7 @@ export function managedAnswerAct(ctx: ScreenCtx, id: string, rev: number | undef
 
 export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, detail?: TaskDetail): Item {
   const id = a.taskId!, title = task ? displayTitle(task) : a.title;
+  const userRoot = detail?.work?.userStarted === true && detail.work.parentId === null;
   const rev = typeof task?.rev === "number" ? task.rev : detail?.rev;
   const base = { id, ...(typeof rev === "number" ? { expect_rev: rev } : {}) };
   const verdict = (label: string, verdict: string, extra: Record<string, unknown> = {}) =>
@@ -50,7 +51,14 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
     label, danger: verdictName === "reject",
     effect: { type: "prompt", prompt: { title, label: "Note for the executor and your planner", required: "Add a note first.", submit: value => verdict(verdictName === "reject" ? "Rejected" : "Sent back", verdictName, { note: value }) } },
   });
-  const sendBack = detail&&!detail.work?note("Send back", "send_back", "Send back with a note"):undefined;
+  const sendBack = detail&&(!detail.work || userRoot) ? {
+    label: "Send back", effect: { type: "prompt" as const, prompt: { title: "Send back with a note", label: "Note for the executor and your planner", required: "Add a note first.",
+      submit: (value: string) => ({ ...verdict("Sent back", "send_back", { note: value }),
+        ...(userRoot && typeof rev === "number" ? { fallback: [
+          { op: "dispatch.review", params: { id, accepted: false, note: value, expect_rev: rev } },
+          { op: "dispatch.retry", params: { id, expect_rev: rev, requestId: `sendback-${id}-${rev}`, feedback: value } },
+        ] } : {}) }) } },
+  } : undefined;
   const reject = note("Reject", "reject", "Reject with a note");
   const options = (detail?.retryOptions ?? []).filter(o => o.state === "ready");
   const retry: Act | undefined = detail&&!detail.work&&options.length ? {
@@ -61,7 +69,11 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
   const managedRetry:Act|undefined=detail?.work&&managedEligible&&typeof rev==="number"&&ctx.supports("dispatch.retry")?{
     label:"Retry work",effect:{type:"action",action:{label:"Retry queued",op:"dispatch.retry",params:{id,expect_rev:rev,requestId:`tui-${id}-${rev}`}}}
   }:undefined;
-  const managedAnswer=managedAnswerAct(ctx,id,rev,detail);
+  const managedAnswer= userRoot && typeof rev === "number" && detail?.state === "needs_input" && detail.question?.text && !detail.question.answer ? {
+    label: "Answer", effect: { type: "prompt" as const, prompt: { title: detail.question.text, label: "Your answer", required: "Add an answer first.",
+      submit: (value: string) => ({ type: "action" as const, action: { label: "Answer sent", op: "task.answer", params: { id, expect_rev: rev, text: value } },
+        fallback: [{ op: "dispatch.answer", params: { id, expect_rev: rev, requestId: `answer-${id}-${rev}`, text: value } }] }) } },
+  } : managedAnswerAct(ctx,id,rev,detail);
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   const { reply, answer } = threadActs(ctx, id, detail);
   return {

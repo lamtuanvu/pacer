@@ -20,7 +20,8 @@ For a failed or incomplete child, use \`pacer dispatch retry --id CHILD_ID --req
 3. Converse. \`pacer msg inbox --wait\` shows reports and questions from your tasks; after handling them, run \`pacer msg read <message-id>...\` so the next \`--wait\` blocks for new ones. \`pacer msg send <task> "<text>" --wait\` continues the same agent session in the same worktree and returns its reply. Answer a question with \`pacer msg send <task> "<text>" --answer <message-id>\` (or \`pacer answer <task> "<text>"\`).
    Messages may arrive through the Stop and UserPromptSubmit hooks. Answer them, or run \`pacer msg read <message-id>\` after handling them, before ending your turn. Stop blocking releases after repeated reminders; the inbox remains the source of truth.
 4. Review the diff and run acceptance. \`pacer review <id> --accept|--reject\`. \`--send-back --note\` continues the same session with your feedback. \`--retry-on <executor>\` starts over on another executor.
-5. \`pacer msg log <task>\` shows the conversation. \`pacer msg close <task>\` ends it without a verdict.
+5. \`pacer msg log <task>\` shows the conversation. \`pacer msg close <task>\` ends it without a verdict. Configure repository messaging guardrails with \`pacer msg policy --project <repo-path>\`.
+   Use \`pacer delegate --no-grant\` when a user-started task must stay unmanaged.
 
 Use \`pacer stop <id> --json\` to cancel and \`pacer dismiss <id...>\` to hide settled cards.
 If an executor hits a provider limit, run \`pacer report-limit <provider>\` so routing skips it.

@@ -14,6 +14,8 @@ import { defaultHooks } from "../classify/hooks";
 import { runGuard } from "../guard/guard";
 import { renderHook } from "../render/hook";
 import { sessionHook } from "../messaging/identity";
+import { promptHook, stopHook } from "../messaging/hooks";
+import { insertMessage } from "../messaging/store";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { readScheduleState, attemptHold, plannerScheduleKey } from "../dispatch/certification-schedule";
 
@@ -57,6 +59,7 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
     detail: `Selected account settings: ${folder}/settings.json${override ? `; service CLAUDE_CONFIG_DIR: ${override}` : "; service has no CLAUDE_CONFIG_DIR override"}. The Claude session may use different project or launch settings.`,
     ...(mismatch ? { fix: "Launch Claude with the selected account folder, or select the matching planner account. Restart the service after changing its environment." } : {}) }];
   let configured = false;
+  let messageHooks = false;
   let missingExecutable = false;
   let issue = "Settings are missing. Reconnect Claude Code after reviewing the integration preview.";
   const text = readText(join(folder, "settings.json"));
@@ -75,6 +78,8 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
       const session = has("SessionStart", "status --hook claude-code") || has("SessionStart", "msg hook session --planner claude-code");
       const guard = has("PreToolUse", "guard --planner claude-code", "Agent|Task|Bash");
       configured = settings.disableAllHooks !== true && session && guard && !missingExecutable;
+      messageHooks = settings.disableAllHooks !== true && has("Stop", "msg hook stop --planner claude-code") &&
+        has("UserPromptSubmit", "msg hook prompt --planner claude-code") && !missingExecutable;
       issue = missingExecutable ? "A registered hook command executable is missing or not executable. Reconnect the selected integration after restoring the command. No settings commands were executed."
         : settings.disableAllHooks === true ? "All Claude hooks are disabled in the selected account settings."
         : !session || !guard ? "Missing or unsupported session-start command or synchronous Agent|Task|Bash guard. Custom commands and matchers are not certified by this check."
@@ -86,6 +91,9 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
   }
   checks.push({ name: "Claude hook configuration", level: configured && !mismatch ? "ok" : "warn", evidence: configured ? "configured" : "unverified", detail: issue,
     ...(!configured ? { fix: "Review disabled hooks and settings in Claude. Preview and reconnect the selected Claude Code integration in Setup; preserve other hooks. Use pacer install claude-code only for the default account, or append #account for a named account." } : {}) });
+  checks.push({ name: "Claude message hooks", level: messageHooks && !mismatch ? "ok" : "warn", evidence: messageHooks ? "configured" : "unverified",
+    detail: messageHooks ? "Stop and UserPromptSubmit message hooks are configured." : "Stop or UserPromptSubmit message hook is missing or disabled.",
+    ...(!messageHooks ? { fix: "Reconnect the Claude Code integration to install message hooks." } : {}) });
   checks.push({ name: "Claude guard scope", level: "info", detail: "The delegation guard covers Agent and Task subagents, plus a Bash command that starts a known executor CLI (claude, codex, pi, opencode) with PACER_ROLE=executor or a pacer-managed CLAUDE_CONFIG_DIR/CODEX_HOME, including via env/exec, an export earlier in the same command, or bash -c/sh -c. It does not intercept normal direct edits or other shell commands, and it misses a variable exported in an earlier, separate Bash call, a launch hidden behind a script file, env/bash -c used with other flags, parenthesized/subshell grouping, or heredoc bodies (which can also false-positive, since they are not recognized as inert text); it runs an extra process on every Bash call. Executor sessions, PACER=off, another selected planner, relaxed mode, unknown planner usage, or no available executor can allow calls." });
   checks.push({ name: "Claude host invocation", level: "info", evidence: "unverified", detail: "UNVERIFIED: no Claude host invocation evidence is collected. File integrity and fixture probes cannot prove Claude fired these hooks.",
     fix: "In the intended Claude account, inspect /hooks and disabled hooks, project settings and launch overrides. Start a new session with debug logging and inspect SessionStart and PreToolUse Agent or Task invocation and output. Do not share credentials or full session logs." });
@@ -123,7 +131,13 @@ export async function probeClaudeHandlers(): Promise<Check> {
     }
     const session = JSON.parse((await sessionHook(ctx, "claude-code", { session_id: "probe" }, async () => renderHook(status, "claude-code"))).out);
     if (session.hookSpecificOutput?.hookEventName !== "SessionStart" || !session.hookSpecificOutput.additionalContext.includes("Subscription budget")) throw Error("session context probe failed");
-    return { name: "Claude handler probes", level: "ok", evidence: "tested", detail: "Tested working in isolated fixtures: Agent and Task deny, a Bash executor-launch deny, exploration and direct-edit allow, session context JSON. Tests this build’s handlers only; installed command launch and Claude host firing remain unverified." };
+    insertMessage(ctx, { taskId: "t-20261029-000000-aaaa", rootId: "task:t-20261029-000000-aaaa", from: "task:t-20261029-000000-aaaa",
+      to: "external:claude-code:probe", kind: "message", body: "fixture message", replyTo: null, requestId: null });
+    const stop = JSON.parse(await stopHook(ctx, "claude-code", { session_id: "probe" }));
+    if (stop.decision !== "block" || !stop.reason.includes("fixture message")) throw Error("Stop block probe failed");
+    const prompt = JSON.parse(await promptHook(ctx, "claude-code", { session_id: "probe" }));
+    if (prompt.hookSpecificOutput?.hookEventName !== "UserPromptSubmit" || !prompt.hookSpecificOutput.additionalContext.includes("fixture message")) throw Error("UserPromptSubmit probe failed");
+    return { name: "Claude handler probes", level: "ok", evidence: "tested", detail: "Tested working in isolated fixtures: Agent and Task deny, a Bash executor-launch deny, exploration and direct-edit allow, session context JSON, Stop block and UserPromptSubmit context. Tests this build’s handlers only; installed command launch and Claude host firing remain unverified." };
   } catch {
     return { name: "Claude handler probes", level: "fail", evidence: "unverified", detail: "A fixed handler fixture failed.", fix: "Run the doctor-hook tests from this build and report the failure before reconnecting." };
   } finally { rmSync(home, { recursive: true, force: true }); }

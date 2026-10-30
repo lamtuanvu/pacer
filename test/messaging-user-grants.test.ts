@@ -99,10 +99,10 @@ test("config grants.user_started_tasks off registers no work", async () => {
 test("a retry keeps the original's choice", async () => {
   const { ctx, repo } = setup();
   await certify(ctx, repo);
-  const plain = delegate(ctx, { brief: { goal: "a", repo }, origin: "human", grant: false }, () => 1);
-  const managed = delegate(ctx, { brief: { goal: "b", repo }, origin: "human" }, () => 1);
-  expect(getWork(ctx, delegate(ctx, { brief: { goal: "a", repo }, origin: "human", retryOf: plain.id }, () => 1).id)).toBeNull();
-  expect(getWork(ctx, delegate(ctx, { brief: { goal: "b", repo }, origin: "human", retryOf: managed.id }, () => 1).id)).not.toBeNull();
+  const plain = await delegate(ctx, { brief: { goal: "a", repo }, origin: "human", grant: false }, () => 1);
+  const managed = await delegate(ctx, { brief: { goal: "b", repo }, origin: "human" }, () => 1);
+  expect(getWork(ctx, (await delegate(ctx, { brief: { goal: "a", repo }, origin: "human", retryOf: plain.id }, () => 1)).id)).toBeNull();
+  expect(getWork(ctx, (await delegate(ctx, { brief: { goal: "b", repo }, origin: "human", retryOf: managed.id }, () => 1)).id)).not.toBeNull();
 });
 
 async function strictRun(ctx: Ctx, id: string, runAttempt: (runCtx: Ctx, cfg: { id: string; model?: string | null }, task: TaskRecord) => Promise<unknown>) {

@@ -50,7 +50,7 @@ export function threadView(messages: readonly ThreadMessage[], o: { now: number;
 export function sendRefusal(error: unknown): { text: string; blocking: boolean } {
   const data = (error as { data?: unknown } | null)?.data;
   const reason = data && typeof data === "object" ? (data as { reason?: unknown }).reason : undefined;
-  return messageRefusalWords(typeof reason === "string" ? reason : undefined);
+  return { text: messageRefusalWords(typeof reason === "string" ? reason : undefined), blocking: ["msg_node_closed", "msg_forbidden", "msg_live_unavailable", "msg_worktree_unavailable"].includes(String(reason)) };
 }
 export const sendOutcome = (delivery: string | undefined): string => messageDeliveryWords(delivery);
 

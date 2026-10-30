@@ -11,7 +11,10 @@ import { revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
-import { resolveProjectSelection } from "../engine/project-routing";
+import { resolveProjectSelection, type ProjectSelection } from "../engine/project-routing";
+import { executorsFor } from "../engine/rank";
+import { realpathSafe } from "../core/git";
+import { strictReadiness } from "../dispatch/enforcement";
 import { requireProjectExecutor } from "../core/project-policy";
 import { registeredRepo } from "../core/repos";
 import { CoreError } from "../core/errors";
@@ -36,8 +39,8 @@ import { RemoteRunIO } from "../remote/run-io";
 import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { taskDatabase, createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
-import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
-import { messagingOverrideSchema } from "../messaging/types";
+import { type Brief, type ManagedSkipReason, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
+import { messagingOverrideSchema, userStartedGrants } from "../messaging/types";
 import { callerParticipant } from "../messaging/participants";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
@@ -269,6 +272,29 @@ export async function delegate(
   finally {finishUnlaunchedWorkSync(ctx,lease);}
 }
 
+/** A human-started root may coordinate children when its route supports strict managed execution. */
+export function userStartedWork(ctx: Ctx, s: Strategy, input: DelegateInput, created: TaskRecord, origin: string | undefined): boolean {
+  if (input.workParent || input.dispatch || origin !== "human" || created.interactionMode === "conversation") return false;
+  if (!userStartedGrants(s.messaging)) return false;
+  return (input.grant ?? (input.retryOf ? !!getWork(ctx, input.retryOf) : true)) !== false;
+}
+
+const skipOrder: ManagedSkipReason[] = ["unverified", "interactive", "unsupported", "unavailable"];
+export function strictCandidateSkip(ctx: Ctx, s: Strategy, input: DelegateInput, selection: ProjectSelection | undefined, repo: string): TaskRecord["managedSkip"] | null {
+  const ids = input.executor ? [input.executor] : selection?.executors
+    ?? (input.kind || !s.routing.length ? executorsFor(input.kind ?? null, s) : s.routing.flatMap(rule => rule.executors.map(id => resolveRunner(s, id)?.id ?? id)));
+  const misses: {code: ManagedSkipReason; detail: string}[] = [];
+  for (const id of new Set(ids)) {
+    if (!input.executor && executorExclusion(ctx, s, id)) continue;
+    const ready = strictReadiness(ctx, s, id, repo);
+    if (ready.ready) return null;
+    misses.push({code: ready.code, detail: `${id}: ${ready.detail}`});
+  }
+  misses.sort((a, b) => skipOrder.indexOf(a.code) - skipOrder.indexOf(b.code));
+  const first = misses[0];
+  return {reason: first?.code ?? "unavailable", detail: first ? misses.map(m => m.detail).join("; ") : "No executor is available", at: ctx.now};
+}
+
 function commitDelegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
@@ -287,7 +313,10 @@ function commitDelegate(
   const repo = input.repoRef ?? registeredRepo(ctx, input.brief.repo);
   if (!repo && Object.values(policies.projects).some(p => p.executors)) throw new CoreError("invalid_input", "Resolve the repository before delegating with project policies");
   if (repo) requirePolicyIdentity(ctx, repo);
-  requireProjectExecutor(repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined, input.executor);
+  const selection = repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined;
+  requireProjectExecutor(selection, input.executor);
+  const origin = input.workParent ? undefined : input.origin ?? callerParticipant(ctx).id;
+  let managedSkip: TaskRecord["managedSkip"] | null = null;
   const task = createTask(ctx, {
     title: input.title?.trim() || goalTitle(input.brief.goal),
     brief: input.brief,
@@ -296,10 +325,11 @@ function commitDelegate(
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
-  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
+  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict"});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
   updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
-    if(!input.workParent)t.origin=input.origin ?? callerParticipant(ctx).id;
-    if(input.messaging)t.messaging=input.messaging;});
+    if(origin)t.origin=origin;
+    if(input.messaging)t.messaging=input.messaging;
+    if(managedSkip)t.managedSkip=managedSkip;});
   if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });

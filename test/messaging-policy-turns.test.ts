@@ -152,6 +152,20 @@ test("a project that allows two executors reroutes an excluded one to the other,
   expect(f.spawned).toEqual([f.id]);
 });
 
+test("a live continuation checks fresh delegate and route policy before delivery", async () => {
+  const f = settled();
+  const dir = readTask(f.ctx, f.id)!.run!.dir;
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  updateTask(f.ctx, f.id, x => { x.state = "running"; x.interactionMode = "conversation"; });
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  const held = await f.send("check Y");
+  expect(held).toMatchObject({ delivery: "held", hold: { reason: "repository frozen", plugin: "fx-policy" } });
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["check Y"]);
+  f.policy({ verdict: "allow" });
+  expect((await f.send("and Z")).delivery).toBe("live");
+  expect(f.decisions().at(-1)).toMatchObject({ decision: "route", input: { taskId: f.id, candidates: ["codex"] } });
+});
+
 test("task.answer under a veto falls back to the legacy retry, which policy refuses as it refuses a new delegation", async () => {
   const f = settled();
   // The legacy answer starts from the asking executor's checkout.

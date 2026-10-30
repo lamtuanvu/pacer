@@ -39,11 +39,11 @@ const human = (ctx: Ctx, repo: string, extra: Partial<Parameters<typeof delegate
 test("a user task is managed only when an executor it could route to is certified for strict work", async () => {
   const { ctx, repo } = setup();
   await claude(ctx, repo, true);
-  const managed = human(ctx, repo);
+  const managed = await human(ctx, repo);
   expect(getWork(ctx, managed.id)?.options).toMatchObject({ allowDelegation: true, delegationEnforcement: "strict" });
   expect(managed.managedSkip).toBeUndefined();
   // The requested executor is the only route: Codex cannot block its own sub-agents yet.
-  const codex = human(ctx, repo, { executor: "codex" });
+  const codex = await human(ctx, repo, { executor: "codex" });
   expect(getWork(ctx, codex.id)).toBeNull();
   expect(codex.managedSkip).toMatchObject({ reason: "unsupported" });
   expect(codex.managedSkip!.detail).toContain("codex");
@@ -53,28 +53,28 @@ test("a user task is managed only when an executor it could route to is certifie
 test("with no strict-ready executor the user task starts unmanaged and records a plain reason", async () => {
   const { ctx, repo } = setup();
   await claude(ctx, repo, false);
-  const unverified = human(ctx, repo);
+  const unverified = await human(ctx, repo);
   expect(getWork(ctx, unverified.id)).toBeNull();
   expect(unverified.managedSkip).toMatchObject({ reason: "unverified" });
   // Task detail carries only the reason code; the screens map it to copy.
   expect((await taskDetail(ctx, unverified.id)).managedSkip).toEqual({ reason: "unverified" });
   ctx.which = () => null;
-  expect(human(ctx, repo).managedSkip).toMatchObject({ reason: "unavailable" });
+  expect((await human(ctx, repo)).managedSkip).toMatchObject({ reason: "unavailable" });
 });
 
 test("an interactive runner is reported as such", async () => {
   const { ctx, repo } = setup("planner: codex\naccounts: {claude-code: {kind: claude}, codex: {kind: codex}}\nrunners: {claude-code: {session: interactive}}\n");
   await claude(ctx, repo, false);
-  expect(human(ctx, repo, { executor: "claude-code" }).managedSkip).toMatchObject({ reason: "interactive" });
+  expect((await human(ctx, repo, { executor: "claude-code" })).managedSkip).toMatchObject({ reason: "interactive" });
 });
 
 test("opting out, config off and planner delegates record no skip reason", async () => {
   const { ctx, repo } = setup();
   await claude(ctx, repo, false);
-  const plain = human(ctx, repo, { grant: false });
+  const plain = await human(ctx, repo, { grant: false });
   expect(getWork(ctx, plain.id)).toBeNull();
   expect(plain.managedSkip).toBeUndefined();
-  expect(human(ctx, repo, { origin: "external:claude-code" }).managedSkip).toBeUndefined();
+  expect((await human(ctx, repo, { origin: "external:claude-code" })).managedSkip).toBeUndefined();
   const off = setup("planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nmessaging: {grants: {user_started_tasks: \"off\"}}\n");
   await claude(off.ctx, off.repo, false);
   const r = await callOp(off.ctx, "task.delegate", { goal: "a", repo: off.repo }, { appAuthenticated: true, spawnRunner: () => 1 }) as { task_id: string };
@@ -98,7 +98,7 @@ async function run(ctx: Ctx, id: string, seen: Ctx[]) {
 async function lostCertificate() {
   const { ctx, repo } = setup(undefined, true);
   await claude(ctx, repo, true);
-  const t = human(ctx, repo);
+  const t = await human(ctx, repo);
   expect(getWork(ctx, t.id)).not.toBeNull();
   dispatchDatabase(ctx).query("DELETE FROM enforcement_certificates").run();
   return { ctx, t };

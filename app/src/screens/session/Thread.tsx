@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Button } from "../../ds/Button";
 import { Field, TextArea } from "../../ds/Controls";
 import { Alert } from "../../ds/Alert";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { Prose } from "../../ds/Prose";
 import { participantLabel, sendOutcome, sendRefusal, threadView, type ThreadMessage, type ThreadViewModel } from "../../model/thread";
@@ -22,7 +22,7 @@ export function ThreadView({ id, view, loading, error, notice, composer, announc
   return <div className="pc-thread">
     {notice && <Alert tone="warning" title={notice} announce={false} />}
     {error ? <p role="alert">{error}</p>
-      : !view ? loading && <LoadingState label="Loading messages…" />
+      : !view ? loading && <Skeleton layout="rows" label="Loading messages…" />
       : view.empty ? <EmptyState title="No messages yet" />
       : <ol className="pc-thread__list" aria-label="Messages">{view.groups.map(group => <li key={group.key} className="pc-thread__group">
         <p className="pc-thread__sender">{group.sender}</p>

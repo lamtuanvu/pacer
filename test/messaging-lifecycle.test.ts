@@ -117,7 +117,7 @@ test("a running managed work node queues messages; a settled one restarts throug
   updateTask(ctx, id, t => { t.state = "running"; });
   const { spawned, spawn } = spawner();
   const r = await sendMessage(ctx, { to: `task:${id}`, body: "x" }, { spawnRunner: spawn });
-  expect(r.delivery).toBe("queued");
+  expect(r.delivery).toBe("pull");
   expect(spawned).toEqual([]);
   expect(store.pendingFor(ctx, `task:${id}`).length).toBe(1);
   updateTask(ctx, id, t => { t.state = "done"; });

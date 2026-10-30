@@ -1,5 +1,6 @@
 /** The dashboard controller: holds state, reads through the API client, runs effects and draws frames. */
 import { ApiError, type ApiClient } from "../api/client";
+import { withManagedFallback, type ManagedStep } from "../view-model/managed-root";
 import type { Action } from "../attention/types";
 import { emptySnapshot } from "../link/envelope";
 import type { ClientSnapshot, ClientTask } from "../view-model/snapshot";
@@ -235,7 +236,7 @@ export class Dashboard {
       case "history-more": this.loadHistory(this.data.history?.value?.next??undefined); return;
       case "navigate": this.navigate(effect.screen, effect.id, effect.section); return;
       case "local": this.report(effect.label); await effect.run(); return;
-      case "action": await this.call(effect.action); return;
+      case "action": await this.call(effect.action, effect.fallback); return;
       case "attach": await this.attach(effect.id, effect.target); return;
       case "handoff": {
         if (!this.deps.handoff) { this.report(`Run: pacer ${effect.argv.join(" ")}`); return; }
@@ -252,7 +253,7 @@ export class Dashboard {
     }
   }
 
-  private async call(action: Action) {
+  private async call(action: Action, fallback?: ManagedStep[]) {
     try {
       // A conversation's progress can advance its revision while its end/resume
       // confirmation is open. Fetch the current revision just before the write.

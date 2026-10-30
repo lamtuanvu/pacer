@@ -15,7 +15,10 @@ const composer = (over: Partial<ComposerProps> = {}): ComposerProps => ({ value:
 const render = (props: Partial<Parameters<typeof ThreadView>[0]>) => renderToString(<ThreadView id={task} composer={composer()} announcement="" {...props} />);
 
 test("loading, empty and error states", () => {
-  expect(render({ loading: true })).toContain("Loading messages…");
+  // The shared skeleton appears after its delay, so a first render shows neither content nor an empty state.
+  const loading = render({ loading: true });
+  expect(loading).not.toContain("No messages yet");
+  expect(loading).not.toContain('role="alert"');
   expect(render({ view: threadView([], { now }) })).toContain("No messages yet");
   const failed = render({ error: "Could not load messages." });
   expect(failed).toContain('role="alert"');

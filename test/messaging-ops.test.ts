@@ -20,7 +20,7 @@ test("planner sends, the executor reads its inbox through its grant, then replie
   const { ctx, top } = setup();
   const sent = await callOp(ctx, "msg.send", { to: `task:${top.id}`, body: "status?", request_id: "a" }, { spawnRunner: () => 1 }) as any;
   // A running managed work node reads its messages with its grant; no turn starts for it.
-  expect(sent.delivery).toBe("queued");
+  expect(sent.delivery).toBe("pull");
   const exec = { ...ctx, env: { PACER_WORK_GRANT: issueWorkGrant(ctx, top.id, 1), PACER_ROLE: "executor" } };
   const inbox = await callOp(exec, "msg.inbox", {}) as any;
   expect(inbox.messages.map((m: any) => m.body)).toEqual(["status?"]);

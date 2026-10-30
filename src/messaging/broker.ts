@@ -60,7 +60,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         if (stall.reason === "undelivered") {
           if (!allowed) stallNow = true;
           else {
-            const result = deliver(ctx, node, deps.spawnRunner);
+            const result = (await deliver(ctx, node, deps.spawnRunner)).delivery;
             acted = true;
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
@@ -72,7 +72,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: your conversation is waiting on you (cycle: ${chain}). Answer the open question, ask your parent, or report.`,
               replyTo: null, requestId: `nudge:${node}:${row.attempts + 1}` });
-            deliver(ctx, node, deps.spawnRunner);
+            await deliver(ctx, node, deps.spawnRunner);
             acted = true;
           }
         } else if (stall.reason === "unread_external") {

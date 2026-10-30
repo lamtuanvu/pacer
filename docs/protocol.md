@@ -4819,11 +4819,11 @@ Params JSON Schema:
       "properties": {
         "from": {
           "type": "string",
-          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
         },
         "to": {
           "type": "string",
-          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
         },
         "kind": {
           "type": "string",
@@ -4893,7 +4893,7 @@ Params JSON Schema:
   "properties": {
     "to": {
       "type": "string",
-      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+      "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
     },
     "body": {
       "type": "string",
@@ -5581,6 +5581,7 @@ Params JSON Schema:
               "human",
               "external",
               "launched",
+              "broker",
               "any"
             ]
           },
@@ -5590,6 +5591,7 @@ Params JSON Schema:
               "human",
               "external",
               "launched",
+              "broker",
               "any"
             ]
           },
@@ -7345,6 +7347,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },
@@ -7354,6 +7357,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },
@@ -7477,8 +7481,7 @@ Params JSON Schema:
       "additionalProperties": false
     },
     "grant": {
-      "type": "boolean",
-      "description": "false keeps a task a human starts unmanaged: it cannot coordinate sub-agents. Omitted follows messaging.grants.user_started_tasks."
+      "type": "boolean"
     }
   },
   "required": [

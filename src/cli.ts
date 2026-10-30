@@ -315,7 +315,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
     for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
-    if(opts["acceptance-pipefail", "no-grant"]===true)raw.acceptance_pipefail=true;
+    if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(opts["acceptance-timeout-min"]!==undefined)raw.acceptance_timeout_min=Number(str(opts["acceptance-timeout-min"]));
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
