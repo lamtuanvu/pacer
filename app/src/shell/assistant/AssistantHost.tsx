@@ -10,7 +10,8 @@ import { TextInput } from "../../ds/Controls";
 import { Prose } from "../../ds/Prose";
 import { DensityContext } from "../../ds/Density";
 import { TaskContext } from "../../screens/task-shared";
-import { assistantEntry } from "../assistant-entry";
+import { AgentMark } from "../../ds/AgentMark";
+import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
 import { ActionCardView } from "./ActionCardView";
 import { type ScopeChoice, defaultScope, parseFrames, requestId, scopeChoices } from "./model";
@@ -42,6 +43,9 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
 }) {
   const context = useContext(TaskContext);
   const api = context?.api;
+  const layer = useRef<HTMLDivElement>(null);
+  const [preferences, setPreferences] = useState(assistantPreferences);
+  useEffect(() => watchAssistantPreferences(() => setPreferences(assistantPreferences())), []);
   const [status, setStatus] = useState<Status | null>(null);
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<TurnView[]>([]);
@@ -80,7 +84,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
 
   const send = useCallback(async (question: string, o: { newConversation?: boolean } = {}) => {
     const asked = question.trim();
-    if (!asked || pending || !api) return;
+    if (!asked || pending || !api || !status?.available) return;
     setNotice(null); setText("");
     if (o.newConversation) { setTurns([]); setConversationId(undefined); }
     setPending({ question: asked, status: "Thinking…", partial: "" });
@@ -100,7 +104,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     } catch (error) {
       setNotice(error instanceof ApiError ? (error.hint ? `${error.message} ${error.hint}` : error.message) : "The assistant could not be reached. Try again.");
     } finally { setPending(null); turnRef.current = null; abort.current = null; void refresh(); }
-  }, [api, conversationId, pending, scope, refresh]);
+  }, [api, conversationId, pending, scope, refresh, status?.available]);
 
   const stop = () => { if (turnRef.current) void api?.call("assistant.cancel", { turnId: turnRef.current }).catch(() => undefined); };
   const sendRef = useRef(send); sendRef.current = send;
@@ -113,22 +117,33 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     const off = keys.register({ keys: "Ctrl-j", label: "Ask pacer", scope: "global", allowInControl: false, run: () => toggle() });
     // The key registry ignores the Command key, so ⌘J is handled here.
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "j" && !event.defaultPrevented && status?.available !== false) { event.preventDefault(); toggle(); }
+      if (event.key === "Escape" && open && !event.defaultPrevented && !document.querySelector("dialog[open]")) { event.preventDefault(); setOpen(false); return; }
+      if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "j" && !event.defaultPrevented) { event.preventDefault(); toggle(); }
     };
     window.addEventListener("keydown", onKey);
     return () => { off(); window.removeEventListener("keydown", onKey); };
-  }, [toggle, status?.available]);
+  }, [toggle, open]);
 
   const available = status?.available === true;
-  if (!api || (!available && !open)) return null;
+  const setup = status?.configured === false;
+  useEffect(() => {
+    if (!open) return;
+    // Status may arrive after opening. Focus a usable target for each state, after the sheet's own open effect.
+    const frame = requestAnimationFrame(() => {
+      const selector = setup ? "[data-assistant-setup]" : available ? '[data-autofocus]' : '[data-assistant-refusal]';
+      layer.current?.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, setup, available]);
+  if (!api) return null;
   const hasCard = turns.some(t => t.cards.some(c => c.state === "pending" || c.state === "stale"));
   const account = status?.account ?? "";
   const pickerOptions = choices.map(c => ({ value: c.value, label: account ? `${c.label} · ${account}` : c.label }));
   const call = <T,>(op: string, params: unknown) => api.call<T>(op, params);
-  return <DensityContext.Provider value={narrow ? "touch" : "compact"}><div className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}>
-    <AuroraSheet label="Assistant" open={open} generating={!!pending} narrow={narrow} expanded={hasCard} onClose={() => toggle(false)}
+  return <DensityContext.Provider value={narrow ? "touch" : "compact"}><div ref={layer} data-setup={setup ? "true" : "false"} data-available={available ? "true" : "false"} data-still={preferences.stillAurora ? "true" : "false"} className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
+    <AuroraSheet label="Assistant" autoScroll={available} open={open} generating={!!pending} narrow={narrow} expanded={hasCard} onClose={() => toggle(false)}
       header={narrow ? <Button size="sm" variant="quiet" onClick={() => toggle(false)}>Close</Button> : undefined}
-      messages={<>
+      messages={setup ? <AssistantSetup api={api} refresh={refresh} /> : <>
         {turns.map(turn => <TurnRows key={turn.id} turn={turn} call={call} onNewTask={goal => { saveDraft(goal, turn); onNewTask(); }} reload={async () => {
           const c = await api.call<{ turns: TurnView[] }>("assistant.conversation", { id: turn.conversationId }); setTurns(c.turns.filter(t => t.state !== "running"));
         }} />)}
@@ -137,10 +152,10 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
           <div className="pc-aurora-reply" aria-hidden="true"><AuroraAvatar /><div className="pc-aurora-reply__body">{pending.partial ? <Prose text={pending.partial} /> : <Thinking label={pending.status} />}</div></div>
         </>}
         {notice && <Alert tone="error" title="The assistant could not answer">{notice}</Alert>}
-        {!available && status && <Alert tone="warning" title="The assistant is unavailable">{status.reason}{status.hint ? ` ${status.hint}` : ""}</Alert>}
+        {!available && <div data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status ? `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}` : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
       </>}
       suggestions={!pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
-      composer={<form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
+      composer={!setup && <form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
         <ComposerMenu sheetOpen={open} canStartNew={turns.length > 0 || !!conversationId} busy={!!pending} onNew={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} onContext={() => scopeButton.current?.click()} />
         <TextInput data-autofocus value={text} aria-label="Ask pacer" placeholder="Ask about your tasks, dispatch or budget" disabled={!available} onInput={event => setText(event.currentTarget.value)} />
         <ChoicePicker ref={scopeButton} className="pc-aurora-scope" aria-label="Change context" value={choices.some(c => c.value === scopeValue) ? scopeValue : "dispatch"} options={pickerOptions} onValueChange={setScopeValue} />
@@ -148,8 +163,8 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
           ? <IconButton icon="end-session" size="sm" className="pc-aurora-send" variant="secondary" aria-label="Stop answer" onClick={stop} />
           : <IconButton type="submit" icon="send" size="sm" className="pc-aurora-send" variant={hasCard ? "secondary" : "primary"} aria-label="Send" disabled={!available || !text.trim()} />}
       </form>} />
-    {!(narrow && open) && <AuroraLauncher open={open} shortcut={narrow ? undefined : isMac() ? "⌘J" : "Ctrl J"} onClick={() => toggle()} className={open ? "pc-aurora-launcher--open" : undefined} />}
-  </div></DensityContext.Provider>;
+    {preferences.showButton && !(narrow && open) && <AuroraLauncher open={open} onClick={() => toggle()} className={open ? "pc-aurora-launcher--open" : undefined} shortcut={!narrow ? isMac() ? "⌘J" : "Ctrl J" : undefined} />}
+  </div></div></DensityContext.Provider>;
 }
 
 /** A New task card carries its request to the composer through the composer's own saved draft. */
@@ -174,4 +189,51 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
         onRefresh={async () => { await call("assistant.card.refresh", { turnId: turn.id, cardId: card.id }); await reload(); }} />)}
     </div></div>
   </>;
+}
+
+interface Candidate { account: string; models: { id: string; name: string }[] }
+interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageReading?: { windows?: { usedPct?: number }[] } }
+function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
+  const [accounts, setAccounts] = useState<(Candidate & { name: string; note: string; local: boolean })[] | null>(null);
+  const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setError(null);
+    void Promise.all([api.call<{ accounts: Candidate[] }>("assistant.candidates", {}), api.call<AccountDetail[]>("account.list", {})]).then(([candidates, details]) => {
+      if (!live) return;
+      setAccounts(candidates.accounts.map(candidate => {
+        const detail = details.find(row => row.name === candidate.account);
+        let location = "Endpoint";
+        try { const host = new URL(`http://${detail?.connection?.base_url_host ?? ""}`).hostname; location = ["localhost", "127.0.0.1", "[::1]"].includes(host) ? "on this Mac" : host; } catch { /* Older services may omit connection details. */ }
+        const local = location === "on this Mac" && detail?.usage === "unmetered";
+        const used = detail?.usageReading?.windows?.[0]?.usedPct;
+        return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : typeof used === "number" ? `${Math.round(used)}% used` : detail?.usage ?? "usage unknown"].join(" · ") };
+      }));
+    }).catch(() => { if (live) setError("Could not load endpoint accounts. Try again."); });
+    return () => { live = false; };
+  }, [api, attempt]);
+  const choose = async (account: string) => {
+    if (busy) return;
+    setBusy(account); setError(null);
+    try {
+      const settings = await api.call<{ rev: number }>("assistant.settings.get", {});
+      await api.call("assistant.settings.set", { account, runner: null, expect_rev: settings.rev });
+      await refresh();
+    } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
+    finally { setBusy(null); }
+  };
+  const primary = accounts?.find(account => account.local)?.account;
+  return <section className="pc-assistant-setup" data-assistant-setup tabIndex={-1} aria-labelledby="assistant-setup-heading">
+    <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one OpenAI-compatible endpoint account and never moves to another. Your question and what it reads go to that account’s model.</p></div></div>
+    {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => <div className="pc-assistant-setup__account" key={account.account}>
+      <AgentMark agent={account.account} size={24} labelled={false} />
+      <div className="pc-assistant-setup__name"><strong>{account.name}</strong><span title={account.note}>{account.note}</span></div>
+      <Button size="sm" variant={account.account === primary ? "primary" : "secondary"} busy={busy === account.account} disabled={!!busy} onClick={() => void choose(account.account)}>Use {account.name}</Button>
+    </div>)}</div>}
+    {!accounts && !error && <p role="status">Loading endpoint accounts…</p>}
+    {accounts?.length === 0 && <p>No OpenAI-compatible endpoint accounts are configured.</p>}
+    {error && <Alert tone="error" title="Could not set up the assistant">{error} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
+    <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/accounts">Add an endpoint account</a> in Settings › Agents › Accounts. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
+  </section>;
 }

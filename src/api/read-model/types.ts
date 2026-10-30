@@ -47,11 +47,28 @@ export interface ServiceInfo { projectStrategyError?: string; version: string; p
 export interface ReadModelFields {
  desktopUpdates?: import("../../update/desktop/types").UpdateStatus[];
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
- machine: {used: number; max: number};
+ machine: MachineCapacity;
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
 }
 export type ReadModel = ReadModelFields;
 
+/**
+ * Local capacity. hardCap is the fixed cap, or null with unlimited true when none is set.
+ * The guard fields describe what holds new local starts; null signals are unavailable.
+ */
+export interface MachineCapacity {
+ os?: string; arch?: string;
+ used: number;
+ /**
+  * @deprecated Legacy 3.0 field kept numeric for older clients' free-slot math: hardCap when
+  * set, otherwise Number.MAX_SAFE_INTEGER. Read hardCap and unlimited instead; never display it.
+  */
+ max: number;
+ hardCap: number | null; unlimited: boolean;
+ memoryPressure?: "normal" | "warning" | "critical" | null; memoryPressureLimit?: "critical" | "warning" | "off";
+ loadPerCore?: number | null; loadLimit?: number | null;
+ open?: boolean; reason?: "machine_memory_pressure" | "machine_load"; detail?: string;
+}
 export interface PauseState { until: number | null; reason: string | null; by: string | null }
 export type SnapshotV2 = Omit<LinkSnapshot, "tasks"> & ReadModelFields & { tasks: TaskDataV2[]; attention: AttentionItem[]; pause?: PauseState | null };
 export interface Job {

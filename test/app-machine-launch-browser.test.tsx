@@ -1,12 +1,14 @@
 import {afterAll,beforeAll,expect,test} from 'bun:test';
-import {chromium,type Browser} from 'playwright-core';
+import {chromium,type Browser,type Page} from 'playwright-core';
 import {join} from 'node:path';
 import {tmpDir} from './helpers';
 
 const browserPath=process.env.PACER_TEST_BROWSER;
 const browserTest=test.skipIf(!browserPath);
 let browser:Browser,server:ReturnType<typeof Bun.serve>;
-let launchMode='interactive',sets:unknown[]=[];
+const aliases=Array.from({length:12},(_,index)=>({name:`devbox-${index+1}`,host:`192.0.2.${index+1}`}));
+const defaults:Record<string,unknown>={'execution.local_max_tasks':2,'execution.launch_mode':'interactive','terminal.open':''};
+let values:Record<string,unknown>={...defaults},sets:unknown[]=[];
 beforeAll(async()=>{
  if(!browserPath)return;
  const out=tmpDir();
@@ -18,27 +20,117 @@ beforeAll(async()=>{
   const path=new URL(req.url).pathname;
   if(!path.startsWith('/ops/'))return new Response(`<meta charset="utf-8"><div id="root"></div><style>${styles}</style><script type="module">${script}</script>`,{headers:{'Content-Type':'text/html'}});
   const op=path.slice(5),params=await req.json();
-  if(op==='config.get')return Response.json({keys:{'execution.local_max_tasks':{value:2,source:'default'},'execution.launch_mode':{value:launchMode,source:'default'},'terminal.open':{value:'',source:'default'},'terminal.app':{value:'Terminal',source:'default'}},terminalChoices:[{value:'auto',label:'Automatic'}],planners:[]});
-  if(op==='config.set'){sets.push(params);const previous=launchMode;launchMode=params.value;return Response.json({key:params.key,value:launchMode,previous,diff:'',undo:`pacer config set execution.launch_mode ${previous}`});}
+  if(op==='config.get')return Response.json({keys:{...Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'default'}])),'terminal.app':{value:'Terminal',source:'default'}},terminalChoices:[{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'}],planners:[]});
+  if(op==='host.suggest')return Response.json(aliases);
+  if(op==='config.set'){sets.push(params);const previous=values[params.key];values={...values,[params.key]:params.value};return Response.json({key:params.key,value:params.value,previous,diff:'',undo:`pacer config set ${params.key} ${previous}`});}
   return Response.json({});
  }});
  browser=await chromium.launch({executablePath:browserPath,headless:true});
 },15000);
 afterAll(async()=>{await browser?.close();server?.stop(true);});
 
-browserTest('delegated task launch reads the current mode and switches it with the keyboard',async()=>{
+async function open():Promise<Page>{
+ values={...defaults};sets=[];
+ const page=await browser.newPage();
+ await page.goto(String(server.url));
+ await page.getByRole('button',{name:/Delegated task launch/}).waitFor();
+ return page;
+}
+const launch=(page:Page)=>page.getByRole('button',{name:/Delegated task launch/});
+const terminal=(page:Page)=>page.getByRole('button',{name:/Terminal for sessions/});
+const save=(page:Page)=>page.getByRole('button',{name:'Save changes'});
+async function pick(page:Page,picker:ReturnType<typeof launch>,option:string){
+ await picker.focus();
+ await page.keyboard.press('Enter');
+ await page.getByRole('option',{name:option}).click();
+}
+
+browserTest('delegated task launch and the preferred terminal are drafted and saved with the capacity fields',async()=>{
+ const page=await open();
+ try{
+  expect(await launch(page).textContent()).toContain('Interactive');
+  expect(await page.getByText(/finish when the agent reports its result/).count()).toBe(1);
+  expect(await terminal(page).textContent()).toContain('Automatic');
+  // The board hides the save bar until a field changes.
+  expect(await page.locator('.u3-save-bar').count()).toBe(0);
+  await pick(page,launch(page),'Headless');
+  await pick(page,terminal(page),'Ghostty');
+  await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).fill('3');
+  expect(await page.getByText('Unsaved changes').count()).toBe(1);
+  // Nothing saves silently: choosing writes nothing until Save.
+  expect(sets).toEqual([]);
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(sets).toEqual([{key:'execution.local_max_tasks',value:3},{key:'execution.launch_mode',value:'headless'},{key:'terminal.open',value:'ghostty'}]);
+  expect(await launch(page).textContent()).toContain('Headless');
+  expect(await terminal(page).textContent()).toContain('Ghostty');
+ }finally{await page.close();}
+});
+
+browserTest('Discard restores the launch mode and terminal',async()=>{
+ const page=await open();
+ try{
+  await pick(page,launch(page),'Headless');
+  await pick(page,terminal(page),'Ghostty');
+  await page.getByRole('button',{name:'Discard'}).click();
+  expect(await launch(page).textContent()).toContain('Interactive');
+  expect(await terminal(page).textContent()).toContain('Automatic');
+  expect(await page.getByText('All changes saved').count()).toBe(1);
+  expect(sets).toEqual([]);
+ }finally{await page.close();}
+});
+
+browserTest('a launch mode changed elsewhere is not overwritten by Save',async()=>{
+ const page=await open();
+ try{
+  await pick(page,launch(page),'Headless');
+  values={...values,'execution.launch_mode':'headless-elsewhere'};
+  await save(page).click();
+  await page.getByText('Your draft is preserved.',{exact:false}).waitFor({timeout:5000});
+  expect(sets).toEqual([]);
+  expect(values['execution.launch_mode']).toBe('headless-elsewhere');
+ }finally{await page.close();}
+});
+
+browserTest('the task backend is drafted and saved through the save bar',async()=>{
+ const page=await open();
+ try{
+  const backend=page.getByRole('button',{name:/Task backend/});
+  expect(await backend.textContent()).toContain('Direct');
+  await pick(page,backend,'Orca');
+  expect(await page.getByText('Unsaved changes').count()).toBe(1);
+  expect(sets).toEqual([]);
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor({timeout:5000});
+  expect(sets).toEqual([{key:'execution.backend',value:'orca'}]);
+  expect(await backend.textContent()).toContain('Orca');
+ }finally{await page.close();}
+});
+
+browserTest('SSH aliases filter in a scrollable list; session terminal select saves the existing preset',async()=>{
+ values={...defaults};sets=[];
  const page=await browser.newPage();
  try{
   await page.goto(String(server.url));
-  const picker=page.getByRole('button',{name:/Delegated task launch/});
-  await picker.waitFor();
-  expect(await picker.textContent()).toContain('Interactive');
-  expect(await page.getByText(/finish when the agent reports its result/).count()).toBe(1);
-  await picker.focus();
-  await page.keyboard.press('Enter');
-  await page.getByRole('option',{name:'Headless'}).click();
-  // The section rereads config.get after the change is saved.
-  await page.getByRole('button',{name:/Delegated task launch/}).filter({hasText:'Headless'}).waitFor({timeout:5000});
-  expect(sets).toEqual([{key:'execution.launch_mode',value:'headless'}]);
+  const filter=page.getByRole('searchbox',{name:'Filter SSH aliases'});
+  await filter.fill('devbox-12');
+  expect(await page.locator('.u3-aliases button').count()).toBe(1);
+  await page.getByRole('button',{name:'devbox-12 192.0.2.12',exact:true}).click();
+  expect(await page.getByLabel('2 · Name it in pacer').inputValue()).toBe('devbox-12');
+  expect(await page.getByRole('button',{name:'devbox-12 192.0.2.12',exact:true}).getAttribute('aria-pressed')).toBe('true');
+  await filter.fill('no-match');
+  await page.getByText('No SSH aliases match.',{exact:true}).waitFor();
+  await filter.fill('');
+  expect(await page.locator('.u3-aliases button').count()).toBe(12);
+  expect(await page.locator('.u3-aliases').evaluate(node=>getComputedStyle(node).flexDirection)).toBe('column');
+  const terminals=page.getByRole('button',{name:'Terminal for sessions',exact:true});
+  await terminals.click();
+  await page.getByRole('option',{name:'Ghostty',exact:true}).click();
+  await terminals.filter({hasText:'Ghostty'}).waitFor();
+  expect(sets).toEqual([]);
+  await save(page).click();
+  await page.getByText('All changes saved').waitFor();
+  expect(sets).toEqual([{key:'terminal.open',value:'ghostty'}]);
+  expect(await page.getByText('~/.pacer/worktrees',{exact:true}).count()).toBe(1);
  }finally{await page.close();}
 });

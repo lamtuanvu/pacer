@@ -1,8 +1,11 @@
+import { arch, platform } from "node:os";
+import { execFileSync } from "node:child_process";
 import { desktopUpdateStatuses } from "../../update/desktop/service";
 import { readProjectStrategies, type ProjectStrategyFile } from "../../config/project-strategies";
 import { resolveProjectSelection } from "../../engine/project-routing";
 import { validateExecution } from "../../config/execution";
 import { resolveRunner } from "../../config/runner-id";
+import { machineGuardState } from "../../engine/machine";
 import { cachedPath, schedulePathRefresh, waitingIO } from "../../core/path-probe";
 import { redactEndpointError } from "../../endpoints/state";
 import { readPause } from "../../core/pause";
@@ -24,6 +27,11 @@ import { buildExecutors, buildAccounts, buildPlanner } from "./capacity";
 import { buildCounts, buildToday, buildHosts, buildSetup } from "./summary";
 import type { ApiTask, ReadModelFields } from "./types";
 export type * from "./types";
+const machineOS = (() => {
+ if (platform() !== "darwin") return platform();
+ try { return `macOS ${execFileSync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 1000 }).trim()}`; }
+ catch { return "macOS (version unavailable)"; }
+})();
 const startedAt=Math.floor(Date.now()/1000-process.uptime());
 const cache=new Map<string,{at:number;promise:Promise<{setup:SetupChecklist;accounts:{name:string;signedIn:boolean|null}[]}>}>();
 export async function readModelContext(ctx:Ctx) {
@@ -47,11 +55,14 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  for(const t of recent)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
  const notifier=activeNotifier(ctx);
- const machine = {used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, max: validateExecution(strategy.execution).localMaxTasks ?? 2};
+ const exec = validateExecution(strategy.execution);
+ const machine = {os: machineOS, arch: arch(), used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
  return {desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
 /** A repo-path call stuck for a second or more, e.g. behind a macOS removable-volume prompt. */
+/** The machine row's cap fields. max stays numeric for 3.0 clients; without a cap it is MAX_SAFE_INTEGER. */
+export function machineCap(hardCap:number|null){return {max:hardCap ?? Number.MAX_SAFE_INTEGER,hardCap,unlimited:hardCap===null};}
 function waitingField(){const waiting=waitingIO();return waiting?{waiting}:{};}
 
 export function retryTargetFor(task:ApiTask,strategy:Strategy,executors:ExecutorRow[],policies?:ProjectStrategyFile):string|null {

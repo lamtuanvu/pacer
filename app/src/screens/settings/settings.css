@@ -44,7 +44,7 @@
 .u3-desktop-update:focus-visible { outline: var(--stroke-focus) solid var(--focus); outline-offset: var(--stroke-focus); border-radius: var(--radius-sm); }
 
 /* Settings pages share a bounded canvas and one aligned label/control grammar. */
-.u3-settings:not(.pc-page){width:100%;max-width:var(--size-960);margin:0 auto;padding:var(--space-6);box-sizing:border-box}
+.u3-settings:not(.pc-page){width:100%;max-width:none;margin:0;padding:var(--space-6) var(--space-8) var(--space-10);box-sizing:border-box}
 .u3-settings-page .u3-section:first-child{margin-top:0;border-top:0;padding-top:0}
 .u3-settings-page .u3-agent:has(select){max-width:var(--size-360)}
 .u3-settings-page .u3-agent select{flex:1;min-width:0}
@@ -68,6 +68,7 @@
 .u3-executor-model{display:block;max-width:var(--size-100);overflow-x:auto;white-space:nowrap;font-family:var(--font-mono);font-size:var(--type-code-size)}
 .u3-save-bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
 @media(max-width:700px){.u3-save-bar{flex-wrap:wrap}.u3-executor-model{max-width:100%}}
+.u3-save-status:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);border-radius:var(--radius-sm)}
 
 .pc-app--narrow .u3-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 
@@ -88,7 +89,7 @@
 .pc-budget-modes{display:flex;flex-direction:column;gap:var(--space-1\.5);flex:0 1 var(--size-300);min-width:0}
 .pc-budget-modes__bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:calc(var(--size-2) + var(--size-1))}
 .pc-budget-mode{display:flex;flex-direction:column;gap:var(--space-1);align-items:center;color:var(--ink-muted);font-size:var(--type-label-size)}
-.pc-budget-mode__fill{width:100%;height:var(--size-6);border-radius:calc(var(--size-2) + var(--size-1));background:var(--line)}
+.pc-budget-mode__fill{width:100%;height:var(--size-6);border-radius:var(--radius-4);background:var(--line)}
 .pc-budget-mode--emergency .pc-budget-mode__fill{background:var(--bad-fill)}
 .pc-budget-mode--strict .pc-budget-mode__fill{background:var(--warn-fill)}
 .pc-budget-mode--relaxed .pc-budget-mode__fill{background:var(--good-fill)}
@@ -161,7 +162,7 @@
 .u3-machine-tile svg{width:var(--size-20);height:var(--size-20)}
 .u3-machine-body{padding:var(--space-1) var(--space-4) var(--space-3)}
 .u3-host-body{display:flex;flex-direction:column;gap:var(--space-3\.5);padding:var(--space-4)}
-.u3-aliases{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--size-150)),1fr));gap:var(--space-1\.5)}
+.u3-aliases{display:flex;flex-direction:column;gap:var(--space-1\.5);max-height:var(--size-300);overflow-y:auto}
 .u3-parallel-input{width:var(--size-72);max-width:100%;flex:none}
 .u3-terminal-picker{width:var(--size-220);max-width:100%}
 .u3-host-name{width:var(--size-200);max-width:100%;font-family:var(--font-mono)}
@@ -256,7 +257,7 @@
 
 /* Each machine card is narrower than the page; collapse the board row within it. */
 .u3-machine-body{container-type:inline-size;container-name:machine-body}
-.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(0,1fr);gap:var(--space-5);padding:var(--space-3) 0}
+.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(var(--size-220),1fr);gap:var(--space-5);padding:var(--space-3) 0}
 @container machine-body (max-width:420px){.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 
 /* The five-column board grammar gives every action its own visible cell. */
@@ -306,3 +307,23 @@
 /* The account policy stacks by its page width, not the viewport. */
 #accounts{container-type:inline-size;container-name:accounts-page}
 @container accounts-page (max-width:640px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}}
+.pc-running-work-list{max-width:100%;min-width:0;margin:0;padding-inline-start:var(--space-5);overflow-wrap:anywhere}
+.pc-running-work-list li+li{margin-block-start:var(--space-2)}
+
+
+/* Worktree paths use the board’s mono lane. */
+.u3-worktrees-path{padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane)}
+
+
+.u3-aliases .pc-choice-card{display:flex;justify-content:space-between;gap:var(--space-2)}
+
+.pc-budget-planner{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.pc-budget-clock{display:flex;flex-direction:column;gap:var(--space-half)}
+
+.u3-add-agent>.u3-breadcrumb{position:static;justify-content:flex-start;margin:0;padding:var(--space-6) var(--space-8) 0}
+.pc-stepper .pc-btn.pc-stepper__step{padding:var(--space-2\.5);min-height:var(--size-44)}
+.u3-account-policy .pc-section-heading{font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-display-weight);text-transform:none;letter-spacing:normal}
+
+.pc-stepper .pc-stepper__step,.pc-stepper .pc-btn.pc-stepper__step{min-height:var(--size-56);height:var(--size-56)}
+.dispatcher-preview-row{grid-template-columns:var(--size-200) var(--size-140) minmax(0,1fr) auto}
+@media(max-width:900px){.dispatcher-preview-row{grid-template-columns:minmax(0,1fr)}}

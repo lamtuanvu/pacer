@@ -10,13 +10,16 @@ export function reportSessionEnded(): void {
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
 const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close"]);
-export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
+export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call"> & { setConnected?: (connected: boolean) => void };
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());
+  let connected = true;
+  // This window's client instance: two windows contend for an interactive lane's driving lease (task.send).
+  const instance = crypto.randomUUID();
   let version: 2 | 3 | undefined;
   let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
-    const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "content-type": "application/json" }, body: JSON.stringify(params) }) });
+    const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "X-Pacer-Client-Instance": instance, "content-type": "application/json" }, body: JSON.stringify(params) }) });
     if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
     if (!response.ok) {
       const text = await response.text();
@@ -49,10 +52,13 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     return negotiation;
   }
   return {
+    setConnected(value) { connected = value; },
     hello: async () => { if (!version) return select(); const hello = validateHello(await request<Hello>(`/v${version}/hello`)); return version === 2 ? legacyHello(hello) : hello; },
     snapshot: async () => { if (!version) await select(); return request<Awaited<ReturnType<ApiClient["snapshot"]>>>(`/v${version}/snapshot`); },
     call: async <T>(op: string, params: unknown = {}): Promise<T> => {
+      if (!connected) throw new ApiError("offline", "pacer is offline");
       if (!version) await select();
+      if (!connected) throw new ApiError("offline", "pacer is offline");
       if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
       const prepared=terminalRequests.prepare(op,params);
       params=prepared.params;

@@ -98,3 +98,50 @@ fn malformed_pins_and_role_identifiers_are_rejected() {
     }
     assert!(signer_requirement(Some("ABCDE12345"), None, "dev.pacer.cli\" or always").is_err());
 }
+
+#[test]
+fn identifiers_follow_only_the_compiled_fixture_flag() {
+    assert!(!compiled_fixture(None));
+    assert!(!compiled_fixture(Some("")));
+    assert!(!compiled_fixture(Some("0")));
+    assert!(!compiled_fixture(Some("true")));
+    assert!(!compiled_fixture(Some("11")));
+    assert!(compiled_fixture(Some("1")));
+    assert_eq!(native_identifiers(false), RELEASE_IDENTIFIERS);
+    assert_eq!(native_identifiers(true), FIXTURE_IDENTIFIERS);
+    assert_eq!(FIXTURE_IDENTIFIERS.app, "dev.pacer.desktop.fixture");
+    assert_eq!(FIXTURE_IDENTIFIERS.cli, "dev.pacer.desktop.fixture.cli");
+    assert_eq!(
+        FIXTURE_IDENTIFIERS.helper,
+        "dev.pacer.desktop.fixture.update-helper"
+    );
+}
+#[test]
+fn release_front_door_pins_only_release_identifiers() {
+    assert_eq!(IDENTIFIERS, RELEASE_IDENTIFIERS);
+    let trust = NativeTrust::from_pins(Some("ABCDE12345"), None)
+        .unwrap()
+        .unwrap();
+    for (requirement, release, fixture) in [
+        (&trust.cli, RELEASE_IDENTIFIERS.cli, FIXTURE_IDENTIFIERS.cli),
+        (
+            &trust.desktop,
+            RELEASE_IDENTIFIERS.app,
+            FIXTURE_IDENTIFIERS.app,
+        ),
+        (
+            &trust.helper,
+            RELEASE_IDENTIFIERS.helper,
+            FIXTURE_IDENTIFIERS.helper,
+        ),
+    ] {
+        assert!(
+            requirement.contains(&format!("identifier \"{release}\"")),
+            "{requirement}"
+        );
+        assert!(
+            !requirement.contains(&format!("identifier \"{fixture}\"")),
+            "{requirement}"
+        );
+    }
+}

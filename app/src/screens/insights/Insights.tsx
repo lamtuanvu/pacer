@@ -12,8 +12,8 @@ import { withQuery, type RouteQuery } from "../../router";
 import { agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
 
 type Tone = "good" | "warn" | "bad";
-function Kpi({ label, value, delta, tone, note }: { label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
-  return <div className="pc-insights__kpi"><span className="pc-insights__label">{label}</span><strong>{value}</strong>
+function Kpi({ label, value, delta, tone, note, unmeasured = false }: { unmeasured?: boolean; label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
+  return <div className={`pc-insights__kpi${unmeasured ? " pc-insights__kpi--unmeasured" : ""}`}><span className="pc-insights__label">{label}</span><strong>{value}</strong>
     <span className="pc-insights__caption">{delta && <span className={`pc-insights__delta${tone ? ` pc-insights__delta--${tone}` : ""}`}>{delta}</span>}{delta && note ? " " : ""}{note}</span></div>;
 }
 /** A change against the previous period; `up` says which direction is good. */
@@ -46,6 +46,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const accounts = useQuery<Account[]>("account.list", {});
   const { state } = useTaskContext();
   const s = result.data;
+  const notMeasured = !!s && s.tokens.measuredAttempts === 0 && s.tokens.partialAttempts === 0;
   const label = (agent: string) => executorLabel(agent);
   const agents = useMemo(() => [...new Set([...(s?.spread.map(g => g.agent) ?? []), ...(series.data?.daily.flatMap(d => Object.keys(d.byAgent)) ?? []), ...(s?.kindByAgent.flatMap(k => Object.keys(k.byAgent)) ?? [])])].sort((a, b) => agentSlot(a) - agentSlot(b) || a.localeCompare(b)), [s, series.data]);
   const repos = state.snapshot?.repos ?? [];
@@ -74,26 +75,26 @@ export function Insights({ query }: { query: RouteQuery }) {
     </header>
     {result.error && <ErrorMessage error={result.error} />}
     {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
-      <Card className="pc-insights__summary">
+      {notMeasured ? <Card tone="sunken" className="pc-insights__unmeasured"><strong>Token counts appear after each attempt finishes</strong><span>{s.tokens.unknownAttempts} {s.tokens.unknownAttempts === 1 ? "attempt is" : "attempts are"} still running or ended without a count. Task counts below are exact; token totals fill in as attempts finish.</span></Card> : <Card className="pc-insights__summary">
         <div className="pc-insights__headline"><strong>{compact(total)} tokens went to executors{s.tokens.lowerBound ? " (at least)" : ""}, and planner tokens are not measured yet.</strong>
           <span>{s.tokens.measuredAttempts} {s.tokens.measuredAttempts === 1 ? "attempt" : "attempts"} measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
         <div className="pc-insights__planner"><span className="pc-insights__label">Planner share of tokens</span>
           <div className="pc-insights__stripe" role="img" aria-label="Planner share is not measured" />
           <span className="pc-insights__caption"><b>Not measured</b> for planning and review · <b>{compact(total)}</b> on executors</span></div>
-      </Card>
+      </Card>}
       <section aria-label="Key numbers" className="pc-insights__kpis">
         <Kpi label="Root tasks" value={String(s.rootTasksHandled)} {...change(s.rootTasksHandled, prev!.rootTasksHandled, "good")} note={prev!.rootTasksHandled || s.rootTasksHandled ? versusWord : undefined} />
-        <Kpi label="Subtasks" value={String(s.subtasks)} delta={s.rootTasksHandled ? `${(s.subtasks / s.rootTasksHandled).toFixed(1)}×` : undefined} note="fan-out" />
-        <Kpi label="Tokens" value={compact(total)} {...change(total, prev!.tokens.total, "warn", "%")} note={`${versusWord}${atLeast}`} />
-        <Kpi label="Per root task" value={s.rootTasksHandled && total ? compact(Math.round(total / s.rootTasksHandled)) : "—"} {...(s.rootTasksHandled && prev!.rootTasksHandled && prev!.tokens.total ? change(total / s.rootTasksHandled, prev!.tokens.total / prev!.rootTasksHandled, "warn", "%") : {})} note={`${versusWord}${atLeast}`} />
+{!notMeasured && <Kpi label="Subtasks" value={String(s.subtasks)} delta={s.rootTasksHandled ? `${(s.subtasks / s.rootTasksHandled).toFixed(1)}×` : undefined} note="fan-out" />}
+        <Kpi label="Tokens" unmeasured={notMeasured} value={notMeasured ? "—" : compact(total)} {...(notMeasured ? {} : change(total, prev!.tokens.total, "warn", "%"))} note={notMeasured ? "not measured yet" : `${versusWord}${atLeast}`} />
+{!notMeasured && <Kpi label="Per root task" value={s.rootTasksHandled && total ? compact(Math.round(total / s.rootTasksHandled)) : "—"} {...(!notMeasured && s.rootTasksHandled && prev!.rootTasksHandled && prev!.tokens.total ? change(total / s.rootTasksHandled, prev!.tokens.total / prev!.rootTasksHandled, "warn", "%") : {})} note={notMeasured ? "not measured yet" : `${versusWord}${atLeast}`} />}
         <Kpi label="Accepted first try" value={percent(s.acceptedFirstTryRate)} {...(s.acceptedFirstTryRate !== null && prev!.acceptedFirstTryRate !== null ? (() => { const pts = Math.round((s.acceptedFirstTryRate! - prev!.acceptedFirstTryRate!) * 100); return { delta: `${pts >= 0 ? "+" : "−"}${Math.abs(pts)} pts`, tone: (pts === 0 ? undefined : pts > 0 ? "good" : "warn") as Tone | undefined }; })() : {})} note={s.reviewedRoots ? `${s.acceptedFirstTry} of ${s.reviewedRoots} reviewed` : "none reviewed yet"} />
-        <Kpi label="Retries" value={String(retried)} {...(retried && s.retryTokens.total > 0 ? { delta: compact(s.retryTokens.total), tone: "bad" as Tone, note: `tokens spent${s.retryTokens.unknownAttempts ? " · at least" : ""}` } : retried ? { delta: "extra attempts", tone: "bad" as Tone } : {})} />
+{!notMeasured && <Kpi label="Retries" value={String(retried)} {...(retried && s.retryTokens.total > 0 ? { delta: compact(s.retryTokens.total), tone: "bad" as Tone, note: `tokens spent${s.retryTokens.unknownAttempts ? " · at least" : ""}` } : retried ? { delta: "extra attempts", tone: "bad" as Tone } : {})} />}
       </section>
       <section className="pc-insights__card" aria-labelledby="daily-h">
         <div className="pc-insights__cardhead"><h2 id="daily-h">Tokens per day, by agent</h2>
           <ul className="pc-insights__legend" aria-label="Agents">{agents.map(a => <li key={a}><span className={`pc-insights__swatch ${slotClass(agentSlot(a))}`} />{label(a)}</li>)}</ul></div>
         {series.data ? <div className="pc-insights__chart" aria-hidden="true">
-          <div className="pc-insights__axis"><span>{axisLabel(max)}</span><span>{axisLabel(max / 2)}</span><span>0</span></div>
+          <div className="pc-insights__axis">{!notMeasured && <><span>{axisLabel(max)}</span><span>{axisLabel(max / 2)}</span></>}<span>0</span></div>
           <ol className="pc-insights__bars">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>
             <svg viewBox="0 0 10 100" preserveAspectRatio="none">{d.rects.map(r => <rect key={r.agent} className={slotClass(r.slot)} x={0} width={10} y={r.y} height={r.height} />)}</svg></li>)}</ol>
           <ol className="pc-insights__days">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>{dayLabel(d.at)}</li>)}</ol></div>
@@ -109,7 +110,7 @@ export function Insights({ query }: { query: RouteQuery }) {
             return <tr key={g.agent}>
               <th scope="row"><span className="pc-insights__agent"><span className={`pc-insights__swatch ${slotClass(slot)}`} /><AgentMark agent={g.agent} size={24} labelled={false} /><span className="pc-insights__name"><strong>{label(g.agent)}</strong><span className="pc-insights__caption">Executor</span></span></span></th>
               <td>{g.rootTasks}</td><td>{g.subtasks}</td><td>{g.attempts}</td>
-              <td><strong>{compact(g.total)}</strong>{g.unknownAttempts + g.partialAttempts > 0 && <> <Pill tone="warn">{g.unknownAttempts + g.partialAttempts} not complete</Pill></>}</td>
+              <td><strong>{notMeasured ? "—" : compact(g.total)}</strong>{g.unknownAttempts + g.partialAttempts > 0 && <> <Pill tone="warn">{g.unknownAttempts + g.partialAttempts} not complete</Pill></>}</td>
               <td><span className="pc-insights__share">{g.share !== null && <progress className={slotClass(slot)} value={Math.round(g.share * 100)} max={100} aria-label={`Share of tokens: ${percent(g.share)}`} />}<span>{percent(g.share)}</span></span></td>
               <td>{g.tokensPerTask === null || !g.total ? "—" : compact(g.tokensPerTask)}</td>
               <td className={accept === null ? "" : accept >= 0.75 ? "pc-insights__good" : accept >= 0.5 ? "pc-insights__warn" : "pc-insights__bad"}><strong>{percent(accept)}</strong></td>

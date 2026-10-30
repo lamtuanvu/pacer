@@ -181,7 +181,7 @@ umask 077
 mkdir -p "$D" || exit 1
 chmod 700 "$D"
 printf '%s' "$mode" > "$D/session.host"
-rm -f "$D/start.error" "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw" "$D/session.log" "$D/session.log.1" "$D/session.ckpt" "$D/session.state" "$D/session.sock.path"
+rm -f "$D/start.error" "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw" "$D/session.log" "$D/session.log.1" "$D/session.ckpt" "$D/session.state" "$D/session.sock.path" "$D/session.version"
 # Read only the wrapper as lines; cat preserves every byte of the remaining prompt.
 : > "$D/run.sh"
 while IFS= read -r line; do

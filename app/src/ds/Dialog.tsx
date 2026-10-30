@@ -17,7 +17,7 @@ export function cycleDialogFocus(dialog: HTMLDialogElement, event: Pick<Keyboard
   controls[next]!.focus();
 }
 
-export function Dialog({ title, close, children }: { title: string; close: () => void; children: ComponentChildren }) {
+export function Dialog({ title, close, children, showClose = true }: { title: string; close: () => void; children: ComponentChildren; showClose?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current!;
@@ -31,7 +31,7 @@ export function Dialog({ title, close, children }: { title: string; close: () =>
   return <dialog className="pc-dialog" ref={ref} tabIndex={-1} aria-label={title}
     onKeyDown={event => cycleDialogFocus(event.currentTarget, event)}
     onCancel={event => { event.preventDefault(); close(); }}>
-    <div className="pc-dialog__head"><SectionHeading>{title}</SectionHeading><Button onClick={close}>Close</Button></div>
+    <div className="pc-dialog__head"><SectionHeading>{title}</SectionHeading>{showClose && <Button onClick={close}>Close</Button>}</div>
     {children}
   </dialog>;
 }

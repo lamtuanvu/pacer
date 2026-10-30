@@ -13,8 +13,9 @@ import { Kbd } from "./Kbd";
  * Open state is a prop and the sheet stays mounted, so a conversation survives closing. Opening moves focus to the
  * `[data-autofocus]` element; closing, by Escape or `onClose`, returns focus to where it was.
  */
-export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, header, messages, suggestions, composer, logLabel = "Conversation" }: {
+export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, autoScroll = true, header, messages, suggestions, composer, logLabel = "Conversation" }: {
   label: string; open: boolean; generating?: boolean; narrow?: boolean; onClose: () => void; /** Taller conversation while an action card is pending. */ expanded?: boolean; header?: ComponentChildren;
+  /** Follow newly appended conversation messages; disable for setup/status cards. */ autoScroll?: boolean;
   messages: ComponentChildren; suggestions?: ComponentChildren; composer: ComponentChildren; logLabel?: string;
 }) {
   const root = useRef<HTMLElement>(null), log = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null), was = useRef(false);
@@ -24,10 +25,10 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     if (open) {
       const active = document.activeElement;
       opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
-      root.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+      root.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus({ preventScroll: true });
     } else {
       const target = opener.current?.isConnected ? opener.current : null;
-      if (root.current?.contains(document.activeElement) || document.activeElement === document.body) target?.focus();
+      if (root.current?.contains(document.activeElement) || document.activeElement === document.body) target?.focus({ preventScroll: true });
       opener.current = null;
     }
   }, [open]);
@@ -55,8 +56,14 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     return () => { for (const el of marked) el.inert = false; };
   }, [open, narrow]);
   // Keep the newest message in view as the conversation grows.
-  useEffect(() => { const el = log.current; if (el) el.scrollTop = el.scrollHeight; });
-  return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open}>
+  useEffect(() => { const el = log.current; if (el) el.scrollTop = autoScroll ? el.scrollHeight : 0; });
+  return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open} onKeyDown={event => {
+    // Own Escape inside the sheet before the shell's settings-navigation shortcut.
+    // Menus inside the sheet may consume it first.
+    if (open && event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault(); event.stopPropagation(); onClose();
+    }
+  }}>
     <div className="pc-aurora__veil" aria-hidden="true" />
     <div className="pc-aurora__glow" aria-hidden="true"><span /><span /><span /><span /></div>
     <div className="pc-aurora__column">
@@ -70,7 +77,7 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
 
 /** The pill that opens the sheet. `aria-expanded` follows the sheet, and the shortcut is shown beside the name. */
 export function AuroraLauncher({ open, onClick, shortcut, controls, className }: { open: boolean; onClick: () => void; shortcut?: string; controls?: string; className?: string }) {
-  return <button type="button" className={classes("pc-aurora-launcher", className)} aria-expanded={open} aria-controls={controls} aria-label={open ? "Close assistant" : "Ask pacer assistant"} onClick={onClick}>
+  return <button type="button" className={classes("pc-aurora-launcher", className)} aria-expanded={open} aria-controls={controls} aria-label={open ? "Close assistant" : "Open assistant"} onClick={onClick}>
     <span className="pc-aurora-avatar" aria-hidden="true" />
     <span>{open ? "Close assistant" : "Ask pacer"}</span>
     {shortcut && <Kbd>{shortcut}</Kbd>}

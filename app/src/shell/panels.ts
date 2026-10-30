@@ -4,12 +4,14 @@ import type { Command } from "../keys/commands";
 /** Panel open state that survives reloads. Storage may be missing or refuse access, so the default always wins then. */
 export function usePanelState(id: string, defaultOpen: boolean): [boolean, (open: boolean) => void] {
   const key = `pacer.panel.${id}`;
-  const [open, setOpen] = useState(() => {
+  const read = () => {
     try { const saved = localStorage.getItem(key); return saved === null ? defaultOpen : saved === "1"; }
     catch { return defaultOpen; }
-  });
+  };
+  const [saved, setSaved] = useState<Record<string, boolean>>(() => ({ [key]: read() }));
+  const open = saved[key] ?? read();
   return [open, next => {
-    setOpen(next);
+    setSaved(previous => ({ ...previous, [key]: next }));
     try { localStorage.setItem(key, next ? "1" : "0"); } catch { /* keep the in-memory state */ }
   }];
 }

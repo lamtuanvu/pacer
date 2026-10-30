@@ -1,3 +1,10 @@
+import { isUpgradeOperation, UPGRADE_REFUSAL } from "./caller-policy";
+import { triggerHandover } from "../tasks/handover-service";
+import { runningWork, workCounts } from "../service/running-work";
+import { restartAfterUpdate } from "../service";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { sshSuggestions } from "../remote/ssh-config";
 import { authorizeWorkOperation, submitWork, delegateChild, scopedWorkTree, scopedWorkEvents, reviewWork, retryWork, answerWork, stopWork, waitWork } from "../core/work";
 import { listWork, setWorkDependencies, waiveWorkDependency, workOptionsSchema } from "../dispatch/work";
 import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
@@ -48,6 +55,7 @@ import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
+import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
@@ -84,6 +92,8 @@ export interface OpDeps {
   snapshotProbe?: boolean;
   terminalPresetsOnly?: boolean;
   client?: string;
+  /** The calling client instance, which identifies a `task.send` driving-lease holder. */
+  clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
   terminal?: Partial<TerminalDeps>;
@@ -136,7 +146,7 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
   }
 }
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
-  const update = {...defaultUpdateDeps(ctx), ...deps.update};
+  const update = {...defaultUpdateDeps(ctx), restartService: async (path: string) => ({restarted: await restartAfterUpdate(ctx, path)}), ...deps.update};
   // Reuse the CLI's install-method checks without letting it replace the daemon
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
@@ -303,7 +313,7 @@ export const OPS: Record<string, OpDef> = {
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
-  "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({}), handler: ctx => core.hosts.suggest(ctx) }),
+  "host.suggest": op({ description: "SSH aliases not already configured as hosts.", params: z.object({ details: z.boolean().optional() }), handler: (ctx, p) => { const names = core.hosts.suggest(ctx); return p.details ? sshSuggestions(ctx.home).filter(alias => names.includes(alias.name)) : names; } }),
   "host.get": op({ description: "Host facts, checks, capacity and recent work.", params: z.object({alias: id}), handler: (ctx, p) => core.hosts.detail(ctx, p.alias) }),
   "host.set": op({ description: "Set host capacity, pause new work, or choose recording-only or full live sessions.", params: z.object({alias: id, max_tasks: z.number().int().min(1).max(16).optional(), paused: z.boolean().optional(), session: z.enum(["recording", "full"]).optional()}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.set(ctx, p.alias, p)) }),
   "host.repo.map": op({ description: "Map a canonical repo key to a host checkout.", params: z.object({alias: id, key: id, path: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.mapRepo(ctx, p.alias, p.key, p.path)) }),
@@ -312,10 +322,22 @@ export const OPS: Record<string, OpDef> = {
   "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
   "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id,request_id:z.uuid().optional()}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, appTerminal(deps,p.request_id),{builtin:!!deps.appAuthenticated}) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
-  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
+  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => {
+    const result = config.get(ctx);
+    const apps: Record<string, string> = { ghostty: "Ghostty", iterm: "iTerm", "terminal-app": "Terminal" };
+    return { ...result, terminalChoices: result.terminalChoices.filter(choice => choice.value === "auto" || (process.platform === "darwin"
+      ? ["/Applications", join(ctx.home, "Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${apps[choice.value]}.app`)))
+      : !!ctx.which(choice.value))) };
+  } }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
+    handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
+  "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),
+    handler: (ctx, p) => mutation(ctx, "machine", async () => { const m = await import("../identity"); await m.setMachineName(ctx, p.name, p.expect_rev); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); }) }),
+  "machine.rotate": op({ description: "Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.", params: z.object({}),
+    handler: ctx => mutation(ctx, "machine", async () => { const { rotateIdentity } = await import("../identity"); const r = await rotateIdentity(ctx); return { oldId: r.oldId, newId: r.newId }; }) }),
   "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
@@ -323,6 +345,16 @@ export const OPS: Record<string, OpDef> = {
   "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
+  "service.handover": op({ description: "After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.", params: z.object({wait_s: z.number().int().min(0).max(60).optional()}), handler: async (ctx, p) => {
+    const r = await triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000});
+    return {pacer: r.pacer, tasks: r.tasks, sessions: r.sessions, handed_over: r.handedOver, kept_on_previous_runner: r.keptOnPreviousRunner, summary: r.summary};
+  } }),
+  "service.work": op({ description: "Running tasks and live sessions with their runner and host versions, and the sessions that need Reopen to update. Versions and counts only, never paths.", params: z.object({}), handler: async ctx => {
+    const w = await runningWork(ctx), c = workCounts(w);
+    return {pacer: w.pacer, tasks: w.tasks.map(t => ({task_id: t.taskId, runner_pacer: t.runnerPacer, older: t.older})),
+      sessions: w.sessions.map(s => ({kind: s.kind, id: s.id, pacer: s.pacer, older: s.older, reopen_to_update: s.reopenToUpdate})),
+      counts: {tasks: c.tasks, sessions: c.sessions, older_runners: c.olderRunners, older_sessions: c.olderSessions, reopen_to_update: c.reopenToUpdate}};
+  } }),
   "plugin.install": op({ description: "Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.", params: z.object({}), handler: () => setup.pluginInstall() }),
   "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
   "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
@@ -372,6 +404,11 @@ export const OPS: Record<string, OpDef> = {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
     },
+  }),
+  "task.send": op({
+    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
+    params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
+    handler: (ctx, p, deps) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev, by: callerIdentity(ctx, deps.client, deps.clientInstance) }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
@@ -538,6 +575,7 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 }
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
+  if (isUpgradeOperation(name) && isExecutorSession(ctx)) throw new CoreError("not_allowed", UPGRADE_REFUSAL);
   authorizeWorkOperation(ctx,name,params);
   // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
   if (name.startsWith("assistant.") && isExecutorSession(ctx)) throw new CoreError("not_allowed", "PACER_ROLE=executor: executors cannot use the assistant or read its history.");

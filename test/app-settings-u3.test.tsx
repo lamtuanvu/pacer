@@ -1,3 +1,4 @@
+import {executorLabel} from "../src/view-model/words";
 import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { StrategyQuickAccessPopup } from '../app/src/shell/StrategyQuickAccess';
@@ -9,6 +10,7 @@ import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
+import { machineNow } from '../app/src/screens/settings/Machines';
 import { SettingsGeneral, AddExecutor, MachineSection, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
@@ -107,12 +109,13 @@ test('restored executor draft resumes checks and Ready follows a passed job only
  const draw=(stateValue:'running'|'failed'|'passed')=>render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:stateValue}}});
  expect(draw('running')).toContain('Running test task');expect(draw('running')).not.toContain('is ready');
  expect(draw('failed')).toContain('Run test task again');expect(draw('failed')).not.toContain('is ready');
- expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('>Open agents</a>');
+ expect(draw('passed')).toContain(`${executorLabel(executor.id)} is ready`);expect(draw('passed')).toContain('>Open agents</a>');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
  // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
  const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}} initialUrlForm/>);
- for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Unmetered — free or local','aria-haspopup="listbox"'])expect(html).toContain(text);
+ expect(html).toContain('Sign in to another account');
+ expect(html).not.toContain('Base URL');
 });
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');
@@ -130,13 +133,15 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
- for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ for(const label of ['On pace','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
- expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executor.id);
+ expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
+ expect(html).not.toContain(executor.id);
  // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
- expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [a-z]+<\/span><\/summary>/g)).toHaveLength(2);
- expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for empty</span></summary>');
- expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
+ expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [^<]+<\/span><\/summary>/g)).toHaveLength(2);
+ expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
+ expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
+ expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
@@ -148,13 +153,11 @@ test('Ark CLI quota authentication errors show recovery in the affected account'
  expect(html).not.toContain('No subscription');
 });
 
-test('multiple accounts retains the threshold as a board row, disabled only for Spread',()=>{
+test('Budget removes account distribution controls absent from the board',()=>{
  for(const mode of ['spread','fill']) {
   const html=render(<SettingsGeneral section="planner" initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
-  expect(html).toContain('class="pc-budget-threshold"');
-  expect(html).toContain('Move to the next account at');
-  expect(html).toContain('% used');
-  expect(html).toMatch(mode==='spread'?/max="100" disabled value="80"/:/max="100" value="80"/);
+  expect(html).not.toContain('Account mode');
+  expect(html).not.toContain('Move to the next account at');
  }
 });
 
@@ -184,6 +187,26 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
+test('This machine shows the guard state now and no limit by default',()=>{
+ const machine={used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
+ const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(html).toContain('Now: memory pressure critical · load 4.9 per core · new tasks wait: memory pressure critical');
+ // The running count is the card badge only (UI-15).
+ expect(html).toContain('Running 3');
+ expect(html).not.toContain('3 running');
+ expect(html).toContain('No limit');
+ expect(html).not.toContain('Hold new tasks at memory pressure');
+ expect(html).not.toContain('Load limit per CPU core');
+ const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,hardCap:4,unlimited:false,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
+ expect(unavailable).toContain('Now: memory pressure unavailable<');
+ expect(unavailable).not.toContain('0 running');
+ expect(machineNow(undefined)).toBeNull();
+ const overview=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(overview).toContain('No limit');
+ // The legacy max stands in for "no cap" for 3.0 clients and is never shown.
+ for(const page of [html,overview])expect(page).not.toContain(String(Number.MAX_SAFE_INTEGER));
+ expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:3}}})).toContain('3 parallel');
+});
 test('board pages render their headline and other editors retain shell titles', () => {
  expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');
  for (const [child, title, caption] of [
@@ -209,7 +232,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
  const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Uncertain fallback');expect(general).toContain('Historical usage');expect(general).toContain('Observation time unknown');
+ expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · refresh to use');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
@@ -219,13 +242,13 @@ test('Settings and host executors share uncertainty; retained account usage is h
 test('Agents copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('Unavailable executors are skipped; warning states may still receive work.');
+ expect(html).toContain('Agents marked Skipped, Cannot take work or Off receive no new work.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Agents',()=>{
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
- expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
+ expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Skipped<\/span>/);
  expect(html).not.toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Ready<\/span>/);
 });
 test('an untested endpoint keeps its eligibility decision and its unchecked status',()=>{
@@ -260,7 +283,7 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
  expect(html).toContain('$3.20 of $5 this week');
- expect(html).toContain('Historical usage · Observation time unknown');
+ expect(html).toContain('Stale reading · refresh to use');
 });
 
 test('Updates identifies the service and preserves failed-check status', () => {
@@ -280,7 +303,7 @@ test('eligible executors retain recent task failures separately from their passe
  const eligibility={state:'eligible',reasons:[],evaluatedAt:1000,validUntil:null,evidenceAgeS:0,availability:'available',budget:'available',spendingRisk:'none'} as const;
  const row={...executor,state:'failing',recentFailures:2,reason:'2 recent failures',eligibility,lastCheck:{at:1000,passed:true,detail:'Ready'}} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[row]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
- expect(html).toContain('Eligible');
+ expect(html).toContain('Ready');
  expect(html).toContain('Recent task failures');
  expect(html).toContain('2 recent failures');
  expect(html).not.toContain('Failing');

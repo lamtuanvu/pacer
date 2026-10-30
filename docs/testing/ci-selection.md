@@ -20,6 +20,8 @@ The selection and reason appear in the job summary.
 | Desktop presentation/native files | Bun parity tests and UI evidence, CodeQL; native builds remain in manual/release workflows |
 | Shared inputs, scripts, workflows or unmapped files | Full validation |
 
+The `Linux service restart keeps running work` job runs whenever Bun checks are selected. It records UNVERIFIED instead of failing when the runner has no user service manager.
+
 Mixed changes use the union. This is area selection, not a claim that individual
 tests have complete dependency maps: selected language suites still run in full.
 Bun builds still compile the Rust front door and build fixture plugins where

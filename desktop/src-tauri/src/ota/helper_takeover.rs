@@ -30,7 +30,8 @@ struct Progress {
 
 #[cfg(target_os = "macos")]
 fn config_dir(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/dev.pacer.desktop")
+    home.join("Library/Application Support")
+        .join(crate::ota::trust::APP_ID)
 }
 
 #[cfg(target_os = "macos")]
@@ -270,5 +271,20 @@ mod tests {
         let journal = store.journal().unwrap();
         assert!(journal.steps.is_empty());
         assert_eq!(journal.error.as_deref(), Some("redetect:identity"));
+    }
+    #[test]
+    fn takeover_reads_the_desktop_config_of_this_build_flavour() {
+        assert_eq!(
+            config_dir(Path::new("/fixture/home")),
+            Path::new("/fixture/home/Library/Application Support").join(crate::ota::trust::APP_ID)
+        );
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    #[test]
+    fn release_takeover_reads_the_release_desktop_config() {
+        assert_eq!(
+            config_dir(Path::new("/h")),
+            PathBuf::from("/h/Library/Application Support/dev.pacer.desktop")
+        );
     }
 }

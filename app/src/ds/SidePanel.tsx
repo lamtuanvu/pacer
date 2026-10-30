@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import { IconButton } from "./Button";
 
 /**
@@ -13,11 +13,11 @@ export function SidePanel({ side, label, open, onToggle, bar = true, wide = fals
 }) {
   const id = `pc-side-panel-${side}`;
   const button = useRef<HTMLButtonElement>(null), clicked = useRef(false), first = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (first.current) { first.current = false; return; }
     const lost = document.activeElement === document.body || document.activeElement === null;
     if (clicked.current || lost) {
-      const target = button.current ?? document.getElementById(`${id}-toggle`);
+      const target = button.current ?? document.getElementById(`${id}-toggle`) ?? document.querySelector<HTMLButtonElement>(`.pc-layout-toggles [aria-label="Toggle ${side} panel"]`);
       if (target) target.focus();
       // The frame portal mounts the owner's toggle after the panel's content ref updates.
       else if (contentToggle) requestAnimationFrame(() => {

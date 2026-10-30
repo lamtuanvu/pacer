@@ -117,6 +117,13 @@ API clients use `task.answer { id, text, expect_rev? }`; MCP planners use
 `task_answer { task_id, text, expect_rev? }`. Both return `{ task, retry }`. Task summaries (including MCP `task_status`)
 include the question, its timestamp and any recorded answer.
 
+`pacer delegate --interactive [--group <name>]` starts a routed, budgeted, reviewable
+delegated task with a live terminal, instead of a one-shot run; see
+[Interactive lanes](dispatch.md#interactive-lanes). `pacer send <task-id> "<message>" [--force]`
+delivers one message into an interactive lane's running agent without starting a new attempt. Nothing
+is typed unless the agent is its terminal's foreground process. API clients use
+`task.send { id, text, force?, expect_rev? }`; MCP planners use `task_send`.
+
 Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
 exits 2; known ids are still dismissed.
@@ -138,6 +145,19 @@ are kept with `uncommitted changes; use --force` unless `--force` is given.
 `--dry-run` reports what would be removed without changing files. Cleanup deletes
 disposable run files while retaining saved review diffs, and always keeps branches. Text output
 lists removed or kept task IDs and reasons, or `nothing to clean`; exit status is 0.
+
+If a task's source repository was deleted, plain clean keeps the task with
+`source repository is missing; use --force to delete the worktree`. With `--force`,
+clean deletes only that task's own worktree, `<worktrees>/<repo-tag>/<task-id>`, after
+checking that no path component is a symlink. It renames the folder to a
+`.pacer-delete-*` name inside the worktrees folder, verifies it is still the same
+folder, then deletes it; if a check fails, the task is kept and nothing is deleted.
+`--dry-run` shows the same decisions and renames nothing. A symlinked worktrees
+folder blocks only this forced direct delete (`worktrees folder is a symlink; not
+deleted`); normal cleans, with the repository present, still use `git worktree
+remove`. A `.pacer-delete-*` folder left by an interrupted forced clean is listed
+as kept and must be removed by hand. Remote tasks whose repository is missing are
+kept, because remote cleanup needs the local repository.
 
 JSON contracts:
 
@@ -436,6 +456,16 @@ terminal and are started only for newly created pacer-managed accounts unless
 - `pacer plugin settings set <id> --values '<json object>' [--rev <n>]` validates the values against the schema from the plugin's manifest and saves them. A stale `--rev` fails with `conflict`.
 
 Settings are stored in `$PACER_HOME/plugin-settings.json` (mode 0600), not in the strategy file. The app's plugin pages use the same operations. Secrets are never values: a `secretRef` field holds the name of a secret reference.
+
+## Machine
+
+Every pacer home has a machine identity: a long-lived key, an id derived from it, and a display name.
+
+- `pacer machine show [--json]` prints the name, id and revision. It also warns when the home looks copied from another machine.
+- `pacer machine rename <name> [--json]` changes the name. Names are display-only (1–64 characters; control and bidirectional characters are removed) and never change the id. A rename that races another client fails with `conflict`.
+- `pacer machine rotate --yes [--json]` replaces the key, prints the old and new ids, and forgets every plugin's recorded transport key. Machines paired with the old id must be told or pair again. Without `--yes` it refuses and exits 2.
+
+The id changes only on rotation. The private key never appears in command output. The API equivalents are `machine.get {}`, `machine.set { name, expect_rev }` and `machine.rotate {}`. Through the API, executor sessions may call `machine.get` but not `machine.set` or `machine.rotate`. Their client still has to be accepted by the service, for example through a scoped work grant, so `pacer machine show` run from an executor shell can fail.
 
 ## Pause and resume delegation
 

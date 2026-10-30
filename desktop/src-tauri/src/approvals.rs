@@ -53,3 +53,11 @@ pub fn request_notifications() {
             &complete,
         );
 }
+
+#[cfg(target_os = "macos")]
+pub fn launch_at_login_enabled() -> Option<bool> {
+    use objc2::runtime::AnyClass;
+    use objc2_service_management::{SMAppService, SMAppServiceStatus};
+    AnyClass::get(c"SMAppService")?;
+    Some(unsafe { SMAppService::mainAppService().status() == SMAppServiceStatus::Enabled })
+}

@@ -39,7 +39,7 @@ describe("executor eligibility survives the screen redesign", () => {
     const text = renderDashboard(s, 80, 40, s.at, {
       noColor: true, data: data(), state: { screen: "settings", section: "accounts", focus: "detail" },
     });
-    expect(text.replace(/\s+/g, " ")).toContain("Historical usage · Observation time unknown");
+    expect(text.replace(/\s+/g, " ")).toContain("Stale reading · refresh to use");
   });
   for (const screen of ["home", "settings"] as const) {
     for (const width of [80, 120]) {
@@ -518,6 +518,49 @@ test("requested failed-check and partial results never bind the accept key in Ta
  }
 });
 
+describe("Settings › This machine in the TUI", () => {
+  const state = { screen: "settings" as const, section: "machine", focus: "detail" as const };
+  const withKeys = (keys: Record<string, unknown>) => {
+    const d = data();
+    const config = (d.settings as any).config.value.keys;
+    for (const [key, value] of Object.entries(keys)) config[key] = { value, source: "default" };
+    return d;
+  };
+  const params = (s: ClientSnapshot, d: Partial<DashData>, id: string, key: string) =>
+    { const effect = screenItems(s, s.at, { data: d, state }).find(item => item.id === id)?.keys[key]?.effect as any;
+      return effect && (expect(effect).toMatchObject({ type: "flow", name: "machine-step" }), { key: effect.params.key, value: effect.params.value }); };
+  test("parallel tasks steps between no limit and a hard cap", () => {
+    const s = snapshot();
+    const unlimited = withKeys({ "execution.local_max_tasks": "unlimited" });
+    expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: unlimited, state })).toContain("‹ No limit ›");
+    expect(params(s, unlimited, "setting:local-max", "right")).toEqual({ key: "execution.local_max_tasks", value: 4 });
+    expect(params(s, unlimited, "setting:local-max", "left")).toBeUndefined();
+    const one = withKeys({ "execution.local_max_tasks": 1 });
+    expect(params(s, one, "setting:local-max", "left")).toEqual({ key: "execution.local_max_tasks", value: "unlimited" });
+    // No upper ceiling on the local cap.
+    expect(params(s, withKeys({ "execution.local_max_tasks": 16 }), "setting:local-max", "right")).toEqual({ key: "execution.local_max_tasks", value: 17 });
+  });
+  test("memory pressure and load limits step and the guard state is shown", () => {
+    const s = snapshot();
+    s.machine = { used: 3, max: Number.MAX_SAFE_INTEGER, hardCap: null, unlimited: true, memoryPressure: "critical", memoryPressureLimit: "critical", loadPerCore: 4.92, loadLimit: null, open: false, reason: "machine_memory_pressure", detail: "memory pressure critical" };
+    const d = withKeys({ "execution.local_memory_pressure_limit": "critical", "execution.local_load_limit": "off" });
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state });
+    expect(text).toContain("‹ Critical ›");
+    expect(text).toContain("memory pressure critical · load 4.9 per core · new tasks");
+    // One running count, beside Parallel tasks.
+    expect(text).toContain("3 busy now");
+    expect(text).not.toContain("3 running");
+    expect(text).toContain("wait: memory pressure critical");
+    expect(params(s, d, "setting:memory-pressure", "right")).toEqual({ key: "execution.local_memory_pressure_limit", value: "warning" });
+    expect(params(s, d, "setting:memory-pressure", "left")).toEqual({ key: "execution.local_memory_pressure_limit", value: "off" });
+    expect(params(s, d, "setting:load-limit", "right")).toEqual({ key: "execution.local_load_limit", value: 2 });
+    const half = withKeys({ "execution.local_load_limit": 0.5 });
+    expect(params(s, half, "setting:load-limit", "left")).toEqual({ key: "execution.local_load_limit", value: "off" });
+    s.machine = { ...s.machine, memoryPressure: null, open: true, reason: undefined, detail: "memory pressure signal unavailable" };
+    expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state })).toContain("memory pressure unavailable");
+  });
+});
+
 test("Settings › This machine toggles the task backend with ← →", () => {
   const s = snapshot(), state = { screen: "settings" as const, section: "machine", focus: "detail" as const };
   expect(renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: data(), state })).toMatch(/Task backend\s+‹ Direct ›/);
@@ -541,4 +584,83 @@ test("Settings › This machine shows a PACER_BACKEND override and offers no tog
     expect(text.replace(/[\s│]+/g, " ")).toMatch(/Unset (?:\w+ )?PACER_BACKEND to change it here\./);
     expect(text).toMatchSnapshot();
   }
+});
+
+describe("Sessions keeps a conversation's list status and detail in agreement", () => {
+  const conversation = (patch: Record<string, unknown>) => {
+    const s = snapshot();
+    const t = { ...s.tasks.find(t => t.id === "t-0412")!, interactionMode: "conversation", ...patch } as ClientSnapshot["tasks"][number];
+    return { s: { ...s, tasks: [t] }, t };
+  };
+  const view = (s: ClientSnapshot, d: Partial<DashData>, ops?: string[]) => ({
+    text: renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, noColor: true, data: d, state: { screen: "sessions" }, ops }).replace(/\s+/g, " "),
+    item: screenItems(s, s.at, { state: { screen: "sessions" }, data: d, ops }).find(i => i.id === "session:t-0412")!,
+  });
+  const waiting = (patch: Partial<TaskDetail>, question: Record<string, unknown> | null = { text: "Keep the legacy flag?", at: 1 }) => {
+    const { s, t } = conversation({ state: "needs_input", rev: 7, question: question ?? undefined });
+    return { s, t, d: { ...data(), details: new Map([["t-0412", { value: { ...detail, state: "needs_input", ...patch } as TaskDetail }]]) } };
+  };
+  const managed = (allowed: boolean): Partial<TaskDetail> => ({
+    rev: 7, question: { text: "Keep the legacy flag?" }, work: { rootId: "t-0412", parentId: null, depth: 0 },
+    workTree: { totals: { tasks: 1, running: 0, queued: 0, executionSeconds: 1, dependencyWaitSeconds: 0, childWaitSeconds: 0, capacityWaitSeconds: 0, usagePools: [] },
+      nodes: [{ taskId: "t-0412", depth: 0, title: "Lane", state: "needs_input", model: null, actualModel: null, dependencies: [], review: null, attempts: [], decisions: [], retryEligibility: { allowed } }] },
+  });
+
+  test("a conversation waiting for its answer shows the question and an answer action, not a result or verdicts", () => {
+    const { s, t } = conversation({ state: "needs_input", question: { text: "Keep the legacy flag?", at: 1 } });
+    const d = { ...data(), details: new Map([["t-0412", { value: { ...detail, state: "needs_input" } as TaskDetail }]]) };
+    const { text, item } = view(s, d);
+    expect(text).toContain("Needs your answer");
+    expect(text).toContain("QUESTION");
+    expect(text).toContain("Keep the legacy flag?");
+    expect(text).toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("Execution ended");
+    expect(text).not.toMatch(/finished \d/);
+    expect(item.keys.a?.label).toBe("Answer");
+    expect(item.keys.a?.effect).toMatchObject({ type: "prompt" });
+    expect(item.actions.map(a => a.label)).not.toContain("Reject");
+    expect(item.keys.r).toBeUndefined();
+    expect(item.keys.s?.label).toBe("End session");
+  });
+
+  test("B: with the question not loaded, neither the answer key nor its hint is offered", () => {
+    const { s, t, d } = waiting({}, null);
+    const { text, item } = view(s, d);
+    expect(text).toContain("The question is not loaded yet.");
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("a answer");
+    expect(item.keys.a).toBeUndefined();
+  });
+
+  test("C: a service without task.answer gets a plain reason, not an answer hint", () => {
+    const { s, t, d } = waiting({});
+    const { text, item } = view(s, d, ["task.stop", "task.dismiss"]);
+    expect(text).toContain("This pacer service does not offer answering.");
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).not.toContain("a answer");
+    expect(item.keys.a).toBeUndefined();
+  });
+
+  test("D: managed work is answered through dispatch.answer, and pacer answer is never offered for it", () => {
+    const { s, t, d } = waiting(managed(true));
+    const { text, item } = view(s, d);
+    expect(text).not.toContain(`pacer answer ${t.id}`);
+    expect(text).toContain(`pacer dispatch answer --id ${t.id}`);
+    expect(item.keys.a?.label).toBe("Answer work question");
+    const prompt = item.keys.a?.effect as { type: string; prompt: { submit: (v: string) => unknown } };
+    expect(prompt.prompt.submit("yes")).toMatchObject({ action: { op: "dispatch.answer", params: { id: t.id, expect_rev: 7, text: "yes" } } });
+    const blocked = view(waiting(managed(false)).s, waiting(managed(false)).d);
+    expect(blocked.text).toContain("This work step's question cannot be answered from here.");
+    expect(blocked.text).not.toContain("a answer");
+    expect(blocked.item.keys.a).toBeUndefined();
+  });
+
+  test("a settled conversation is reviewed like a delegated task", () => {
+    const { s } = conversation({ state: "done", reviewRequest: { note: "Check", at: 1 } });
+    const { text, item } = view(s, data());
+    expect(text).toContain("RESULT");
+    expect(text).not.toContain("QUESTION");
+    expect(item.keys.r?.label).toBe("Reject");
+    expect(item.keys.a?.label).toBe("Mark accepted");
+  });
 });

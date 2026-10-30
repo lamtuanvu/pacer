@@ -1,7 +1,10 @@
+import { settingsText } from "./presentation";
+import { executorLabel } from "../../../../src/view-model/words";
 import { ChoiceCard, FilterChip, TextRow, RadioChoices } from "../../ds/Patterns";
 import { TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { accountNeedsSignIn, accountStatus } from "../../../../src/view-model/words";
+import { machineHardCap } from "../../../../src/view-model/capacity";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SettingRow } from "../../ds/SettingRow";
 import { CheckList, Stepper } from "../../ds/Stepper";
@@ -49,7 +52,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   useEffect(() => { if (prefillHost && !draft.createdId && draft.host !== prefillHost) patch({ host: prefillHost }); }, [prefillHost]);
   const startOver = () => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); };
   async function removeAgent() {
-    if (!(await dialogs.confirm(`Remove ${draft.createdId}? It was added but has not passed its test task.`, "Remove agent", "Remove"))) return;
+    if (!(await dialogs.confirm(`Remove ${executorLabel(draft.createdId)}? It was added but has not passed its test task.`, "Remove agent", "Remove"))) return;
     if (await action.run("runner.remove", { id: draft.createdId })) { action.clear(); setResumed(undefined); clearDraft(); setDraft({ ...blankAgentDraft }); }
   }
   async function finish() {
@@ -77,6 +80,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       setDetectionStatus(`${newlyFound.name} found`);
     } else checkButton.current?.focus();
   }, [detected.loading, detected.data, detected.error]);
+  const [addingAccount, setAddingAccount] = useState(false);
   const installGuidance = !!detected.data?.some(a => !a.found && a.install_hint);
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
@@ -99,7 +103,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             return <ChoiceCard layout="agent" key={agent.id} id={`agent-choice-${agent.id}`} aria-pressed={draft.agent === agent.id}
               onClick={() => patch({ agent: agent.id, account: "", host: REMOTE_AGENTS.includes(agent.id) ? draft.host : "" })}>
               <span className="u3-agent-choice-title"><AgentMark agent={agent.id} size={28} /><strong>{agent.name}</strong>{draft.agent === agent.id && <span className="u3-selected-check" aria-hidden="true">✓</span>}</span><span className="u3-muted">{agent.tagline}</span>
-                {found && <Pill tone={found.found ? "good" : "neutral"}>{found.found ? `Found${found.version ? ` ${found.version}` : ""}` : "Not found"}</Pill>}
+                <Pill tone={found?.found ? "good" : "neutral"}>{state.snapshot?.planner?.agent === agent.id ? "Planner" : state.snapshot?.executors?.some(executor => executor.agent === agent.id) ? "Already added" : found?.found ? "Installed" : "Not installed · how to install"}</Pill>
                 {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
           })}</ResourceState></div>
@@ -111,13 +115,13 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             <p className="u3-muted">Two executors can share an account; they share its quota.</p>
             <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
               {compatible.length ? <RadioChoices layout="options" name="agent-account" label="Account" value={draft.account} onChange={account => patch({ account })}
-                options={compatible.map(account => ({ value: account.name, label: <><strong>{account.name}</strong><span className="u3-muted">{account.source ?? account.kind} · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
+                options={compatible.map(account => ({ value: account.name, label: <><strong>{account.name}</strong><span className="u3-muted">{name}’s own sign-in · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
             </ResourceState>
             {draft.agent === "opencode" && !urlForm
               // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.
               ? <OpencodeSetup onUseUrl={() => setUrlForm(true)} onCreated={account => { patch({ account, createdId: `opencode#${account}`, step: "4" }); accounts.reload(); }} />
               : <>{draft.agent === "opencode" && <p><Button variant="quiet" size="sm" onClick={() => setUrlForm(false)}>Back to providers</Button></p>}
-                <WizardAccount agent={draft.agent} onCreated={account => { patch({ account }); accounts.reload(); }} /></>}
+                <div className="u3-actions"><Button size="sm" onClick={() => setAddingAccount(value => !value)} aria-expanded={addingAccount}>Sign in to another account</Button><Button size="sm" onClick={() => void action.run("account.signin",{interactive:"account-add-orca"})}>Link an Orca account</Button></div>{addingAccount && <WizardAccount agent={draft.agent} onCreated={account => { patch({ account }); accounts.reload(); setAddingAccount(false); }} />}</>}
             {draft.account && accountNeedsSignIn(accounts.data?.find(a => a.name === draft.account) ?? { kind: "endpoint" }) &&
               <Button disabled={action.busy} onClick={() => void action.run("account.signin", { name: draft.account })}>Sign in to {draft.account}</Button>}
           </>}
@@ -126,7 +130,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Where does it run?</SectionHeading><p className="u3-muted">Tasks run in their own worktree on that machine.</p></div>
           {REMOTE_AGENTS.includes(draft.agent)
             ? <RadioChoices layout="options" name="agent-location" label="Runs on" value={draft.host ? "remote" : "local"}
-                options={[{ value: "local", label: <><strong>This Mac</strong><span className="u3-muted">{state.snapshot?.machine ? `${state.snapshot.machine.max} parallel tasks shared by every executor here` : "Runs on this machine"}</span></> },
+                options={[{ value: "local", label: <><strong>This Mac</strong><span className="u3-muted">{machineHardCap(state.snapshot?.machine) !== null ? `${machineHardCap(state.snapshot?.machine)} parallel tasks shared by every executor here` : state.snapshot?.machine ? "Parallel tasks shared by every executor here" : "Runs on this machine"}</span></> },
                   ...(facts.hosts.length ? [{ value: "remote", label: <><strong>A remote host</strong><span className="u3-muted">Choose a configured host below</span></> }] : [])]}
                 onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "" })} />
             : <p>{name} runs on this machine. Only Codex and Claude Code can run on a remote host.</p>}
@@ -145,11 +149,11 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             <div className="u3-actions" role="group" aria-label="Good at">{AGENT_KINDS.map(([kind, label]) => <FilterChip key={kind} disabled={locked} selected={kinds.includes(kind)}
               onClick={() => patch({ kinds: (kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind]).join(",") })}>{label}</FilterChip>)}</div>
           </SettingRow>
-          <TextRow label="Executor id" value={<code>{draft.createdId || executorId(draft)}</code>} />
+          <TextRow label="Agent" value={executorLabel(draft.createdId || executorId(draft))} />
           <div className="u3-test-task"><div className="u3-heading"><strong>Test task</strong><Pill tone={ready ? "good" : job?.state === "failed" ? "bad" : job ? "info" : "neutral"}>{ready ? "Passed" : job?.state === "failed" ? "Failed" : job ? "Running" : "Not tested yet"}</Pill></div>
-          {job ? <CheckList unboxed label="Test task" items={job.steps.map(s => ({ id: s.name, label: s.name, state: s.state, note: s.detail }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
+          {job ? <CheckList unboxed label="Test task" items={job.steps.map(s => ({ id: s.name, label: settingsText(s.name), state: s.state, note: s.detail ? settingsText(s.detail) : undefined }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
           {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
-          {ready && <p role="status"><strong>{draft.createdId} is ready.</strong> Test task passed.</p>}
+          {ready && <p role="status"><strong>{executorLabel(draft.createdId)} is ready.</strong> Test task passed.</p>}
           {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
           </div>
         </>}

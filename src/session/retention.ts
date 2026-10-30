@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-const ARTIFACTS=["session.state","session.state.tmp","session.activity","session.log","session.log.1","session.ckpt","session.ckpt.tmp","session.sock.path","session.host","session.json"];
+const ARTIFACTS=["session.state","session.state.tmp","session.activity","session.log","session.log.1","session.ckpt","session.ckpt.tmp","session.sock.path","session.host","session.version","session.json"];
 /** Keep plain stdout/stderr/exit for byte-offset readers and legacy reports. */
 export function pruneTaskSessions(ctx:Ctx,task:TaskRecord):void {
   if(!TERMINAL_STATES.includes(task.state)) return;

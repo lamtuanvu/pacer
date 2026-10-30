@@ -108,6 +108,8 @@ offers **Cancel update**. Cancelling retains the download and requires a new
 restart request. Quitting the requesting desktop or restarting the machine also
 expires a waiting request. Once installation starts, cancellation is unavailable.
 
+Desktop updates still wait for running work. Service updates through `pacer update` or the service's own **Install** button keep running work instead (see [Service management](install.md#terminal-and-servers)). Desktop native updates will use the same runner handover once their own design (part C) lands.
+
 During installation, the managed service holds new work. The replacement desktop
 and service must authenticate, read state successfully and complete desktop
 sign-in before work resumes. Startup verification has a 120-second limit measured
@@ -152,6 +154,10 @@ verifies the desktop's connection. It preserves the external CLI files and data.
 **Cancel service change** is available while waiting. If startup fails, recovery
 restores and verifies the original service registration. A completed transfer
 shows the previous and resulting installation IDs.
+When the external service uses launchd's `Background` process type, the managed
+service registration uses `Standard`; recovery retains the exact original
+registration bytes. This launch-mode change is still undergoing signed native
+validation and does not make service adoption available in production.
 
 For CLI adoption, first read status and confirm the two displayed paths:
 

@@ -2,6 +2,7 @@ import type { RepoRef } from "../api/read-model/types";
 import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
+import type { ProcessIdentity } from "../update/desktop/process-identity";
 
 export type InteractionMode = "delegated" | "conversation";
 export type ConversationActivity = "starting" | "working" | "waiting" | "idle" | "ended";
@@ -10,6 +11,12 @@ export interface ConversationState {
   agentSessionId?: string;
   endReason?: "user" | "agent_exit" | "failure";
 }
+
+/** no_slot: a hard parallel-task cap is full. machine_*: a local machine guard holds new starts. */
+export const QUEUE_REASONS = ["no_slot", "paused", "host_down", "waiting_retry", "machine_memory_pressure", "machine_load"] as const;
+export type QueueReason = (typeof QUEUE_REASONS)[number];
+/** What the machine guard observed at the last scheduling check. */
+export interface MachineWait { memoryPressure?: "normal" | "warning" | "critical"; memoryPressureLimit?: "warning" | "critical"; loadPerCore?: number; loadLimit?: number }
 
 export type TaskState = "queued" | "running" | "done" | "partial" | "failed" | "limit" | "stopped" | "needs_input";
 export const TERMINAL_STATES: readonly TaskState[] = ["done", "partial", "failed", "limit", "stopped", "needs_input"];
@@ -141,6 +148,17 @@ export function progressBase(t: Pick<TaskRecord, "run" | "baseSha" | "baseBranch
   return t.run?.mode === "new" ? t.baseSha ?? t.baseBranch ?? null : t.run?.mode === "current" ? t.startSha ?? null : null;
 }
 
+export interface RunnerHandover {
+  protocol: number;
+  pacer: string;
+  identity: ProcessIdentity;
+  state?: "handed-over";
+  committedAt?: number;
+  signalledAt?: number;
+  declinedAt?: number;
+  replacementAt?: number;
+}
+
 export interface RunRef {
   interactionMode?: InteractionMode;
   takeover?: boolean;
@@ -159,14 +177,41 @@ export interface RunRef {
   workdir: string;
   logFile: string;
   lastMessageFile?: string;
+  waitKey?: string;
+  idleAlertedAt?: number;
 }
 
 export interface ReviewRequest { note: string; at: number }
+
+/**
+ * A worker an interactive lane's backend owns and can reach live: `task.send` delivers into it, an answer reattaches to it,
+ * and it holds its executor's slot while the task waits in `needs_input`. `task.stop`, expiry and settlement release it.
+ */
+export interface LiveWorker {
+  /** The backend that owns the worker; only it can send into or release it. */
+  backend: string;
+  worker: string;
+  terminal: string;
+  executor: string;
+  /** The agent the backend expects in the terminal's foreground; input is refused when anything else is there. */
+  agent: string;
+  incarnation?: string;
+  /** When the worker last became idle-owned (started, escalated or reattached), for the idle expiry. */
+  since: number;
+}
 
 export interface TaskRecord {
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;
+  /** `pacer delegate --interactive`: a conversation that may run on any backend and keep its worker live. A chat from `session.create` stays on the direct backend, whose terminal `session.io` streams. */
+  interactive?: boolean;
+  /** Lanes sharing a named Orca parent worktree (`pacer delegate --group`); cosmetic grouping when the backend isn't Orca. */
+  group?: string;
+  /** Who most recently delivered live input into this task's running terminal (`pacer send`); a short lease, not a process lock. */
+  driving?: { by: string; at: number };
+  /** The interactive lane's worker the backend keeps owning, while running and after a `needs_input` escalation. */
+  live?: LiveWorker;
   reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;
@@ -193,6 +238,10 @@ export interface TaskRecord {
   startSha?: string;
   placement?: TaskPlacement;
   worktree?: string;
+  /** Set when pacer removed this lane's unused worktree and cleared its recorded path; an answer then starts from `baseSha`. */
+  worktreeReleased?: { at: number; path: string };
+  /** The machine id of the pacer home that created the task, once it has an identity. */
+  machineId?: string;
   id: string;
   createdAt: number;
   kind: string | null;
@@ -202,8 +251,11 @@ export interface TaskRecord {
   timeoutS: number;
   brief: Brief;
   state: TaskState;
-  queue?: { nextAt?: number; reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
+  queue?: { nextAt?: number; reason: QueueReason; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number}; machine?: MachineWait };
   runnerPid?: number;
+  handover?: RunnerHandover;
+  runnerPacer?: string;
+  childIdentity?: ProcessIdentity;
   executor?: string;
   backend?: string;
   attemptStartedAt?: number;

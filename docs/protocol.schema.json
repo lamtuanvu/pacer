@@ -466,6 +466,7 @@
               "task_settled",
               "verdict",
               "retry",
+              "message",
               "mode",
               "budget_refreshed",
               "executor_state",
@@ -1269,6 +1270,8 @@
           "enum": [
             "task_retention_days",
             "execution.local_max_tasks",
+            "execution.local_memory_pressure_limit",
+            "execution.local_load_limit",
             "execution.launch_mode",
             "execution.backend",
             "planner",
@@ -3006,7 +3009,11 @@
     },
     "HostSuggestParams": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "details": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": false
     },
     "HostTerminalParams": {
@@ -3169,6 +3176,36 @@
       },
       "required": [
         "provider"
+      ],
+      "additionalProperties": false
+    },
+    "MachineGetParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "MachineRotateParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "MachineSetParams": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "name",
+        "expect_rev"
       ],
       "additionalProperties": false
     },
@@ -4015,6 +4052,17 @@
       ],
       "additionalProperties": false
     },
+    "ServiceHandoverParams": {
+      "type": "object",
+      "properties": {
+        "wait_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      },
+      "additionalProperties": false
+    },
     "ServiceInstallParams": {
       "type": "object",
       "properties": {
@@ -4029,6 +4077,11 @@
       "additionalProperties": false
     },
     "ServiceStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ServiceWorkParams": {
       "type": "object",
       "properties": {},
       "additionalProperties": false
@@ -4660,6 +4713,13 @@
           "type": "number",
           "minimum": 1,
           "maximum": 240
+        },
+        "interactive": {
+          "type": "boolean"
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
         }
       },
       "required": [
@@ -4961,6 +5021,34 @@
       "required": [
         "id",
         "verdict"
+      ],
+      "additionalProperties": false
+    },
+    "TaskSendParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "text"
       ],
       "additionalProperties": false
     },

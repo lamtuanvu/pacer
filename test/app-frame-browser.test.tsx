@@ -15,11 +15,8 @@ async function frame(setupOpen = 0) {
     });
     builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "terminal-stub" }));
     builder.onLoad({ filter: /.*/, namespace: "terminal-stub" }, () => ({ resolveDir: process.cwd(), loader: "js", contents: `import { h } from "preact";
-    // Same structure and classes as the real terminal view, without xterm.
     export const LazyTerminal = () => h("section", { class: "pc-terminal-view" },
-      h("div", { class: "pc-terminal-search", role: "search" }, h("div", { class: "pc-field field" }, h("label", null, "Search terminal output"), h("input")), h("button", null, "Previous"), h("button", null, "Next")),
-      h("div", { class: "pc-terminal-frame" }, h("div", { class: "pc-terminal-pane" }), h("div", { class: "pc-terminal-strip" }, h("strong", null, "You have control"), h("span", null, "Keystrokes go to your shell."), h("span", null, "80x24"))),
-      h("div", { class: "pc-session-row" }, h("button", null, "Release control"), h("span", { class: "pc-session-muted" }, "Only one window can type into this shell at a time.")));` }));
+      h("div", { class: "pc-terminal-frame" }, h("div", { class: "pc-terminal-pane" })));` }));
   } }] });
   expect(build.success).toBe(true);
   const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/terminal/terminal.css", "app/src/screens/work/work.css"].map(path => Bun.file(path).text()))].join("\n");
@@ -270,22 +267,22 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await dock.waitFor();
     await focused(page, "#pc-terminal-dock");
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
-    await page.getByRole("button", { name: "New terminal" }).click();
-    await dock.getByRole("navigation", { name: "Terminals" }).getByRole("button", { name: "Shell", exact: true }).waitFor();
+    await page.getByRole("button", { name: "New terminal", exact: true }).click();
+    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).waitFor();
     expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().height;
-      return { body: box(".pc-dock__body"), panes: box(".pc-workspace-terminal__panes"), pane: box(".pc-workspace-terminal__pane"), term: box(".pc-terminal-pane") };
+      return { body: box(".pc-workspace-terminal"), panes: box(".pc-workspace-terminal__panes"), pane: box(".pc-workspace-terminal__pane"), term: box(".pc-terminal-pane") };
     });
     expect(sizes.panes).toBeGreaterThanOrEqual(sizes.body * 0.55);
     expect(sizes.panes).toBeGreaterThanOrEqual(150);
     expect(sizes.pane).toBeLessThanOrEqual(sizes.panes);
     // The terminal itself keeps several lines (about 16px each) once search, status and controls are compacted.
     expect(sizes.term).toBeGreaterThanOrEqual(100);
-    await expect(dock.getByRole("button", { name: "Shell", exact: true }).getAttribute("aria-current")).resolves.toBe("true");
+    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).getAttribute("aria-selected")).resolves.toBe("true");
     await dock.focus();
-    await page.getByRole("button", { name: "Hide terminal panel" }).click();
+    await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
     // The terminal route has no dock and no dock control.
@@ -307,13 +304,13 @@ browserTest("settings_panel_collapse_keeps_main_usable", async () => {
       const panel = page.getByRole("complementary", { name: "Settings" });
       await panel.waitFor();
       expect(await noHorizontalOverflow(page)).toBe(true);
-      const hide = page.getByRole("button", { name: "Hide Settings" });
-      await expect(hide.getAttribute("aria-expanded")).resolves.toBe("true");
+      const hide = page.getByRole("button", { name: "Toggle left panel" });
+      await expect(hide.getAttribute("aria-pressed")).resolves.toBe("true");
       await hide.click();
       await expect(panel.count()).resolves.toBe(0);
       expect(await noHorizontalOverflow(page)).toBe(true);
-      const show = page.getByRole("button", { name: "Show Settings" });
-      await expect(show.getAttribute("aria-expanded")).resolves.toBe("false");
+      const show = page.getByRole("button", { name: "Toggle left panel" });
+      await expect(show.getAttribute("aria-pressed")).resolves.toBe("false");
       // Main content stays reachable and operable with the panel closed.
       await page.getByRole("textbox", { name: "Planner" }).fill("codex");
       await expect(page.getByRole("button", { name: "Save settings" }).isVisible()).resolves.toBe(true);
@@ -338,14 +335,14 @@ browserTest("panel_toggle_keeps_focus_on_its_control", async () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 800 } });
     await open(page, built, "#/settings");
     // Pointer and keyboard toggles swap the control; focus follows it instead of falling to the body.
-    await page.getByRole("button", { name: "Hide Settings" }).click();
-    await focused(page, '[aria-label="Show Settings"]');
+    await page.getByRole("button", { name: "Toggle left panel" }).click();
+    await focused(page, '[aria-label="Toggle left panel"]');
     await page.keyboard.press("Enter");
-    await focused(page, '[aria-label="Hide Settings"]');
+    await focused(page, '[aria-label="Toggle left panel"]');
     // Mod-b from a link inside the panel removes that link; focus moves to the reopen control.
     await page.getByRole("complementary", { name: "Settings" }).getByRole("link").first().focus();
     await page.keyboard.press("ControlOrMeta+b");
-    await focused(page, '[aria-label="Show Settings"]');
+    await focused(page, '[aria-label="Toggle left panel"]');
     // Mod-b from the work area leaves focus where it was.
     await page.locator("#main-content").focus();
     await page.keyboard.press("ControlOrMeta+b");
@@ -396,25 +393,25 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
         overflow: document.scrollingElement!.scrollWidth <= document.scrollingElement!.clientWidth,
       };
     });
-    expect(m.top.h).toBe(44);
+    expect(m.top.h).toBe(36);
     expect(m.top.pad).toBe("0px 10px 0px 8px");
     expect(m.top.bg).toBe(m.top.card);
     expect(m.top.headings).toBe(0); // Settings pages supply the h1; the banner retains its name.
     expect(m.top.label).toBe("Settings");
     expect(m.mark).toEqual([18, 18]);
-    expect(m.chip.h).toBe(28);
+    expect(m.chip.h).toBe(24);
     expect(m.chip.r).not.toBe("0px");
     expect(m.chip.mode).toBe(true);
     expect(m.group).toBe("Layout");
-    expect(m.toggles).toEqual([[32, 32], [32, 32]]); // left panel and terminal; no right panel on this route
-    expect(m.names).toEqual(["Toggle left panel", "Toggle terminal panel (Ctrl+`)"]);
+    expect(m.toggles).toEqual([[28, 28], [28, 28], [28, 28]]); // left panel and terminal; no right panel on this route
+    expect(m.names).toEqual(["Toggle left panel", "Toggle terminal panel (Ctrl+`)", "Toggle right panel"]);
     expect(m.rail.w).toBe(52);
     expect(m.rail.pad).toBe("8px 0px");
     expect(m.rail.gap).toBe("4px");
     expect(m.rail.item).toEqual([40, 40]);
     expect(m.rail.bar.slice(0, 3)).toEqual(["3px", "20px", "-6px"]);
     expect(m.badge.size[1]).toBe(16);
-    expect(m.badgeType.slice(0, 3)).toEqual(["10px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
+    expect(m.badgeType.slice(0, 3)).toEqual(["11px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
     expect(m.delegate[0]).toContain("pc-btn--secondary");
     expect(m.delegate[1]).not.toBe("rgb(24, 24, 27)"); // not the filled primary
     expect(m.delegate[1]).not.toBe("rgb(9, 9, 11)");
@@ -439,11 +436,11 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
     // A route without panels or dock offers no toggles; narrow layouts keep their own chrome.
     await page.evaluate(() => { location.hash = "#/terminal"; });
-    await page.locator(".pc-layout-toggles button").first().waitFor({ state: "detached" });
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled));
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
     await page.setViewportSize({ width: 767, height: 800 });
-    await page.waitForFunction(() => !document.querySelector(".pc-layout-toggles button"), null, { timeout: 2000 });
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled), null, { timeout: 2000 });
     expect(await noHorizontalOverflow(page)).toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await page.waitForFunction(() => !document.querySelector(".pc-statusbar"), null, { timeout: 2000 });
@@ -489,7 +486,7 @@ browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
 }, 30_000);
 
 for (const setupOpen of [0, 1]) {
-  browserTest(`bottom navigation has at most eight nonoverlapping touch targets with setupOpen=${setupOpen}`, async () => {
+  browserTest(`bottom navigation has five nonoverlapping board touch targets with setupOpen=${setupOpen}`, async () => {
     const built = await frame(setupOpen);
     const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
     try {
@@ -501,14 +498,17 @@ for (const setupOpen of [0, 1]) {
         const box = node.getBoundingClientRect();
         return { label: node.getAttribute("aria-label"), left: box.left, right: box.right, width: box.width, height: box.height };
       }));
-      expect(targets).toHaveLength(setupOpen ? 8 : 7);
+      expect(targets).toHaveLength(5);
       expect(targets.some(t => t.label === "Dispatch")).toBe(true);
       expect(targets.some(t => t.label === "Insights")).toBe(true);
-      expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(setupOpen === 1);
-      expect(targets.some(t => t.label === "Dispatcher")).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Setup"))).toBe(false);
+      expect(targets.some(t => t.label === "Dispatcher")).toBe(false);
+      expect(targets.some(t => t.label === "Tasks")).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Needs you"))).toBe(true);
+      expect(targets.some(t => t.label?.startsWith("Settings"))).toBe(true);
       for (const [i, target] of targets.entries()) {
         expect(target.width).toBeGreaterThanOrEqual(44);
-        expect(target.height).toBe(44);
+        expect(target.height).toBe(56);
         expect(target.right).toBeLessThanOrEqual(375);
         if (i > 0) expect(target.left).toBeGreaterThanOrEqual(targets[i - 1]!.right);
       }
@@ -516,3 +516,56 @@ for (const setupOpen of [0, 1]) {
     } finally { await browser.close(); }
   }, 30_000);
 }
+
+ browserTest("terminal dock service controls disable offline and recover without changing landmarks", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "#/dispatch");
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Terminal panel", exact: true });
+    await panel.waitFor();
+    const controls = [panel.getByRole("button", { name: "New terminal", exact: true }), panel.getByRole("button", { name: "New terminal in…", exact: true })];
+    for (const connected of [false, true]) {
+      await page.evaluate(value => window.dispatchEvent(new CustomEvent("fixture-connection", { detail: value })), connected);
+      await page.waitForFunction(value => !!document.querySelector(".connection-bar") === !value, connected);
+      for (const control of controls) {
+        expect(await control.isDisabled()).toBe(!connected);
+        if (!connected) expect(await control.locator("xpath=ancestor::fieldset").getAttribute("title")).toBe("pacer is offline");
+      }
+      expect(await panel.count()).toBe(1);
+    }
+  } finally { await browser.close(); }
+}, 30_000);
+
+browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls', async () => {
+  const built = await frame();
+  const browser = await chromium.launch({executablePath:browserPath!,headless:true});
+  try {
+    for (const width of [1440,1920]) {
+      const page=await browser.newPage({viewport:{width,height:900}});
+      await open(page,built,'#/');
+      expect(await page.locator('.pc-planner').getAttribute('href')).toBe('#/settings/planner');
+      expect(await page.locator('.pc-statusbar__work').getAttribute('href')).toBe('#/tasks');
+      await page.getByRole('link',{name:'Terminal panel (Ctrl+`)'}).click();
+      await page.locator('#pc-terminal-dock').waitFor();
+      const geometry=await page.evaluate(()=>{
+        const rect=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
+        const dock=rect('#pc-terminal-dock'),centre=rect('.pc-work-wrap'),rail=rect('.pc-rail');
+        const search=document.querySelector('.pc-topbar__new')!;
+        return {dock:{left:dock.left,right:dock.right,height:dock.height},centre:{left:centre.left,right:centre.right},railBottom:rail.bottom,centreBottom:centre.bottom,newHeight:search.getBoundingClientRect().height,plugins:getComputedStyle(document.querySelector('.pc-rail__plugins-label')!).fontSize,pluginBounds:(()=>{const el=document.querySelector('.pc-rail__plugins-label')!;const r=document.createRange();r.selectNodeContents(el);const b=r.getBoundingClientRect();return {left:b.left,right:b.right};})(),statusButtons:[...document.querySelectorAll('.pc-statusbar .pc-btn')].map(e=>e.getBoundingClientRect().height)};
+      });
+      expect(geometry.pluginBounds.left).toBeGreaterThanOrEqual(4);
+      expect(geometry.pluginBounds.right).toBeLessThanOrEqual(48);
+      expect(geometry.dock.left).toBe(geometry.centre.left);
+      expect(geometry.dock.right).toBe(geometry.centre.right);
+      expect(Math.abs(geometry.dock.height-260)).toBeLessThan(2);
+      expect(geometry.railBottom).toBe(geometry.centreBottom);
+      expect(geometry.newHeight).toBe(26);
+      expect(geometry.plugins).toBe('11px');
+      expect(geometry.statusButtons.every(h=>h<=28)).toBe(true);
+      await page.close();
+    }
+  } finally {await browser.close();}
+},30000);

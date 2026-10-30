@@ -90,7 +90,7 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 |---|---|
 | `service` | Pacer version, protocol, process id and service start time; `starting: true` while the service is still computing its first status after a restart (planner, accounts and executors fill in by event); `waiting: { kind, path, since }` while a repository file-system call has been outstanding for at least a second, e.g. behind a macOS removable-volume permission prompt. `kind` is `volume` with the volume root (`/Volumes/<name>`) as `path`, or `folder` with the path itself; `since` is Unix seconds. It is absent once the call returns |
 | `planner` | Planner runner and agent, used/pace percentages, delta, verdict, active hours left, reset, window, stale flag, mode and advice; null without a planner |
-| `machine` | Shared local parallel-task capacity `{ used, max }`, across all local executors |
+| `machine` | Shared local parallel-task capacity `{ used, max, hardCap, unlimited }` across all local executors. `hardCap` is the fixed cap, or null with `unlimited: true` when none is set. `max` is deprecated and stays a number for older clients: the cap when set, otherwise the sum of the enabled local executors' own limits; read `hardCap` and `unlimited` instead and never display `max`. Added fields describe the guard that holds new local starts: `memoryPressure` (`normal`, `warning`, `critical`, or null when unavailable), `memoryPressureLimit` (`critical`, `warning`, `off`), `loadPerCore` (1-minute load average per CPU core, or null), `loadLimit` (null when off), `open`, and while closed `reason` (`machine_memory_pressure` or `machine_load`) and `detail`. `detail` also reports an unavailable memory-pressure signal while the guard stays open |
 | `executors` | Planner first, then default routing order: identity, account, host, model, rank, state, tone, usage, slots `{used,max}` (configured executor limit), optional limitedBy (`machine` or `host`) when a shared cap is lower, recent failures and next flag |
 | `accounts` | Name, agent, source, usage, window, reset, verdict, sign-in state and executor ids; no credentials or emails |
 | `counts` | Review, running, queued, ready executors, total executors, required setup items open, hosts with problems, attention items, problems (problem or blocked severity), and review/running/attention counts by repo key |
@@ -102,7 +102,7 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 
 Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
 `routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
-Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with a shared execution.local_max_tasks limit (default 2). Tasks wait with queue { reason, since, position, limit?, capacity? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
+Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with an optional shared execution.local_max_tasks cap (default `unlimited`, no fixed cap). New local tasks also wait while macOS memory pressure reaches execution.local_memory_pressure_limit (default `critical`) or the load per core exceeds execution.local_load_limit (default `off`); running tasks are never stopped. Tasks wait with queue { reason, since, position, limit?, capacity?, detail?, machine? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. machine_memory_pressure and machine_load waits add limit `machine`, a plain-words detail and machine `{ memoryPressure?, memoryPressureLimit?, loadPerCore?, loadLimit? }` with the observed values; waiting tasks are re-checked about every 5 seconds. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
 
@@ -118,7 +118,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 
 ## Activity
 
-`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host? }`, where repo is a RepoRef key, level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
+`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host?, machineId? }`, where repo is a RepoRef key, machineId is the recording machine's id once it has one (a stable device identifier), level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
 
 ## Task and repository operations
 
@@ -134,7 +134,7 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` returns `{ tasks, next }` when any new filter/cursor parameter is supplied. Calls with only limit or no parameters retain the legacy summary array for the 2.x overlap. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
-Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward.
+Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
 
 ## Events
 
@@ -724,6 +724,7 @@ Params JSON Schema:
           "task_settled",
           "verdict",
           "retry",
+          "message",
           "mode",
           "budget_refreshed",
           "executor_state",
@@ -1021,6 +1022,8 @@ Params JSON Schema:
       "enum": [
         "task_retention_days",
         "execution.local_max_tasks",
+        "execution.local_memory_pressure_limit",
+        "execution.local_load_limit",
         "execution.launch_mode",
         "execution.backend",
         "planner",
@@ -1496,7 +1499,11 @@ Params JSON Schema:
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "details": {
+      "type": "boolean"
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -2781,6 +2788,13 @@ Params JSON Schema:
       "type": "number",
       "minimum": 1,
       "maximum": 240
+    },
+    "interactive": {
+      "type": "boolean"
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
     }
   },
   "required": [
@@ -3166,6 +3180,44 @@ Params JSON Schema:
 }
 ```
 
+### `task.send`
+
+Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "force": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "text"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `task.session`
 
 Session host, capabilities and available viewers.
@@ -3302,7 +3354,7 @@ Clients register with `client.register { kind, version, notifier? }` (kinds `app
 
 `/state` and `/console/*` were removed in 2.6. The bearer-only `/link` and legacy `/events` routes are removed in 3.0 (404); use the versioned snapshot and events routes. The Orca storage bridge, channel sends, command lines and `pacer console` are retired. `task.retry_all { ids }` retries several tasks and reports the ones it skipped.
 
-`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged.
+`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged. `X-Pacer-Client-Instance: <id>` (1–64 letters, digits, `.`, `_`, `:` or `-`) names one running client, such as an app window; it only identifies a `task.send` driving-lease holder and is never authentication.
 
 TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. `connectClient` picks HTTP when `pacer serve` answers `/health` with `X-Pacer: 1`, and otherwise runs in-process. `PACER_API=inprocess` forces in-process.
 

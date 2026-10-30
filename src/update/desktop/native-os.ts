@@ -17,6 +17,7 @@ import {
   type NativeFixture,
 } from "./native-fixture";
 import { CoreError } from "../../core/errors";
+import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
 import {
   ownProcessIdentity,
   processIdentity,
@@ -71,11 +72,10 @@ const denied = () =>
     "Use the supported signed desktop and bundled service baseline.",
   );
 export type NativeCodeRole = "desktop" | "cli" | "helper";
-const identifiers: Record<NativeCodeRole, string> = {
-  desktop: "dev.pacer.desktop",
-  cli: "dev.pacer.cli",
-  helper: "dev.pacer.desktop.update-helper",
-};
+/** Compiled identifiers only: a fixture build verifies fixture-signed code, a release build release-signed code. */
+export function nativeIdentifier(role: NativeCodeRole | "native-shim"): string {
+  return role === "native-shim" ? DESKTOP_IDENTIFIERS.nativeShim : DESKTOP_IDENTIFIERS[role];
+}
 const P = FFIType.ptr,
   I = FFIType.i32,
   U = FFIType.u32,
@@ -172,7 +172,7 @@ export class DarwinAuthority {
   ): void {
     const refs: (Pointer | bigint)[] = [];
     try {
-      const identifier = role === "native-shim" ? "dev.pacer.desktop.native-shim" : identifiers[role];
+      const identifier = nativeIdentifier(role);
       // Fixture trust mirrors trust.rs: identifier-only, plus the lease's disposable certificate when pinned.
       const requirement = this.fixture
         ? `identifier "${identifier}"${this.fixture.signingCertSha1 ? ` and certificate leaf = H"${this.fixture.signingCertSha1}"` : ""}`

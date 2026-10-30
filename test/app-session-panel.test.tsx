@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { SessionPanel, SessionTitle, SessionWorkspace, SessionInsights, WorktreeChanges } from "../app/src/screens/session/SessionPanel";
+import { SessionPanel, SessionHeader, SessionFiles, SessionTitle, SessionWorkspace, SessionInsights, WorktreeChanges } from "../app/src/screens/session/SessionPanel";
 import { SidePanel } from "../app/src/ds/SidePanel";
 import { PanelTabs } from "../app/src/ds/PanelTabs";
 import { FrameContext } from "../app/src/shell/slots";
@@ -56,34 +56,53 @@ test("details panel shortcut is registered only where a right panel exists", () 
   expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
 });
 
-test("next step is offered in the title bar only while the details panel is closed", () => {
+test("review navigation stays offered in the title bar while Details is open", () => {
   const status = taskStatus({ state: "done" } as never), next = { label: "Review result", tab: "details" as const, open: noop };
   const render = (open: boolean) => renderToString(<FrameContext.Provider value={frame(open)}><SessionTitle status={status} live={false} facts={[]} next={next} /></FrameContext.Provider>);
   expect(render(false)).toMatch(/pc-btn--primary[^>]*>Review result</);
-  expect(render(true)).not.toContain("Review result");
+  expect(render(true)).toContain("Review result");
   // Narrow layouts have no panel to reopen, so no button.
   expect(renderToString(<FrameContext.Provider value={{ ...frame(false), details: undefined }}><SessionTitle status={status} live={false} facts={[]} next={next} /></FrameContext.Provider>)).not.toContain("Review result");
 });
 
 // Workspace reads only the public task.get fields; missing facts have no placeholder rows.
 test("workspace shows available task detail fields only", () => {
-  const task = { repo: { label: "acme/api" }, branch: "feature/session", base: "main", worktree: "/tmp/worktree", machine: "devbox" };
+  const task = { repo: { label: "acme/api" }, branch: "feature/session", base: "main", worktree: "/home/sample/work/tree", machine: "devbox" };
   const html = renderToString(<SessionWorkspace task={task as never} />);
   expect(html).toContain("Workspace</h3>");
   expect(html).toContain("<dl");
-  for (const [label, value] of [["Repo", "acme/api"], ["Branch", "feature/session"], ["Base", "main"], ["Worktree", "/tmp/worktree"], ["Machine", "devbox"]]) {
+  expect(html).toContain('<dt>Worktree</dt><dd><code class="pc-settings-path"><span>~/<wbr/></span><span>work/<wbr/></span><span>tree<wbr/></span></code></dd>');
+  for (const [label, value] of [["Repo", "acme/api"], ["Branch", "feature/session"], ["Base", "main"], ["Machine", "devbox"]]) {
     expect(html).toContain(`<dt>${label}</dt><dd>${value}</dd>`);
   }
   const sparse = renderToString(<SessionWorkspace task={{ repo: { label: "acme/api" } } as never} />);
   for (const label of ["Branch", "Base", "Worktree", "Machine"]) expect(sparse).not.toContain(`<dt>${label}</dt>`);
 });
 
-test("routing and tokens sections exist only with reported data", () => {
-  expect(renderToString(<SessionInsights task={{} as never} />)).toBe("");
-  const html = renderToString(<SessionInsights task={{ routing: { chosen: "codex", why: "Spare capacity" }, tokens: { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0, measuredAttempts: 1, partialAttempts: 0, unknownAttempts: 0, lowerBound: false } } as never} />);
-  expect(html).toContain("Why Codex"); expect(html).toContain("Spare capacity");
-  expect(html).toContain("Tokens"); expect(html).toContain("1,234");
-  expect(renderToString(<SessionInsights task={{ tokens: { measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 1 } } as never} />)).toBe("");
+test("live token section distinguishes unreported and partial usage", () => {
+  expect(renderToString(<SessionInsights task={{} as never}/>)).toContain("No token usage reported yet");
+  const task = {id:"t-1", executor:"codex", routing:{chosen:"codex",why:"Spare capacity",policy:{executors:["codex"]}}, tokens:{total:1234, measuredAttempts:1, partialAttempts:0,lowerBound:true}};
+  const html = renderToString(<SessionInsights task={task as never}/>);
+  expect(html).toContain("Why Codex"); expect(html).toContain("Ladder step 1 · Spare capacity");
+  expect(html).toContain("Tokens, live"); expect(html).toContain("≥ 1.2k"); expect(html).toContain("partial usage");
+  expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1/trace");
+});
+
+test("session header retains title, caption and working end action", () => {
+  const task = {...taskDetail,id:"t-1",title:"Session title",branch:"topic"} as never;
+  const html = renderToString(<SessionHeader task={task} onEnd={noop}/>);
+  expect(html).toContain('<h1 title="Session title">Session title</h1>');
+  expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1/trace");
+  expect(html).toContain("End session (asks to confirm)");
+  expect(renderToString(<SessionHeader task={task}/>)).not.toContain("End session");
+});
+
+test("side-panel files link to review and expose file actions only with a reader", () => {
+  const props = {id:"t-1",diff:{patch:"",untracked:["new.ts"],truncated:false}};
+  const html = renderToString(<SessionFiles {...props} onOpen/>);
+  expect(html).toContain("Changes · 1 files"); expect(html).toContain("#/tasks/t-1/review");
+  expect(html).toContain('data-session-file="new.ts"');
+  expect(renderToString(<SessionFiles {...props}/>)).not.toContain("<button");
 });
 
 test("caption orders repository and branch before time and omits absent facts", () => {
@@ -104,38 +123,14 @@ test("details group keeps workspace first and the brief uses a wrapping label an
   expect(html).not.toContain('class="pc-code-scroll" tabindex="0">/tmp/fixture/api</code>');
 });
 
-for (const [name, extra, labels] of [
-  ["measured without cache", { reported: { input: true, output: true, cacheRead: false, cacheWrite: false } }, ["Input", "Output"]],
-  ["all fields", { reported: { input: true, output: true, cacheRead: true, cacheWrite: true } }, ["Input", "Output", "Cache read", "Cache write"]],
-  ["partial", { lowerBound: true, partialAttempts: 1, reported: { input: true, output: true, cacheRead: true, cacheWrite: true } }, []],
-] as const) test(`insights report only known splits: ${name}`, () => {
-  const tokens = { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0, measuredAttempts: 1, partialAttempts: 0, lowerBound: false, ...extra };
-  const html = renderToString(<SessionInsights task={{ tokens } as never} />);
-  expect(html).toContain("1,234");
-  for (const label of ["Input", "Output", "Cache read", "Cache write"]) {
-    expect(html.includes(`<dt>${label}</dt>`)).toBe((labels as readonly string[]).includes(label));
-  }
-  expect(html.includes("Partial usage")).toBe(tokens.lowerBound);
+test("empty or removed changes do not offer an unusable diff or deleted-file preview", () => {
+  expect(renderToString(<SessionFiles id="t-1"/>)).not.toContain("Open diff");
+  const diff={patch:"",untracked:[],truncated:false,files:[{path:"deleted.ts",added:0,removed:3,status:"deleted" as const}]};
+  expect(renderToString(<SessionFiles id="t-1" diff={diff} onOpen/>)).not.toContain("data-session-file");
 });
 
-for (const mode of ["mixed", "partial", "all-present", "not-reported"] as const) test(`insights field completeness: ${mode}`, () => {
-  const tokens = { total: 1234, input: 1000, output: 234, cacheRead: 100, cacheWrite: 0,
-    measuredAttempts: 2, partialAttempts: 0, lowerBound: mode === "partial",
-    reported: { input: true, output: true, cacheRead: mode !== "not-reported", cacheWrite: mode !== "not-reported" },
-    complete: { input: true, output: true, cacheRead: mode === "all-present", cacheWrite: mode === "all-present" } };
-  const html = renderToString(<SessionInsights task={{ tokens } as never} />);
-  expect(html).toContain(`<p class="mono">${mode === "partial" ? "≥ " : ""}1,234</p>`);
-  if (mode === "partial") {
-    expect(html).not.toContain("<dt>");
-    expect(html).toContain("Partial usage; some attempt tokens are not reported.");
-  } else {
-    expect(html).toContain("<dt>Input</dt><dd>1,000</dd>");
-    expect(html).toContain("<dt>Output</dt><dd>234</dd>");
-    if (mode === "not-reported") expect(html).not.toContain("<dt>Cache");
-    else {
-      expect(html).toContain(`<dt>Cache read</dt><dd>${mode === "mixed" ? "≥ " : ""}100`);
-      expect(html).toContain(`<dt>Cache write</dt><dd>${mode === "mixed" ? "≥ " : ""}0`);
-    }
-  }
-  expect(html.includes("Some attempts did not report this field.")).toBe(mode === "mixed");
-});
+ test("workspace preserves paths outside a home directory", () => {
+  const html = renderToString(<SessionWorkspace task={{worktree:"/tmp/nested/worktree"} as never}/>);
+  expect(html).toContain('<span>/<wbr/></span><span>tmp/<wbr/></span><span>nested/<wbr/></span><span>worktree<wbr/></span>');
+  expect(html).not.toContain('~/');
+ });

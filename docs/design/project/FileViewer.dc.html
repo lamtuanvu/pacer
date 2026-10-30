@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File viewer</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.theme-dark{--surface-page:#09090b;--surface-card:#18181b;--surface-lane:#27272a;--line:#3f3f46;--ink:#fafafa;--ink-secondary:#a1a1aa;--ink-muted:#a1a1aa;--ink-on-ink:#18181b;--link:#93c5fd;--good-fg:#86efac;--good-bg:#14532d;--good-fill:#22c55e;--warn-fg:#fcd34d;--warn-bg:#451a03;--warn-fill:#f59e0b;--warn-line:#78350f;--warn-tint:#1c1408;--bad-fg:#fca5a5;--bad-bg:#450a0a;--bad-fill:#ef4444;--bad-line:#7f1d1d;--bad-tint:#1f0a0a;--info-fg:#93c5fd;--info-bg:#172554;--focus:#93c5fd;color-scheme:dark}
+.fv{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--surface-page);color:var(--ink);font-family:var(--font-sans);font-size:13px;line-height:19px;font-variant-numeric:tabular-nums;box-sizing:border-box}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.ib{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--ink-secondary);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex-shrink:0}
+.ib:hover{background:var(--surface-lane);color:var(--ink)}
+.ib[aria-pressed="true"]{background:var(--surface-lane);color:var(--ink)}
+.back{height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 6px 0 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface-page);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.kbd{display:inline-flex;align-items:center;height:18px;padding:0 5px;border:1px solid var(--line);border-radius:4px;font-size:11px;line-height:16px;color:var(--ink-muted);font-family:var(--font-sans)}
+.seg{display:inline-flex;padding:2px;border-radius:6px;background:var(--surface-lane);gap:2px}
+.seg button{height:24px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--ink-secondary);font:inherit;font-weight:600;cursor:pointer}
+.seg button[aria-selected="true"]{background:var(--surface-page);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.code{margin:0;font-family:var(--font-mono);font-size:12.5px;line-height:20px;white-space:pre;tab-size:2}
+.ln{display:inline-block;width:44px;padding-right:14px;text-align:right;color:var(--ink-muted);user-select:none;box-sizing:border-box}
+.row{display:block;padding-right:16px}
+.ring{box-shadow:0 0 0 2px var(--focus)}
+.skel{display:block;height:10px;border-radius:4px;background:var(--surface-lane)}
+.chip{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:6px;background:var(--surface-lane);color:var(--ink-secondary);font-size:12px;white-space:nowrap}
+@keyframes shimmer{0%,100%{opacity:1}50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none!important}}
+</style>
+</helmet>
+<div class="fv {{themeClass}}" role="region" aria-label="{{regionLabel}}" style="border-left: {{edge}};">
+
+<header style="flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: {{headPad}}; border-bottom: 1px solid var(--line); background: var(--surface-card);">
+<div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+<sc-if value="{{mobile}}" hint-placeholder-val="{{ false }}">
+<button class="back {{backRing}}" type="button" aria-label="Back to terminal" style="padding: 0 10px 0 6px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Terminal</button>
+</sc-if>
+<span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 6px; background: var(--surface-lane); color: var(--ink-secondary); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;">{{f.glyph}}</span>
+<span style="display: flex; flex-direction: column; min-width: 0; flex-grow: 1;">
+<b style="font-size: 14px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{f.name}}">{{f.name}}</b>
+</span>
+<x-import component-from-global-scope="Pacer.Pill" tone="neutral">Read-only</x-import>
+<sc-if value="{{desktop}}" hint-placeholder-val="{{ true }}">
+<span style="display: inline-flex; align-items: center; gap: 2px; margin-left: 2px;">
+<button class="ib" type="button" aria-label="Search in file (Cmd+F)" title="Search in file · ⌘F" aria-pressed="{{searchPressed}}" onClick="{{toggleSearch}}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></button>
+<button class="ib" type="button" aria-label="Copy path" title="Copy path"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+<button class="ib" type="button" aria-label="Open in editor" title="Open in editor"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M20 4l-9 9"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg></button>
+</span>
+<button class="back {{backRing}}" type="button" aria-label="Back to terminal (Escape)" title="Back to terminal"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px;"><path d="M4 5h16v14H4z"></path><path d="M8 10l3 2-3 2"></path></svg>Back to terminal<span class="kbd">Esc</span></button>
+</sc-if>
+<sc-if value="{{mobile}}" hint-placeholder-val="{{ false }}">
+<button class="ib" type="button" aria-label="Search in file" aria-pressed="{{searchPressed}}" onClick="{{toggleSearch}}" style="width: 36px; height: 36px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></button>
+<button class="ib" type="button" aria-label="More file actions" style="width: 36px; height: 36px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01"></path><path d="M12 12h.01"></path><path d="M19 12h.01"></path></svg></button>
+</sc-if>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap;">
+<span class="mono" style="color: var(--ink-secondary); min-width: 0; flex: 1 1 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{f.ws}}/{{f.path}}"><span style="color: var(--ink-muted);">{{f.ws}} /</span> {{f.path}}</span>
+<sc-if value="{{f.line}}" hint-placeholder-val="{{ true }}"><span class="chip">Line {{f.line}}</span></sc-if>
+<span class="chip" title="The terminal session keeps running while you read"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 99px; background: var(--good-fill);"></span>Session running</span>
+</div>
+<sc-if value="{{hasTabs}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; align-items: center; gap: 8px;">
+<div class="seg" role="tablist" aria-label="View">
+<button type="button" role="tab" aria-selected="{{srcSel}}" class="{{tabRing}}" onClick="{{toSource}}">Source</button>
+<button type="button" role="tab" aria-selected="{{prevSel}}" onClick="{{toPreview}}">Preview</button>
+</div>
+<span class="cap">{{tabHint}}</span>
+</div>
+</sc-if>
+</header>
+
+<sc-if value="{{showSearch}}" hint-placeholder-val="{{ false }}">
+<div role="search" style="flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 6px {{padX}}; border-bottom: 1px solid var(--line); background: var(--surface-page);">
+<label class="{{searchRing}}" style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-card);">
+<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; color: var(--ink-muted);"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Find in {{f.name}}</span>
+<input type="search" value="{{query}}" style="border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; flex-grow: 1; min-width: 0;">
+</label>
+<span class="cap" role="status" style="white-space: nowrap; min-width: 52px; text-align: right;">{{matchText}}</span>
+<button class="ib" type="button" aria-label="Previous match (Shift+Enter)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+<button class="ib" type="button" aria-label="Next match (Enter)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+<button class="ib" type="button" aria-label="Match case" title="Match case" style="font-weight: 700; font-size: 12px;">Aa</button>
+<button class="ib" type="button" aria-label="Close search (Escape)" onClick="{{toggleSearch}}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+</div>
+</sc-if>
+
+<sc-if value="{{showBanner}}" hint-placeholder-val="{{ false }}">
+<div role="note" style="flex-shrink: 0; display: flex; gap: 10px; align-items: flex-start; padding: 10px {{padX}}; border-bottom: 1px solid {{banner.line}}; background: {{banner.bg}};">
+<span aria-hidden="true" style="color: {{banner.fg}}; margin-top: 1px;"><svg class="ico" viewBox="0 0 24 24"><path d="{{banner.icon}}"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0;">
+<b style="color: var(--ink);">{{banner.title}}</b>
+<span style="color: var(--ink-secondary);">{{banner.body}}</span>
+<sc-if value="{{banner.list}}" hint-placeholder-val="{{ false }}">
+<span style="display: flex; flex-direction: column; gap: 2px; margin-top: 2px;">
+<sc-for list="{{banner.items}}" as="b" hint-placeholder-count="3"><span class="mono" style="display: flex; gap: 8px; color: var(--ink-secondary);"><span style="color: var(--ink-muted); width: 54px; flex-shrink: 0;">{{b.kind}}</span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{b.what}}</span></span></sc-for>
+</span>
+</sc-if>
+<sc-if value="{{banner.actions}}" hint-placeholder-val="{{ false }}">
+<span style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;"><x-import component-from-global-scope="Pacer.Button" size="sm">{{banner.a1}}</x-import><x-import component-from-global-scope="Pacer.Button" size="sm" variant="ghost">{{banner.a2}}</x-import></span>
+</sc-if>
+</span>
+</div>
+</sc-if>
+
+<div style="flex-grow: 1; min-height: 0; overflow: auto; background: var(--surface-page);" tabindex="0" aria-label="{{bodyLabel}}" aria-busy="{{busy}}">
+
+<sc-if value="{{isCode}}" hint-placeholder-val="{{ true }}">
+<pre class="code" style="padding: 8px 0 16px;"><sc-for list="{{lines}}" as="l" hint-placeholder-count="20"><span class="row" style="background: {{l.bg}};"><span class="ln" style="color: {{l.lnc}}; font-weight: {{l.lnw}};">{{l.n}}</span><sc-for list="{{l.toks}}" as="t" hint-placeholder-count="3"><span style="color: {{t.c}}; background: {{t.bg}}; border-radius: 4px; box-shadow: {{t.sh}};">{{t.t}}</span></sc-for>
+</span></sc-for></pre>
+</sc-if>
+
+<sc-if value="{{isMd}}" hint-placeholder-val="{{ false }}">
+<article style="padding: 18px {{padXWide}} 28px; max-width: 680px; display: flex; flex-direction: column; gap: 12px;">
+<h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">Web App</h1>
+<p style="margin: 0; color: var(--ink-secondary);">A progressive web app that pairs with your pacer node and shows live dispatch stages.</p>
+<h2 style="margin: 6px 0 0; font-size: 14px; line-height: 21px; font-weight: 650;">Run it locally</h2>
+<pre style="margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-lane); font-family: var(--font-mono); font-size: 12px; line-height: 18px; overflow: auto;">bun install
+bun run dev --port 5173</pre>
+<ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--ink-secondary);">
+<li>Stages render with WebGL when available, canvas otherwise.</li>
+<li>Screenshots for review land in <code class="mono" style="padding: 1px 4px; border-radius: 4px; background: var(--surface-lane);">reports/frames/</code>.</li>
+</ul>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-muted);">
+<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 15l5-5 4 4 3-3 6 6"></path><path d="M4 4l16 16"></path></svg>
+<span class="cap" style="color: var(--ink-secondary);">Remote image not loaded: <span class="mono">img.shields.io/badge/build-passing</span></span>
+</div>
+<p style="margin: 0;"><a href="#" style="color: var(--link);">Contributing guide</a> <span class="cap">· opens CONTRIBUTING.md here</span></p>
+</article>
+</sc-if>
+
+<sc-if value="{{isHtml}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 12px {{padX}} 20px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center; gap: 6px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; color: var(--ink-muted);"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"></path></svg><span class="cap">Sandboxed frame · separate origin · no scripts · no network · no access to pacer</span></div>
+<div aria-label="Isolated preview of index.html" role="img" style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #ffffff; color: #18181b;">
+<div style="padding: 26px 22px; display: flex; flex-direction: column; gap: 10px; font-family: Georgia, 'Times New Roman', serif;">
+<div style="font-size: 22px; line-height: 30px; font-weight: 700;">Web App</div>
+<div style="font-size: 14px; line-height: 21px; color: #3f3f46;">Live dispatch stages from your pacer node.</div>
+<div style="display: flex; gap: 8px; align-items: center;"><span style="display: inline-flex; height: 30px; align-items: center; padding: 0 12px; border: 1px solid #a1a1aa; border-radius: 4px; font-family: system-ui; font-size: 13px;">Connect node</span><span style="font-family: system-ui; font-size: 12px; color: #71717a;">Button shown; its script did not run</span></div>
+<div style="height: 110px; border: 1px dashed #d4d4d8; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-family: system-ui; font-size: 12px; color: #71717a;">&lt;canvas id="stage"&gt; stays empty without scripts</div>
+</div>
+</div>
+<span class="cap">Fonts fall back to system faces because Google Fonts was blocked.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isLoading}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="padding: 14px {{padX}}; display: flex; flex-direction: column; gap: 10px;">
+<span class="cap" style="display: flex; align-items: center; gap: 8px;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px;"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Reading {{f.path}}…</span>
+<sc-for list="{{skels}}" as="s" hint-placeholder-count="12"><span style="display: flex; gap: 14px; align-items: center;"><span class="skel" style="width: 22px; animation: shimmer 1.4s ease-in-out infinite;"></span><span class="skel" style="width: {{s}}%; animation: shimmer 1.4s ease-in-out infinite;"></span></span></sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isEmptyState}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 36px {{padXWide}}; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; max-width: 440px;">
+<span aria-hidden="true" style="width: 40px; height: 40px; border-radius: 12px; background: var(--surface-lane); color: var(--ink-secondary); display: inline-flex; align-items: center; justify-content: center;"><svg class="ico" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="{{empty.icon}}"></path></svg></span>
+<b style="font-size: 14px; line-height: 21px;">{{empty.title}}</b>
+<span style="color: var(--ink-secondary);">{{empty.body}}</span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;"><x-import component-from-global-scope="Pacer.Button" size="sm">{{empty.a1}}</x-import><x-import component-from-global-scope="Pacer.Button" size="sm" variant="ghost">{{empty.a2}}</x-import></span>
+<span class="cap">{{empty.note}}</span>
+</div>
+</sc-if>
+
+</div>
+
+<sc-if value="{{showFooter}}" hint-placeholder-val="{{ true }}">
+<footer style="flex-shrink: 0; height: 26px; display: flex; align-items: center; gap: 12px; padding: 0 {{padX}}; border-top: 1px solid var(--line); background: var(--surface-card);" class="cap">
+<span>{{f.lang}}</span><span>{{f.meta}}</span><span style="flex-grow: 1;"></span><span>{{footRight}}</span>
+</footer>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"file":{"editor":"enum","options":["ts","md","html","log","wasm","missing"],"default":"ts"},"state":{"editor":"enum","options":["ready","loading"],"default":"ready"},"tab":{"editor":"enum","options":["source","preview"],"default":"source"},"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"layout":{"editor":"enum","options":["panel","mobile"],"default":"panel"},"search":{"editor":"boolean","default":false},"focus":{"editor":"enum","options":["none","back","tab","search"],"default":"none"},"$preview":{"width":560,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props;
+    const file = p.file ?? 'ts', loading = (p.state ?? 'ready') === 'loading';
+    const mobile = (p.layout ?? 'panel') === 'mobile';
+    const tab = this.state.tab ?? p.tab ?? 'source';
+    const search = this.state.search ?? (p.search ?? false);
+    const focus = p.focus ?? 'none';
+    const K = { kw: 'var(--info-fg)', str: 'var(--good-fg)', com: 'var(--ink-muted)', num: 'var(--warn-fg)', tag: 'var(--info-fg)', attr: 'var(--ink-secondary)', ink: 'var(--ink)' };
+    const files = {
+      ts: { name: 'main.ts', path: 'src/main.ts', ws: 'validate/pwa-drop', line: 42, glyph: 'TS', lang: 'TypeScript', meta: 'UTF-8 · LF · 96 lines · 3.1 KB', start: 31, lines: [
+        'import { createApp } from "./app";', 'import { loadConfig } from "./config";', 'import { startTelemetry } from "./telemetry";', '',
+        '// Boot order matters: config first, then telemetry, then the app.', 'export async function main(argv: string[]): Promise<number> {',
+        '  const config = await loadConfig(argv);', '  if (!config.ok) {', '    console.error(config.error);', '    return 2;', '  }',
+        '  const telemetry = startTelemetry(config.value.telemetry);', '  const app = createApp(config.value, { telemetry });', '  try {',
+        '    await app.listen(config.value.port);', '    return 0;', '  } catch (error) {', '    telemetry.capture(error);', '    return 1;', '  }', '}', '',
+        'if (import.meta.main) process.exit(await main(Bun.argv.slice(2)));'] },
+      md: { name: 'README.md', path: 'README.md', ws: 'validate/pwa-drop', line: 0, glyph: 'MD', lang: 'Markdown', meta: 'UTF-8 · LF · 41 lines · 1.4 KB', start: 1, tabs: true, lines: [
+        '# Web App', '', 'A progressive web app that pairs with your pacer node and', 'shows live dispatch stages.', '', '![build](https://img.shields.io/badge/build-passing)', '',
+        '## Run it locally', '', '```sh', 'bun install', 'bun run dev --port 5173', '```', '', '- Stages render with WebGL when available, canvas otherwise.',
+        '- Screenshots for review land in `reports/frames/`.', '', '[Contributing guide](CONTRIBUTING.md)'] },
+      html: { name: 'index.html', path: 'public/index.html', ws: 'validate/pwa-drop', line: 18, glyph: '</>', lang: 'HTML', meta: 'UTF-8 · LF · 34 lines · 1.2 KB', start: 9, tabs: true, lines: [
+        '<head>', '  <meta charset="utf-8">', '  <title>Web App</title>', '  <link rel="preconnect" href="https://fonts.googleapis.com">',
+        '  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">', '  <link rel="stylesheet" href="/styles/app.css">', '</head>', '<body>', '  <h1>Web App</h1>',
+        '  <script src="https://cdn.example.net/analytics.js">'+'<'+'/script>', '  <p>Live dispatch stages from your pacer node.</p>', '  <button id="connect">Connect node</button>',
+        '  <canvas id="stage"></canvas>', '  <script type="module" src="/src/stage.ts">'+'<'+'/script>', '</body>'] },
+      log: { name: 'build.log', path: 'logs/build.log', ws: 'validate/pwa-drop', line: 0, glyph: 'LOG', lang: 'Plain text', meta: '48.2 MB · 612,904 lines', start: 1, large: true, lines: [
+        '09:02:11.402 bun build ./src/main.ts --outdir dist', '09:02:11.877 resolve 1,284 modules', '09:02:12.016 [warn] duplicate dependency react@19.2.0 (2 copies)',
+        '09:02:12.330 transform 1,284 / 1,284', '09:02:13.104 chunk app.js 412.6 KB (gzip 118.2 KB)', '09:02:13.110 chunk stage.js 88.4 KB (gzip 27.9 KB)',
+        '09:02:13.402 [warn] large chunk: app.js over 300 KB', '09:02:13.881 emit 14 files', '09:02:14.020 playwright: launching chromium 148.0',
+        '09:02:16.733 [demo-stages] stage-1 first frame 412ms', '09:02:19.412 [demo-stages] stage-2 first frame 3812ms', '09:02:19.413 [demo-stages] webgl context created twice',
+        '09:02:22.090 [demo-stages] stage-3 first frame 618ms', '09:02:22.501 48 passed · 0 failed'] },
+      wasm: { name: 'engine.wasm', path: 'dist/engine.wasm', ws: 'validate/pwa-drop', line: 0, glyph: 'BIN', lang: 'WebAssembly', meta: 'Binary · 3.1 MB', unsupported: true, lines: [] },
+      missing: { name: 'boot.ts', path: 'src/legacy/boot.ts', ws: 'validate/pwa-drop', line: 12, glyph: 'TS', lang: 'TypeScript', meta: 'Not found', missing: true, lines: [] }
+    };
+    const f = files[file] || files.ts;
+    const preview = !!f.tabs && tab === 'preview';
+    const query = file === 'html' ? 'script' : file === 'md' ? 'stages' : file === 'log' ? 'webgl' : 'telemetry';
+    const kws = new Set(['import','from','export','async','function','const','if','return','await','try','catch','process','new']);
+    const tokenize = (s) => {
+      if (file === 'log') return s.includes('[warn]') ? [[s.slice(0, 13), K.com], [s.slice(13), K.num]] : [[s.slice(0, 13), K.com], [s.slice(13), K.ink]];
+      if (file === 'html') { const out = []; let rest = s; const re = /(<\/?[a-z0-9]+|>|\s[a-z-]+=|"[^"]*")/g; let m, last = 0; while ((m = re.exec(s))) { if (m.index > last) out.push([s.slice(last, m.index), K.ink]); const t = m[0]; out.push([t, t.startsWith('"') ? K.str : t.includes('=') ? K.attr : K.tag]); last = m.index + t.length; } if (last < s.length) out.push([s.slice(last), K.ink]); return out; }
+      if (file === 'md') return [[s, s.startsWith('#') ? K.kw : s.startsWith('```') || s.startsWith('!') ? K.com : s.startsWith('-') ? K.ink : K.ink]];
+      if (s.trim().startsWith('//')) return [[s, K.com]];
+      const out = []; const re = /("[^"]*"|\b\d+\b|\b[A-Za-z_]+\b)/g; let m, last = 0;
+      while ((m = re.exec(s))) { if (m.index > last) out.push([s.slice(last, m.index), K.ink]); const t = m[0]; out.push([t, t.startsWith('"') ? K.str : /^\d/.test(t) ? K.num : kws.has(t) ? K.kw : K.ink]); last = m.index + t.length; }
+      if (last < s.length) out.push([s.slice(last), K.ink]); return out;
+    };
+    let count = 0, current = 0;
+    const lines = (f.lines || []).map((s, i) => {
+      const n = (f.start || 1) + i;
+      let toks = tokenize(s).flatMap(([t, c]) => {
+        if (!search || !t.toLowerCase().includes(query)) return [{ t, c, bg: 'transparent', sh: 'none' }];
+        const parts = []; let idx = 0, lower = t.toLowerCase(), at;
+        while ((at = lower.indexOf(query, idx)) >= 0) { if (at > idx) parts.push({ t: t.slice(idx, at), c, bg: 'transparent', sh: 'none' }); count++; const cur = count === 3; if (cur) current = count; parts.push({ t: t.slice(at, at + query.length), c: 'var(--ink)', bg: cur ? 'var(--warn-fill)' : 'var(--warn-bg)', sh: cur ? '0 0 0 1px var(--warn-fill)' : 'none' }); idx = at + query.length; }
+        if (idx < t.length) parts.push({ t: t.slice(idx), c, bg: 'transparent', sh: 'none' }); return parts;
+      });
+      const target = f.line && n === f.line;
+      return { n, toks: toks.length ? toks : [{ t: ' ', c: K.ink, bg: 'transparent', sh: 'none' }], bg: target ? 'var(--info-bg)' : 'transparent', lnc: target ? 'var(--ink)' : 'var(--ink-muted)', lnw: target ? 700 : 400 };
+    });
+    const icons = { block: 'M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4', info: 'M12 8h.01M11 12h1v5h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', missing: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M10 13l4 4M14 13l-4 4', bin: 'M6 3h9l4 4v14H6zM9 12h2v5H9zM14 12h2v5h-2z' };
+    let banner = null;
+    if (!loading && file === 'html' && preview) banner = { icon: icons.block, fg: 'var(--info-fg)', bg: 'var(--info-bg)', line: 'var(--line)', title: 'Preview is isolated from pacer', body: 'Scripts don’t run and nothing loads from the network. 2 scripts and 2 external requests were blocked.', list: true, items: [{ kind: 'script', what: 'cdn.example.net/analytics.js' }, { kind: 'script', what: '/src/stage.ts (module)' }, { kind: 'style', what: 'fonts.googleapis.com/css2?family=Inter' }, { kind: 'connect', what: 'fonts.googleapis.com (preconnect)' }], actions: false };
+    if (!loading && file === 'md' && preview) banner = { icon: icons.info, fg: 'var(--ink-secondary)', bg: 'var(--surface-card)', line: 'var(--line)', title: 'Rendered safely', body: 'Raw HTML is removed and remote images are not loaded. Links to files in this workspace open here.', list: false, actions: false };
+    if (!loading && f.large) banner = { icon: icons.info, fg: 'var(--warn-fg)', bg: 'var(--warn-tint)', line: 'var(--warn-line)', title: 'Large file: showing the first 2,000 lines', body: 'build.log is 48.2 MB (612,904 lines). Search covers the lines shown.', list: false, actions: true, a1: 'Show next 2,000 lines', a2: 'Open in editor' };
+    const empty = f.missing ? { icon: icons.missing, title: 'This file isn’t in the workspace', body: 'The agent printed src/legacy/boot.ts:12, but there is no file at that path in validate/pwa-drop. It may have been moved, deleted, or not written yet.', a1: 'Find files named boot.ts', a2: 'Retry', note: 'Checked 09:14:08 · paths outside the workspace are never opened' }
+      : f.unsupported ? { icon: icons.bin, title: 'pacer can’t show this file', body: 'engine.wasm is a binary WebAssembly module (3.1 MB). The viewer shows text files only.', a1: 'Open in editor', a2: 'Reveal in Finder', note: 'Images, PDFs and other binaries open in your own apps' } : null;
+    const isEmptyState = !loading && !!empty;
+    const desktop = !mobile;
+    const ring = (k) => focus === k ? 'ring' : '';
+    return {
+      f, mobile, desktop, showBanner: !!banner,
+      banner: banner ?? { icon: '', fg: '', bg: '', line: '', title: '', body: '', list: false, items: [], actions: false, a1: '', a2: '' },
+      empty: empty ?? { icon: '', title: '', body: '', a1: '', a2: '', note: '' },
+      themeClass: (p.theme ?? 'light') === 'dark' ? 'theme-dark' : '',
+      regionLabel: `File viewer: ${f.path}`,
+      edge: mobile ? '0' : '1px solid var(--line)',
+      headPad: mobile ? '10px 12px 10px' : '10px 14px',
+      padX: mobile ? '12px' : '14px', padXWide: mobile ? '16px' : '22px',
+      hasTabs: !!f.tabs && !loading, srcSel: preview ? 'false' : 'true', prevSel: preview ? 'true' : 'false',
+      toSource: () => this.setState({ tab: 'source' }), toPreview: () => this.setState({ tab: 'preview' }),
+      tabHint: preview ? (file === 'html' ? 'Rendered in an isolated frame' : 'Rendered Markdown') : 'Raw text with line numbers',
+      showSearch: search && !loading && !isEmptyState && !preview, searchPressed: search ? 'true' : 'false', toggleSearch: () => this.setState({ search: !search }),
+      query, matchText: count ? `${current || 1} of ${count}` : 'No matches',
+      isCode: !loading && !isEmptyState && !preview && !f.unsupported && !f.missing, isMd: !loading && file === 'md' && preview, isHtml: !loading && file === 'html' && preview,
+      isLoading: loading, isEmptyState, lines, busy: loading ? 'true' : 'false',
+      bodyLabel: preview ? `Preview of ${f.name}` : `Source of ${f.name}`,
+      skels: [62, 48, 71, 0, 55, 80, 66, 38, 74, 52, 60, 44, 70, 34],
+      showFooter: !mobile && !isEmptyState,
+      footRight: loading ? 'Loading…' : f.large ? 'Lines 1–2,000 of 612,904' : f.line ? `Ln ${f.line} · opened from Codex terminal` : 'Opened from Codex terminal',
+      backRing: ring('back'), tabRing: ring('tab'), searchRing: ring('search')
+    };
+  }
+}
+</script>
+</body>
+</html>

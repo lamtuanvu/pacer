@@ -40,6 +40,7 @@ test("host.suggest filters configured SSH targets", async () => {
   mkdirSync(join(ctx.home, ".ssh"));
   writeFileSync(join(ctx.home, ".ssh/config"), "Host dev-ssh fresh-box\nHost *\n");
   expect(await callOp(ctx, "host.suggest", {})).toEqual(["fresh-box"]);
+  expect(await callOp(ctx, "host.suggest", {details:true})).toEqual([{name:"fresh-box",host:"fresh-box"}]);
 });
 test("host.get assembles checks, repo status, executors and weekly host task counts", async () => {
   const ctx = fixture();
