@@ -134,7 +134,7 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` returns `{ tasks, next }` when any new filter/cursor parameter is supplied. Calls with only limit or no parameters retain the legacy summary array for the 2.x overlap. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
-Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward.
+Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
 
 ## Events
 
@@ -724,6 +724,7 @@ Params JSON Schema:
           "task_settled",
           "verdict",
           "retry",
+          "message",
           "mode",
           "budget_refreshed",
           "executor_state",
@@ -1019,6 +1020,7 @@ Params JSON Schema:
     "key": {
       "type": "string",
       "enum": [
+        "execution.auto_clean",
         "task_retention_days",
         "execution.local_max_tasks",
         "execution.local_memory_pressure_limit",
@@ -1498,7 +1500,11 @@ Params JSON Schema:
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "details": {
+      "type": "boolean"
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -2783,6 +2789,13 @@ Params JSON Schema:
       "type": "number",
       "minimum": 1,
       "maximum": 240
+    },
+    "interactive": {
+      "type": "boolean"
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
     }
   },
   "required": [
@@ -3168,6 +3181,44 @@ Params JSON Schema:
 }
 ```
 
+### `task.send`
+
+Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "force": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "text"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `task.session`
 
 Session host, capabilities and available viewers.
@@ -3304,7 +3355,7 @@ Clients register with `client.register { kind, version, notifier? }` (kinds `app
 
 `/state` and `/console/*` were removed in 2.6. The bearer-only `/link` and legacy `/events` routes are removed in 3.0 (404); use the versioned snapshot and events routes. The Orca storage bridge, channel sends, command lines and `pacer console` are retired. `task.retry_all { ids }` retries several tasks and reports the ones it skipped.
 
-`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged.
+`X-Pacer-Client: <kind>/<version>` labels delegated tasks; it is never authentication. Valid labels match `/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/`; invalid labels are ignored. The existing `X-Pacer-Client: app` cookie-write check is unchanged. `X-Pacer-Client-Instance: <id>` (1–64 letters, digits, `.`, `_`, `:` or `-`) names one running client, such as an app window; it only identifies a `task.send` driving-lease holder and is never authentication.
 
 TypeScript clients in this repository use `ApiClient` from `src/api/client.ts`. `connectClient` picks HTTP when `pacer serve` answers `/health` with `X-Pacer: 1`, and otherwise runs in-process. `PACER_API=inprocess` forces in-process.
 

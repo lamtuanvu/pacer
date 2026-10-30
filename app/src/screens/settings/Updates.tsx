@@ -14,6 +14,7 @@ import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
 import { SettingRow } from "../../ds/SettingRow";
 import { Feedback, ResourceState, time, useOperation, useResource, useSettingsStyles } from "./shared";
+import { RunningWork } from "./RunningWork";
 
 /** Offers a line break after each `/`, so long paths wrap between segments rather than mid-name. */
 function PathText({ path }: { path: string }) {
@@ -67,7 +68,8 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     {status.adoption && <div role="group" aria-label="Service change"><p>Current service · <code><PathText path={status.adoption.currentServiceExecutable}/></code></p><p>Desktop service · <code><PathText path={status.adoption.replacementServiceExecutable}/></code></p><p>{status.adoption.serviceLabel} · port {status.adoption.port}</p>{status.adoption.resultingInstallationId && <p>Installation · <code>{status.adoption.previousInstallationId}</code> → <code>{status.adoption.resultingInstallationId}</code></p>}{status.adoption.blockers.length > 0 && <ul aria-label="Work holding the service change">{status.adoption.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label}</li>)}</ul>}{status.adoption.error && <p>{status.adoption.error.message}</p>}</div>}
     {status.blockers.length > 0 && <ul aria-label="Work holding the update">{status.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label || ({ task: "Running task", session: "Interactive session", launch: "Starting work", operation: "Operation in progress" }[blocker.kind])}</li>)}</ul>}
     {status.error?.hint && <p>{status.error.hint}</p>}
-    <p className="u3-muted">Last checked · {time(status.checkedAt)}</p>
+    <p className="u3-muted">Last checked {time(status.checkedAt)}</p>
+    <a className="pc-inline-link" href={`https://github.com/lamtuanvu/pacer/releases/${status.target && /^\d+\.\d+\.\d+$/.test(status.target) ? `tag/v${status.target}` : "latest"}`}>Release notes</a>
     {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
     <div className="u3-actions">{view.action && <Button key={view.action} variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
     {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><Checkbox className="pc-checkbox__input" checked={status.autoDownload} disabled={busy || !state.connected || !available.actions.includes("configure")} onChange={event => void run("configure", event.currentTarget.checked)}/></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
@@ -83,7 +85,7 @@ export function UpdatesSection({ initialData, initialConfig }: { initialData?: U
   return updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>;
 }
 function DesktopUpdates({ updates, serviceVersion, initialConfig }: { updates: UpdateStatus[]; serviceVersion?: string | null; initialConfig?: ConfigData }) {
-  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig}/></section>;
+  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}<RunningWork/>{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig} checkedAt={updates.reduce((last, status) => Math.max(last, status.checkedAt ?? 0), 0) || undefined}/></section>;
 }
 export interface UpdateReport {
   current: string;
@@ -91,6 +93,7 @@ export interface UpdateReport {
   available: boolean;
   error?: string;
   disabled?: boolean;
+  checkedAt?: number;
 }
 
 export function DesktopVersionRow({version, loading, report}: {
@@ -149,22 +152,24 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Update checks are turned off here, by this setting or the environment" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
+    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Automatic checks are unavailable in this session" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
       <div className="u3-actions">
         {service.canUpdate && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
             void action.run('update.apply', {});
           }
         }}>Install {query.data.latest}</Button>}
+        <a className="pc-inline-link" href={`https://github.com/lamtuanvu/pacer/releases/${query.data.latest && /^\d+\.\d+\.\d+$/.test(query.data.latest) ? `tag/v${query.data.latest}` : "latest"}`}>Release notes</a>
         <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>
-    <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig}/>
+    <RunningWork/>
+    <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig} checkedAt={query.data?.checkedAt}/>
     <Feedback action={action}/>
   </section>;
 }
 
-function AutomaticUpdateCheck({ busy = false, initialData }: { busy?: boolean; initialData?: ConfigData }) {
+function AutomaticUpdateCheck({ busy = false, initialData, checkedAt }: { busy?: boolean; initialData?: ConfigData; checkedAt?: number }) {
   const config = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(config.reload);
-  return <><SettingRow variant="board" label="Check automatically" description="Once a day, in the background"><Switch size="sm" aria-label="Check automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
+  return <><SettingRow variant="board" label="Check automatically" description={`Once a day, in the background.${checkedAt ? ` Last checked ${time(checkedAt)}.` : ""}`}><Switch size="sm" aria-label="Check automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
 }

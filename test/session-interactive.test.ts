@@ -9,7 +9,7 @@ import { main } from "../src/cli";
 function activeRun() {
   const ctx = fakeCtx(), dir = tmpDir();
   const task = createTask(ctx, {brief: {goal: "Task", repo: dir}, kind: null, requestedExecutor: null, timeoutS: 30});
-  const parent = tmpDir();
+  const parent = join(ctx.pacerHome, "runs");
   const runDir = join(parent, task.id, "1");
   mkdirSync(runDir, {recursive: true});
   writeFileSync(join(runDir, "interactive.json"), JSON.stringify({reportToken: "attempt-secret"}));

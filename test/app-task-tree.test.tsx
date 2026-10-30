@@ -62,11 +62,11 @@ test('leaf_root_has_no_toggle', () => {
   expect(html).not.toContain('subtask');
 });
 
-test('missing_facts_render_nothing', () => {
+test('missing_facts_show_unknown_branch_and_tokens', () => {
   const html = card(leaf('t-5', { meta: [], agents: [] }));
-  // The token and branch columns keep their width so rows align, but hold no text when nothing is known.
-  expect(html).not.toMatch(/pc-task-card__tokens"[^>]*>[^<]/);
-  expect(html).not.toMatch(/pc-task-card__branch"[^>]*>[^<]/);
+  // Unknown values retain the board columns and use an explicit placeholder.
+  expect(html).toContain('pc-task-card__tokens">—</span>');
+  expect(html).toContain('pc-task-card__branch">—</span>');
   expect(html).not.toContain('pc-meta-row');
   expect(html).not.toContain('pc-agent-stack');
   expect(html).not.toContain('pc-pill');
@@ -125,8 +125,8 @@ test('filter_buckets_follow_attention_then_activity_then_outcome', () => {
 test('navigator_lists_every_root_in_one_labelled_tree', () => {
   const html = renderToString(<TaskNavigator selectedId="t-3" nodes={[root(), leaf('t-8', { active: false, state: { tone: 'good', live: false, label: 'Completed' } })]} />);
   expect(html).toContain('<strong>Sessions</strong>');
-  expect(html).toContain('aria-label="Sessions"');
-  expect(html.match(/<article/g)).toHaveLength(2);
+  expect(html).toContain('aria-label="Task navigator"');
+  expect(html.match(/class="pc-session-node-group"/g)).toHaveLength(4);
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
 });
 

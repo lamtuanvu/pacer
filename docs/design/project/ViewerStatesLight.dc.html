@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File viewer states light</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+</style>
+</helmet>
+<div style="padding: 32px 40px 40px; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 20px;">
+<header style="display: flex; flex-direction: column; gap: 4px;"><h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 650;">File viewer states · Light</h1><span class="cap">The same component in the session side panel (560 px). Every state keeps the filename, the workspace path, “Session running” and Back to terminal.</span></header>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 20px;">
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Code · search open</b><span class="cap">Target line 42 tinted. Search highlights every match; the current one is solid. Focus ring on the search field.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="ts" search="true" focus="search" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Markdown · Preview</b><span class="cap">Sanitised render. Remote images replaced with a labelled placeholder. Focus ring on the Source/Preview tabs.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="md" tab="preview" focus="tab" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">HTML · isolated Preview</b><span class="cap">Sandboxed frame. The banner names each blocked script and request.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="html" tab="preview" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Loading</b><span class="cap">Filename and path show at once; skeleton lines; polite “Reading …” status. Shimmer stops under reduced motion.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="ts" state="loading" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Missing</b><span class="cap">Says what was looked for and where. Back to terminal stays the escape; focus ring on it.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="missing" focus="back" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Large</b><span class="cap">Over 5 MB or 50,000 lines: first 2,000 lines, with an explicit way to load more.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="log" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">Unsupported</b><span class="cap">Binary files are not rendered. Hand-off to the user’s own apps.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="wasm" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<figcaption style="display: flex; flex-direction: column; gap: 2px;"><b style="font-size: 14px;">HTML · Source at line 18</b><span class="cap">Source is the default tab; the preview never runs until asked.</span></figcaption>
+<div style="height: 560px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;"><dc-import name="FileViewer" file="html" tab="source" theme="light" hint-size="100%,560px"></dc-import></div>
+</figure>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1400}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

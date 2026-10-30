@@ -3,9 +3,9 @@ import type { Strategy } from "../config/strategy";
 import { classifierConfig } from "../config/classifier";
 import { decisionHash } from "../dispatch/engines";
 import type { explainInputSchema } from "../dispatch/explain-input";
-import { runningTasksReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
+import { slotTasksReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
 import { exclusionReason, reason, type Reason } from "../dispatch/reasons";
-import { rankExecutors } from "../engine/rank";
+import { conversationFallback, rankExecutors } from "../engine/rank";
 import { slotBlock, slotUse } from "../engine/slots";
 import { computeStatus } from "../engine/status";
 import { executorExclusion } from "../executors/availability";
@@ -24,12 +24,13 @@ export async function explainRankedDispatch(
   const repo = await resolvePolicyRepoInputReadOnly(ctx, p.repo);
   const selection = projectSnapshot(ctx, strategy, repo.key).selection;
   const status = await (deps.status ?? ((c, s) => computeStatus({ ...c, readOnly: true }, s, { cacheOnly: true, includePlannerSignIn: p.interactionMode === "conversation" })))(ctx, strategy);
-  const conversationSelection = p.interactionMode === "conversation" && requested
-    ? { executors: selection?.executors ?? [requested], order: "configured" as const } : undefined;
-  const ranking = rankExecutors(kind.value, strategy, Object.fromEntries(status.providers.map(s => [s.id, s])),
-    conversationSelection ?? (selection && { executors: selection.executors, order: "configured" }), { includePlanner: p.interactionMode === "conversation" });
+  // As in the runner, a conversation's requested executor is a preference, not a narrower candidate set.
+  const byId = Object.fromEntries(status.providers.map(s => [s.id, s]));
+  const ranking = rankExecutors(kind.value, strategy, byId,
+    selection && { executors: selection.executors, order: "configured" }, { includePlanner: p.interactionMode === "conversation" });
+  if (p.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind.value, strategy, byId, requested);
   const exclusions = new Map(ranking.excluded.map(e => [e.id, exclusionReason(e.id, e.reason, e.eligibility)]));
-  const use = slotUse(runningTasksReadOnly(store));
+  const use = slotUse(slotTasksReadOnly(store));
   const eligible: typeof ranking.ranked = [];
   for (const candidate of ranking.ranked) {
     const host = strategy.runners[candidate.id].host;
@@ -56,12 +57,7 @@ export async function explainRankedDispatch(
     const hit = eligible.find(e => e.id === requested);
     const why = exclusions.get(requested);
     if (hit) { top = hit; outcome = "override"; }
-    else if (p.interactionMode === "conversation") {
-      top = undefined;
-      outcome = "queue";
-      reasons.push(reason("override_unavailable", "fail", { requested, reason: why?.code ?? "not_ranked" }, requested,
-        `${requested} is unavailable; the conversation waits for this executor.`), ...(why ? [why] : []));
-    } else if (why && ["blocked_by_user", "quota_exhausted", "executor_busy", "machine_busy"].includes(why.code)) {
+    else if (why && ["blocked_by_user", "quota_exhausted", "executor_busy", "machine_busy"].includes(why.code)) {
       top = undefined;
       outcome = why.code === "blocked_by_user" || why.code === "quota_exhausted" ? "fail" : "queue";
       reasons.push(why);

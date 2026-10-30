@@ -63,6 +63,8 @@ Outside the window, a session shows **Reopen to update**. Nothing is stopped.
    - Each host writes `session.version` in its run directory, `{pacer, versions}`, owner-only, with write-then-rename. The existing `session.host` file keeps its current values (`builtin`, `none` or the remote session mode), which older runners compare exactly. The service reads `session.version` to show versions and **Reopen to update** without connecting. A host without that file is v1. `session.version` joins the run-directory reset list (`src/supervisor/run.ts`), the retention list and remote cleanup.
 3. **Fixture tests.** For every release in the support window, CI reads recorded run directories, task records and socket transcripts. It also attaches the old web app, the old CLI and the old remote viewer to a new host.
 
+   The local fixture suite records the old web app and CLI hello from release tags and reads old task and session artifacts with current readers. The old `RemoteViewer` is a host-side mirror that starts an SSH stream and depends on a live remote socket; it cannot be replayed from a static local fixture. Remote viewing remains a live validation scenario and is UNVERIFIED in this fixture pass.
+
 ## Runner handover
 
 ### Which runs hand over

@@ -5,6 +5,25 @@ use super::{
 };
 
 use crate::ota::wire::WireMessage;
+#[cfg(feature = "ota-fixture")]
+fn record_managed_proof_identity(m: &AdoptionManifest, process: &ProcessIdentity) {
+    if let Ok(assets) = crate::ota::platform_fs::PrivateDir::installation(
+        std::path::Path::new(&m.source.target.pacer_home),
+        &m.source.target.id,
+    )
+    .and_then(|dir| dir.child(m.transaction_id()))
+    {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "stage": "proof-validation",
+            "process": process,
+        }));
+        if let Ok(bytes) = bytes {
+            if bytes.len() <= 512 {
+                let _ = assets.write_new("fixture-managed-readiness-identity.json", &bytes);
+            }
+        }
+    }
+}
 fn require(value: bool) -> Result<(), OtaError> {
     if value {
         Ok(())
@@ -315,7 +334,13 @@ async fn readiness(
                     native::elapsed_ms(start, &after).map_err(|_| OtaError::Timeout)?
                         < VERIFY_TIMEOUT_MS,
                 )?;
-                require(j.proof_valid(&proof, branch, m))?;
+                if !j.proof_valid(&proof, branch, m) {
+                    #[cfg(feature = "ota-fixture")]
+                    if branch == AdoptionBranch::Managed {
+                        record_managed_proof_identity(m, &launch.process);
+                    }
+                    return Err(OtaError::Identity);
+                }
                 return Ok(proof);
             }
             AdoptionReadiness::Failed => return Err(OtaError::RecoveryFailed),
@@ -392,6 +417,19 @@ async fn restore(
         }
     }
 }
+async fn core_mediated_observe(
+    store: &AdoptionStore,
+    j: &mut AdoptionJournal,
+    m: &AdoptionManifest,
+    p: &dyn AdoptionPlatform,
+    a: &VerifiedNativeAuthority,
+) -> Result<AdoptionObservation, OtaError> {
+    if p.awake_now()?.boot_id == m.source.boot_id {
+        action(store, j, m, AdoptionAction::PrepareReconnect, p, a).await?;
+    }
+    action(store, j, m, AdoptionAction::SuppressLifecycle, p, a).await?;
+    p.observe(m).await
+}
 async fn restore_inner(
     store: &AdoptionStore,
     j: &mut AdoptionJournal,
@@ -399,13 +437,23 @@ async fn restore_inner(
     p: &dyn AdoptionPlatform,
     a: &VerifiedNativeAuthority,
 ) -> Result<(), OtaError> {
-    if p.awake_now()?.boot_id == m.source.boot_id {
-        action(store, j, m, AdoptionAction::PrepareReconnect, p, a).await?;
-    }
-    action(store, j, m, AdoptionAction::SuppressLifecycle, p, a).await?;
+    // The Core authenticates whichever process the registration now runs,
+    // including a KeepAlive or RunAtLoad respawn. Only an unresponsive Core
+    // falls back to the journal, and only for the exact managed launch it
+    // proves; any other process is left running and recovery fails closed.
+    let (observed, managed_recovery) = match core_mediated_observe(store, j, m, p, a).await {
+        Ok(observed) => (observed, false),
+        Err(error @ (OtaError::Timeout | OtaError::Unavailable)) => {
+            match p.observe_managed_recovery(m).await? {
+                Some(observed) => (observed, true),
+                None => return Err(error),
+            }
+        }
+        Err(error) => return Err(error),
+    };
     // A crash after original launch must resume its readiness interval, not
     // stop the exact incarnation which the durable launch already identifies.
-    let observed = p.observe(m).await?;
+    require(observed.reservation_held && observed.recovery_job_armed)?;
     let boot = p.awake_now()?.boot_id;
     let original_action = j.steps.iter().find_map(|step| {
         (step.intent_boot_id == boot
@@ -437,7 +485,14 @@ async fn restore_inner(
         false
     };
     if !resume_original {
-        stop_current(store, j, m, p, a).await?;
+        if managed_recovery {
+            if let Some(process) = observed.service {
+                action(store, j, m, AdoptionAction::StopService { process }, p, a).await?;
+            }
+            require(p.observe(m).await?.service.is_none())?;
+        } else {
+            stop_current(store, j, m, p, a).await?;
+        }
         action(
             store,
             j,
@@ -598,6 +653,9 @@ mod tests {
         ready_at: u64,
         unreachable_until: u64,
         fail_restoring_stop: bool,
+        managed_core_hung: bool,
+        reused_managed_pid: bool,
+        managed_recovery_observations: usize,
         interrupt_after: Option<AdoptionAction>,
         effects: Vec<(AdoptionAction, AdoptionEvidence)>,
     }
@@ -623,6 +681,9 @@ mod tests {
                     ready_at: 0,
                     unreachable_until: 0,
                     fail_restoring_stop: false,
+                    managed_core_hung: false,
+                    reused_managed_pid: false,
+                    managed_recovery_observations: 0,
                     interrupt_after: None,
                     effects: vec![],
                 }),
@@ -690,12 +751,64 @@ mod tests {
         ) -> PlatformFuture<'a, AdoptionObservation> {
             Box::pin(async {
                 let w = self.world.borrow();
+                if w.managed_core_hung
+                    && w.registration == RegistrationObservation::Managed
+                    && w.service.is_some()
+                {
+                    return Err(OtaError::Timeout);
+                }
                 Ok(AdoptionObservation {
                     registration: w.registration,
                     reservation_held: w.reserved,
                     recovery_job_armed: w.armed,
                     service: w.service.clone(),
                 })
+            })
+        }
+        fn observe_managed_recovery<'a>(
+            &'a self,
+            m: &'a AdoptionManifest,
+        ) -> PlatformFuture<'a, Option<AdoptionObservation>> {
+            Box::pin(async move {
+                let journal: AdoptionJournal = serde_json::from_slice(
+                    &std::fs::read(self.path.join("adoption-journal.json")).unwrap(),
+                )
+                .unwrap();
+                self.world.borrow_mut().managed_recovery_observations += 1;
+                let w = self.world.borrow();
+                if w.registration != RegistrationObservation::Managed {
+                    return Ok(None);
+                }
+                let launch = journal.steps.iter().find_map(|step| {
+                    match (&step.action, &step.evidence) {
+                        (
+                            AdoptionAction::LaunchService {
+                                branch: AdoptionBranch::Managed,
+                                launch_id,
+                            },
+                            Some(AdoptionEvidence::Launched {
+                                branch: AdoptionBranch::Managed,
+                                launch,
+                            }),
+                        ) if launch_id == &m.managed_launch_id => Some(launch),
+                        _ => None,
+                    }
+                });
+                let Some(launch) = launch else {
+                    return Ok(None);
+                };
+                if w.service
+                    .as_ref()
+                    .is_some_and(|process| *process != launch.process)
+                {
+                    return Ok(None);
+                }
+                Ok(Some(AdoptionObservation {
+                    registration: w.registration,
+                    reservation_held: w.reserved,
+                    recovery_job_armed: w.armed,
+                    service: w.service.clone(),
+                }))
             })
         }
         fn inspect_action<'a>(
@@ -797,6 +910,13 @@ mod tests {
                         w.reserved = false;
                     }
                     AdoptionAction::RetireRecovery => w.armed = false,
+                    AdoptionAction::PrepareReconnect | AdoptionAction::SuppressLifecycle
+                        if w.managed_core_hung
+                            && w.registration == RegistrationObservation::Managed
+                            && w.service.is_some() =>
+                    {
+                        return Err(OtaError::Timeout);
+                    }
                     _ => {}
                 }
                 w.effects.push((a.clone(), e.clone()));
@@ -814,8 +934,12 @@ mod tests {
             launch: &'a LaunchEvidence,
         ) -> PlatformFuture<'a, AdoptionReadiness> {
             Box::pin(async move {
-                let w = self.world.borrow();
+                let mut w = self.world.borrow_mut();
                 if w.service.as_ref() != Some(&launch.process) {
+                    return Ok(AdoptionReadiness::Failed);
+                }
+                if b == AdoptionBranch::Managed && w.reused_managed_pid {
+                    w.service.as_mut().unwrap().birth = "reused-pid".into();
                     return Ok(AdoptionReadiness::Failed);
                 }
                 if (b == AdoptionBranch::Managed && w.fail_managed)
@@ -1167,6 +1291,129 @@ mod tests {
         assert_eq!(w.registration, RegistrationObservation::Original);
         assert_eq!(w.service.as_ref().unwrap().pid, 203);
         assert!(!w.reserved);
+        assert!(s.load().unwrap().restoration_proof.is_some());
+    }
+    #[tokio::test]
+    async fn hung_managed_core_restores_only_the_journal_proven_incarnation() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().fail_managed = true;
+        p.world.borrow_mut().managed_core_hung = true;
+        assert_eq!(
+            execute_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::Restored
+        );
+        let w = p.world.borrow();
+        assert_eq!(w.registration, RegistrationObservation::Original);
+        assert_eq!(w.service.as_ref().unwrap().pid, 203);
+        assert!(s.load().unwrap().restoration_proof.is_some());
+    }
+    #[tokio::test]
+    async fn respawned_managed_service_with_healthy_core_restores_original() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().reused_managed_pid = true;
+        assert_eq!(
+            execute_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::Restored
+        );
+        let w = p.world.borrow();
+        assert_eq!(w.registration, RegistrationObservation::Original);
+        assert_eq!(w.service.as_ref().unwrap().pid, 203);
+        assert_eq!(w.managed_recovery_observations, 0);
+        assert!(w.effects.iter().any(|(action, _)| matches!(
+            action,
+            AdoptionAction::StopService { process } if process.birth == "reused-pid"
+        )));
+        assert!(s.load().unwrap().restoration_proof.is_some());
+    }
+    #[tokio::test]
+    async fn hung_core_refuses_unproven_managed_process_without_stopping_or_switching() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().reused_managed_pid = true;
+        p.world.borrow_mut().managed_core_hung = true;
+        assert_eq!(
+            execute_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::RecoveryFailed
+        );
+        let w = p.world.borrow();
+        assert_eq!(w.registration, RegistrationObservation::Managed);
+        assert_eq!(w.service.as_ref().unwrap().birth, "reused-pid");
+        assert!(w.reserved && w.armed);
+        assert_eq!(w.managed_recovery_observations, 1);
+        let restoring_stop = w.effects.iter().any(|(action, _)| {
+            matches!(action, AdoptionAction::StopService { process } if process.pid == 202)
+        });
+        assert!(!restoring_stop);
+        let journal = s.load().unwrap();
+        assert_eq!(journal.state, AdoptionState::RecoveryFailed);
+        assert_eq!(journal.error, Some(OtaError::Timeout));
+        assert!(journal.restoration_started.is_none());
+    }
+    #[tokio::test]
+    async fn healthy_core_managed_restore_keeps_core_reconnect_and_lifecycle_steps() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().fail_managed = true;
+        assert_eq!(
+            execute_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::Restored
+        );
+        assert_eq!(p.world.borrow().managed_recovery_observations, 0);
+        let journal = s.load().unwrap();
+        let position = |pred: &dyn Fn(&AdoptionAction) -> bool| {
+            journal
+                .steps
+                .iter()
+                .position(|step| pred(&step.action) && step.evidence.is_some())
+                .unwrap()
+        };
+        let stop = position(
+            &|a| matches!(a, AdoptionAction::StopService { process } if process.pid == 202),
+        );
+        assert!(position(&|a| matches!(a, AdoptionAction::PrepareReconnect)) < stop);
+        assert!(position(&|a| matches!(a, AdoptionAction::SuppressLifecycle)) < stop);
+    }
+    #[tokio::test]
+    async fn rebooted_managed_service_with_healthy_core_suppresses_lifecycle_and_restores() {
+        let (_t, s, p) = authorized().await;
+        p.world.borrow_mut().interrupt_after = Some(AdoptionAction::LaunchService {
+            branch: AdoptionBranch::Managed,
+            launch_id: p.manifest.managed_launch_id.clone(),
+        });
+        assert!(matches!(
+            execute_adoption(&s, &p).await,
+            Err(OtaError::Interrupted)
+        ));
+        let respawned = ProcessIdentity {
+            pid: 404,
+            boot_id: "boot-two".into(),
+            birth: "run-at-load".into(),
+        };
+        {
+            let mut w = p.world.borrow_mut();
+            assert_eq!(w.registration, RegistrationObservation::Managed);
+            w.boot = "boot-two".into();
+            w.desktop = None;
+            w.service = Some(respawned.clone());
+            w.effects.clear();
+        }
+        assert_eq!(
+            recover_adoption(&s, &p).await.unwrap(),
+            RecoveryOutcome::Restored
+        );
+        let w = p.world.borrow();
+        assert_eq!(w.registration, RegistrationObservation::Original);
+        assert_eq!(w.managed_recovery_observations, 0);
+        let actions: Vec<_> = w.effects.iter().map(|(a, _)| a).collect();
+        let suppress = actions
+            .iter()
+            .position(|a| matches!(a, AdoptionAction::SuppressLifecycle))
+            .unwrap();
+        let stop = actions
+            .iter()
+            .position(
+                |a| matches!(a, AdoptionAction::StopService { process } if *process == respawned),
+            )
+            .unwrap();
+        assert!(suppress < stop);
         assert!(s.load().unwrap().restoration_proof.is_some());
     }
     #[tokio::test]

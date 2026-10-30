@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Answer a question</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pacer/tokens.css">
+<link rel="stylesheet" href="ds/pacer/components/bundle.css">
+<script src="ds/pacer/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:var(--surface-page)}
+a{color:var(--link)}a:hover{color:var(--ink)}
+.lbl{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.cap{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.mono{font-family:var(--font-mono);font-size:12px}
+.chip{height:28px;padding:0 10px;border:1px solid var(--line);border-radius:99px;background:var(--surface-page);color:var(--ink);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.chip:hover{background:var(--surface-lane)}
+</style>
+</helmet>
+<div style="position: relative; min-height: 900px; background: var(--surface-page); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 19px;">
+<dc-import name="NeedsYou" hint-size="100%,900px"></dc-import>
+<div aria-hidden="true" style="position: absolute; inset: 36px 0 28px 52px; background: color-mix(in srgb, var(--ink) 14%, transparent);"></div>
+<aside role="dialog" aria-modal="true" aria-labelledby="ans-h" style="position: absolute; top: 36px; right: 0; bottom: 28px; width: 480px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--surface-page); box-shadow: -12px 0 32px rgba(9,9,11,.12);">
+<div style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line);">
+<dc-import name="AgentMark" mono="Cx" size="20" hint-size="20px,20px"></dc-import>
+<h2 id="ans-h" style="margin: 0; flex-grow: 1; font-size: 16px; line-height: 22px; font-weight: 650;">Codex asks</h2>
+<a href="NeedsYou.dc.html" aria-label="Close" style="width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink-secondary); text-decoration: none; font-size: 16px;">×</a>
+</div>
+<div style="flex-grow: 1; min-height: 0; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; flex-direction: column; gap: 2px;">
+<span style="font-weight: 600;">ota: stale plan shown as the current update</span>
+<span class="cap"><span class="mono">acme/ota-client</span> · <span class="mono">fix/stale-plan</span> · waiting 38 min · <a href="Session.dc.html">Open session</a></span>
+</div>
+<div style="padding: 12px 14px; border-radius: 4px 12px 12px 12px; border: 1px solid var(--line); background: var(--surface-card); display: flex; flex-direction: column; gap: 8px;">
+<span>The update screen shows an expired plan as if it were current. Should an expired plan be <b>hidden</b>, or <b>shown greyed out with its expiry date</b>?</span>
+<span class="cap">The brief says "never show a stale plan as current" but not whether to keep it visible. Both are a one-file change in <span class="mono">src/ota/PlanCard.tsx</span>.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span class="lbl">What it was doing</span>
+<pre class="mono" style="margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-card); border: 1px solid var(--line); color: var(--ink-secondary); white-space: pre-wrap; line-height: 18px;">✓ reproduced: plan 2026-10-21 expired, shown as current
+✓ found: PlanCard reads plan.date, never plan.expiresAt
+• waiting for your answer before editing</pre>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span class="lbl">Quick answers</span>
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+<button class="chip" type="button">Show it greyed out with its expiry date</button>
+<button class="chip" type="button">Hide it and show "No current update"</button>
+<button class="chip" type="button">Do both: hide it, link to the expired plan</button>
+</div>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px;">
+<span class="lbl">Your answer</span>
+<textarea rows="4" placeholder="Answer in your own words. Codex continues from here." style="resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-page); color: var(--ink); font: inherit;">Show it greyed out with its expiry date, and add "Expired" to the title.</textarea>
+</label>
+<label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" checked style="accent-color: var(--ink);"> <span>Add this answer to the task's brief</span></label>
+</div>
+<div style="flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--surface-card);">
+<span class="cap" style="flex-grow: 1;">Codex resumes on send · ⌘↵</span>
+<a href="Session.dc.html" class="pc-btn pc-btn--secondary pc-btn--sm" style="text-decoration: none; color: var(--ink);">Answer in the terminal</a>
+<a href="NeedsYou.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">Send answer</a>
+</div>
+</aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

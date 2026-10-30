@@ -17,6 +17,7 @@ test.skipIf(!signer)("explicit fixture driver uses real pinned signer and local 
   expect(existsSync(join(root, "private"))).toBe(false);
   const feed = JSON.parse(readFileSync(join(root, "stable.json"), "utf8"));
   expect(Object.keys(feed.platforms).sort()).toEqual(DESKTOP_ARCHES.map(arch => `darwin-${arch}`).sort());
+  for (const platform of Object.values(feed.platforms) as { bundleId: string }[]) expect(platform.bundleId).toBe("dev.pacer.desktop.fixture");
   expect(existsSync(join(root, "local/feed.git"))).toBe(true);
   await expect(fixtureFeedDryRun(root)).rejects.toThrow();
 }, 30000);

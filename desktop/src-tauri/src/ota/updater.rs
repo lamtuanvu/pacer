@@ -579,7 +579,9 @@ mod tests {
             ownership: super::super::wire::Ownership::Managed,
             version: "0.2.3".into(),
         };
-        let trust = super::super::trust::ReleaseTrust::from_production(&key, Some("ABCDE12345"), None).unwrap();
+        let trust =
+            super::super::trust::ReleaseTrust::from_production(&key, Some("ABCDE12345"), None)
+                .unwrap();
         let updater = NativeUpdater::new(app.handle(), trust, target).unwrap();
         let mut candidate = candidate();
         candidate.version = "2.0.0".into();
@@ -725,7 +727,9 @@ mod tests {
             if path == "pacer.app/Contents/Resources/pacer-core" && kind.is_file() {
                 binary[12..16].copy_from_slice(&2u32.to_le_bytes());
                 add(path, &binary, kind);
-            } else { add(path, b"", kind); }
+            } else {
+                add(path, b"", kind);
+            }
         }
         let bytes = archive.into_inner().unwrap();
         let mut compressed =
@@ -736,15 +740,37 @@ mod tests {
     #[test]
     fn paired_package_requires_a_native_core_and_known_layout() {
         let core = "pacer.app/Contents/Resources/pacer-core";
-        for (extra, valid) in [(None, false), (Some((core, tar::EntryType::Regular)), true), (Some((core, tar::EntryType::Directory)), false)] {
+        for (extra, valid) in [
+            (None, false),
+            (Some((core, tar::EntryType::Regular)), true),
+            (Some((core, tar::EntryType::Directory)), false),
+        ] {
             let dir = tempfile::tempdir().unwrap();
-            assert_eq!(extract_package(&package(extra, Some(("cliLayout", json!("paired")))), dir.path(), &candidate()).is_ok(), valid);
+            assert_eq!(
+                extract_package(
+                    &package(extra, Some(("cliLayout", json!("paired")))),
+                    dir.path(),
+                    &candidate()
+                )
+                .is_ok(),
+                valid
+            );
         }
         let dir = tempfile::tempdir().unwrap();
-        assert!(extract_package(&package(None, Some(("cliLayout", json!("other")))), dir.path(), &candidate()).is_err());
+        assert!(extract_package(
+            &package(None, Some(("cliLayout", json!("other")))),
+            dir.path(),
+            &candidate()
+        )
+        .is_err());
         for layout in [serde_json::Value::Null, json!(1), json!("")] {
             let dir = tempfile::tempdir().unwrap();
-            assert!(extract_package(&package(None, Some(("cliLayout", layout))), dir.path(), &candidate()).is_err());
+            assert!(extract_package(
+                &package(None, Some(("cliLayout", layout))),
+                dir.path(),
+                &candidate()
+            )
+            .is_err());
         }
     }
     #[test]
@@ -761,6 +787,10 @@ mod tests {
             ("admissionProtocol", json!(0)),
             ("rollbackCompatible", json!(false)),
             ("arch", json!("x86_64")),
+            (
+                "bundleId",
+                json!(super::super::trust::identifiers(!cfg!(feature = "ota-fixture")).app),
+            ),
         ] {
             let dir = tempfile::tempdir().unwrap();
             assert!(
@@ -851,5 +881,16 @@ mod tests {
         let response = reqwest::get(format!("http://{address}")).await.unwrap();
         assert!(read_response(response, 8, |_, _| {}).await.is_err());
         server.join().unwrap();
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    #[test]
+    fn release_feed_refuses_a_fixture_bundle() {
+        let mut value = feed();
+        value["platforms"]["darwin-aarch64"]["bundleId"] =
+            json!(super::super::trust::FIXTURE_IDENTIFIERS.app);
+        assert!(
+            candidate_from_feed(&serde_json::to_vec(&value).unwrap(), "0.2.3", Arch::Aarch64)
+                .is_err()
+        );
     }
 }

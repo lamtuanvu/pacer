@@ -1,3 +1,4 @@
+import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
@@ -9,6 +10,10 @@ import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
+import { installHandoverHandler, registerRunnerLease } from "./handover";
+import { appendActivity } from "../activity/log";
+import { currentVersion } from "../update/version";
+import { processIdentity } from "../update/desktop/process-identity";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
@@ -21,7 +26,7 @@ import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
-import { localMachineGuard, slotBlock, slotUse } from "../engine/slots";
+import { SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { type SpawnRunner } from "./api";
@@ -36,7 +41,7 @@ import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
-import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
+import { conversationFallback, type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
@@ -81,6 +86,15 @@ const DEFAULTS: RunnerDeps = {
   verifyRepo,
 };
 
+/**
+ * An interactive lane (delegate --interactive) runs on any backend; Orca keeps its worker live for answers and
+ * `task.send`. A chat from session.create stays on the direct backend, because session.io streams only that PTY.
+ * Strict enforcement forces direct for both.
+ */
+export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
+  return strict || (task.interactionMode === "conversation" && !task.interactive);
+}
+
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
   const finished = updateTask(ctx, id, (t) => {
@@ -97,7 +111,9 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
+    delete t.childIdentity;
     delete t.runnerPid;
+    delete t.handover;
   });
   if (finished.state === "done") {
     const seen = new Set<string>([id]);
@@ -127,6 +143,8 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
   const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
   claimWorkSync(ctx, lease);
+  installHandoverHandler();
+  registerRunnerLease(lease);
   const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
   ctx = { ...ctx, env };
   const startedAt = Date.now();
@@ -139,6 +157,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
+      await autoCleanTask(ctx, id);
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
       }).catch(() => {});
@@ -157,16 +176,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
     return withLock(ctx, "slots", async () => updateTask(ctx,id,t=>{
-      const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
+      const resumable = (t.state === "running" || (t.state === "stopped" && t.handover?.state === "handed-over")) && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
       const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
       if(t.state!=="queued" && !resumable && !dispatched)return;
       if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
       if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
       if(duplicate)return;
-      started=true;t.runnerPid=process.pid;delete t.queue;
+      started=true;t.runnerPid=process.pid;t.runnerPacer=currentVersion();delete t.queue;
       if (dispatched) t.attemptStartedAt = Date.now()/1000;
     }));
   });
+  const handedOver = started && task.handover?.state === "handed-over" && !!task.run && task.run.attempt > task.attempts.length ? task.handover : undefined;
+  if (handedOver) appendActivity({ ...ctx, now: Date.now() / 1000 }, { kind: "update", level: "info", text: `Reattached on v${currentVersion()}`, taskId: id });
   if(duplicate)return finish(ctx,id,{status:"failed",executor:null,model:null,files:"",report:`same brief is already active in ${duplicate}; use --force only when concurrent work is intended`,backend:"direct"});
   if (!started) {
     return TERMINAL_STATES.includes(task.state)
@@ -239,10 +260,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (reason === "Blocked by you") p.blockedReason = reason;
           if (reason === "exhausted") { p.verdict = "EXHAUSTED"; p.eligibility = restrictEligibility(p.eligibility, "budget_exhausted"); }
         }
-        const conversationSelection = task.interactionMode === "conversation" && task.requestedExecutor
-          ? {executors: selection?.executors ?? [task.requestedExecutor], order: "configured" as const} : undefined;
-        const ranking = rankExecutors(kind, s, byId, conversationSelection ?? (selection && {executors: selection.executors, order: "configured"}),
+        // A conversation's requested executor is a preference the ranked list still validates and can
+        // fall back from (the `req`/`full` handling below), exactly like a delegated task's requestedExecutor;
+        // it is never a narrower candidate set, so an explicit request is excluded (and explained) by the
+        // same decision as any other candidate rather than by a conversation-only restriction. Passing
+        // `undefined` (not an explicit selection) here, same as a delegated task with no project policy,
+        // keeps rankExecutors' own pacing-policy ordering in effect; conversationFallback below only
+        // appends the requested executor afterward, when a routing rule left it out of the pool entirely.
+        const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+        if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
         if (work) {
           decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates);
           if (decision.proposal?.state === "ranked") {
@@ -284,7 +311,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           requirePolicyIdentity(ctx, repo);
           if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
-          const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== id));
+          const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }).filter(t => t.id !== id));
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
@@ -401,14 +428,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         return finish(ctx, id, { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" });
       }
       const onSpawn = (pid: number) => {
-        updateTask(ctx, id, (t) => { t.childPid = pid; });
+        const identity = processIdentity(pid);
+        updateTask(ctx, id, (t) => { t.childPid = pid; if (identity) t.childIdentity = identity; else delete t.childIdentity; });
         if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
       if (!resuming) {
         const selectedRunner = resolveRunner(s, pick);
         if (selectedRunner) await ensureRunnerIntegration(ctx, selectedRunner);
       }
-      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" || work?.options.delegationEnforcement === "strict" ? directBackend : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : needsDirectBackend(task, work?.options.delegationEnforcement === "strict") ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {
@@ -433,10 +461,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           i--; continue;
         }
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
-        const refreshedSelection = selection ? {executors: selection.executors, order: "configured" as const}
-          : task.interactionMode === "conversation" && task.requestedExecutor ? {executors: [task.requestedExecutor], order: "configured" as const} : undefined;
-        const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), refreshedSelection,
+        const refreshedById = Object.fromEntries(prepared.status.providers.map(p => [p.id, p]));
+        const refreshedRanking = rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+        if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
           const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));
@@ -471,7 +499,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           why: candidate.reason };
         task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
       }
-      if(work?.options.delegationEnforcement==="strict"){
+      if(work?.options.delegationEnforcement==="strict"&&!(resuming&&handedOver)){
         const checkedCtx={...ctx,now:Date.now()/1000};
         const checkedRepo=task.repo?.path??task.brief.repo;
         let reason=await enforcementExclusion(checkedCtx,s,pick,checkedRepo,task.interactionMode==="conversation");
@@ -497,12 +525,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
       let executionCtx=ctx;
       if(work?.options.delegationEnforcement==="strict"){
-        const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
-        const markerDir=join(ctx.pacerHome,"guard-failures");mkdirSync(markerDir,{recursive:true,mode:0o700});
-        const marker=join(markerDir,`${id}-${task.attempts.length+1}`);rmSync(marker,{force:true});
-        executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        const markerDir=join(ctx.pacerHome,"guard-failures"),marker=join(markerDir,`${id}-${task.attempts.length+1}`);
+        if(resuming&&handedOver){
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_GUARD_FAILURE_MARKER:marker}};
+        } else {
+          const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
+          mkdirSync(markerDir,{recursive:true,mode:0o700});
+          rmSync(marker,{force:true});
+          executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+        }
       }
-      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
+      if(work?.options.allowDelegation&&!(resuming&&handedOver)){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {
@@ -578,6 +612,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;
+        delete t.childIdentity;
       });
       try {
         const result: TaskResult | undefined = out.worktree ? {
@@ -591,14 +626,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       if (task.state === "stopped") {
         return finish(ctx, id, { status: "stopped", executor: pick, model: cfg.model, files: "", report: out.report, backend: out.backend ?? "direct" });
       }
-      if (task.interactionMode === "conversation") {
-        // Ending a conversation is not a delegated acceptance/review decision.
-        return finish(ctx, id, {
-          status: out.attempt.limitHit ? "limit" : out.exec.code === 0 ? "done" : "failed",
-          executor: pick, model: cfg.model, files: "", report: out.report, backend: attemptedBackend,
-          ...(out.worktree ? {worktree: out.worktree} : {}),
-        });
-      }
+      // A conversation ending (or escalating with a question) now takes the same path as a
+      // delegated task: a real diff, an optional acceptance check, and eligibility for
+      // needs_input/review/retry, rather than a done/failed verdict with no verification.
       if (task.question && task.question.answer === undefined) {
         const v = out.partial ? {files:"(kept on host)"} : await deps.verifyRepo(out.worktree ?? task.brief.repo, undefined, ctx.env);
         return finish(ctx,id,{status:"needs_input", executor:pick, model:cfg.model, ...v, report:out.report, backend:attemptedBackend, ...(out.worktree ? {worktree:out.worktree} : {})});

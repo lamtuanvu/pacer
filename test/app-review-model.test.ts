@@ -26,9 +26,9 @@ test("notes reset on selection and pending ends on verdict", () => {
 });
 test("verdict params carry the task revision so a stale window cannot overwrite another verdict", () => {
   for (const verdict of ["accept", "reject", "send_back", "retry"] as const) {
-    expect(verdictParams({ id: "one", rev: 8 }, { verdict, note: "fix it", kind: "tests", executor: "codex" })).toEqual({ id: "one", verdict, accepted: verdict === "accept", note: "fix it", kind: "tests", executor: "codex", expect_rev: 8 });
+    expect(verdictParams({ id: "one", rev: 8 }, { verdict, note: "fix it", kind: "tests", executor: "codex" })).toEqual({ id: "one", verdict, note: "fix it", kind: "tests", executor: "codex", expect_rev: 8 });
   }
-  expect(verdictParams({ id: "one" }, { verdict: "accept" })).toEqual({ id: "one", verdict: "accept", accepted: true });
+  expect(verdictParams({ id: "one" }, { verdict: "accept" })).toEqual({ id: "one", verdict: "accept" });
   for (const verdict of ["reject", "send_back"] as const) expect(() => verdictParams({ id: "one" }, { verdict, note: "  " })).toThrow("Add a note first.");
   expect(() => verdictParams({ id: "one" }, { verdict: "retry" })).toThrow("Choose an executor to retry on.");
 });

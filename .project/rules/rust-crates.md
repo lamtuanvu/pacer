@@ -41,6 +41,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 0 | `pacer-plugin-ops-protocol` (`crates/plugin-ops-protocol`) | Generated plugin operation types (`plugin.*` client ops) from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-session-protocol` (`crates/session-protocol`) | Generated interactive-session operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-terminal-protocol` (`crates/terminal-protocol`) | Generated terminal and host-terminal operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
+| 0 | `pacer-task-protocol` (`crates/task-protocol`) | Generated task operation types (`task.*` client ops) from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-plugin-decision-protocol` (`crates/plugin-decision-protocol`) | Generated plugin `decision.*` method types from the plugin schema; CRATE-3 area split; re-exported through `pacer_plugin::types` | ≤ 10,000 generated | none |
 | 0 | `pacer-plugin-agent-session-protocol` (`crates/plugin-agent-session-protocol`) | Generated plugin `agentSession.*` method types from the plugin schema; CRATE-3 area split; re-exported through `pacer_plugin::types` | ≤ 10,000 generated | none |
 | 0 | `pacer-assistant-protocol` (`crates/assistant-protocol`) | Generated assistant operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |

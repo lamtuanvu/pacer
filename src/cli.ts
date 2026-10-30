@@ -2,6 +2,7 @@
 import { apiCommand } from "./commands/api";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
@@ -9,7 +10,7 @@ import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
 import { dashboardClient as connectTaskClient } from "./dashboard/client";
 import type { PruneResult } from "./tasks/retention";
-import { superviseTasks } from "./tasks/api";
+import { settleLiveReleases, superviseTasks } from "./tasks/api";
 import { drainQueue } from "./tasks/drain";
 import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
@@ -26,6 +27,7 @@ import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
+import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
@@ -78,6 +80,8 @@ const USAGE = `usage: pacer <command>
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
+           [--interactive] [--group <name>]        interactive: routed/reviewed like any delegated task, with a live terminal;
+                                                     group: lanes nested under one named Orca parent worktree
   wait <task-id> [--timeout <seconds>] [--json]   wait (default 600, max 3000); exit 2 on timeout
   review <task-id> --accept|--reject|--send-back|--retry-on <executor> [--note <text>] [--kind <k>] [--json] record review
   task request-review <task-id> --note <text> [--expect-rev <n>] [--json] request a human decision
@@ -92,6 +96,7 @@ const USAGE = `usage: pacer <command>
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   answer <task-id> "<text>"                       answer a question and retry on the same executor
+  send <task-id> "<message>" [--force] [--json]  deliver a message into a running interactive lane's live terminal
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
   ask "<question>" [--scope ..] [--json]       ask the assistant (executors: record one question and stop the task)
@@ -208,7 +213,8 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
+    const work = await runningWork(ctx).then(runningWorkLines, () => ["running work: unavailable"]);
+    return { code: 0, out: [renderText(st), ...work, updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return lineResult(null);
@@ -281,7 +287,7 @@ function renderTask(t: TaskRecord): string {
   ];
   if(t.archived)lines.push(`archive: ${t.archivePath}`);
   if(t.executorFallback)lines.push(`executor: ${fallbackText(t.executorFallback)}`);
-  if(t.placement?.mode)lines.push(`placement: ${t.placement.mode} (${t.placement.why})`);
+  if(t.placement?.mode)lines.push(`placement: ${t.placement.requested === "current" && t.placement.mode === "new" ? "current overridden to " : ""}${t.placement.mode} (${t.placement.why})`);
   if (t.attempts.length) {
     lines.push(`attempts: ${t.attempts.map((a) => `${a.executor} (exit ${a.exitCode}${a.limitHit ? ", limit" : ""}${a.timedOut ? ", timed out" : ""})`).join(" > ")}`);
   }
@@ -298,7 +304,7 @@ function renderTask(t: TaskRecord): string {
 }
 
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts } = parseFlags(args, ["wait", "json", "force", "acceptance-pipefail"]);
+  const { opts } = parseFlags(args, ["wait", "json", "force", "interactive", "acceptance-pipefail"]);
   try {
     if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
     if(opts["brief-file"]===true)throw new DelegateError("--brief-file needs a path or -");
@@ -306,17 +312,18 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     let raw:Record<string,unknown>={};
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
-    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
+    if(opts.interactive===true)raw.interactive=true;
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued`, err: "" };
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
   } catch (e) {
@@ -402,7 +409,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
       const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
-      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:DESKTOP_IDENTIFIERS.cli,version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
     }
     case "pause":
     case "resume": {
@@ -426,6 +433,14 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner});
         return {code:0,out:JSON.stringify(result),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
+    }
+    case "send": {
+      const { opts, pos } = parseFlags(rest, ["json", "force"]);
+      try {
+        if (pos.length !== 2) throw new Error('usage: pacer send <task> "<message>" [--force] [--json]');
+        const result = await callOp(ctx, "task.send", { id: pos[0], text: pos[1], force: opts.force === true });
+        return { code: 0, out: opts.json ? JSON.stringify(result) : `sent to ${pos[0]}`, err: "" };
+      } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
     case "ask": {
       // Executors ask the planner; everyone else asks the assistant.
@@ -481,7 +496,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
-          const r=core.tasks.dismiss(ctx,pos);
+          const r=await core.tasks.dismiss(ctx,pos);
           return {code:r.unknown.length?2:0,out:r.dismissed.map(t=>`${t.id} dismissed`).join("\n"),err:r.unknown.map(id=>`pacer: unknown task ${id}`).join("\n")};
         }
         if(cmd==="retry") {
@@ -490,6 +505,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
         }
         const t=cmd==="wait" ? await core.tasks.wait(ctx,pos[0],Number(str(opts.timeout)??600)) : core.tasks.stop(ctx,pos[0]);
+        if(cmd==="stop")await settleLiveReleases();
         return {code:cmd==="wait"&&!TERMINAL_STATES.includes(t.state)?2:0,out:opts.json?JSON.stringify(summarizeTask(t),null,1):cmd==="stop"?`${t.id} ${t.state}`:renderTask(t),err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
@@ -680,6 +696,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
 
 if (import.meta.main) {
   const r = await main(process.argv.slice(2));
+  // Any command that stopped a kept-alive lane (stop, dispatch stop, session end) finishes releasing its worker first.
+  await settleLiveReleases();
   if (r.out) process.stdout.write(r.out.endsWith("\n") ? r.out : `${r.out}\n`);
   if (r.err) process.stderr.write(r.err.endsWith("\n") ? r.err : `${r.err}\n`);
   if (!r.keepAlive) process.exit(r.code);

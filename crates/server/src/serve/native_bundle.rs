@@ -121,7 +121,7 @@ pub fn paired_layout(
         || owner.process.birth.is_empty()
         || version.is_empty()
         || metadata["schema"] != 1
-        || metadata["bundleId"] != "dev.pacer.desktop"
+        || metadata["bundleId"] != super::native_trust::IDENTIFIERS.app
         || metadata["version"] != version
         || metadata["arch"] != std::env::consts::ARCH
         || metadata["cliLayout"] != "paired"

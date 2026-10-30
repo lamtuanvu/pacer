@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { sshAliases } from "../src/remote/ssh-config";
+import { sshAliases, sshSuggestions } from "../src/remote/ssh-config";
 import { tmpDir } from "./helpers";
 
 function fixture() {
@@ -30,4 +30,14 @@ test("Includes stop after eight levels and cycles terminate", () => {
   writeFileSync(join(ssh, "config"), 'Include level1\nInclude config\n');
   for (let i = 1; i <= 9; i++) writeFileSync(join(ssh, `level${i}`), `Host level${i}\nInclude level${i + 1}\n`);
   expect(sshAliases(home)).toEqual(["level1", "level2", "level3", "level4", "level5", "level6", "level7", "level8"]);
+});
+
+test("suggestions include HostName, first matching values, wildcard defaults and Include context", () => {
+  const { home, ssh } = fixture();
+  writeFileSync(join(ssh, "config"), 'Host devbox gpu-box\nInclude conf.d/name\nHost devbox\nHostName ignored.invalid\nHost *.lab !private.lab\nHostName %h.example\nHost staging.lab private.lab fallback\n');
+  writeFileSync(join(ssh, "conf.d", "name"), 'HostName 192.0.2.1\n');
+  expect(sshSuggestions(home)).toEqual([
+    {name:"devbox",host:"192.0.2.1"},{name:"gpu-box",host:"192.0.2.1"},
+    {name:"staging.lab",host:"staging.lab.example"},{name:"private.lab",host:"private.lab"},{name:"fallback",host:"fallback"},
+  ]);
 });

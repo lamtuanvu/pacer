@@ -39,7 +39,7 @@ async function sandbox() {
   writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct, launch_mode: headless}\n");
 
   async function run(argv: string[]) {
-    const proc = Bun.spawn(argv, { env, cwd: repo, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(argv, { env: argv[0] === "sh" ? {...env, TMPDIR: home} : env, cwd: repo, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => proc.kill("SIGKILL"), 30_000);
     try {
       const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -153,10 +153,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       expect((await context.request.get(auth)).status()).toBe(403); // single use
       // Interactive work is available without installing planner hooks/service.
       // Wait for the actual landing screen before reload, including in WebKit.
-      await page.getByLabel("What would you like to work on?").waitFor();
+      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
       expect(new URL(page.url()).hash).not.toBe("#/setup");
       expect((await page.reload())?.status()).toBe(200);
-      await page.getByLabel("What would you like to work on?").waitFor();
+      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
 
       const { result: task } = await browserFetch(page, "/v3/ops/task.delegate", {
         repo: s.repo, goal: "Create takeover-change.txt", acceptance: "test -f takeover-change.txt",

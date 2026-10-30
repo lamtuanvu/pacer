@@ -1,3 +1,4 @@
+import { autoCleanTask } from "./cleanup";
 import { createHash } from "node:crypto";
 import { boundedGitRead } from "../core/git";
 import { repoFs, withTimeout } from "../core/path-probe";
@@ -70,7 +71,7 @@ export async function resolveTask(ctx: Ctx, t: TaskRecord): Promise<TaskRecord> 
   if (!t.review && last !== undefined && ctx.now >= last && ctx.now - last < 60) return t;
   checkedAt.set(key, ctx.now);
   const reason = await resolutionReason(ctx, t);
-  return withTaskLock(ctx, t.id, () => {
+  const result = withTaskLock(ctx, t.id, () => {
     const current = readTask(ctx, t.id);
     if (!current) return {...t, ...(reason ? {resolved: reason} : {})};
     const resolved = current.review ? "reviewed" : current.resolved ||
@@ -84,4 +85,6 @@ export async function resolveTask(ctx: Ctx, t: TaskRecord): Promise<TaskRecord> 
       ...(updated.resolved ? {resolved: updated.resolved} : {}),
       ...(updated.review ? {review: updated.review} : {})};
   });
+  if (result.resolved && !t.resolved) await autoCleanTask(ctx, t.id);
+  return result;
 }

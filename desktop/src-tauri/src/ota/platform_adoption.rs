@@ -7,6 +7,60 @@ use crate::ota::{
     wire::{Binding, Installation},
 };
 
+#[cfg(feature = "ota-fixture")]
+#[derive(Clone, Copy)]
+enum ReadinessIdentityStage {
+    Registration,
+    JobObservation,
+    ProcessInspection,
+    ProcessMissing,
+    Owner,
+    Executable,
+    CodeSignature,
+    Launch,
+    ServiceQuery,
+    DesktopSignature,
+}
+#[cfg(feature = "ota-fixture")]
+impl ReadinessIdentityStage {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Registration => "registration",
+            Self::JobObservation => "job-observation",
+            Self::ProcessInspection => "process-inspection",
+            Self::ProcessMissing => "process-missing",
+            Self::Owner => "owner",
+            Self::Executable => "executable",
+            Self::CodeSignature => "code-signature",
+            Self::Launch => "launch",
+            Self::ServiceQuery => "service-query",
+            Self::DesktopSignature => "desktop-signature",
+        }
+    }
+}
+#[cfg(feature = "ota-fixture")]
+fn readiness_identity_payload(
+    stage: ReadinessIdentityStage,
+    process: Option<&ProcessIdentity>,
+) -> Option<Vec<u8>> {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "stage": stage.code(),
+        "process": process,
+    }))
+    .ok()?;
+    (bytes.len() <= 512).then_some(bytes)
+}
+#[cfg(feature = "ota-fixture")]
+macro_rules! record_readiness_identity {
+    ($self:expr, $stage:expr, $process:expr) => {
+        $self.record_managed_readiness_identity($stage, $process)
+    };
+}
+#[cfg(not(feature = "ota-fixture"))]
+macro_rules! record_readiness_identity {
+    ($self:expr, $stage:expr, $process:expr) => {};
+}
+
 pub(crate) struct NativeAdoptionPlatform {
     trust: ReleaseTrust,
     binding: Binding,
@@ -16,6 +70,20 @@ pub(crate) struct NativeAdoptionPlatform {
     recovered: Option<AdoptionManifest>,
 }
 impl NativeAdoptionPlatform {
+    #[cfg(feature = "ota-fixture")]
+    fn record_managed_readiness_identity(
+        &self,
+        stage: ReadinessIdentityStage,
+        process: Option<&ProcessIdentity>,
+    ) {
+        if let Some(bytes) = readiness_identity_payload(stage, process) {
+            // First failure only. The private transaction directory is
+            // already owned by the signed native adoption helper.
+            let _ = self
+                .assets
+                .write_new("fixture-managed-readiness-identity.json", &bytes);
+        }
+    }
     pub(crate) fn new(trust: ReleaseTrust, context: AdoptionContext) -> Result<Self, OtaError> {
         ensure(
             context.schema == 1
@@ -78,13 +146,18 @@ fn replacement_registration(bytes: &[u8], old: &str, new: &str) -> Result<Vec<u8
     )?;
     let mut value =
         plist::Value::from_reader(std::io::Cursor::new(bytes)).map_err(|_| OtaError::Invalid)?;
-    let args = value
-        .as_dictionary_mut()
-        .ok_or(OtaError::Invalid)?
+    let managed = value.as_dictionary_mut().ok_or(OtaError::Invalid)?;
+    let args = managed
         .get_mut("ProgramArguments")
         .and_then(plist::Value::as_array_mut)
         .ok_or(OtaError::Invalid)?;
     args[0] = new.into();
+    // The original plist is stored byte-for-byte for restoration. An older
+    // Background job can throttle the paired Core's disk access during startup;
+    // change only the candidate's explicitly recognized launch priority.
+    if managed.get("ProcessType").and_then(plist::Value::as_string) == Some("Background") {
+        managed.insert("ProcessType".into(), "Standard".into());
+    }
     let mut output = Vec::new();
     value
         .to_writer_xml(&mut output)
@@ -129,15 +202,99 @@ fn resulting_installation_id(
     .map_err(|_| OtaError::Invalid)?;
     Ok(digest(&bytes))
 }
+fn prove_managed_recovery_launch(
+    m: &AdoptionManifest,
+    journal: &journal::AdoptionJournal,
+    current: Option<&ProcessIdentity>,
+) -> Result<(), OtaError> {
+    ensure(
+        journal.state == journal::AdoptionState::Restoring
+            && journal.authorization.is_some()
+            && journal.verification_proof.is_none(),
+    )?;
+    let launched = journal
+        .steps
+        .iter()
+        .find_map(|step| match (&step.action, &step.evidence) {
+            (
+                AdoptionAction::LaunchService {
+                    branch: control::AdoptionBranch::Managed,
+                    launch_id,
+                },
+                Some(AdoptionEvidence::Launched {
+                    branch: control::AdoptionBranch::Managed,
+                    launch,
+                }),
+            ) if launch_id == &m.managed_launch_id
+                && launch.process.boot_id == step.intent_boot_id =>
+            {
+                Some(&launch.process)
+            }
+            _ => None,
+        })
+        .ok_or(OtaError::Identity)?;
+    if let Some(current) = current {
+        ensure(launched == current)?;
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn adoption_rewrites_only_proven_executable_and_preserves_supported_registration() {
+    fn managed_recovery_requires_the_exact_completed_launch_incarnation() {
+        let m = journal::tests::manifest();
+        let (_temp, _store, mut j) = journal::tests::initialized();
+        j.state = journal::AdoptionState::Restoring;
+        j.authorization = Some(ota::Authorization {
+            binding: m.binding.clone(),
+            kind: crate::ota::wire::AuthorizationKind::AuthorizeInstall,
+            reservation_id: m.transaction_id().into(),
+            journal_sha256: j.manifest_sha256.clone(),
+        });
+        let process = ProcessIdentity {
+            pid: 903,
+            boot_id: m.source.boot_id.clone(),
+            birth: "one:9".into(),
+        };
+        let launch = ota::LaunchEvidence {
+            role: ota::ProcessRole::Service,
+            release: ota::Release::Candidate,
+            launch_id: m.managed_launch_id.clone(),
+            process: process.clone(),
+            native_session_id: m.managed_launch_id.clone(),
+            version: m.source.target.version.clone(),
+        };
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_err());
+        j.steps.push(journal::AdoptionStep {
+            action: AdoptionAction::LaunchService {
+                branch: control::AdoptionBranch::Managed,
+                launch_id: m.managed_launch_id.clone(),
+            },
+            intent_revision: j.revision + 1,
+            intent_boot_id: process.boot_id.clone(),
+            evidence: Some(AdoptionEvidence::Launched {
+                branch: control::AdoptionBranch::Managed,
+                launch,
+            }),
+        });
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_ok());
+        let reused = ProcessIdentity {
+            birth: "two:9".into(),
+            ..process.clone()
+        };
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&reused)).is_err());
+        j.steps.last_mut().unwrap().intent_boot_id = "other-boot".into();
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_err());
+    }
+    #[test]
+    fn adoption_rewrites_only_proven_executable_and_managed_launch_priority() {
         let original = r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.serve</string><key>ProgramArguments</key><array><string>/tmp/attached/pacer</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>/tmp/home</string><key>PACER_HOME</key><string>/tmp/home</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/><key>ThrottleInterval</key><integer>27</integer><key>ProcessType</key><string>Background</string><key>StandardOutPath</key><string>/tmp/home/log</string></dict></plist>"#;
+        let old_bytes = original.as_bytes().to_vec();
+        let old_hash = digest(&old_bytes);
         let bytes = replacement_registration(
-            original.as_bytes(),
+            &old_bytes,
             "/tmp/attached/pacer",
             "/tmp/current.app/Contents/Resources/pacer",
         )
@@ -151,9 +308,37 @@ mod tests {
             .unwrap()
             .as_array_mut()
             .unwrap()[0] = "/tmp/current.app/Contents/Resources/pacer".into();
+        expected
+            .as_dictionary_mut()
+            .unwrap()
+            .insert("ProcessType".into(), "Standard".into());
         assert_eq!(
             plist::Value::from_reader(std::io::Cursor::new(&bytes)).unwrap(),
             expected
+        );
+        assert_eq!(old_bytes, original.as_bytes());
+        assert_eq!(digest(&old_bytes), old_hash);
+        assert_ne!(digest(&bytes), old_hash);
+        // Reversing the executable alone would retain Standard. Recovery must
+        // use the separately retained original bytes and their original hash.
+        let reversed = replacement_registration(
+            &bytes,
+            "/tmp/current.app/Contents/Resources/pacer",
+            "/tmp/attached/pacer",
+        )
+        .unwrap();
+        assert_ne!(reversed, old_bytes);
+        let target = journal::tests::manifest().source.target;
+        let managed_binary = "/tmp/current.app/Contents/Resources/pacer";
+        let managed_id = resulting_installation_id(
+            &target,
+            managed_binary,
+            std::str::from_utf8(&bytes).unwrap(),
+        )
+        .unwrap();
+        assert_ne!(
+            managed_id,
+            resulting_installation_id(&target, managed_binary, original).unwrap()
         );
         assert!(replacement_registration(original.as_bytes(), "/tmp/other", "/tmp/new").is_err());
         let mut redirected = original.replace(
@@ -174,6 +359,30 @@ mod tests {
         );
     }
     #[test]
+    fn managed_replacement_keeps_non_background_process_types() {
+        for priority in ["Standard", "Interactive"] {
+            let original = format!(
+                r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.serve</string><key>ProgramArguments</key><array><string>/tmp/attached/pacer</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>/tmp/home</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/><key>ProcessType</key><string>{priority}</string></dict></plist>"#
+            );
+            let changed = replacement_registration(
+                original.as_bytes(),
+                "/tmp/attached/pacer",
+                "/tmp/current.app/Contents/Resources/pacer",
+            )
+            .unwrap();
+            let parsed = plist::Value::from_reader(std::io::Cursor::new(changed)).unwrap();
+            assert_eq!(
+                parsed
+                    .as_dictionary()
+                    .unwrap()
+                    .get("ProcessType")
+                    .unwrap()
+                    .as_string(),
+                Some(priority)
+            );
+        }
+    }
+    #[test]
     fn adoption_result_id_matches_ordered_typescript_identity_contract() {
         let target = journal::tests::manifest().source.target;
         let binary = format!("{}/Contents/Resources/pacer", target.app_path);
@@ -190,6 +399,32 @@ mod tests {
             .unwrap(),
             fixture["expected"].as_str().unwrap()
         );
+    }
+    #[cfg(feature = "ota-fixture")]
+    #[test]
+    fn readiness_identity_trace_contains_only_fixed_stage_and_bounded_process_identity() {
+        let process = ProcessIdentity {
+            pid: 42,
+            boot_id: "fixture-boot".into(),
+            birth: "fixture-birth".into(),
+        };
+        let bytes = readiness_identity_payload(ReadinessIdentityStage::Launch, Some(&process))
+            .expect("fixed trace should fit");
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["stage"], "launch");
+        assert_eq!(value["process"], serde_json::to_value(process).unwrap());
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert!(bytes.len() <= 512);
+        let oversized = ProcessIdentity {
+            pid: 43,
+            boot_id: "x".repeat(512),
+            birth: "fixture-birth".into(),
+        };
+        assert!(readiness_identity_payload(
+            ReadinessIdentityStage::ProcessInspection,
+            Some(&oversized)
+        )
+        .is_none());
     }
 }
 
@@ -237,7 +472,7 @@ impl NativeAdoptionPlatform {
             .map_err(|_| OtaError::Invalid)?;
         ensure(
             metadata["schema"] == 1
-                && metadata["bundleId"] == "dev.pacer.desktop"
+                && metadata["bundleId"] == ota::trust::APP_ID
                 && metadata["version"] == self.source.target.version
                 && metadata["admissionProtocol"] == 1
                 && metadata["rollbackCompatible"] == true
@@ -252,7 +487,7 @@ impl NativeAdoptionPlatform {
         .map_err(|_| OtaError::Invalid)?;
         let info = info.as_dictionary().ok_or(OtaError::Invalid)?;
         for (key, expected) in [
-            ("CFBundleIdentifier", "dev.pacer.desktop"),
+            ("CFBundleIdentifier", ota::trust::APP_ID),
             ("CFBundleExecutable", "pacer"),
             ("CFBundleVersion", self.source.target.version.as_str()),
             (
@@ -383,20 +618,73 @@ impl NativeAdoptionPlatform {
         &self,
         m: &AdoptionManifest,
     ) -> Result<Option<(ProcessIdentity, PathBuf)>, OtaError> {
-        let (job, _) = self.current_job(m)?;
-        let Some(loaded) = job.observe(&self.trust)? else {
+        self.current_service_traced(m, false)
+    }
+    fn current_service_traced(
+        &self,
+        m: &AdoptionManifest,
+        trace_managed_readiness: bool,
+    ) -> Result<Option<(ProcessIdentity, PathBuf)>, OtaError> {
+        let (job, _) = self.current_job(m).map_err(|error| {
+            if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                record_readiness_identity!(self, ReadinessIdentityStage::Registration, None);
+            }
+            error
+        })?;
+        let Some(loaded) = job.observe(&self.trust).map_err(|error| {
+            if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                record_readiness_identity!(self, ReadinessIdentityStage::JobObservation, None);
+            }
+            error
+        })?
+        else {
             return Ok(None);
         };
         let pid = loaded.pid.ok_or(OtaError::Unavailable)?;
-        let details = native::process_details(pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
-        ensure(
-            details.uid as u64 == m.source.target.owner_uid
-                && details.executable == Path::new(&job.definition.arguments[0]),
-        )?;
+        let details = native::process_details(pid).map_err(|_| {
+            if trace_managed_readiness {
+                record_readiness_identity!(self, ReadinessIdentityStage::ProcessInspection, None);
+            }
+            OtaError::Identity
+        })?;
+        let Some(details) = details else {
+            if trace_managed_readiness {
+                record_readiness_identity!(self, ReadinessIdentityStage::ProcessMissing, None);
+            }
+            return Err(OtaError::Identity);
+        };
+        if details.uid as u64 != m.source.target.owner_uid {
+            if trace_managed_readiness {
+                record_readiness_identity!(
+                    self,
+                    ReadinessIdentityStage::Owner,
+                    Some(&details.identity)
+                );
+            }
+            return Err(OtaError::Identity);
+        }
+        if details.executable != Path::new(&job.definition.arguments[0]) {
+            if trace_managed_readiness {
+                record_readiness_identity!(
+                    self,
+                    ReadinessIdentityStage::Executable,
+                    Some(&details.identity)
+                );
+            }
+            return Err(OtaError::Identity);
+        }
         self.trust
-            .verify_process(&details.identity, CodeRole::Cli)?;
+            .verify_process(&details.identity, CodeRole::Cli)
+            .map_err(|error| {
+                if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                    record_readiness_identity!(
+                        self,
+                        ReadinessIdentityStage::CodeSignature,
+                        Some(&details.identity)
+                    );
+                }
+                error
+            })?;
         Ok(Some((details.identity, details.executable)))
     }
     fn endpoint<'a>(
@@ -774,6 +1062,35 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
             })
         })
     }
+    fn observe_managed_recovery<'a>(
+        &'a self,
+        m: &'a AdoptionManifest,
+    ) -> PlatformFuture<'a, Option<AdoptionObservation>> {
+        Box::pin(async move {
+            let journal = self.snapshot(m)?;
+            let held = ota::recovery_authority::verify_adoption(
+                Path::new(&m.source.target.pacer_home),
+                m,
+                &journal,
+            )?;
+            let (_, branch) = self.current_job(m)?;
+            if branch != control::AdoptionBranch::Managed {
+                return Ok(None);
+            }
+            let service = self.current_service(m)?.map(|(process, _)| process);
+            // Without proof of this exact incarnation there is no shortcut;
+            // recovery keeps the Core's refusal and stops nothing.
+            if prove_managed_recovery_launch(m, &journal, service.as_ref()).is_err() {
+                return Ok(None);
+            }
+            Ok(Some(AdoptionObservation {
+                registration: RegistrationObservation::Managed,
+                reservation_held: held,
+                recovery_job_armed: self.recovery_loaded(m)?.is_some(),
+                service,
+            }))
+        })
+    }
     fn inspect_action<'a>(
         &'a self,
         m: &'a AdoptionManifest,
@@ -936,12 +1253,26 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                 P::StopService { process } => {
                     let (p, e) = self.current_service(m)?.ok_or(OtaError::Unavailable)?;
                     ensure(p == *process)?;
-                    self.checked_context(m, &p, &e)?;
-                    control::suppress_adoption_lifecycle(
-                        &self.endpoint(&p, &e),
-                        &m.binding,
-                        &self.trust,
-                    )?;
+                    let journal = self.require_effect(m, action)?;
+                    let core = self.checked_context(m, &p, &e).and_then(|_| {
+                        control::suppress_adoption_lifecycle(
+                            &self.endpoint(&p, &e),
+                            &m.binding,
+                            &self.trust,
+                        )
+                    });
+                    match core {
+                        Ok(()) => {}
+                        // An unresponsive Core may only be bypassed for the
+                        // journal-proven managed launch during restoration.
+                        Err(OtaError::Timeout | OtaError::Unavailable)
+                            if self.current_job(m)?.1 == control::AdoptionBranch::Managed
+                                && journal.state == journal::AdoptionState::Restoring =>
+                        {
+                            prove_managed_recovery_launch(m, &journal, Some(&p))?;
+                        }
+                        Err(error) => return Err(error),
+                    }
                     self.require_effect(m, action)?;
                     let job = self.current_job(m)?.0;
                     job.stop_exact(&self.trust, process).await?;
@@ -1025,10 +1356,16 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
         launch: &'a ota::LaunchEvidence,
     ) -> PlatformFuture<'a, AdoptionReadiness> {
         Box::pin(async move {
-            let Some((p, e)) = self.current_service(m)? else {
+            let trace_managed = branch == control::AdoptionBranch::Managed;
+            let Some((p, e)) = self.current_service_traced(m, trace_managed)? else {
                 return Ok(AdoptionReadiness::Pending);
             };
-            ensure(p == launch.process)?;
+            if p != launch.process {
+                if trace_managed {
+                    record_readiness_identity!(self, ReadinessIdentityStage::Launch, Some(&p));
+                }
+                return Err(OtaError::Identity);
+            }
             #[cfg(feature = "ota-fixture")]
             if branch == control::AdoptionBranch::Managed
                 && crate::ota::fixture_fault::consume(
@@ -1045,10 +1382,30 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                     &m.binding,
                     branch,
                     &self.trust,
-                )? {
+                )
+                .map_err(|error| {
+                    if trace_managed && matches!(error, OtaError::Identity) {
+                        record_readiness_identity!(
+                            self,
+                            ReadinessIdentityStage::ServiceQuery,
+                            Some(&p)
+                        );
+                    }
+                    error
+                })? {
                     Some(proof) => {
                         self.trust
-                            .verify_process(&proof.desktop, CodeRole::Desktop)?;
+                            .verify_process(&proof.desktop, CodeRole::Desktop)
+                            .map_err(|error| {
+                                if trace_managed && matches!(error, OtaError::Identity) {
+                                    record_readiness_identity!(
+                                        self,
+                                        ReadinessIdentityStage::DesktopSignature,
+                                        Some(&proof.desktop)
+                                    );
+                                }
+                                error
+                            })?;
                         AdoptionReadiness::Ready(proof)
                     }
                     None => AdoptionReadiness::Pending,
