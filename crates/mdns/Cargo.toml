@@ -1,0 +1,13 @@
+[package]
+name = "pacer-mdns"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+socket2 = { version = "0.6", features = ["all"] }
+
+[lints]
+workspace = true

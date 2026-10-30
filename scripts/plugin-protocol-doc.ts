@@ -22,6 +22,7 @@ export function renderPluginProtocolDoc(): string {
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
     "```json", json(manifestSchema), "```", "",
     `Extension points: ${EXTENSION_POINTS.map(p => `\`${p}\``).join(", ")} (every plugin serves \`diagnostic\`). Capabilities: ${CAPABILITIES.map(c => `\`${c}\``).join(", ")}.`, "",
+    "A manifest with `contributes.pairing` declares the `net.p2p` capability and sets `host` to `>=1.5.0`. `net.p2p` is declarative on the subprocess transport: it is granted and recorded like any capability, but it has no host methods yet.", "",
     "## UI contributions", "",
     "`contributes.ui` has a fixed schema. Plugins contribute data only: the host validates it and the app draws it with its own components. A plugin ships no CSS, JavaScript, HTML, images or URLs. A manifest with `contributes.ui` sets `host` to `>=1.2.0`, and a plugin with a settings page declares `config.get`.", "",
     `Limits per plugin: ${Object.entries(UI_LIMITS).map(([k, n]) => `${n} ${k}`).join(", ")}. Icons (closed set): ${UI_ICONS.map(i => `\`${i}\``).join(", ")}. Routes a document may link to: ${UI_ROUTES.map(r => `\`${r}\``).join(", ")}.`, "",

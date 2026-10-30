@@ -1,4 +1,5 @@
 import { dashboardClient } from "../dashboard/client";
+import { assertCallerCanInvoke } from "../api/caller-policy";
 import type { ApiClient } from "../api/client-types";
 import type { Ctx } from "../types";
 import type { Command, Result } from "./types";
@@ -19,6 +20,8 @@ export async function machineCmd(args: string[], ctx: Ctx, connect: (ctx: Ctx) =
     const json = args.includes("--json"), yes = args.includes("--yes");
     const [verb = "show", ...rest] = args.filter(a => a !== "--json" && a !== "--yes");
     if (!["show", "rename", "rotate"].includes(verb) || (verb === "rename" ? !rest.length : rest.length) || (yes && verb !== "rotate")) throw Error(usage);
+    // The owner bearer carries no caller role, so executor sessions are refused before connecting.
+    if (verb !== "show") assertCallerCanInvoke(ctx, verb === "rotate" ? "machine.rotate" : "machine.set", {});
     if (verb === "rotate" && !yes) return { code: 2, out: "", err: "pacer: rotating the machine key replaces this machine's id; paired machines that cannot be told must pair again. Re-run with --yes." };
     client = await connect(ctx);
     let result: MachineView | Rotated;

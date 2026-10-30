@@ -10,6 +10,7 @@ rust-version.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }
 hyper = { version = "1", features = ["client", "http1"] }

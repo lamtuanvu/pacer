@@ -36,3 +36,18 @@ test("unknown subcommands print usage", async () => {
   expect(r.code).toBe(2);
   expect(r.err).toContain("usage");
 });
+
+test("an executor session may show but not rename or rotate the machine (S1)", async () => {
+  // With a work grant, dashboardClient still talks to the service with the owner bearer, so the CLI applies the caller policy.
+  const { machineCmd } = await import("../src/commands/machine");
+  const calls: string[] = [];
+  const client = { call: async (op: string) => { calls.push(op); return { id: "m1", name: "box", rev: 1, cloneSuspected: false }; }, close() {} } as any;
+  const ctx = fakeCtx({ env: { PACER_ROLE: "executor" } });
+  expect((await machineCmd(["show"], ctx, async () => client)).code).toBe(0);
+  for (const args of [["rename", "evil"], ["rotate", "--yes"]]) {
+    const r = await machineCmd(args, ctx, async () => client);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("PACER_ROLE=executor");
+  }
+  expect(calls).toEqual(["machine.get"]);
+});

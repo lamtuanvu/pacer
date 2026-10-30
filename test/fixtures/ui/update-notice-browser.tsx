@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useState } from "preact/hooks";
 import { UpdateNotice } from "../../../app/src/shell/UpdateNotice";
+import { NoticeStack } from "../../../app/src/ds/NoticeCard";
 import { TaskContext } from "../../../app/src/screens/task-shared";
 import { ActionContext } from "../../../app/src/data/action-context";
 import { createActionRunner } from "../../../app/src/data/actions";
@@ -22,7 +23,7 @@ function Fixture() {
   const api = {} as any;
   return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={runner}>
     <main id="main-content" tabIndex={-1}><button id="work">Continue working</button></main>
-    <UpdateNotice hidden={hidden} narrow={innerWidth < 560}/>
+    <NoticeStack narrow={innerWidth < 560}><UpdateNotice hidden={hidden}/></NoticeStack>
   </ActionContext.Provider></TaskContext.Provider>;
 }
 render(<Fixture/>, document.getElementById("app")!);

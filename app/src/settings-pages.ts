@@ -33,7 +33,7 @@ export function settingsPageId(section = ''): string {
 
 /** Secondary pages keep their routes and select their parent navigation category. */
 export function settingsNavId(section = ''): string {
-  return section === 'accounts' || section === 'add-executor' ? 'executors' : section === 'hosts' ? 'machine' : section === 'assistant' ? 'app' : settingsPageId(section);
+  return section === 'accounts' || section === 'add-executor' ? 'executors' : section === 'hosts' || section === 'pairing' ? 'machine' : section === 'assistant' ? 'app' : settingsPageId(section);
 }
 
 /** App preferences already shows update status, so the floating update notice stays hidden there. */
@@ -41,9 +41,15 @@ export function updateNoticeHiddenOn(route: { name: string; section?: string }):
   return route.name === 'settings' && settingsPageId(route.section) === 'app';
 }
 
+/** The Pair machines page already answers the found-machine notice, so the notice stays hidden there. */
+export function discoveryNoticeHiddenOn(route: { name: string; section?: string }): boolean {
+  return route.name === 'settings' && route.section === 'pairing';
+}
+
 export function settingsPageTitle(section = ''): string {
   if (section === 'accounts') return 'Accounts';
   if (section === 'assistant') return 'Assistant';
+  if (section === 'pairing') return 'Pair machines';
   const page = SETTINGS_PAGES.find(page => page.id === settingsPageId(section));
   return page?.title ?? page?.label ?? 'Overview';
 }

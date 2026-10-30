@@ -98,7 +98,25 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 }
 /* Compact desktop chrome; narrow screens retain their touch layout. */
 .pc-app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:0}
-.pc-app{--frame-top:var(--size-36);--frame-status:var(--size-28)}
+/* --frame-nav is the narrow bottom navigation's height: 56 px items over at least 20 px of bottom padding.
+   A larger safe area grows the padding, so offsets use max(var(--frame-nav), 56 px + safe area) — the bar's own box. */
+:root{--frame-top:var(--size-36);--frame-status:var(--size-28);--frame-nav:calc(var(--size-56) + var(--space-5))}
+/* --frame-launcher is the room the closed Ask pacer launcher takes above the status bar: 40 px high, 18 px up (assistant.css).
+   --frame-launcher-narrow is its top on narrow screens, from the viewport bottom: 44 px + 16 px up (components.css) and 44 px high,
+   the touch target it gets at 560 px or narrower and on coarse pointers, where the wide launcher is 44 px high too. */
+:root{--frame-launcher:calc(var(--size-18) + var(--size-40));--frame-launcher-narrow:calc(var(--control-touch) + var(--space-4) + var(--control-touch))}
+@media(pointer:coarse){:root{--frame-launcher:calc(var(--size-18) + var(--control-touch))}}
+/* The fixed bottom-right notice stack renders outside .pc-app (hence the frame tokens on :root) and clears the status bar when it shows. */
+html:has(.pc-app--with-status) .pc-notice-stack{bottom:var(--frame-status);max-height:calc(100dvh - var(--frame-status))}
+/* While the launcher is shown closed, the stack also sits above it. */
+html:has(.pc-app--with-status .pc-aurora-launcher:not(.pc-aurora-launcher--open)) .pc-notice-stack{bottom:calc(var(--frame-status) + var(--frame-launcher));max-height:calc(100dvh - var(--frame-status) - var(--frame-launcher))}
+/* An open sheet lifts the launcher to its top edge (520 px sheet + 18 px + 8 px, or below the top bar and page header when
+   the window is short), so the stack keeps its status-bar floor and stops below that position. */
+html:has(.pc-app--with-status .pc-aurora-launcher--open) .pc-notice-stack{max-height:min(calc(var(--size-520) + var(--size-18) + var(--space-2)),calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--size-36) - var(--space-2)))}
+/* On narrow screens it clears the bottom navigation instead (no status bar there), and the launcher above it when shown.
+   The narrow launcher hides while the sheet is open. */
+.pc-notice-stack--narrow{bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));max-height:calc(100dvh - max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom))))}
+html:has(.pc-app--narrow .pc-aurora-launcher) .pc-notice-stack--narrow{bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)),var(--frame-launcher-narrow));max-height:calc(100dvh - max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)),var(--frame-launcher-narrow)))}
 .pc-app--with-status{padding-bottom:var(--frame-status)}
 /* A sticky SaveBar clears the fixed status bar and the narrow bottom navigation that the shell owns. */
 .pc-app--with-status .pc-save-bar{bottom:var(--frame-status)}
@@ -299,7 +317,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 
 
 .pc-rail__badge--bad{background:var(--bad-bg);color:var(--bad-fg)}
-.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--size-56) + max(var(--space-5),env(safe-area-inset-bottom)));width:100%;border-radius:0}
+.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));width:100%;border-radius:0}
 /* Hide unified titlebar in narrow mode (uses bottom bar instead) */
 .pc-app--narrow .pc-titlebar{display:none}
 /* In narrow mode, body stacks panel + work vertically */
@@ -726,6 +744,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-app--narrow .pc-topbar h1{font-weight:var(--type-display-weight)}
 
 .pc-app--narrow .pc-topbar .pc-command-trigger,.pc-app--narrow .pc-topbar>.pc-icon-button{border-color:transparent;background:transparent;color:var(--ink-secondary)}
-.pc-bottom-bar{padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
+.pc-bottom-bar{box-sizing:border-box;min-height:var(--frame-nav);padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
 
 .pc-bottom-bar .pc-rail__item.on{background:transparent}

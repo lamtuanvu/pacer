@@ -1,6 +1,10 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
 pub mod auth;
 pub mod core_child;
+pub mod discovery;
+#[cfg(test)]
+#[path = "discovery_tests.rs"]
+mod discovery_tests;
 pub mod heartbeat;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
@@ -123,6 +127,13 @@ pub async fn run_serve(
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
+    let radio = discovery::Radio::spawn(
+        core.clone(),
+        discovery::RadioOptions {
+            poll: std::time::Duration::from_secs(5),
+            disabled: std::env::var("PACER_DISCOVERY").as_deref() == Ok("off"),
+        },
+    );
     let state = Arc::new(Listener {
         core,
         heartbeat: beats,
@@ -156,6 +167,8 @@ pub async fn run_serve(
     server.abort();
     let _ = server.await;
     probe.abort();
+    // Withdraw the advert with goodbye packets before the core stops.
+    radio.stop().await;
     state.core.shutdown().await;
     Ok(())
 }

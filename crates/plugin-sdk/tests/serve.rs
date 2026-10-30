@@ -168,3 +168,27 @@ async fn identity_sign_encodes_the_payload_and_decodes_the_signature() {
     drop(io);
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn pairing_start_is_served_with_the_generated_types() {
+    use pacer_plugin::types::{PairingStartParams, PairingStartResult};
+    let p = Plugin::new(manifest()).handle_typed(
+        "pairing.start",
+        |p: PairingStartParams, _c| async move {
+            Ok(PairingStartResult {
+                accepted: p.name.as_str() == "studio" && p.hints.is_empty(),
+            })
+        },
+    );
+    let (mut io, task) = start(p);
+    io.send(hello()).await;
+    io.next().await;
+    io.send(json!({"jsonrpc":"2.0","id":2,"method":"pairing.start","params":{"discoveryId":"a".repeat(26),"name":"studio","hints":""}}))
+        .await;
+    assert_eq!(io.next().await["result"], json!({"accepted": true}));
+    io.send(json!({"jsonrpc":"2.0","id":3,"method":"pairing.start","params":{"discoveryId":"nope","name":"studio","hints":""}}))
+        .await;
+    assert_eq!(io.next().await["error"]["data"]["code"], "invalid_input");
+    drop(io);
+    task.await.unwrap().unwrap();
+}

@@ -6,7 +6,7 @@ import { useDialogs } from "../ds/useDialogs";
 import { ErrorMessage, useTaskContext } from "../screens/task-shared";
 
 /** Session-local dismissal survives navigation; no background action grants restart permission. */
-export function UpdateNotice({ hidden = false, narrow = false }: { hidden?: boolean; narrow?: boolean }) {
+export function UpdateNotice({ hidden = false }: { hidden?: boolean }) {
   const { state } = useTaskContext(), runner = useActions(), dialogs = useDialogs();
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
@@ -31,7 +31,7 @@ export function UpdateNotice({ hidden = false, narrow = false }: { hidden?: bool
     finally { pending.current = false; setBusy(false); }
   }
   const visible = eligible && status;
-  return <>{visible && <UpdateNoticeCard key={updateNoticeKey(status)} version={status.target!} busy={busy} narrow={narrow} restart={() => void restart()} later={() => {
+  return <>{visible && <UpdateNoticeCard key={updateNoticeKey(status)} version={status.target!} busy={busy} restart={() => void restart()} later={() => {
     setDismissed(previous => new Set([...previous, updateNoticeKey(status)])); setError(undefined); restoreFocus();
   }}><ErrorMessage error={error}/></UpdateNoticeCard>}{dialogs.dialog}</>;
 }

@@ -13,9 +13,11 @@ export interface ModeData { mode: string; previous: string | null; strategy: str
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 /** Carries no text: other windows only learn that assistant History changed. */
 export interface AssistantEventData { turnId: string; conversationId: string; state: "done" | "error" | "cancelled" }
+/** A machine on the LAN that a prompt was taken for. name and version are sanitized but unverified (SEC-16). */
+export interface DiscoveryFoundData { discoveryId: string; name: string; version: string }
 export interface ConfigData { area: string; at: number }
 export interface EntityData { kind: "desktop.update" | "planner" | "plugin" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "machine"; id: string; value?: unknown; removed?: true }
-export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData } | { type: "assistant"; data: AssistantEventData };
+export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData } | { type: "assistant"; data: AssistantEventData } | { type: "discovery.found"; data: DiscoveryFoundData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
 export interface LinkSnapshot { attention?: import("../attention/types").AttentionItem[]; counts?: import("../api/read-model/types").Counts; serviceInstalled?: boolean; v: 1; seq: number; at: number; budget: BudgetData | null; mode: ModeData | null; tasks: TaskData[]; alerts: AlertData[]; console: ConsoleData | null; consoles?: ConsoleData[]; strategies?: (string | StrategyData)[] }
@@ -116,6 +118,11 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
       if (!isObj(d) || !optStr(d.turnId, LIMITS.id) || !optStr(d.conversationId, LIMITS.id) || !["done", "error", "cancelled"].includes(String(d.state))) return null;
       return { type: "assistant", data: { turnId: optStr(d.turnId, LIMITS.id)!, conversationId: optStr(d.conversationId, LIMITS.id)!, state: d.state as AssistantEventData["state"] } };
     }
+    case "discovery.found": {
+      const d = raw.data;
+      if (!isObj(d) || typeof d.discoveryId !== "string" || !/^[a-z2-7]{26}$/.test(d.discoveryId) || typeof d.name !== "string" || typeof d.version !== "string") return null;
+      return { type: "discovery.found", data: { discoveryId: d.discoveryId, name: d.name.slice(0, 64), version: d.version.slice(0, 32) } };
+    }
     default: return null;
   }
 }
@@ -131,6 +138,7 @@ export function reduce(s: LinkSnapshot, e: OutboxEvent, at: number): LinkSnapsho
   switch (e.type) {
     case "entity": break;
     case "assistant": break; // Refresh signal only.
+    case "discovery.found": break; // Event only; no snapshot content changes.
     case "config": break; // Refresh signal only; no snapshot content changes.
     case "budget": next.budget = e.data; break;
     case "mode": next.mode = e.data; break;

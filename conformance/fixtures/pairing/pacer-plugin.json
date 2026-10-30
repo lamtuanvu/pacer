@@ -1,0 +1,1 @@
+{"id":"fx-pairing","version":"1.0.0","publisher":"pacer-conformance","host":">=1.5.0","entry":"main.ts","contributes":{"pairing":{}},"capabilities":[{"name":"net.p2p"}]}

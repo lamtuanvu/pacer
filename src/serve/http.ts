@@ -43,6 +43,8 @@ import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
+/** Upper bound for one batch of LAN observations from the radio. */
+const DISCOVERY_BODY_MAX = 256 * 1024;
 
 export function ensureToken(ctx: Ctx): string {
   const p = join(ctx.pacerHome, "token");
@@ -166,6 +168,22 @@ export function startServer(
           const params = new URL(req.url).searchParams;
           const status = Number(params.get("status") ?? 200);
           return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
+        }
+        // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
+        if (pathname === "/_internal/discovery/config" && req.method === "POST") {
+          const { buildRadioConfig } = await import("../discovery/radio");
+          return Response.json(await buildRadioConfig(getCtx()));
+        }
+        if (pathname === "/_internal/discovery/observed" && req.method === "POST") {
+          if (Number(req.headers.get("content-length") ?? 0) > DISCOVERY_BODY_MAX) return new Response("too large\n", { status: 413 });
+          const text = await req.text().catch(() => "");
+          if (Buffer.byteLength(text, "utf8") > DISCOVERY_BODY_MAX) return new Response("too large\n", { status: 413 });
+          let body: { observations?: unknown } | null = null;
+          try { body = JSON.parse(text); } catch {}
+          const batch = Array.isArray(body?.observations) ? body.observations : [];
+          // The network from the radio's last config pull, so each poll probes the network once (N4).
+          const { radioNetwork, recordObservations } = await import("../discovery/radio");
+          return Response.json(await recordObservations(getCtx(), batch, { network: radioNetwork() }));
         }
       } else {
         if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });

@@ -921,6 +921,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-discovery-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-dispatch-protocol"
 version = "0.0.0"
 dependencies = [
@@ -956,6 +965,13 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-mdns"
+version = "0.0.0"
+dependencies = [
+ "socket2",
 ]
 
 [[package]]
@@ -1022,6 +1038,7 @@ dependencies = [
  "libproc",
  "nix",
  "pacer-foundation",
+ "pacer-mdns",
  "rand",
  "security-framework",
  "serde_json",

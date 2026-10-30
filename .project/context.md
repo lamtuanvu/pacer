@@ -31,11 +31,13 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
+| `crates/discovery-protocol` | `pacer-discovery-protocol`: generated LAN discovery (`discovery.*`) operation types, split under CRATE-3 |
 | `crates/plugin-ops-protocol` | `pacer-plugin-ops-protocol`: generated `plugin.*` client operation types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/terminal-protocol` | `pacer-terminal-protocol`: generated terminal and host-terminal operation types, split from the client schema under CRATE-3 |
 | `crates/task-protocol` | `pacer-task-protocol`: generated task operation types (`task.*` ops), split from the client schema under CRATE-3 |
 | `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
+| `crates/mdns` | `pacer-mdns`: the LAN discovery radio's mDNS responder and browser for `_pacer._udp.local.`, IPv4 on one interface, on-link traffic only (SEC-11) |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
