@@ -2741,6 +2741,11 @@ Params JSON Schema:
     "acceptance_pipefail": {
       "type": "boolean"
     },
+    "acceptance_timeout_min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
     "constraints": {
       "type": "string"
     },

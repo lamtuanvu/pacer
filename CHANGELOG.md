@@ -17,6 +17,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Resolve interactive agent reports from the authenticated launch run directory, so an overridden `PACER_HOME` no longer prevents completion. Report invalid launch paths, task states, attempts and tokens with actionable errors.
 
+- Allow acceptance deadlines of 1–120 minutes via `acceptance_timeout_min` / `--acceptance-timeout-min` (default 10), preserve them on retry, and report acceptance timeouts explicitly with a hint to raise the deadline.
+
 - Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
 ### Changed
 
