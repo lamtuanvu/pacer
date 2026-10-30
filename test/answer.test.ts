@@ -128,3 +128,10 @@ test("stopping a waiting question prevents subsequent answers",async()=>{
   expect(readTask(ctx,task.id)?.state).toBe("stopped");
   await expect(callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps)).rejects.toMatchObject({code:"conflict"});
 });
+
+test("an answer retry of a human-started task keeps origin human",async()=>{
+  const {ctx,task,deps}=setup();
+  updateTask(ctx,task.id,t=>{t.origin="human";});
+  const r = await tasks.answer({...ctx,env:{}},task.id,"postgres",{},deps);
+  expect(readTask(ctx,String(r.retry.id))?.origin).toBe("human");
+});

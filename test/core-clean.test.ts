@@ -447,6 +447,103 @@ test("resolve triggers cleanup as soon as work becomes resolved", async () => {
   expect(existsSync(w.path)).toBe(false);
 });
 
+const RECENT = "task is open for messages (last activity under 7 days ago); review, dismiss or close it (pacer msg close) to clean";
+const AWAITING = "task has messages waiting for its next turn; review, dismiss or close it (pacer msg close) to clean";
+/** A resolved local direct-backend task, still open for messages, whose run ended `ageDays` ago. */
+async function resolvedOpen(ageDays: number, keepDays?: number) {
+  const {ctx, t, w} = await finished({reviewed: false});
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {auto_clean: true}\n${keepDays === undefined ? "" : `messaging: {keep_worktree_days: ${keepDays}}\n`}`);
+  const endedAt = ctx.now - ageDays * 86_400;
+  updateTask(ctx, t.id, x => {
+    x.state = "failed"; x.resolved = "already on main"; x.settledAt = endedAt;
+    x.attempts = [{executor: "codex", startedAt: endedAt - 60, endedAt, exitCode: 1, timedOut: false} as typeof x.attempts[number]];
+  });
+  return {ctx, t, w};
+}
+
+test("cleanup keeps a resolved local task's worktree for messages within the retention window", async () => {
+  const {ctx, t, w} = await resolvedOpen(1);
+  await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(true);
+  expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: RECENT}]);
+  updateTask(ctx, t.id, x => {x.msgClosed = true;});
+  expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+  expect(existsSync(w.path)).toBe(false);
+});
+
+test("cleanup removes a resolved local task's worktree once its last activity is beyond the window", async () => {
+  const {ctx, t, w} = await resolvedOpen(8);
+  await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(false);
+});
+
+test("a recent message keeps the worktree; keep_worktree_days 0 turns the window off", async () => {
+  const {ctx, t, w} = await resolvedOpen(30);
+  const {insertMessage, markRead} = await import("../src/messaging/store");
+  const m = insertMessage(ctx, {taskId: t.id, rootId: `task:${t.id}`, from: `task:${t.id}`, to: "human", kind: "report", body: "done", replyTo: null, requestId: null}).message;
+  markRead(ctx, "human", [m.id]);
+  expect((await tasks.clean(ctx, {dryRun: true})).kept).toEqual([{id: t.id, reason: RECENT}]);
+  const off = await resolvedOpen(0, 0);
+  await tasks.autoCleanTask(off.ctx, off.t.id);
+  expect(existsSync(off.w.path)).toBe(false);
+  expect(existsSync(w.path)).toBe(true);
+});
+
+test("a pending message or open question keeps the worktree regardless of the window", async () => {
+  const {insertMessage} = await import("../src/messaging/store");
+  for (const question of [false, true]) {
+    const {ctx, t, w} = await resolvedOpen(30, 0);
+    insertMessage(ctx, question
+      ? {taskId: t.id, rootId: `task:${t.id}`, from: `task:${t.id}`, to: "human", kind: "question", body: "which?", replyTo: null, requestId: null}
+      : {taskId: t.id, rootId: `task:${t.id}`, from: "human", to: `task:${t.id}`, kind: "message", body: "also X", replyTo: null, requestId: null});
+    ctx.now += 60 * 86_400;
+    await tasks.autoCleanTask(ctx, t.id);
+    expect(existsSync(w.path)).toBe(true);
+    expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: AWAITING}]);
+    // --force ignores retention.
+    expect((await tasks.clean(ctx, {force: true})).removed).toEqual([t.id]);
+    expect(existsSync(w.path)).toBe(false);
+  }
+});
+
+test("tasks that can never take a message turn are cleaned at once", async () => {
+  for (const shape of ["orca", "remote", "no-headless"] as const) {
+    const {ctx, t, w} = await resolvedOpen(0);
+    updateTask(ctx, t.id, x => {
+      if (shape === "orca") x.result = {backend: "orca"} as typeof x.result;
+      if (shape === "remote") x.run = {...x.run!, host: "devbox"};
+      if (shape === "no-headless") { x.run = {...x.run!, executor: "cursor-agent"}; }
+    });
+    // A remote cleanup needs its host; the dry run shows retention no longer holds the worktree.
+    expect(await tasks.clean(ctx, {dryRun: true})).toEqual({removed: [t.id], kept: []});
+    if (shape === "remote") continue;
+    expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+    expect(existsSync(w.path)).toBe(false);
+  }
+});
+
+test("msg close releases a resolved task's retained worktree at once", async () => {
+  const {ctx, t, w} = await resolvedOpen(1);
+  await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(true);
+  const {callOp} = await import("../src/api/ops");
+  expect(await callOp(ctx, "msg.close", {task: t.id}, {appAuthenticated: true})).toEqual({task: t.id, closed: true});
+  expect(existsSync(w.path)).toBe(false);
+  expect(readTask(ctx, t.id)!.msgClosed).toBe(true);
+});
+
+test("a send to a task whose worktree was cleaned is refused up front", async () => {
+  const {ctx, t} = await resolvedOpen(1);
+  const {sendMessage} = await import("../src/messaging/send");
+  const {pendingFor} = await import("../src/messaging/store");
+  expect((await tasks.clean(ctx, {force: true})).removed).toEqual([t.id]);
+  const refused = await sendMessage(ctx, {to: `task:${t.id}`, body: "one more thing"}, {appAuthenticated: true, spawnRunner: () => 1}).catch(e => e);
+  expect(refused.data?.reason).toBe("msg_worktree_unavailable");
+  expect(refused.message).toContain("worktree was cleaned up");
+  expect(pendingFor(ctx, `task:${t.id}`)).toEqual([]);
+});
+
 test("service sweep retries cleanup, honours opt-out and never records kept reasons", async () => {
   const {ctx, t, w} = await finished({dirty: true});
   autoStrategy(ctx);

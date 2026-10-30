@@ -23,7 +23,7 @@ import type { Status } from "../../../src/view-model/words";
 import { Switch } from "../ds/Controls";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
-import { actionRoute, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
+import { actionError, actionRoute, visibleFailure, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
 
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
@@ -74,12 +74,14 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const strip = useRef<HTMLElement>(null);
   const model = snapshot && trayModel(snapshot, activity);
   const stripData = JSON.stringify(model?.executors);
-  const [error, setError] = useState("");
+  // A failure on a Needs you row belongs to that row: it clears once the row is gone.
+  const [failure, setFailure] = useState<{ message: string; item?: string } | null>(null);
+  const setError = (message: string) => setFailure(message ? { message } : null);
   const [busy, setBusy] = useState(false);
-  const act = (work: () => Promise<unknown>) => {
+  const act = (work: () => Promise<unknown>, item?: string) => {
     if (busy) return;
-    setBusy(true); setError("");
-    void work().catch(e => setError(e instanceof Error ? e.message : "Action failed")).finally(() => setBusy(false));
+    setBusy(true); setFailure(null);
+    void work().catch(e => setFailure({ message: actionError(e), item })).finally(() => setBusy(false));
   };
   useLayoutEffect(() => {
     const measure = () => {
@@ -184,6 +186,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const next = model?.queued[0];
   const nextExecutor = next?.executor ? agentInfo(runnerAgent(next.executor)).name : "executor";
   const machineWait = next?.queue ? machineWaitWords(next.queue)?.replace(/^Waiting: /, "") : undefined;
+  const error = visibleFailure(failure, model?.attention);
   const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{machineWait ? `${model.waiting} waiting · ${machineWait}` : `${model.waiting} waiting for a free ${nextExecutor} slot`}{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
@@ -213,7 +216,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
             leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<><strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong><span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
-            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
+            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc), item.id)}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}

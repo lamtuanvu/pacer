@@ -97,15 +97,19 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
       t.run = run; t.baseBranch = base; t.baseSha = baseSha; t.worktree = `${host.alias}:${worktree}`;
       t.placement = { ...t.placement, requested: t.placement?.requested ?? "auto", ...placement };
     });
+    // Remote hosts cannot reach the pacer service: swap the contract's local-only rules.
+    // Replace the last occurrence only, so identical text in the brief is left untouched.
+    const replaceLast = (text: string, from: string, to: string) => {
+      const at = text.lastIndexOf(from);
+      if (at < 0) throw new Error(`remote prompt: executor contract changed; missing ${JSON.stringify(from)}`);
+      return text.slice(0, at) + to + text.slice(at + from.length);
+    };
     let built = buildPrompt({ ...task.brief, repo: worktree }, task.id);
-    const askRule = 'run pacer ask "<one question>" once, then stop';
-    const askAt = built.lastIndexOf(askRule);
-    built = built.slice(0,askAt) + 'write your one question (1–1000 characters) verbatim to .pacer-question in the worktree, leave that file uncommitted, then stop' + built.slice(askAt + askRule.length);
-    const localRule = "- Do not commit, push, or change git branches.";
-    const contractAt = built.lastIndexOf(localRule);
-    const prompt = built.slice(0, contractAt)
-      + `- Work only on ${remoteBranch} and commit there; don't push or change git config; leave the worktree clean.`
-      + built.slice(contractAt + localRule.length);
+    built = replaceLast(built, 'run `pacer ask "<one question>"` and end your turn; the answer resumes this same session',
+      'write your one question (1–1000 characters) verbatim to .pacer-question in the worktree, leave that file uncommitted, then stop');
+    built = replaceLast(built, '\n- To send other messages, run `pacer msg send --to <participant> "<text>"` (your parent is the default reader of your final response). Your final response in each turn is delivered to your parent as your report.', "");
+    const prompt = replaceLast(built, "- Do not commit, push, or change git branches.",
+      `- Work only on ${remoteBranch} and commit there; don't push or change git config; leave the worktree clean.`);
     const runner = resolveRunner(s, cfg.id)!, env: Record<string, string> = { PACER_ROLE: "executor", PACER_TASK_ID: task.id };
     const home = host.accounts[runner.account ?? ""]?.home;
     if (home) env[runner.agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"] = home;

@@ -13,6 +13,7 @@ const ALLOWED: Record<string, string> = {
   "src/api/protocol": "protocol constants for the in-process client",
   "src/api/ops": "the in-process client used when the service is unavailable",
   "src/api/events": "the in-process client's live snapshot",
+  "src/messaging/participants": "the local human identity the in-process client acts as",
   "src/link/envelope": "the empty snapshot shown before the first read",
   "src/session/attach": "the terminal viewer for Watch here",
   "src/install/self": "the pacer argv for child CLI handoffs",

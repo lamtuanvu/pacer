@@ -2,12 +2,12 @@ import type { RunState } from "./run";
 import { type RunIO, Unreachable } from "./io";
 import type { InteractionMode } from "../tasks/types";
 
-export type SuperviseEnd = { kind: "reported" | "exited" | "timeout" | "stopped" | "idle" | "lost"; code: number };
+export type SuperviseEnd = { kind: "reported" | "exited" | "timeout" | "stopped" | "idle" | "asked" | "lost"; code: number };
 
 export async function supervise(o: {
   interactionMode?: InteractionMode;
   io: RunIO; unreachableGraceMs?: number; deadlineMs: number; isStopped: () => boolean; pollMs?: number; graceMs?: number;
-  now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle">;
+  now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle" | "asked">;
 }): Promise<SuperviseEnd> {
   const now = o.now ?? (() => Date.now()), sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms)), poll = o.pollMs ?? 2000;
   const stop = async (kind: SuperviseEnd["kind"]) => ({ kind, code: (await o.io.stop({ graceMs: o.graceMs ?? 5000, sleep })).code });
@@ -36,7 +36,9 @@ export async function supervise(o: {
     } else missing = 0;
     if (o.isStopped()) return stop("stopped");
     if (o.interactionMode !== "conversation" && now() >= o.deadlineMs) return stop("timeout");
-    if (o.onPoll && (await o.onPoll(s)) === "idle" && o.interactionMode !== "conversation") return stop("idle");
+    // "asked": a delegated executor asked its parent and ended its turn; the run ends so the task can wait for the answer.
+    const next = o.onPoll ? await o.onPoll(s) : "continue";
+    if (next !== "continue" && o.interactionMode !== "conversation") return stop(next);
     await sleep(poll);
   }
 }
