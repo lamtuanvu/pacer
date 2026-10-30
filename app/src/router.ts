@@ -135,6 +135,14 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   // Start and Overview merged into the Dispatch home; old Overview links keep their repo and scope.
   if (path === "/overview") return { redirect: withQuery("#/", query) };
+  // The native tray cannot send a query string: `/sessions/<id>/answer` opens the task with its answer box focused.
+  const answer = /^\/sessions\/([^/]+)\/answer$/.exec(path);
+  if (answer && decode(answer[1]!) !== null) {
+    const target = new URLSearchParams({ tab: "answer" });
+    if (query.repo !== null) target.set("repo", query.repo);
+    if (query.scope) target.set("scope", query.scope);
+    return { redirect: `#/tasks/${answer[1]}?${target}` };
+  }
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   const interactiveArea = interactiveEntry && (route.name === "dispatch" || route.name === "sessions");

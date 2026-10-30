@@ -30,6 +30,7 @@ import { persistTaskDiff } from "./diff";
 import { SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
+import { onRunEnded } from "../messaging/turns";
 import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -93,7 +94,8 @@ const DEFAULTS: RunnerDeps = {
  * Strict enforcement forces direct for both.
  */
 export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
-  return strict || (task.interactionMode === "conversation" && !task.interactive);
+  // A pending message turn resumes the native session headlessly in the task's own worktree.
+  return strict || !!task.pendingTurn || (task.interactionMode === "conversation" && !task.interactive);
 }
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
@@ -159,6 +161,8 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     if (ownership.claimed && getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
+    try { await onRunEnded({...ctx, now: Date.now()/1000}, id, deps.spawnRunner); }
+    catch (error) { console.warn(`pacer: message delivery after ${id} failed: ${error instanceof Error ? error.message : String(error)}`); }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await autoCleanTask(ctx, id);
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
