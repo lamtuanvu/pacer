@@ -64,7 +64,7 @@ for (const measured of [1, 3]) {
       const copy = await page.locator(".pc-insights__headline").textContent();
       expect(copy).toContain(`${measured} ${measured === 1 ? "attempt" : "attempts"} measured`);
       const captions = await page.locator(".pc-insights__caption").allTextContents();
-      expect(captions).toContain("Distinct roots and subtasks · attempts ended in this period");
+      expect(captions).toContain("A root task is what you or the planner asked for; subtasks are what it was split into.");
       expect(captions.some(text => text.includes("first settled"))).toBe(false);
     } finally { await page.close(); }
   });
@@ -86,7 +86,7 @@ for (const width of [375, 1440]) {
       for (let i = 1; i < labels.length; i++) expect(labels[i]!.left).toBeGreaterThanOrEqual(labels[i - 1]!.right);
       expect(await page.locator(".sr-only table tbody tr").count()).toBe(14);
       const buttons = await page.getByRole("group", { name: "Period" }).getByRole("button").evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().height));
-      expect(buttons.every(h => h === (width === 375 ? 44 : 32))).toBe(true);
+      expect(buttons.every(h => h === (width === 375 ? 44 : 30))).toBe(true);
       const group = await page.getByRole("group", { name: "Period" }).evaluate(n => ({ padding: getComputedStyle(n).padding, radius: getComputedStyle(n).borderRadius }));
       expect(group).toEqual({ padding: "3px", radius: "8px" });
       const matrix = page.locator(".pc-insights__heat");
@@ -121,3 +121,29 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) for (const s
     } finally { await page.close(); }
   });
 }
+
+browserTest("Insights retains board geometry and categorical fills in both schemes", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(String(server.url));
+    await page.locator(".pc-insights__step").first().waitFor();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      const measured = await page.evaluate(() => {
+        const css = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+        return {
+          gap: css(".pc-stack").gap, summary: css(".pc-insights__summary").backgroundColor,
+          planner: css(".pc-insights__planner").flexBasis, padding: css(".pc-insights__kpi").padding,
+          colors: [0, 1, 4].map(i => css(`.pc-insights__c${i}`).backgroundColor),
+          separation: css(".pc-insights__heat").borderSpacing, caption: css(".pc-insights__pair .pc-insights__caption").marginTop,
+          tile: css(".pc-insights__step").width, tileWeight: css(".pc-insights__step").fontWeight,
+          labelWeight: css(".pc-insights__rulehead>strong").fontWeight,
+          percentageWeight: css(".pc-insights__ladder li>strong").fontWeight,
+          exportWeight: css(".pc-insights__header>a.pc-btn").fontWeight,
+          exportLine: css(".pc-insights__header>a.pc-btn").lineHeight,
+        };
+      });
+      expect(measured).toEqual({ gap: "20px", summary: colorScheme === "dark" ? "rgb(24, 24, 27)" : "rgb(250, 250, 250)", planner: "320px", padding: "14px 16px", colors: ["rgb(79, 122, 148)", "rgb(192, 138, 106)", "rgb(185, 180, 168)"], separation: "4px", caption: "-8px", tile: "22px", tileWeight: "700", labelWeight: "600", percentageWeight: "600", exportWeight: "400", exportLine: "12px" });
+    }
+  } finally { await page.close(); }
+});

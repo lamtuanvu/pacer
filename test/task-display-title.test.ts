@@ -15,11 +15,11 @@ for (const [goal, expected] of [
   expect(taskTitle({ brief: { goal } })).toBe(expected);
   expect(displayTitle({ title: goal, goal })).toBe(expected);
 });
-test("derived labels clip at words without leaving brackets open", () => {
+test("full display labels retain the complete clause for CSS ellipsis", () => {
   const goal = "Repair the settings page and preserve the selected session (including every saved preference and scroll position)";
   const title = fullTaskTitle({ brief: { goal } });
-  expect(title).toBe("Repair the settings page and preserve the selected session…");
-  expect(title.length).toBeLessThanOrEqual(80);
+  expect(title).toBe(goal);
+  expect(title.length).toBeGreaterThan(80);
 });
 test("explicit JSON brief title is accepted", () => {
   expect(parseDelegateBrief({ title: "Custom task", goal: "# Raw goal", repo: "/repo" }, "/repo").title).toBe("Custom task");
@@ -41,7 +41,15 @@ test("nested link destinations disappear and explicit short titles remain", () =
 test("stored legacy raw prefixes are repaired on the service read path", () => {
   const goal = "# Strict design-fidelity audit (review all recent task changes and verify design alignment). Then test";
   const title = "# Strict design-fidelity audit (review all recent task…";
-  expect(fullTaskTitle({ title, brief: { goal } })).toBe("Strict design-fidelity audit…");
+  expect(fullTaskTitle({ title, brief: { goal } })).toBe("Strict design-fidelity audit (review all recent task changes and verify design alignment)");
   expect(taskTitle({ title, brief: { goal } })).toBe("Strict design-fidelity audit…");
-  expect(fullTaskTitle({ title: "Strict design-fidelity audit (review all recent task…", brief: { goal } })).toBe("Strict design-fidelity audit…");
+  expect(fullTaskTitle({ title: "Strict design-fidelity audit (review all recent task…", brief: { goal } })).toBe("Strict design-fidelity audit (review all recent task changes and verify design alignment)");
+});
+
+test("complete display labels redact absolute filesystem locations", () => {
+  expect(fullTaskTitle({ brief: { goal: "Fix the queue in /tmp/private/project and retain all pending work" } })).toBe("Fix the queue in project and retain all pending work");
+});
+
+test("full display titles preserve slash-separated prose and URLs", () => {
+  for (const title of ["Support TCP/IP and/or fallback", "Read https://example.com/guide", "Keep src/core/tasks.ts reachable"]) expect(fullTaskTitle({ title, brief: { goal: "Custom task" } })).toBe(title);
 });

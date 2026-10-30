@@ -27,7 +27,7 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     expect(await fix.getAttribute("class")).toContain("pc-btn--secondary pc-btn--sm");
     expect(await warning.locator(".ny-cap").evaluate(el => el.getBoundingClientRect().height)).toBe(16);
     await page.getByRole("tab", { name: /Questions/ }).click();
-    expect(await page.getByRole("link", { name: "Open in workspace", exact: true }).getAttribute("href")).toBe("#/tasks/question");
+    expect(await page.getByRole("link", { name: "Open in workspace", exact: true }).getAttribute("href")).toBe("#/workspace?task=question&panel=session");
     expect(await page.locator(".ny-item").count()).toBe(1);
     expect(await page.locator(".ny-content").getAttribute("href")).toBe("#/tasks/question");
     const answerLink = page.getByRole("link", { name: "Answer", exact: true });
@@ -56,7 +56,7 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     await page.getByRole("tab", { name: /Failed/ }).click();
     for (const link of await page.getByRole("link", { name: "Inspect failures", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/\/failure$/);
     await page.getByRole("tab", { name: /To review/ }).click();
-    for (const link of await page.getByRole("link", { name: "Open workspace", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/^#\/tasks\/[^/]+$/);
+    for (const link of await page.getByRole("link", { name: "Open workspace", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/^#\/workspace\?task=[^&]+$/);
     for (const link of await page.getByRole("link", { name: "Review", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/\/review$/);
   } finally { await browser.close(); await server.stop(); }
 }, 30000);

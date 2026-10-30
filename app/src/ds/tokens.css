@@ -60,6 +60,12 @@
   --aurora-blob-2: #48b3c4;
   --aurora-blob-3: #6a8ee0;
   --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -345,6 +351,12 @@
   --aurora-blob-2: #48b3c4;
   --aurora-blob-3: #6a8ee0;
   --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
 }
 }
 :root[data-theme="dark"] {
@@ -407,4 +419,10 @@
   --aurora-blob-2: #48b3c4;
   --aurora-blob-3: #6a8ee0;
   --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
 }

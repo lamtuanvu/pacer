@@ -30,7 +30,7 @@ function linkText(text: string): string {
 }
 
 /** Human-readable fallback for a brief without an explicit title. The execution goal stays intact. */
-export function goalTitle(goal: string): string {
+export function goalTitle(goal: string, compact = true): string {
   const lines = goal.slice(0, 4000).replace(/```[^\n]*\n[\s\S]*?(?:```|$)/g, "").split(/\r?\n/);
   for (const line of lines) {
     const plain = linkText(line)
@@ -44,7 +44,7 @@ export function goalTitle(goal: string): string {
     const sentence = balancedPrefix(plain.split(/[.!?](?:\s|$)/, 1)[0]!);
     if (!sentence) continue;
     const points = Array.from(sentence);
-    if (points.length <= 80) return sentence;
+    if (!compact || points.length <= 80) return sentence;
     const prefix = points.slice(0, 79).join("");
     const boundary = prefix.lastIndexOf(" ");
     return (balancedPrefix(boundary > 0 ? prefix.slice(0, boundary) : prefix) || "Task") + "…";

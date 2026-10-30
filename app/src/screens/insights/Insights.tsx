@@ -6,10 +6,8 @@ import { SearchPicker } from "../../ds/SearchPicker";
 import { Card, EmptyState, Skeleton, Page, SegmentedControl, Stack } from "../../ds/Patterns";
 import { ErrorMessage, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
-import { markAgent, runnerAgent } from "../../../../src/view-model/agents";
-import type { Account } from "../../model/accounts";
 import { withQuery, type RouteQuery } from "../../router";
-import { agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
+import { budgetOf, agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
 
 type Tone = "good" | "warn" | "bad";
 function Kpi({ label, value, delta, tone, note, unmeasured = false }: { unmeasured?: boolean; label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
@@ -26,14 +24,6 @@ const change = (now: number, before: number, up: "good" | "warn", unit = ""): { 
   return { delta: text, tone: diff === 0 ? undefined : better ? "good" : "warn" };
 };
 
-function budgetOf(agent: string, accounts: Account[] | undefined): { label: string; tone: "good" | "warn" | "bad" | "neutral" } {
-  const own = (accounts ?? []).filter(a => a.runners?.some(r => markAgent(r) === agent || runnerAgent(r) === agent));
-  const windows = own.flatMap(a => a.usageReading?.windows.map(w => ({ ...w, stale: !!a.usageReading?.stale })) ?? []);
-  if (!windows.length) return { label: "No usage reading", tone: "neutral" };
-  if (windows.every(w => w.stale)) return { label: "Stale reading", tone: "warn" };
-  const used = Math.max(...windows.map(w => w.usedPct ?? 0));
-  return { label: `${Math.round(used)}% used`, tone: used >= 97 ? "bad" : used >= 85 ? "warn" : "good" };
-}
 
 export function Insights({ query }: { query: RouteQuery }) {
   const [period, setPeriod] = useState<PeriodKey>("7d");
@@ -43,7 +33,6 @@ export function Insights({ query }: { query: RouteQuery }) {
   const repo = query.repo ? { repo: query.repo } : {};
   const result = useQuery<Summary>("insights.summary", { ...range, ...repo }, "", true);
   const series = useQuery<Summary>("insights.summary", { ...chart, ...repo }, "", true);
-  const accounts = useQuery<Account[]>("account.list", {});
   const { state } = useTaskContext();
   const busy = useDelayedBusy(result.updating || series.updating);
   const s = result.data;
@@ -66,13 +55,13 @@ export function Insights({ query }: { query: RouteQuery }) {
   const days = series.data ? bars(series.data.daily, agents, chart.from, CHART_DAYS, max) : [];
   const todayAt = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
-  return <Page width="full" aria-busy={busy || undefined} className={`pc-page--insights${busy ? " pc-query-refreshing" : ""}`}><Stack space="section">
+  return <Page width="full" aria-busy={busy || undefined} className={`pc-page--insights${busy ? " pc-query-refreshing" : ""}`}><Stack space="board">
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl variant="insights" label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
       <SearchPicker label={query.repo ? `Repo · ${repos.find(r => r.key === query.repo)?.label ?? query.repo}` : `All repos · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
         value={query.repo || null} onChange={goRepo} options={[{ value: null, label: "All repos" }, ...repos.map(r => ({ value: r.key, label: r.label, searchText: `${r.label} ${r.key}` }))]} />
-      {csv && s ? <ButtonLink href={csv} download={`pacer-insights-${new Date(s.from * 1000).toISOString().slice(0, 10)}.csv`}>Export CSV</ButtonLink> : <Button disabled>Export CSV</Button>}
+      {csv && s ? <ButtonLink typography="board" href={csv} download={`pacer-insights-${new Date(s.from * 1000).toISOString().slice(0, 10)}.csv`}>Export CSV</ButtonLink> : <Button disabled>Export CSV</Button>}
     </header>
     {result.error && <ErrorMessage error={result.error} />}
     {!s ? <Skeleton layout="dashboard" label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
@@ -104,10 +93,10 @@ export function Insights({ query }: { query: RouteQuery }) {
           <tbody>{days.map(d => <tr key={d.at}><th scope="row">{fullDay(d.at)}</th>{agents.map(a => <td key={a}>{compact(series.data!.daily.find(x => x.at === d.at)?.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></div>}
       </section>
       <section className="pc-insights__card pc-insights__card--flush" aria-labelledby="agents-h">
-        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">Distinct roots and subtasks · attempts ended in this period</span></div>
+        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><div className="pc-insights__cardhead pc-insights__cardhead--bar"><h2 id="agents-h">Agents, ranked by tokens</h2><span className="pc-insights__caption">A root task is what you or the planner asked for; subtasks are what it was split into.</span></div>
         <table className="pc-insights__table pc-insights__agents"><caption className="sr-only">Agents ranked by tokens</caption>
           <thead><tr><th scope="col">Agent</th><th scope="col">Root tasks</th><th scope="col">Subtasks</th><th scope="col">Attempts</th><th scope="col">Tokens</th><th scope="col">Share</th><th scope="col">Per task</th><th scope="col">Accepted</th><th scope="col">Budget</th></tr></thead>
-          <tbody>{s.spread.map(g => { const slot = agentSlot(g.agent), budget = budgetOf(g.agent, accounts.data), accept = g.acceptanceRate;
+          <tbody>{s.spread.map(g => { const slot = agentSlot(g.agent), budget = budgetOf(g.agent, state.snapshot), accept = g.acceptanceRate;
             return <tr key={g.agent}>
               <th scope="row"><span className="pc-insights__agent"><span className={`pc-insights__swatch ${slotClass(slot)}`} /><AgentMark agent={g.agent} size={24} labelled={false} /><span className="pc-insights__name"><strong>{label(g.agent)}</strong><span className="pc-insights__caption">Executor</span></span></span></th>
               <td>{g.rootTasks}</td><td>{g.subtasks}</td><td>{g.attempts}</td>
@@ -118,8 +107,8 @@ export function Insights({ query }: { query: RouteQuery }) {
               <td><Pill tone={budget.tone}>{budget.label}</Pill></td></tr>; })}</tbody></table></div>
       </section>
       <div className="pc-insights__pair">
-        <section className="pc-insights__card" aria-labelledby="kind-h"><h2 id="kind-h">Who got which kind of work</h2><span className="pc-insights__caption">Tasks by kind and agent · darker = more</span>
-          {s.kindByAgent.length ? <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Task kinds table, scrollable"><table className="pc-insights__table pc-insights__heat"><caption className="sr-only">Tasks by kind and agent</caption>
+        <section className="pc-insights__card" aria-labelledby="kind-h"><h2 id="kind-h">Who got which kind of work</h2><span className="pc-insights__caption">Subtasks by kind and agent · darker = more</span>
+          {s.kindByAgent.length ? <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Task kinds table, scrollable"><table className="pc-insights__table pc-insights__heat"><caption className="sr-only">Subtasks by kind and agent</caption>
             <thead><tr><td aria-hidden="true" />{agents.map(a => <th scope="col" key={a} aria-label={label(a)}><AgentMark agent={a} size={20} labelled={false} /></th>)}</tr></thead>
             <tbody>{s.kindByAgent.map(k => <tr key={k.kind}><th scope="row" title={k.kind}>{k.kind}</th>{agents.map(a => { const n = k.byAgent[a] ?? 0; return <td key={a} className={`pc-insights__cell pc-insights__cell--${n === 0 ? 0 : n < 4 ? 1 : n < 10 ? 2 : 3}`}>{n}</td>; })}</tr>)}</tbody></table></div>
             : <p className="pc-insights__caption">No attempts in this period.</p>}

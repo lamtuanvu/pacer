@@ -827,3 +827,12 @@ The frame fidelity variants keep ordinary DS controls unchanged: `Tabs variant="
 `useAnchoredMenu` is a narrow data-geometry adapter: it measures the anchor, popup and viewport, derives the gutter from CSS padding, flips above when needed and clamps left/top/max-height to the visible viewport. It updates on resize/scroll and ResizeObserver changes; it supplies no authored appearance dimensions. The source checker permits only its three exact measurement assignments. Terminal folder labels resolve task titles and repository labels; tooltips use those same public labels instead of absolute paths.
 
 Command counts inherit their tab colour; selected counts use .75 opacity. Other counts retain full opacity, and captions retain the accessible ink-muted token, because the board’s light muted colour and opacity can fail 4.5:1 on the lane background. The footer omits open-beside when no such destination is implemented (UI-13).
+
+### Dispatch and Insights fidelity variants
+
+- `Button` / `ButtonLink` accept `typography="board"`: 12px line height and regular secondary weight, retaining the active density, focus, disabled/busy semantics and keyboard behavior. Needs you row actions and Insights CSV use this variant.
+- `UsageMeter variant="board"` uses the line-colour 8px track and a pace marker extending 4px above/below it. Other meter sizes retain clipping and existing geometry. Dispatch planner cards consume this variant; meter accessibility and reduced-motion behavior are unchanged.
+- `Stack space="board"` owns the 20px board section gap. Insights uses it instead of overriding shared stack spacing.
+- `ListRow layout="attention"` owns the 12px attention padding in either desktop density. Dispatch attention cards use its existing sibling content/action slots and tone semantics.
+- `board-chart-1` through `board-chart-5` preserve the board's categorical fill colours across schemes. Dispatch token shares and Insights charts use these decorative tokens; adjacent text uses accessible ink tokens. Heatmap text retains accessible foregrounds rather than borrowing series colours.
+- `TextAction heading` is the inline 22px heading-row action used by narrow Dispatch's “All N” link. It retains anchor semantics, keyboard focus and the shared link colours, without the generic 44px touch line box expanding the board heading.
