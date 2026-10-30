@@ -220,7 +220,7 @@ test("parseDelegateBrief maps acceptance_pipefail onto brief.pipefail, off by de
 
 test("a retry keeps the original task's origin, whoever retries it", async () => {
   const ctx = fakeCtx();
-  const t = tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() }, origin: "human" }, () => 1, s);
+  const t = await tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() }, origin: "human" }, () => 1, s);
   // An unidentified local caller (empty env) retries it: the retry still belongs to the human.
   const r = await tasks.retry({ ...ctx, env: {} }, t.id, {}, { delegate: (c, input) => tasks.delegate(c, input, () => 1, s) });
   expect(readTask(ctx, r.retry.id)?.origin).toBe("human");

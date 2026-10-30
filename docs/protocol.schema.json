@@ -4992,6 +4992,138 @@
         "group": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+        },
+        "messaging": {
+          "type": "object",
+          "properties": {
+            "rules": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "deny"
+                    ]
+                  },
+                  "from_kind": {
+                    "type": "string",
+                    "enum": [
+                      "human",
+                      "external",
+                      "launched",
+                      "any"
+                    ]
+                  },
+                  "to_kind": {
+                    "type": "string",
+                    "enum": [
+                      "human",
+                      "external",
+                      "launched",
+                      "any"
+                    ]
+                  },
+                  "from_position": {
+                    "type": "string",
+                    "enum": [
+                      "top",
+                      "child",
+                      "any"
+                    ]
+                  },
+                  "relation": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "any"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "self",
+                            "parent",
+                            "child",
+                            "sibling",
+                            "descendant",
+                            "ancestor",
+                            "top_peer",
+                            "same_tree",
+                            "none"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "kinds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "message",
+                        "question",
+                        "answer",
+                        "report",
+                        "nudge",
+                        "close"
+                      ]
+                    }
+                  },
+                  "repo": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "executor": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "grant": {
+                    "type": "string",
+                    "enum": [
+                      "required",
+                      "not_required"
+                    ]
+                  },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "per_minute": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "max_bytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1048576
+                      },
+                      "confirm": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "effect"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "max_turns": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 10000
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
