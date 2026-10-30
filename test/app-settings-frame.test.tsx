@@ -148,7 +148,7 @@ test('Overview shows only real readiness and setup facts', () => {
   const down = { ...executor, state: 'down', eligibility:{...eligible,state:'ineligible',reasons:[{code:'subscription_missing'}]} };
   const stale = { ...executor, id: 'stale', stale: true };
   const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, down, stale], machine: { used: 0, max: 4 } } });
-  expect(html).toContain('1 of 3 agents can take work. 2 need you.');
+  expect(html).toContain('1 of 3 agents can take work. 1 needs you.');
   for (const title of ['Readiness', 'Current setup']) expect(html).toMatch(new RegExp(`<h2[^>]*>${title}</h2>`));
   for (const href of ['executors', 'dispatcher', 'planner', 'machine']) expect(html).toContain(`href="#/settings/${href}"`);
   expect(html).toContain('No active subscription');
@@ -224,7 +224,7 @@ test.skipIf(!browserPath)('settings_nav_tab_order_follows_groups', async () => {
     expect(order).toEqual(expected);
     expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('solid');
     expect(await page.locator('[aria-current="page"]').getAttribute('href')).toBe('#/settings/planner');
-    expect(await page.getByRole('navigation', { name: 'Settings' }).ariaSnapshot()).toContain('Budget & pacing');
+    expect(await page.getByRole('navigation', { name: 'Settings pages' }).ariaSnapshot()).toContain('Budget & pacing');
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -358,7 +358,7 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
         const nav = getComputedStyle(node), item = getComputedStyle(node.querySelector('.pc-settings-nav__item')!), heading = getComputedStyle(node.querySelector('.pc-settings-nav__heading')!), badge = getComputedStyle(node.querySelector('.pc-settings-nav__badge')!);
         return { padding: nav.padding, gap: nav.gap, height: item.height, radius: item.borderRadius, itemGap: item.gap, weight: item.fontWeight, headingSize: heading.fontSize, headingLine: heading.lineHeight, tracking: heading.letterSpacing, badgePadding: badge.padding, badgeWeight: badge.fontWeight };
       });
-      expect(styles).toEqual({ padding: '14px 10px', gap: '2px', height: '34px', radius: '8px', itemGap: '10px', weight: '600', headingSize: '11px', headingLine: '14px', tracking: '0.66px', badgePadding: '0px 7px', badgeWeight: '650' });
+      expect(styles).toEqual({ padding: '14px 10px', gap: '2px', height: '34px', radius: '8px', itemGap: '10px', weight: '600', headingSize: '11px', headingLine: '14px', tracking: '0.66px', badgePadding: '0px 7px', badgeWeight: '700' });
       // The retained SidePanel toggle must not cover the board back link.
       await page.getByRole('link', { name: 'Back to Dispatch' }).click({ trial: true });
       await page.getByRole('button', { name: 'Hide Settings' }).click({ trial: true });
@@ -549,4 +549,15 @@ test('Budget windows use pace only on matching windows and preserve individual f
   expect(html.match(/pc-meter--stale/g)).toHaveLength(1);
   expect(html).toContain('18% · pace 38%');
   expect(html).toContain('Stale reading');
+});
+
+test('Budget labels synthetic reactive zeroes and absent windows as unmeasured', () => {
+  const accounts = [
+    {name:'cursor',kind:'cursor',usageReading:{source:'reactive',stale:false,windows:[{name:'limit',usedPct:0,resetsAt:null}]}},
+    {name:'empty',kind:'codex',usageReading:{source:'session-log',stale:true,capturedAt:null,windows:[]}},
+  ];
+  const html=render(<SettingsGeneral section="planner" initialData={{...settings,accounts}}/>,{...state,snapshot:{...state.snapshot,accounts:[]}});
+  expect(html.match(/Usage unknown · No usage reported/g)).toHaveLength(2);
+  expect(html.match(/>No reading</g)).toHaveLength(2);
+  expect(html).not.toContain('>0%');
 });

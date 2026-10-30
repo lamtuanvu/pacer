@@ -8,7 +8,7 @@ export interface SettingStatus { tone: NonNullable<PillProps["tone"]>; label: st
 /** The single settings row grammar: label and description on the left, control on the right. */
 export function SettingRow({ label, description, status, children, variant, headingLevel, layout, controlId: explicitControlId }: {
   controlId?: string;
-  headingLevel?: 3; layout?: "stacked"; variant?: "board" | "budget"; label: ComponentChildren; description?: ComponentChildren; status?: SettingStatus; children: ComponentChildren;
+  headingLevel?: 3; layout?: "stacked" | "inline-help"; variant?: "board" | "budget"; label: ComponentChildren; description?: ComponentChildren; status?: SettingStatus; children: ComponentChildren;
 }) {
   const base = `setting-${useId()}`, labelId = `${base}-label`, descriptionId = description ? `${base}-description` : undefined;
   // A canonical form control takes the row label and description. Anything else (segmented groups, buttons,

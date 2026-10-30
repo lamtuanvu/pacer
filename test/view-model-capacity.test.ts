@@ -70,3 +70,18 @@ test("the machine cap reads hardCap and never shows the legacy unlimited max", (
  expect(queueWait(task,{...snapshot,machine:{used:4,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true}})).toBe('Waiting for parallel task capacity');
  expect(queueWait(task,{...snapshot,machine:{used:4,max:4,hardCap:4,unlimited:false}})).toBe('Waiting: this machine is running 4 of 4');
 });
+
+test('account pace requires a current measured budget window', async () => {
+  const { accountBudgetStatus } = await import('../src/view-model/capacity');
+  const account = {usedPct:20,spendUsdWeek:null,verdict:'ON_PACE',stale:false,capturedAt:900,resetsAt:200000} as any;
+  expect(accountBudgetStatus(account,1000).label).toBe('On pace');
+  for (const change of [{stale:true},{resetsAt:999},{eligibility:{budget:'unknown'}}]) {
+    const status=accountBudgetStatus({...account,...change},1000);
+    expect(status.label).toBe('Stale reading');
+    expect(status.tone).toBe('warn');
+    expect(status.glyph).toBe('!');
+  }
+  expect(accountBudgetStatus({...account,capturedAt:0},90000).label).toBe('Stale reading');
+  expect(accountBudgetStatus({...account,usedPct:null},1000).label).toBe('Usage unknown');
+  expect(accountBudgetStatus({...account,usedPct:0},1000).label).toBe('On pace');
+});

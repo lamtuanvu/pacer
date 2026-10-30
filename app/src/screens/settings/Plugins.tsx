@@ -10,7 +10,7 @@ import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
 
-import { pluginPresentation } from "./plugin-presentation";
+import { pluginPresentation, pluginIcon } from "./plugin-presentation";
 import { usePluginSettingsStyles } from "./plugin-styles";
 
 type EnableResult = { state: string; needs?: string[]; surfaces?: SurfaceKind[] };
@@ -42,10 +42,10 @@ export function PluginsSection() {
       const adds = additions(plugin), presentation = pluginPresentation(plugin);
       const errorId = `plugin-${plugin.id}-error`;
       return <li className="pc-settings-plugin" key={plugin.id}>
-        <span className="pc-settings-plugin__icon" aria-hidden="true"><Icon name="plugin" /></span>
+        <span className="pc-settings-plugin__icon" aria-hidden="true"><Icon name={pluginIcon(plugin.id, [])} /></span>
         <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{presentation.name}</b><span className="pc-settings-board__caption">{[plugin.version, plugin.publisher].filter(Boolean).join(" · ")}</span></div>
           {presentation.description && <span className="pc-settings-board__caption">{presentation.description}</span>}
-          {adds && <span className="pc-settings-board__caption">{adds}</span>}
+          {adds && !presentation.description && <span className="pc-settings-board__caption">{adds}</span>}
           {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}
         </div>
         <span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}</span>

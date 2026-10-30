@@ -12,7 +12,7 @@ export interface SegmentOption {
 export interface StripProps {
   label: string; id?: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
-  variant?: "board" | "insights" | "result" | "terminal"; describedBy?: string;
+  variant?: "board" | "insights" | "result" | "terminal" | "pills"; describedBy?: string;
 }
 export function tabStep(key: string, at: number, length: number): number | undefined {
   if (!length) return undefined;

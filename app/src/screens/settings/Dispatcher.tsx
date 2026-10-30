@@ -290,14 +290,15 @@ export function DispatcherOverview({view,repositoryChoices=false}:{view:Dispatch
 export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;initialData?:StrategyRow[]}) {
   const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
   const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
-  return <Section id="saved-profiles" title="Saved setups" detail="Describe the outcome in a planning session. Each saved setup keeps your planner, pacing and executor choices; repository choices stay when you switch."
+  return <Section id="saved-profiles" title="Saved setups" detail="A saved setup stores the default planner, pacing, global task-type choices, and choice method. Activating one switches those global settings together. Repository choices are not changed."
     actions={<><TextAction href="#saved-profiles" onClick={event => {event.preventDefault();const target=document.getElementById("saved-profiles");if(target){target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}}}>Switch setup</TextAction><Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>Create setup from a brief</Button></>}>
     <ResourceState resource={query} empty="No saved setups yet.">
       <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
         <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
-        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Use ${strategy.name}`} disabled={action.busy} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Use</Button>}</div>
+        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Activate ${strategy.name}`} disabled={action.busy} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Activate</Button>}</div>
       </div>)}</div>
     </ResourceState>
+    <p className="u3-muted">Create setup from a brief opens a planning session that drafts a setup from your description. Nothing is activated until you review it here.</p>
     {building&&<form className="pc-card" onSubmit={event=>{event.preventDefault();void action.run("strategy.build",{brief});}}>
       <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event=>setBrief(event.currentTarget.value)}/></Field>
       <div><Button type="submit" disabled={action.busy}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
@@ -416,12 +417,12 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     <span className="sr-only" role="status">{announcement}</span>
     <form className="dispatcher-preview-form pc-dispatcher-preview" onSubmit={event=>void submit(event)}>
       <div className="dispatcher-preview-row">
-        {repos.length?<Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
-        <Field label={<span className="sr-only">Task kind</span>}><TextInput value={kind} maxLength={256} placeholder="Any kind" onInput={event=>setKind(event.currentTarget.value)}/></Field>
-        <Field label={<span className="sr-only">Task</span>} error={goalError}><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/></Field>
-        <div className="dispatcher-preview-submit"><Button type="submit" variant="primary" busy={busy}>Preview</Button></div>
+        {repos.length?<ChoicePicker aria-label="Repository" className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/>:<p>Choose a repository from the repository picker before previewing.</p>}
+        <ChoicePicker aria-label="Task kind" value={kind} options={[{value:"",label:"Any kind"}, ...["tests","feature","debug","docs","review","refactor"].map(value=>({value,label:value}))]} onValueChange={setKind}/>
+        <TextInput aria-label="Task" aria-invalid={!!goalError} aria-describedby={goalError ? "dispatch-preview-goal-error" : undefined} value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/>
+        <div className="dispatcher-preview-submit"><Button type="submit" busy={busy}>Preview</Button></div>
       </div>
-
+      {goalError&&<p id="dispatch-preview-goal-error" className="pc-field__error" role="alert">{goalError}</p>}
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}

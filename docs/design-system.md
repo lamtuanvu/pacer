@@ -836,3 +836,22 @@ Command counts inherit their tab colour; selected counts use .75 opacity. Other 
 - `ListRow layout="attention"` owns the 12px attention padding in either desktop density. Dispatch attention cards use its existing sibling content/action slots and tone semantics.
 - `board-chart-1` through `board-chart-5` preserve the board's categorical fill colours across schemes. Dispatch token shares and Insights charts use these decorative tokens; adjacent text uses accessible ink tokens. Heatmap text retains accessible foregrounds rather than borrowing series colours.
 - `TextAction heading` is the inline 22px heading-row action used by narrow Dispatch's “All N” link. It retains anchor semantics, keyboard focus and the shared link colours, without the generic 44px touch line box expanding the board heading.
+
+### Settings board fidelity variants
+
+`IconButton` accepts `geometry="board"` for a 28×28 desktop control with 6px
+corners and an unshrinking 16px glyph. Coarse pointers and narrow screens retain
+44px targets. Agent details, executor pools and ActionMenu use this variant.
+`Tabs variant="pills"` retains tab roles, arrow-key navigation and panel ownership
+while drawing outlined 28px pills. Other tabs retain their underline treatment.
+`SortableList layout="executor"` adds the bordered, padded executor list and an
+end-of-list drag guide; only keyed executor rows participate in reorder geometry.
+The Move up/down and Remove buttons use SVG icons and preserve accessible names.
+
+`TextAction size="caption"` provides a 12/16 standalone action for release notes.
+`SettingRow layout="inline-help"` places number controls and capacity help on one
+line beneath the label. `Field emphasis="strong"` gives the remote-host name step
+a bold label. Agent choice cards and wizard steps own auto-height geometry and
+body typography independently of shared button density. The Agents column layout
+places the details aside beside the entire page, with no compounded gutter.
+These are original project variants; upstream provenance and licenses are unchanged.

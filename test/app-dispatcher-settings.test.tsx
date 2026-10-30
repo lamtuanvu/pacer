@@ -158,11 +158,11 @@ test("route results group choice and matched step in a band and distinguish excl
   expect(queued).not.toContain('Would go to');
 });
 
-test("saved setup rows retain explicit Use actions and mark the active row", () => {
+test("saved setup rows retain explicit Activate actions and mark the active row", () => {
   const rows=[{name:"daily",summary:"Everyday work",active:true},{name:"other",summary:"Other work",active:false}];
   const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
   expect(html).toContain('pc-saved-setups__row--active');
-  expect(html).toContain('aria-label="Use other"');
+  expect(html).toContain('aria-label="Activate other"');
   expect(html).toContain('pc-setup-icon');
 });
 
