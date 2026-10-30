@@ -40,7 +40,9 @@ before forwarding, so a failed or uncertain request cannot be retried; start a
 new sandbox for another attempt. The service still checks its normal session
 authentication. The ordinary D8 refusal below remains in force for every other
 `plugin.remove` request. After removal, confirm the response, absent folder and
-absent plugin list entry, then record the result in the live report.
+absent plugin list entry, then record the result in the live report. The
+`updater`, `repair` and Codex integration repair fixtures, and shells without a
+folder, still require `--seed ui`.
 
 All seed files are written under the sandbox's `home/`. In this mode only, `HOME` and tool config directories also point there. Synthetic account logs and empty login markers replace native account state. Status-only `launchctl`/`systemctl` stubs satisfy the setup check and refuse mutations; executor stubs refuse execution, so new work submitted there (`delegate`, `dispatch submit`) stays queued, waiting to retry its version check. These represent fixture readiness, not an installed service or authenticated accounts. The running tasks have no executor process, child PID or resumable run; PID 1 is used only as a liveness sentinel, never as a signal target. Use an unseeded sandbox for real executor validation. D3 and D8 still apply.
 

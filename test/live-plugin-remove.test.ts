@@ -56,6 +56,19 @@ test("the seeded D8 exception removes only its exact fixture, once, through the 
     renameSync(saved, strategy);
     expect(ownedRemovalTree(session.root)).toBe(true);
 
+    // Session incarnation, header and body checks, called directly so no claim can be consumed.
+    const direct = (overrides: Record<string, string> = {}, body = JSON.stringify({ id: REMOVE_FIXTURE_ID })) =>
+      new Request(`${base}/v3/ops/plugin.remove`, { method: "POST", headers: { ...headers, ...overrides }, body });
+    for (const changed of [
+      { ...session, stopped: true }, { ...session, root: join(session.root, "home") },
+      { ...session, innerPort: session.port }, { ...session, pid: process.pid, serviceIdentity: undefined },
+    ] as Session[]) expect(await authorizeSeedPluginRemove(changed, direct())).toBe(false);
+    for (const [overrides, body] of [
+      [{ "X-Pacer-Client": "cli" }, undefined], [{ "Content-Type": "text/plain" }, undefined],
+      [{}, JSON.stringify({ id: REMOVE_FIXTURE_ID }) + " ".repeat(300)], [{}, "not json"],
+    ] as [Record<string, string>, string | undefined][]) expect(await authorizeSeedPluginRemove(session, direct(overrides, body))).toBe(false);
+    expect(existsSync(join(session.root, "plugin-remove.claimed"))).toBe(false);
+
     const response = await remove(REMOVE_FIXTURE_ID);
     expect(response.status).toBe(200);
     expect((await response.json()).result).toEqual({ id: REMOVE_FIXTURE_ID, removed: true });

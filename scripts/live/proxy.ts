@@ -57,7 +57,7 @@ export function safeTerminalFolder(root: string, cwd: unknown): boolean {
 
 /**
  * A shell with no folder starts in the service's home. A ui-seeded sandbox sets HOME to its own `home/` (sandboxEnv),
- * so that default stays disposable; any other sandbox keeps the caller's HOME and must name a folder.
+ * so that default stays disposable. Any other sandbox, including the single-purpose plugin-remove seed, must name a folder.
  */
 export function safeShellCreate(session: Pick<Session, "root" | "seed">, body: Record<string, unknown> | null): boolean {
   if (body?.kind !== "shell") return false;
