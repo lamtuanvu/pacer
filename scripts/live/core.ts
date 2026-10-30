@@ -94,9 +94,16 @@ export function sourceServiceMatchesExecutable(observed: string | null, session:
 export function validateFrontDoor(frontDoor: string | undefined): void {
   if (frontDoor !== undefined && frontDoor !== "rust") throw Error(`Unknown front door: ${frontDoor} (expected rust)`);
 }
+/** Inherited PACER_* settings that only change presentation or diagnostics, never identity or authority. */
+export const SANDBOX_PASSTHROUGH = ["PACER_THEME", "PACER_COLOR", "PACER_ASCII", "PACER_PLAIN", "PACER_NO_ANIM", "PACER_LOGIN_ENV", "PACER_TRACE_STATUS"];
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
+  // The sandbox sets every PACER_* value it needs. Other inherited ones, such as an executor's
+  // PACER_ROLE, task id, work grant or tokens, would make the sandbox act as that session, so they
+  // are dropped unless they are display or diagnostic settings. PACER (no underscore, e.g. PACER=off)
+  // is policy rather than identity and is intentionally kept.
+  const outside = Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.startsWith("PACER_") || SANDBOX_PASSTHROUGH.includes(key)));
   return {
-    ...inherited,
+    ...outside,
     ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),

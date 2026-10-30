@@ -3899,6 +3899,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///    "key": {
 ///      "type": "string",
 ///      "enum": [
+///        "execution.auto_clean",
 ///        "task_retention_days",
 ///        "execution.local_max_tasks",
 ///        "execution.local_memory_pressure_limit",
@@ -4019,6 +4020,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///{
 ///  "type": "string",
 ///  "enum": [
+///    "execution.auto_clean",
 ///    "task_retention_days",
 ///    "execution.local_max_tasks",
 ///    "execution.local_memory_pressure_limit",
@@ -4053,6 +4055,8 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
     PartialOrd,
 )]
 pub enum ConfigSetParamsKey {
+    #[serde(rename = "execution.auto_clean")]
+    ExecutionAutoClean,
     #[serde(rename = "task_retention_days")]
     TaskRetentionDays,
     #[serde(rename = "execution.local_max_tasks")]
@@ -4096,6 +4100,7 @@ impl ::std::convert::From<&Self> for ConfigSetParamsKey {
 impl ::std::fmt::Display for ConfigSetParamsKey {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
+            Self::ExecutionAutoClean => f.write_str("execution.auto_clean"),
             Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
             Self::ExecutionLocalMemoryPressureLimit => {
@@ -4122,6 +4127,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
+            "execution.auto_clean" => Ok(Self::ExecutionAutoClean),
             "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
             "execution.local_memory_pressure_limit" => Ok(Self::ExecutionLocalMemoryPressureLimit),
@@ -11729,6 +11735,37 @@ impl<'de> ::serde::Deserialize<'de> for RunnerUnblockParamsId {
             })
     }
 }
+///`ServiceHandoverParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "wait_s": {
+///      "type": "integer",
+///      "maximum": 60.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceHandoverParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub wait_s: ::std::option::Option<i64>,
+}
+impl ::std::default::Default for ServiceHandoverParams {
+    fn default() -> Self {
+        Self {
+            wait_s: Default::default(),
+        }
+    }
+}
 ///`ServiceInstallParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11769,6 +11806,25 @@ pub struct ServiceInstallParams {
 #[serde(deny_unknown_fields)]
 pub struct ServiceStatusParams {}
 impl ::std::default::Default for ServiceStatusParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`ServiceWorkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceWorkParams {}
+impl ::std::default::Default for ServiceWorkParams {
     fn default() -> Self {
         Self {}
     }

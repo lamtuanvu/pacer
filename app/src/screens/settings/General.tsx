@@ -19,6 +19,7 @@ import { MachineSection } from "./Machines";
 export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
+import { PairingView } from "./Pairing";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
@@ -103,8 +104,11 @@ export interface SettingsData {
     checkedAt?: number;
   };
 }
-/** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
-const DISPATCH_NOTE = new Set(["accounts", "machine", "hosts", "dispatcher"]);
+/** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
+export function settingsNote(section: string | undefined): string | null {
+  if (section === "machine") return "Task limits and launch settings apply on the next routing decision. Discovery changes apply right away.";
+  return ["accounts", "hosts", "dispatcher"].includes(section ?? "") ? "Changes apply on the next routing decision." : null;
+}
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
   section,
@@ -136,6 +140,9 @@ export function SettingsGeneral({
       if (alias) return <DensityContext.Provider value="settings"><HostDetail key={alias} alias={alias} /></DensityContext.Provider>;
       content = <MachineSection initialData={initialData.config} />;
       break;
+    case "pairing":
+      content = <PairingView />;
+      break;
     case "add-executor":
       content = <AddExecutor host={host} />;
       break;
@@ -157,6 +164,7 @@ export function SettingsGeneral({
     default:
       content = <GeneralOverview query={query} initialData={initialData} />;
   }
+  const note = settingsNote(section);
   return (
     <DensityContext.Provider value="settings">
       <SettingsPageContext.Provider
@@ -166,11 +174,7 @@ export function SettingsGeneral({
         <Page width="full" className="u3-settings u3-settings-page">
           {section === "dispatcher" && <h1>Dispatcher</h1>}
           <div className="u3-general-sections">{content}</div>
-          {DISPATCH_NOTE.has(section ?? "") && (
-            <p className="u3-settings-note">
-              Changes apply on the next routing decision.
-            </p>
-          )}
+          {note && <p className="u3-settings-note">{note}</p>}
         </Page>
         </SettingsQueryContext.Provider>
       </SettingsPageContext.Provider>

@@ -4,6 +4,7 @@ import { verifyDesktopExecutable } from "../release/desktop";
 import { join } from "node:path";
 import type { NativeProcess } from "../../src/update/desktop/native-os";
 import { sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 export interface PairedAdoptionInput {
   appPath: string; ownerUid: number; arch: "aarch64" | "x86_64";
   branch: "managed" | "original"; service: ProcessIdentity; metadata: unknown;
@@ -12,7 +13,7 @@ const refuse = (): never => { throw Error("Exact paired adoption participants ar
 const identity = (value: ProcessIdentity) => Number.isSafeInteger(value.pid) && value.pid > 0 && typeof value.birth === "string" && value.birth.length > 0 && typeof value.bootId === "string" && value.bootId.length > 0;
 function validateMetadata(metadata: unknown, arch: "aarch64" | "x86_64"): void {
   const m = metadata as Record<string, unknown> | null;
-  if (!m || m.schema !== 1 || m.bundleId !== "dev.pacer.desktop" || m.version !== "0.2.4" || m.arch !== arch || m.cliLayout !== "paired" ||
+  if (!m || m.schema !== 1 || m.bundleId !== FIXTURE_IDENTIFIERS.desktop || m.version !== "0.2.4" || m.arch !== arch || m.cliLayout !== "paired" ||
       m.admissionProtocol !== 1 || m.nativeTransportAbi !== 1 || m.rollbackCompatible !== true || !Array.isArray(m.protocolMajors) || !m.protocolMajors.includes(3) ||
       !m.protocolMajors.every(major => Number.isSafeInteger(major) && major > 0)) refuse();
 }

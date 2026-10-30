@@ -5,9 +5,11 @@ import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidenc
 import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
+import { executorRefusal } from "./guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
+import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
@@ -27,6 +29,8 @@ const usage = `usage: bun run live <command> [--id <id>]
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
+  upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
+                                  service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -39,7 +43,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   status                          list sandboxes (or select --id)
   down [--keep]                   stop processes; --keep preserves evidence`;
 
-export async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [command, ...rest] = argv;
   if (!command || command === "--help" || command === "help") { console.log(usage); return 0; }
   if (CONTROL_COMMANDS.has(command) || command === "scenario") return controlMain(argv);
@@ -50,7 +54,7 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -105,6 +109,31 @@ export async function main(argv: string[]): Promise<number> {
     else throw Error("Unsupported OTA action");
     return 0;
   }
+  if (command === "upgrade") {
+    const action = positionals[0];
+    if (!id || positionals.length !== 1 || flags.size) throw Error("usage: live upgrade build|start|pacer|login [--screen <screen>]|fail-handover|install|kickstart|identity|cleanup --id <id>");
+    const allowed = action === "start" ? ["--id", "--from"] : action === "identity" ? ["--id", "--task", "--terminal"] : action === "login" ? ["--id", "--screen"] : ["--id"];
+    if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported upgrade option");
+    if (action !== "pacer" && separator >= 0) throw Error("Forwarded arguments require live upgrade pacer");
+    const session = loadSession(id);
+    if (action === "build") await buildUpgradeFixtures(session);
+    else if (action === "start") {
+      const from = options.get("--from");
+      if (!from || !Object.hasOwn(UPGRADE_BUILDS, from)) throw Error("live upgrade start needs --from prefeature|baseline|candidate");
+      await startUpgradeService(session, from as UpgradeBuild);
+    } else if (action === "pacer" || action === "install") {
+      if (action === "pacer" && (separator < 0 || !forwarded.length)) throw Error("usage: live upgrade pacer --id <id> -- <args...>");
+      const result = action === "pacer" ? await upgradePacer(session, forwarded) : await upgradeInstall(session);
+      process.stdout.write(result.stdout); process.stderr.write(result.stderr);
+      return result.code;
+    } else if (action === "login") console.log((await upgradeLogin(session, options.get("--screen"))).stdout.trim());
+    else if (action === "fail-handover") console.log(forceUpgradeHandoverFailure(session));
+    else if (action === "kickstart") await kickstartUpgradeService(session);
+    else if (action === "identity") console.log(JSON.stringify(upgradeIdentity(session, options.get("--task"), options.get("--terminal")), null, 2));
+    else if (action === "cleanup") await cleanupUpgrade(session);
+    else throw Error("Unsupported upgrade action");
+    return 0;
+  }
   if (command === "integrations") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live integrations --id <id>");
     await exerciseIntegrations(loadSession(id));
@@ -120,6 +149,12 @@ export async function main(argv: string[]): Promise<number> {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
     await exerciseUpdater(loadSession(id));
     return 0;
+  }
+  // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.
+  const reason = command === "pacer" ? executorRefusal(forwarded, outer) : undefined;
+  if (reason) {
+    console.error(`Live validation guard refused: ${reason}`);
+    return 3;
   }
   const session = loadSession(id);
   const env = sandboxEnv(session);

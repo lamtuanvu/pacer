@@ -1268,6 +1268,7 @@
         "key": {
           "type": "string",
           "enum": [
+            "execution.auto_clean",
             "task_retention_days",
             "execution.local_max_tasks",
             "execution.local_memory_pressure_limit",
@@ -1683,6 +1684,84 @@
       ],
       "additionalProperties": false
     },
+    "DiscoveryListParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "DiscoveryNetworkGetParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "DiscoveryNetworkSetParams": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "advertise": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "resetId": {
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "network",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DiscoveryRespondParams": {
+      "type": "object",
+      "properties": {
+        "discoveryId": {
+          "type": "string",
+          "pattern": "^[a-z2-7]{26}$"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "pair",
+            "later",
+            "ignore",
+            "mute-network"
+          ]
+        }
+      },
+      "required": [
+        "discoveryId",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "DiscoverySetParams": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
     "DispatchAnalyticsParams": {
       "type": "object",
       "properties": {
@@ -1749,6 +1828,11 @@
         "acceptance": {
           "type": "string",
           "maxLength": 20000
+        },
+        "acceptance_timeout_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
         },
         "context": {
           "type": "string",
@@ -2540,6 +2624,11 @@
         "acceptance": {
           "type": "string",
           "maxLength": 20000
+        },
+        "acceptance_timeout_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
         },
         "context": {
           "type": "string",
@@ -4052,6 +4141,17 @@
       ],
       "additionalProperties": false
     },
+    "ServiceHandoverParams": {
+      "type": "object",
+      "properties": {
+        "wait_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        }
+      },
+      "additionalProperties": false
+    },
     "ServiceInstallParams": {
       "type": "object",
       "properties": {
@@ -4066,6 +4166,11 @@
       "additionalProperties": false
     },
     "ServiceStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ServiceWorkParams": {
       "type": "object",
       "properties": {},
       "additionalProperties": false
@@ -4648,6 +4753,11 @@
         },
         "acceptance_pipefail": {
           "type": "boolean"
+        },
+        "acceptance_timeout_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
         },
         "constraints": {
           "type": "string"

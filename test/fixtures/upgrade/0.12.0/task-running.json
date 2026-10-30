@@ -1,0 +1,26 @@
+{
+  "rev": 2,
+  "id": "t-20261029-174141-fef2",
+  "createdAt": 1793295701,
+  "brief": {
+    "goal": "fixture",
+    "repo": "$SCRATCH/repo"
+  },
+  "kind": null,
+  "requestedExecutor": "codex",
+  "timeoutS": 600,
+  "state": "running",
+  "attempts": [],
+  "executor": "codex",
+  "runnerPid": 4194303,
+  "attemptStartedAt": 1793295701,
+  "run": {
+    "dir": "$HOME/.pacer/runs/t-20261029-000000-aaaa/1",
+    "attempt": 1,
+    "executor": "codex",
+    "startedAt": 1793295701,
+    "mode": "current",
+    "workdir": "$SCRATCH/repo",
+    "logFile": "$HOME/.pacer/tasks/t-20261029-174141-fef2.codex.log"
+  }
+}

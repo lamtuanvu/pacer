@@ -1,3 +1,4 @@
+import { autoCleanSweep } from "../core/tasks";
 import { backfillFirstSettled } from "../insights/summary";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
@@ -17,6 +18,9 @@ import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
 import { shutdownPlugins } from "../plugins";
+import { triggerHandover } from "../tasks/handover-service";
+import { recoverFixtureHandover } from "../service/upgrade";
+import { compiledNativeFixture } from "../update/desktop/native-fixture";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, upgradeTerminal, type SessionWS } from "./session-ws";
 import { isExecutorSession } from "../install/role";
@@ -39,6 +43,8 @@ import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
+/** Upper bound for one batch of LAN observations from the radio. */
+const DISCOVERY_BODY_MAX = 256 * 1024;
 
 export function ensureToken(ctx: Ctx): string {
   const p = join(ctx.pacerHome, "token");
@@ -60,7 +66,8 @@ export function startServer(
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
-  recoverJobs(initialCtx);
+  recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
+    async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
   // History gets its token index in the background; it reads logs and writes only attempt_usage.
   try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
   void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
@@ -161,6 +168,22 @@ export function startServer(
           const params = new URL(req.url).searchParams;
           const status = Number(params.get("status") ?? 200);
           return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
+        }
+        // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
+        if (pathname === "/_internal/discovery/config" && req.method === "POST") {
+          const { buildRadioConfig } = await import("../discovery/radio");
+          return Response.json(await buildRadioConfig(getCtx()));
+        }
+        if (pathname === "/_internal/discovery/observed" && req.method === "POST") {
+          if (Number(req.headers.get("content-length") ?? 0) > DISCOVERY_BODY_MAX) return new Response("too large\n", { status: 413 });
+          const text = await req.text().catch(() => "");
+          if (Buffer.byteLength(text, "utf8") > DISCOVERY_BODY_MAX) return new Response("too large\n", { status: 413 });
+          let body: { observations?: unknown } | null = null;
+          try { body = JSON.parse(text); } catch {}
+          const batch = Array.isArray(body?.observations) ? body.observations : [];
+          // The network from the radio's last config pull, so each poll probes the network once (N4).
+          const { radioNetwork, recordObservations } = await import("../discovery/radio");
+          return Response.json(await recordObservations(getCtx(), batch, { network: radioNetwork() }));
         }
       } else {
         if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
@@ -263,6 +286,18 @@ export function startServer(
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
+  let cleaning = false;
+  const sweep = () => {
+    if (stopped || cleaning) return;
+    cleaning = true;
+    void Promise.resolve().then(async () => {
+      const ctx = getCtx();
+      await autoCleanSweep(ctx);
+    }).catch(error => console.warn(`pacer: automatic cleanup failed: ${String(error)}`))
+      .finally(() => { cleaning = false; });
+  };
+  const cleanStart = setTimeout(sweep, 0);
+  const cleanTimer = setInterval(sweep, 60 * 60_000);
   const retention = retentionScheduler();
   const prune = () => {
     if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
@@ -308,6 +343,8 @@ export function startServer(
     readCache.stop();
     unregisterJobs();
     stopped = true;
+    clearTimeout(cleanStart);
+    clearInterval(cleanTimer);
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);

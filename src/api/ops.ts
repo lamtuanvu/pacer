@@ -1,3 +1,7 @@
+import { isUpgradeOperation, UPGRADE_REFUSAL } from "./caller-policy";
+import { triggerHandover } from "../tasks/handover-service";
+import { runningWork, workCounts } from "../service/running-work";
+import { restartAfterUpdate } from "../service";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { sshSuggestions } from "../remote/ssh-config";
@@ -44,6 +48,7 @@ import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
+import { discoveryOps } from "./ops-discovery";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -142,7 +147,7 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
   }
 }
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
-  const update = {...defaultUpdateDeps(ctx), ...deps.update};
+  const update = {...defaultUpdateDeps(ctx), restartService: async (path: string) => ({restarted: await restartAfterUpdate(ctx, path)}), ...deps.update};
   // Reuse the CLI's install-method checks without letting it replace the daemon
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
@@ -219,7 +224,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps,
+ ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -341,6 +346,18 @@ export const OPS: Record<string, OpDef> = {
   "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
+  "service.handover": op({ description: "After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.", params: z.object({wait_s: z.number().int().min(0).max(60).optional()}), handler: async (ctx, p) => {
+    const fixture = (await import("../update/desktop/native-fixture")).compiledNativeFixture();
+    const r = await (await import("../service/upgrade")).recoverFixtureHandover(ctx.pacerHome, fixture,
+      () => triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000}));
+    return {pacer: r.pacer, tasks: r.tasks, sessions: r.sessions, handed_over: r.handedOver, kept_on_previous_runner: r.keptOnPreviousRunner, summary: r.summary};
+  } }),
+  "service.work": op({ description: "Running tasks and live sessions with their runner and host versions, and the sessions that need Reopen to update. Versions and counts only, never paths.", params: z.object({}), handler: async ctx => {
+    const w = await runningWork(ctx), c = workCounts(w);
+    return {pacer: w.pacer, tasks: w.tasks.map(t => ({task_id: t.taskId, runner_pacer: t.runnerPacer, older: t.older})),
+      sessions: w.sessions.map(s => ({kind: s.kind, id: s.id, pacer: s.pacer, older: s.older, reopen_to_update: s.reopenToUpdate})),
+      counts: {tasks: c.tasks, sessions: c.sessions, older_runners: c.olderRunners, older_sessions: c.olderSessions, reopen_to_update: c.reopenToUpdate}};
+  } }),
   "plugin.install": op({ description: "Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.", params: z.object({}), handler: () => setup.pluginInstall() }),
   "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
   "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
@@ -454,17 +471,19 @@ export const OPS: Record<string, OpDef> = {
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
   "attention.snooze": op({ description: "Snooze a raised attention item.", params: z.object({id:z.string().min(1).max(256),for:z.enum(["1h","4h","1d"])}), handler: (ctx,p) => attention.snooze(ctx,p.id,p.for) }),
-  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
+  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: async (ctx, p) => {
     const dismissed: string[] = [], unknown: string[] = [];
+    let pending: ReturnType<typeof core.tasks.dismiss> | undefined;
     // Lock in a stable order and check every revision before dismissing any task.
     const ids = [...new Set<string>(p.ids)].sort();
     const locked = (index: number): void => {
       if (index < ids.length) { withTaskLock(ctx, ids[index]!, () => locked(index + 1)); return; }
       for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(ctx, t, p.expect_rev); }
-      const r = core.tasks.dismiss(ctx, p.ids);
-      dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
+      pending = core.tasks.dismiss(ctx, p.ids);
     };
     locked(0);
+    const r = await pending!;
+    dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
     return { dismissed, unknown };
   } }),
   "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
@@ -503,8 +522,8 @@ export const OPS: Record<string, OpDef> = {
   "dispatch.explain": op({ description: "Explain, read-only, which executor a request would go to: task.delegate ranking (via: delegate, the default) or dispatch.submit/child ladder (via: dispatch), the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.", params: explainInputSchema, handler: (ctx, p) => explainDispatch(ctx, p) }),
   "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
   "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
-  "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
-  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),
+  "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await submitWork(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
   "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
   "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),
@@ -561,6 +580,7 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 }
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
+  if (isUpgradeOperation(name) && isExecutorSession(ctx)) throw new CoreError("not_allowed", UPGRADE_REFUSAL);
   authorizeWorkOperation(ctx,name,params);
   // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
   if (name.startsWith("assistant.") && isExecutorSession(ctx)) throw new CoreError("not_allowed", "PACER_ROLE=executor: executors cannot use the assistant or read its history.");

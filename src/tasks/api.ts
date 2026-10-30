@@ -1,4 +1,6 @@
-import { registerWork, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { dispatchDatabase } from "../dispatch/store";
+import { revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync } from "../update/desktop/admission";
 import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
@@ -43,7 +45,7 @@ export const delegateSchema = {
   base: z.string().min(1).max(4096).refine(validBase, "base must be a branch name or a 7–40 hex SHA").optional(),
   source: z.enum(["planner", "ui", "cli"]).optional(),
   goal: z.string().min(1), repo: z.string().min(1),
-  scope: z.string().optional(), acceptance: z.string().optional(), acceptance_pipefail: z.boolean().optional(), constraints: z.string().optional(), context: z.string().optional(),
+  scope: z.string().optional(), acceptance: z.string().optional(), acceptance_pipefail: z.boolean().optional(), acceptance_timeout_min: z.number().int().min(1).max(120).optional(), constraints: z.string().optional(), context: z.string().optional(),
   kind: z.enum(KINDS).optional(), executor: z.string().optional(),
   worktree_base: z.enum(["default", "head"]).optional(),
   worktree: z.enum(["current", "new", "auto"]).optional(), worktree_reason: z.string().max(200).optional(),
@@ -55,7 +57,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
     interactive:a.interactive, group:a.group };
@@ -127,6 +129,7 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   if (!b.repo || !isAbsolute(b.repo)) p.push("repo must be an absolute path");
   // Serve validates the folder with a bounded async stat first; never stat a repo on its main thread.
   else if (!input.repoValidated && (!existsSync(b.repo) || !statSync(b.repo).isDirectory())) p.push(`repo does not exist: ${b.repo}`);
+  if (b.acceptanceTimeoutMin !== undefined && (!Number.isInteger(b.acceptanceTimeoutMin) || b.acceptanceTimeoutMin < 1 || b.acceptanceTimeoutMin > 120)) p.push("acceptance_timeout_min must be an integer between 1 and 120");
   if (b.base !== undefined && !validBase(b.base)) p.push("base must be a branch name or a 7–40 hex SHA");
   if (input.requestId !== undefined && (!input.requestId.length || input.requestId.length > 128)) p.push("request_id must be 1–128 characters");
   if (input.source !== undefined && !["planner", "ui", "cli", "onboarding"].includes(input.source)) p.push("invalid source");
@@ -220,25 +223,60 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
   return t ? superviseTaskRecord(ctx, t, spawn) : null;
 }
 
+/** A stop during a handover gap: record the attempt from the run's evidence and do the cleanup the old runner skipped. */
+export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null): TaskRecord {
+  const run = t.run!;
+  const updated = updateTask(ctx, t.id, x => {
+    if (x.state !== "stopped" || x.handover?.state !== "handed-over" || x.run?.dir !== run.dir || x.attempts.length >= run.attempt) return;
+    x.attempts.push({ executor: run.executor, model: null, startedAt: x.attemptStartedAt ?? run.startedAt, endedAt: ctx.now, exitCode: exit ?? 143, timedOut: false, limitHit: false, log: run.logFile });
+    x.result = { status: "stopped", executor: run.executor, model: null, files: "",
+      report: `Stopped during a runner handover; the run ${exit === null ? "ended without an exit record" : `exited with ${exit}`}.`, backend: "direct" };
+    delete x.handover; delete x.runnerPid; delete x.childPid; delete x.childIdentity; delete x.pendingAttempt;
+  });
+  if (getWork(ctx, t.id)) {
+    dispatchDatabase(ctx).query("DELETE FROM work_reservations WHERE task_id=?").run(t.id);
+    revokeWorkGrants(ctx, t.id); revokeEnforcementTokens(ctx, t.id);
+  }
+  void import("./drain").then(m => m.drainQueue(ctx)).catch(() => {});
+  return updated;
+}
+
 async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, stopped: () => boolean = () => false): Promise<TaskRecord> {
-  if (!["queued", "running"].includes(t.state)) return t;
+  const handedOver = t.handover?.state === "handed-over";
+  if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
   const run = t.run, current = run && run.attempt > t.attempts.length;
-  const deadRun = t.state === "running" && current && !alive(t.runnerPid);
+  const deadRun = (t.state === "running" || t.state === "stopped") && current && !alive(t.runnerPid);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
     // Repository IO yields; an independent runner may have settled meanwhile.
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
-    if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
-      if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
-        let lease: string;
-        try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
-        catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
-        updateTask(ctx, id, x => { x.resumeSpawnedAt = ctx.now; });
-        try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
-      }
+    const runLive = !!run && (!!run.host || !!(r && (r.alive || r.exit !== null)));
+    const relaunch = (): TaskRecord => {
+      let lease: string;
+      try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
+      catch { return t; } // Keep recovery intent while maintenance or coordination is unavailable.
+      updateTask(ctx, id, x => {
+        x.resumeSpawnedAt = ctx.now;
+        if (x.handover?.state === "handed-over" && x.handover.replacementAt === undefined) x.handover.replacementAt = ctx.now;
+      });
+      try { launchTaskRunner(ctx, id, spawn, lease); } catch { /* ambiguous launch remains a blocker */ }
+      return readTask(ctx, id)!;
+    };
+    if (t.state === "stopped") {
+      // Stopped in a handover gap: a replacement records the outcome; without one within 60 s, the sweep does.
+      if (!deadRun) return t;
+      const replacementAt = t.handover!.replacementAt;
+      if (replacementAt === undefined && runLive) return relaunch();
+      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null);
+      return t;
+    }
+    if (deadRun && runLive) {
+      // A committed handover gets one immediate replacement; a failed one falls back to the 60 s throttle.
+      const firstReplacement = handedOver && t.handover!.replacementAt === undefined;
+      if (firstReplacement || !t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) return relaunch();
       return readTask(ctx, id)!;
     }
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
@@ -256,9 +294,11 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   });
 }
 
-/** Query only active tasks and yield between records so HTTP can keep serving. */
+/** Query only active tasks, plus tasks stopped during a handover gap, and yield between records so HTTP can keep serving. */
 export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner, stopped: () => boolean = () => false): Promise<void> {
-  for (const task of listTasksWhere(ctx, { states: ["queued", "running"] })) {
+  const active = listTasksWhere(ctx, { states: ["queued", "running"] });
+  const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
+  for (const task of [...active, ...gaps]) {
     await Bun.sleep(0);
     if (stopped()) return;
     await superviseTaskRecord(ctx, task, spawn, stopped);
@@ -304,8 +344,9 @@ export async function settleLiveReleases(): Promise<void> {
   while (liveReleases.size) await Promise.all([...liveReleases]);
 }
 
-/** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. */
-export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
+/** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. During a handover gap
+ * the replacement runner, or the sweep after 60 s, records the outcome. `signal: false` leaves processes to the runner. */
+export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {}): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
   if (t.state === "needs_input") {
@@ -326,10 +367,11 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const updated = updateTask(ctx, id, (x) => {
     if (TERMINAL_STATES.includes(x.state)) return;
     x.state = "stopped";
-    if (!runnerAlive) {
+    if (!runnerAlive && x.handover?.state !== "handed-over") {
       x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
     }
   });
+  if (options.signal === false) return updated;
   if (t.run?.host) {
     try {
       const host = loadStrategy(ctx).hosts[t.run.host];

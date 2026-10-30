@@ -77,6 +77,7 @@ Opening a running task in the Session view takes control of its live Pacer termi
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
+When a running session predates the service support window, a compact **Reopen to update** notice stays above its terminal. The task view offers **Create a new task** to start fresh work on the current service; the standalone terminal view offers **Open a new terminal** in the same folder. The old session keeps running. Both actions are reachable by Tab before the terminal input.
 Links in the built-in terminal open web pages or workspace files. Code opens at
 the linked line; Markdown and HTML open on Source, with Preview one tab away.
 HTML preview is static and isolated from the app, and lists the scripts and

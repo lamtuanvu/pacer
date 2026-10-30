@@ -4,6 +4,30 @@ import {chromium} from "playwright-core";
 const browserPath=process.env.PACER_TEST_BROWSER;
 const browserTest=test.skipIf(!browserPath);
 
+browserTest("an older standalone terminal exposes a compact action that opens a fresh shell in the same folder",async()=>{
+  const build=await Bun.build({entrypoints:["test/fixtures/terminal-browser.tsx"],target:"browser",splitting:false,plugins:[{name:"stub-pty-view",setup(builder){
+    builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:"stub",namespace:"terminal-stub"}));
+    builder.onLoad({filter:/.*/,namespace:"terminal-stub"},()=>({contents:"export const LazyTerminal = () => null;",loader:"js"}));
+  }}]});
+  expect(build.success).toBe(true);
+  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:375,height:900}});
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:"text/javascript"}));await import(url);URL.revokeObjectURL(url);},await build.outputs[0]!.text());
+    await page.evaluate(()=>(globalThis as any).terminalTest.records.push({id:"00000000-0000-4000-8000-000000000099",kind:"shell",title:"Old shell",cwd:"/workspace/old",createdAt:1,rev:1,live:true,exit:null,cols:80,rows:24,attach:{ws:"/v3/terminals/old/session"},hostVersion:{pacer:"0.7.0",older:true,supported:false}}));
+    const action=page.getByRole("button",{name:"Open a new terminal"});
+    await action.waitFor({timeout:4000});
+    await expect(page.getByRole("status").filter({hasText:"This terminal runs an older pacer"}).count()).resolves.toBe(1);
+    await expect(page.locator(".pc-alert--compact .pc-alert__actions").count()).resolves.toBe(1);
+    await action.focus();
+    await expect(action.evaluate(node=>document.activeElement===node)).resolves.toBe(true);
+    await action.click();
+    await expect(page.evaluate(()=>(globalThis as any).terminalTest.records.at(-1)?.cwd)).resolves.toBe("/workspace/old");
+    await expect(page.evaluate(()=>(globalThis as any).terminalTest.records.length)).resolves.toBe(2);
+  }finally{await browser.close();}
+},30_000);
+
 browserTest("terminal page creates, selects, renames, splits and closes tabs with keyboard control",async()=>{
   const build=await Bun.build({entrypoints:["test/fixtures/terminal-browser.tsx"],target:"browser",splitting:false,plugins:[{name:"stub-pty-view",setup(builder){
     builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:"stub",namespace:"terminal-stub"}));

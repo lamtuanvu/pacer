@@ -7,6 +7,7 @@ import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { killTree } from "../exec/process";
+import type { ProcessIdentity } from "../update/desktop/process-identity";
 import { withUmask } from "../exec/login-env";
 import { WRAPPER_SH } from "./wrapper";
 import { makeCtx } from "../ctx";
@@ -36,7 +37,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     lease = beginWorkSync(ctx, { kind: "session", id: createHash("sha256").update(spec.dir).digest("hex"), label: "Executor session" });
     mkdirSync(spec.dir, { recursive: true });
     // A reused directory must not hand a stale exit or output to the new run.
-    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
+    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.version", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
@@ -104,7 +105,7 @@ export function readRun(dir: string): RunState {
 }
 
 /** TERM the run's process group, then KILL after graceMs. Returns the recorded exit, or 137 when it had to be killed. */
-export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ code: number; killed: boolean }> {
+export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: number) => Promise<void>; expectedIdentities?: { host: ProcessIdentity; child: ProcessIdentity } } = {}): Promise<{ code: number; killed: boolean }> {
   const sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms));
   const s = readRun(dir);
   if (s.exit !== null) return { code: s.exit, killed: false };
@@ -117,6 +118,22 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
     if (now.exit !== null) return { code: now.exit, killed: false };
     if (!now.alive) break;
     await sleep(50);
+  }
+  if (o.expectedIdentities) {
+    const { processIdentity, sameProcess, signalSameProcess } = await import("../update/desktop/process-identity");
+    const { host, child } = o.expectedIdentities;
+    const matches = () => num(join(dir, "pid")) === host.pid && num(join(dir, "child")) === child.pid &&
+      sameProcess(processIdentity(host.pid), host) && sameProcess(processIdentity(child.pid), child);
+    if (!matches()) return { code: 137, killed: false };
+    if (!signalSameProcess(child, "SIGTERM")) return { code: 137, killed: false };
+    while (Date.now() < end) {
+      const now = readRun(dir);
+      if (now.exit !== null) return { code: now.exit, killed: false };
+      await sleep(50);
+    }
+    if (matches()) signalSameProcess(child, "SIGKILL");
+    await sleep(100);
+    return { code: readRun(dir).exit ?? 137, killed: false };
   }
   killTree(s.pid, "SIGTERM");
   while (Date.now() < end) {

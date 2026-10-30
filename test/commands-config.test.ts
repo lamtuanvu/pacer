@@ -77,3 +77,14 @@ test('execution.backend get and set print the Orca warning and undo',async()=>{
  const before=readFileSync(p,'utf8'),bad=await configCmd(['set','execution.backend','auto'],ctx);
  expect(bad.code).toBe(2); expect(bad.err).toContain('execution.backend must be orca or direct'); expect(readFileSync(p,'utf8')).toBe(before);
 });
+
+test('automatic cleanup defaults true and accepts boolean settings only', async () => {
+  const ctx = commandCtx();
+  const {validateExecution} = await import('../src/config/execution');
+  expect(validateExecution(undefined).autoClean).toBe(true);
+  expect(validateExecution({auto_clean: false}).autoClean).toBe(false);
+  expect(() => validateExecution({auto_clean: 'false'})).toThrow('auto_clean must be a boolean');
+  expect((await configCmd(['set', 'execution.auto_clean', 'false'], ctx)).code).toBe(0);
+  expect(loadStrategy(ctx).execution.auto_clean).toBe(false);
+  expect((await configCmd(['set', 'execution.auto_clean', 'yes'], ctx)).code).not.toBe(0);
+});

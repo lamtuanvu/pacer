@@ -1,2 +1,10 @@
 # Test fixture token in test/desktop-shell.test.ts (not a credential); the file now builds it at runtime.
 8f00fc407ab65e9dba8b7665648dd1c4a7690bf0:test/desktop-shell.test.ts:generic-api-key:49
+ff2cf3f1aba492a9a57bcb590d6c36d4a453a963:test/fixtures/upgrade/0.10.0/run-interactive/interactive.json:generic-api-key:1
+ff2cf3f1aba492a9a57bcb590d6c36d4a453a963:test/fixtures/upgrade/0.11.0/run-interactive/interactive.json:generic-api-key:1
+ff2cf3f1aba492a9a57bcb590d6c36d4a453a963:test/fixtures/upgrade/0.12.0/run-interactive/interactive.json:generic-api-key:1
+6b26ac853e90483e5e1f7c87db41f6b9e13a61d2:test/desktop-shell.test.ts:generic-api-key:61
+09a775a3d93f70d592d8f7e36db6d728ab5144bc:test/desktop-shell.test.ts:generic-api-key:61
+# Test fixture network key in test/discovery-cli.test.ts (a fake hash, not a credential).
+c7ae3257463a6b92582ec051403332f5843ac543:test/discovery-cli.test.ts:generic-api-key:11
+80db8263447568210d737b867e0679a309416a52:test/discovery-cli.test.ts:generic-api-key:11

@@ -6,6 +6,7 @@ import { CoreError } from "../core/errors";
 import { readRun, startRun, stopRun, type RunSpec } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { resolveLoginShell } from "./login-shell";
+import { hostVersionView, type HostVersionView } from "../session/protocol";
 
 export interface TerminalRecord {
   id: string;
@@ -19,6 +20,7 @@ export interface TerminalRecord {
   cols: number;
   rows: number;
   attach: { ws: string };
+  hostVersion?: HostVersionView;
 }
 
 interface StoredTerminal {
@@ -94,6 +96,7 @@ function presentation(ctx: Ctx, stored: StoredTerminal): TerminalRecord {
     live: stored.state === "running" && run.alive,
     exit: run.exit, cols: state.cols ?? 120, rows: state.rows ?? 40,
     attach: { ws: `/v3/terminals/${stored.id}/session` },
+    hostVersion: hostVersionView(dir),
   };
 }
 function validate(ctx: Ctx, input: CreateTerminalInput) {

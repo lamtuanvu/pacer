@@ -27,7 +27,7 @@ export class SessionClient {
   let ws:SessionSocket;
   try{ws=(this.options.socket??(url=>new WebSocket(url) as unknown as SessionSocket))(this.options.url);}catch{this.retry();return;}
   this.ws=ws;ws.binaryType='arraybuffer';
-  ws.onopen=()=>{if(this.ws!==ws||this.stopped)return;this.send('hello',{v:1,client:'app',label:this.options.label,cols:this.state.cols,rows:this.state.rows,...(this.offset===undefined?{}:{from:this.offset})});};
+  ws.onopen=()=>{if(this.ws!==ws||this.stopped)return;this.send('hello',{v:1,versions:[1,1],client:'app',label:this.options.label,cols:this.state.cols,rows:this.state.rows,...(this.offset===undefined?{}:{from:this.offset})});};
   ws.onmessage=event=>{if(this.ws!==ws||this.stopped)return;try{this.receive(event.data);}catch{this.update({status:'error',you:false,message:'Could not read the session stream.'});ws.close();}};
   ws.onerror=()=>{if(this.ws===ws&&!this.stopped)this.update({message:'Session connection interrupted.'});};
   ws.onclose=()=>{if(this.ws!==ws||this.stopped||this.ended)return;this.ws=undefined;this.update({you:false,controller:null});this.retry();};

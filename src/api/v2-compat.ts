@@ -17,7 +17,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search']);
+export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search']);
 
 for (const op of ['dispatch.config.get','dispatch.preview','dispatch.explain','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.enforcement.consent','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
 
@@ -29,6 +29,7 @@ export function v2Hello() {
 for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
+for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
 
@@ -42,7 +43,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const attention=sortItems(s.attention.flatMap(a=>{
-  if(a.id==="setup:connect")return [];
+  if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
   if(!item)return [a]; // Plugin reload notices are independent of the checklist.
@@ -53,15 +54,24 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
  // ceiling is the sum of the local executors' own limits.
  const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
- return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
+/**
+ * LAN discovery is v3-only: its event, its config area, its attention items and their notifications never reach v2 clients.
+ * v2 counts events leave the open discovery items out (see eventsSince).
+ */
+export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
+ const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
+ return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
+}
+export const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine')return null;
- // The machine operations are v3-only, so v2 clients have no area to refetch.
- if(e.type==='config'&&(e.data as {area?:unknown}|null)?.area==='machine')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='discovery.found')return null;
+ // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
+ if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,

@@ -1,5 +1,5 @@
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
-import { updateNoticeHiddenOn } from "./settings-pages";
+import { discoveryNoticeHiddenOn, updateNoticeHiddenOn } from "./settings-pages";
 import { startPolling } from "./data/poll";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
@@ -25,6 +25,7 @@ import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
 import { readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
 import { resetDesktopPageScroll } from "./shell/page-scroll";
+import { NoticeStack } from "./ds/NoticeCard";
 void readRoundedWindowSupport().then(supported => {
   if (supported) document.documentElement.dataset.pacerDesktop = "";
 });
@@ -44,6 +45,7 @@ function App() {
   useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
+  const [DiscoveryNotice, setDiscoveryNotice] = useState<typeof import("./shell/DiscoveryNotice").DiscoveryNotice>();
   const lastWork = useRef("#/");
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
@@ -69,6 +71,7 @@ function App() {
     return () => { stopControl(); unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
   useEffect(() => { void import("./shell/UpdateNotice").then(module => setUpdateNotice(() => module.UpdateNotice)); }, []);
+  useEffect(() => { void import("./shell/DiscoveryNotice").then(module => setDiscoveryNotice(() => module.DiscoveryNotice)); }, []);
   const [setupRevision, reloadSetup] = useState(0);
   const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
@@ -123,9 +126,12 @@ function App() {
     }}>
       <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} loadingRoute={"redirect" in pendingRoute ? route : pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
-    {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />
-    )}
+    {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
+        the update notice stays in the corner and its Restart and Later never move. */}
+    <NoticeStack narrow={narrow}>
+      {DiscoveryNotice && <DiscoveryNotice hidden={help || sessionEnded || discoveryNoticeHiddenOn(route)} />}
+      {UpdateNotice && <UpdateNotice hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />}
+    </NoticeStack>
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
