@@ -50,6 +50,16 @@
   --ink-on-fill: #ffffff;
   --shadow-tray-menu-tint: rgb(9 9 11 / .16);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --assistant-violet: #8b5cf6;
+  --assistant-cyan: #06b6d4;
+  --assistant-blue: #3b82f6;
+  --aurora-gradient-1: #7c6bd6;
+  --aurora-gradient-2: #3fa7b8;
+  --aurora-gradient-3: #5b7fd8;
+  --aurora-blob-1: #8b7be0;
+  --aurora-blob-2: #48b3c4;
+  --aurora-blob-3: #6a8ee0;
+  --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -267,6 +277,11 @@
   --motion-selection: 160ms;
   --motion-panel: 120ms;
   --motion-skeleton: 1400ms;
+  --motion-aurora-shift: 16000ms;
+  --motion-aurora-breathe: 7000ms;
+  --motion-aurora-first: 9000ms;
+  --motion-aurora-middle: 11000ms;
+  --motion-aurora-last: 13000ms;
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-color-scheme: dark) {
@@ -320,6 +335,16 @@
   --ink-on-fill: #18181b;
   --shadow-tray-menu-tint: rgb(0 0 0 / .55);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --assistant-violet: #8b5cf6;
+  --assistant-cyan: #06b6d4;
+  --assistant-blue: #3b82f6;
+  --aurora-gradient-1: #7c6bd6;
+  --aurora-gradient-2: #3fa7b8;
+  --aurora-gradient-3: #5b7fd8;
+  --aurora-blob-1: #8b7be0;
+  --aurora-blob-2: #48b3c4;
+  --aurora-blob-3: #6a8ee0;
+  --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
 }
 }
 :root[data-theme="dark"] {
@@ -372,6 +397,16 @@
   --ink-on-fill: #18181b;
   --shadow-tray-menu-tint: rgb(0 0 0 / .55);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --assistant-violet: #8b5cf6;
+  --assistant-cyan: #06b6d4;
+  --assistant-blue: #3b82f6;
+  --aurora-gradient-1: #7c6bd6;
+  --aurora-gradient-2: #3fa7b8;
+  --aurora-gradient-3: #5b7fd8;
+  --aurora-blob-1: #8b7be0;
+  --aurora-blob-2: #48b3c4;
+  --aurora-blob-3: #6a8ee0;
+  --assistant-avatar: conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6);
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }

@@ -189,7 +189,8 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, scope: "all", enterHint: "ask" };
   if (mode === "commands") {
     // Only the command groups: Suggested holds New task, which the recent screen offers.
-    const matched = rankAndMark(commandItems(commands).filter(item => item.command!.group !== "Suggested"), text);
+    const matchedIds = new Map(rankAndMark(commandItems(commands).filter(item => item.command!.group !== "Suggested"), text).map(item => [item.id,item]));
+    const matched = commandItems(commands).flatMap(item => matchedIds.get(item.id) ?? []);
     const groups = groupBy(matched, item => item.command!.group, matched.length).sort(orderOf(COMMAND_GROUPS));
     return { mode, groups, counts: { ...zero, all: matched.length, commands: matched.length }, empty: !matched.length, scope: "all", enterHint: "run", modEnterHint: "run and keep open" };
   }

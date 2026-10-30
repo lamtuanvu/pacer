@@ -187,3 +187,14 @@ test("without the operation there are no files, in any mode, and the Files tab i
 test('services with the assistant expose question mode without interpreting it as a search',()=>{
  expect(buildMenu({query:'? explain routing',scope:'all',snapshot:null,commands:[],recent:[],now:1,askEnabled:true}).mode).toBe('ask');
 });
+
+test("filtered Dispatcher commands retain board order even when title match ranks differ", () => {
+  const commands = [
+    command("dispatch.pause", "Pause dispatch", "Dispatcher"),
+    command("dispatch.setup", "Switch saved setup…", "Dispatcher", { sub: "Active: default", keywords: "pacing" }),
+    command("dispatch.budget", "Budget & pacing", "Dispatcher"),
+  ];
+  const result = buildMenu({ query: ">pa", scope: "all", snapshot: null, commands, recent: [], now: NOW });
+  expect(result.groups[0]!.items.map(item => item.command!.id)).toEqual(["dispatch.pause", "dispatch.setup", "dispatch.budget"]);
+  expect(result.groups[0]!.items[2]!.ranges).toEqual([[9,11]]);
+});

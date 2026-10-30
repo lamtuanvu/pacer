@@ -1,4 +1,4 @@
-export type IconName = "refresh" | "activity-dispatch" | "activity-insights" | "activity-terminal" | "command-nav" | "command-terminal" | "command-pause" | "needs-you" | "task-checklist" | "plugin-checklist" | "settings-release" | "add-plugin" | "status-terminal" | "topbar-search" | "topbar-left" | "topbar-bottom" | "topbar-right" | "pause" | "play" | "close" | "lock" | "laptop" | "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "send" | "spark" | "attach" | "image" | "issue" | "repo" | "chevron-down";
+export type IconName = "terminal-plus" | "terminal-search" | "terminal-split" | "terminal-trash" | "terminal-more" | "chevron-up" | "command-setup" | "refresh" | "activity-dispatch" | "activity-insights" | "activity-terminal" | "command-nav" | "command-terminal" | "command-pause" | "needs-you" | "task-checklist" | "plugin-checklist" | "settings-release" | "add-plugin" | "status-terminal" | "topbar-search" | "topbar-left" | "topbar-bottom" | "topbar-right" | "pause" | "play" | "close" | "lock" | "laptop" | "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "send" | "spark" | "attach" | "image" | "issue" | "repo" | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "needs-you": "M12 3a6 6 0 0 0-6 6c0 6-3 7-3 7h18s-3-1-3-7a6 6 0 0 0-6-6zM10 20a2 2 0 0 0 4 0",
@@ -10,6 +10,9 @@ export function Icon({ name }: { name: IconName }) {
     "command-nav": "M5 12h14M13 6l6 6-6 6",
     "command-terminal": "M3 4h18v16H3zM7 9l3 3-3 3M13 15h4",
     "command-pause": "M8 5v14M16 5v14",
+    "chevron-up": "M6 15l6-6 6 6",
+    "command-setup": "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6",
+
     pause: "M9 6v12 M15 6v12",
     play: "M8 5l11 7-11 7z",
     "send": "M12 19V5m-7 7 7-7 7 7",
@@ -73,6 +76,11 @@ export function Icon({ name }: { name: IconName }) {
     overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", review: "M5 12l4 4 10-10M5 20h14", sessions: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {name === "terminal-trash" && <><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 13h10l1-13" /><path d="M9 7V4h6v3" /></>}
+    {name === "terminal-plus" && <><path d="M12 5v14" /><path d="M5 12h14" /></>}
+    {name === "terminal-search" && <><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></>}
+    {name === "terminal-split" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></>}
+    {name === "terminal-more" && [5,12,19].map(cx => <circle key={cx} cx={cx} cy="12" r="1" />)}
     {name === "plugin-checklist" && <><path d="M9 11l3 3 8-8" /><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" /></>}
     {name === "add-plugin" && <><path d="M12 5v14" /><path d="M5 12h14" /></>}
     {name === "status-terminal" && <><path d="M7 9l3 3-3 3" /><path d="M13 15h4" /></>}

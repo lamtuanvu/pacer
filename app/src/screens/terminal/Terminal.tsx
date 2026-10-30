@@ -1,3 +1,5 @@
+import { useAnchoredMenu } from "../../ds/useAnchoredMenu";
+import { displayTitle } from "../../../../src/view-model/titles";
 import { ensurePanelTerminal } from "./auto-open";
 import { Tabs } from "../../ds/SelectionStrip";
 import type { RouteQuery } from "../../router";
@@ -52,9 +54,17 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const available = state.features.ops.has("terminal.create");
   const repos = state.snapshot?.repos ?? [];
   const folderLabel = (path: string) => {
-    const repo = repos.filter(repo => path.startsWith(`${repo.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
-    return repo ? `${repo.label}/${path.slice(repo.path.length + 1)}` : path.split("/").filter(Boolean).at(-1);
+    const task = state.snapshot?.tasks.find(task => task.worktree === path);
+    if (task) return displayTitle(task);
+    const repo = repos.find(repo => repo.path === path);
+    return repo?.label ?? path.split("/").filter(Boolean).at(-1) ?? "Home folder";
   };
+  const folderHint = (path: string) => {
+    const repo = repos.filter(repo => path === repo.path || path.startsWith(`${repo.path}/`)).sort((a,b) => b.path.length-a.path.length)[0];
+    if (repo) return path === repo.path ? repo.label : `${repo.label} · ${folderLabel(path)}`;
+    return "Home folder";
+  };
+  const menuRoot = useAnchoredMenu(menu);
   const selected = tabs.find(tab => tab.id === id) ?? tabs.at(-1);
   const secondary = tabs.find(tab => tab.id === splitId && tab.id !== selected?.id);
 
@@ -162,38 +172,37 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       const at = items.indexOf(document.activeElement as HTMLButtonElement);
       items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
     }}>
-      <Tabs id="terminal" label="Terminals" className="pc-workspace-terminal__tabs" value={selected?.id ?? ""} onChange={show}
+      <Tabs variant="terminal" id="terminal" label="Terminals" className="pc-workspace-terminal__tabs" value={selected?.id ?? ""} onChange={show}
         options={tabs.map(tab => ({ value: tab.id,
-          label: <><Icon name="terminal" />{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</>,
-          buttonProps: { onDblClick: () => startRename(tab), title: `${tab.cwd} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}` },
+          label: <><Icon name="status-terminal" />{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</>,
+          buttonProps: { onDblClick: () => startRename(tab), title: `${folderHint(tab.cwd)} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}` },
           replacement: renaming && selected?.id === tab.id ? <form onSubmit={event => { event.preventDefault(); void rename(); }}><TextInput aria-label="Terminal name" autoFocus value={newTitle} maxLength={80} onInput={event => setNewTitle(event.currentTarget.value)} onBlur={() => { if (!cancelRename.current && newTitle.trim()) void rename(); else setRenaming(false); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename.current = true; setRenaming(false); } }} /></form> : undefined,
           trailing: selected?.id === tab.id ? <IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Kill ${tab.title}`} title="Kill terminal" onClick={() => void close(tab)}>×</IconButton> : undefined,
         }))} />
       <div className="pc-terminal-menu-anchor">
-        {tool("New terminal", "plus", () => { void open(); }, busy || loading)}
+        {tool("New terminal", "terminal-plus", () => { void open(); }, busy || loading)}
         <IconButton className="pc-terminal-tool pc-terminal-chevron" size="sm" variant="quiet" aria-label="New terminal in…" title="New terminal in a repository, worktree or folder" aria-expanded={menu === "new"} aria-haspopup="menu" onClick={() => setMenu(menu === "new" ? null : "new")}><Icon name="chevron-down" /></IconButton>
-        {menu === "new" && <div className="pc-terminal-menu" role="menu" >
-          {repos.map(repo => <Button role="menuitem" variant="quiet" key={repo.key} title={repo.path} onClick={() => void open(repo.path)}>{repo.label}</Button>)}
-          {[...new Set(state.snapshot?.tasks?.map(task => task.worktree).filter((path): path is string => !!path) ?? [])].map(path => <Button role="menuitem" variant="quiet" key={path} title={path} onClick={() => void open(path)}>{folderLabel(path)}</Button>)}
+        {menu === "new" && <div ref={menuRoot} className="pc-terminal-menu" role="menu" >
+          {repos.map(repo => <Button role="menuitem" variant="quiet" key={repo.key} title={repo.label} onClick={() => void open(repo.path)}>{repo.label}</Button>)}
+          {[...new Set(state.snapshot?.tasks?.map(task => task.worktree).filter((path): path is string => !!path) ?? [])].map(path => <Button role="menuitem" variant="quiet" key={path} title={folderHint(path)} onClick={() => void open(path)}>{folderLabel(path)}</Button>)}
           <Button role="menuitem" variant="quiet" onClick={() => void open("")}>Home folder</Button>
           <Button role="menuitem" variant="quiet" onClick={() => { setMenu(null); setCwd(""); setChooseFolder(true); }}>Choose a folder…</Button>
         </div>}
       </div>
       <span className="grow" />
-      {tool("Find (⌘F)", "search", () => command("find"), !selected || !ready[selected.id], selected ? "Terminal is loading" : undefined)}
-      {tool("Split terminal (⌘\\)", "panel-right", split, !selected || busy)}
-      {tool("Kill terminal", "end-session", () => { if (selected) void close(selected); }, !selected || busy)}
+      {tool("Find (⌘F)", "terminal-search", () => command("find"), !selected || !ready[selected.id], selected ? "Terminal is loading" : undefined)}
+      {tool("Split terminal (⌘\\)", "terminal-split", split, !selected || busy)}
+      {tool("Kill terminal", "terminal-trash", () => { if (selected) void close(selected); }, !selected || busy)}
       <div className="pc-terminal-menu-anchor">
-        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" icon="more" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}/>
-        {menu === "more" && <div className="pc-terminal-menu" role="menu">
+        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" icon="terminal-more" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}/>
+        {menu === "more" && <div ref={menuRoot} className="pc-terminal-menu" role="menu">
           <Button role="menuitem" variant="quiet" disabled={!selected} title={!selected ? "Open a terminal first" : undefined} onClick={() => startRename()}>Rename</Button>
-          <Button role="menuitem" variant="quiet" disabled title="This service does not offer opening workspace shells in an external terminal">Open in external terminal</Button>
           <Button role="menuitem" variant="quiet" disabled={!selected || !ready[selected.id]} title={!selected ? "Open a terminal first" : !ready[selected.id] ? "Terminal is loading" : undefined} onClick={() => command("reader")}>Screen reader mode</Button>
           <Button role="menuitem" variant="quiet" disabled={!selected || !ready[selected.id]} title={!selected ? "Open a terminal first" : !ready[selected.id] ? "Terminal is loading" : undefined} onClick={() => command("clear")}>Clear</Button>
         </div>}
       </div>
       <span className="pc-terminal-divider" />
-      {<IconButton className={`pc-terminal-tool${maximized ? "" : " pc-terminal-maximize"}`} variant="quiet" size="sm" aria-label={maximized ? "Restore panel" : "Maximize panel"} disabled={!maximize} title={!maximize ? "Terminal already fills the work area" : maximized ? "Restore panel" : "Maximize panel"} onClick={maximize}><Icon name="chevron-down" /></IconButton>}
+      {<IconButton className={`pc-terminal-tool${maximized ? "" : " pc-terminal-maximize"}`} variant="quiet" size="sm" aria-label={maximized ? "Restore panel" : "Maximize panel"} disabled={!maximize} title={!maximize ? "Terminal already fills the work area" : maximized ? "Restore panel" : "Maximize panel"} onClick={maximize}><Icon name={maximized ? "chevron-down" : "chevron-up"} /></IconButton>}
       {<IconButton className="pc-terminal-tool" variant="quiet" size="sm" aria-label="Hide panel (Ctrl+`)" aria-keyshortcuts="Control+`" title="Hide panel (Ctrl+`)" onClick={closePanel ?? (() => navigation.navigate(routes.dispatch()))}><Icon name="close" /></IconButton>}
     </div>
     <ErrorMessage error={error ?? loadError} />

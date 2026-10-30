@@ -52,8 +52,8 @@ test("side panel without its own bar renders nothing when closed and no toggle w
 });
 
 test("details panel shortcut is registered only where a right panel exists", () => {
-  expect(panelCommands(noop, noop, noop).map(s => s.keys)).toEqual(["Mod-b", "Ctrl-B", "Ctrl-`"]);
-  expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
+  expect(panelCommands(noop, noop, noop).map(s => s.keys)).toEqual(["Mod-b", "Ctrl-`", "Alt-Mod-b"]);
+  expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Alt-Mod-b");
 });
 
 test("review navigation stays offered in the title bar while Details is open", () => {

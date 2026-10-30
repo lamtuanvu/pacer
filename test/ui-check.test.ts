@@ -279,3 +279,20 @@ test('panel resize geometry allows only its bounded width channel, not neighbori
  for(const source of ['panelElement.current.style.setProperty("--other-width",String(width));','panelElement.current.style.width = `${width}px`;','panelElement.current.style.setProperty("--pc-panel-width", "272px");'])expect(checkUiSource(path,source)).not.toEqual([]);
  expect(checkUiSource('app/src/screens/Other.tsx','panelElement.current.style.setProperty("--pc-panel-width",String(width));')).not.toEqual([]);
 });
+
+test("anchored menu permits only its measured viewport assignments", () => {
+  const path = "app/src/ds/useAnchoredMenu.ts";
+  const metrics = [
+    ['maxHeight', 'Math.max(0, height)'],
+    ['left', 'Math.max(gutter, Math.min(rect.right - element.offsetWidth, viewport.clientWidth - element.offsetWidth - gutter))'],
+    ['top', 'down ? rect.bottom : rect.top - element.offsetHeight'],
+  ];
+  for (const [property, metric] of metrics) {
+    const source = 'element.style.' + property + ' = `${' + metric + '}px`;';
+    expect(checkUiSource(path, source)).toEqual([]);
+    expect(checkUiSource('app/src/ds/Other.ts', source)).not.toEqual([]);
+    expect(checkUiSource(path, source.replace(metric!, metric + ' + 8'))).not.toEqual([]);
+    expect(checkUiSource(path, source.replace(property!, 'padding'))).not.toEqual([]);
+    expect(checkUiSource(path, source.replace('element.style', 'neighbor.style'))).not.toEqual([]);
+  }
+});

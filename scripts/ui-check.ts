@@ -281,6 +281,16 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
         || (name === "height" && target === "marker.style.height" && metric === "selected.getBoundingClientRect().height")
         || (name === "min-height" && target === "parent.style.minHeight" && ["Math.max(parent.offsetHeight, panel.offsetHeight, Number(old.dataset.containerHeight))", "parent.offsetHeight"].includes(metric))) return;
     }
+    // Anchored menus adapt viewport/anchor measurements only; CSS owns the gutter.
+    if (path === "app/src/ds/useAnchoredMenu.ts" && node.type === "AssignmentExpression"
+      && node.left.type === "MemberExpression" && value.type === "TemplateLiteral"
+      && value.expressions.length === 1 && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") {
+      const target = source.slice(node.left.start ?? 0, node.left.end ?? 0);
+      const metric = source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0);
+      if ((name === "max-height" && target === "element.style.maxHeight" && metric === "Math.max(0, height)")
+        || (name === "left" && target === "element.style.left" && metric === "Math.max(gutter, Math.min(rect.right - element.offsetWidth, viewport.clientWidth - element.offsetWidth - gutter))")
+        || (name === "top" && target === "element.style.top" && metric === "down ? rect.bottom : rect.top - element.offsetHeight")) return;
+    }
     // Viewer sizing is authoritative PTY/measured geometry, scoped to scale() assignments.
     const terminalScale = path === "app/src/term/term.tsx" && ["width", "height"].includes(name)
       && ancestors.some(parent => parent.type === "VariableDeclarator" && parent.id.type === "Identifier" && parent.id.name === "scale")
