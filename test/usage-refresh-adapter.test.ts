@@ -1,33 +1,35 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { readAccountUsage, usageRefreshCapability } from "../src/usage";
 import type { AccountCfg } from "../src/config/accounts";
-import * as codex from "../src/usage/codex";
-import * as codexLive from "../src/usage/codex-live";
 import { fakeCtx } from "./helpers";
+import { fakeCtx as pluginFixtureCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+import { shutdownPlugins } from "../src/plugins";
+
+afterEach(cleanupUsageFixtures);
+
+function syntheticCodex(ctx: ReturnType<typeof pluginFixtureCtx>, usedPercent: number) {
+  const executable = join(ctx.home, "codex-live-fixture"), receipt = join(ctx.home, "codex-live-request.json");
+  writeFileSync(executable, `#!${process.execPath}\nlet input="";process.stdin.on("data",part=>{input+=part;if(input.includes("account/rateLimits/read")){process.stdout.write(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:${usedPercent},windowDurationMins:300,resetsAt:1800003600},secondary:{usedPercent:62,windowDurationMins:10080,resetsAt:1800086400}}}})+"\\n")}});process.stdin.on("end",()=>{require("node:fs").writeFileSync(${JSON.stringify(receipt)},JSON.stringify({home:process.env.CODEX_HOME,input}));process.exit(0)});\n`);
+  chmodSync(executable, 0o700);
+  const previous = ctx.which;
+  ctx.which = name => name === "codex" ? executable : previous(name);
+  return receipt;
+}
 
 test("idle Codex refresh reads account limits through its CLI without a turn", async () => {
-  const calls: { argv: string[]; stdin?: string; env?: Record<string, string | undefined> }[] = [];
-  const ctx = fakeCtx({ now: 1_800_000_000, run: async (argv, _timeout, options) => {
-    calls.push({ argv, stdin: options?.stdin, env: options?.env });
-    return { code: 0, stderr: "", stdout: [
-      JSON.stringify({ id: 1, result: { userAgent: "codex" } }),
-      JSON.stringify({ id: 2, result: { rateLimits: {
-        primary: { usedPercent: 24, windowDurationMins: 300, resetsAt: ctx.now + 3600 },
-        secondary: { usedPercent: 62, windowDurationMins: 10080, resetsAt: ctx.now + 86400 },
-      } } }),
-    ].join("\n") + "\n" };
-  } });
+  const ctx = pluginFixtureCtx({ now: 1_800_000_000, run: async () => { throw Error("host run bypass"); } });
+  const receipt = syntheticCodex(ctx, 24);
   const home = join(ctx.home, "work-codex");
   const strategy = validateStrategy({ planner: "claude-code", accounts: { "claude-code": { kind: "claude" }, work: { kind: "codex", home } }, routing: [{ default: ["codex#work"] }] }, "/strategy");
   const reading = await readAccountUsage(ctx, strategy.accounts.work, [], true);
   expect(reading.windows.map(w => [w.name, w.usedPct])).toEqual([["5h", 24], ["weekly", 62]]);
   expect(reading.capturedAt).toBe(ctx.now);
-  expect(calls).toHaveLength(1);
-  expect(calls[0].argv).toContain("app-server");
-  expect(calls[0].stdin).toContain("account/rateLimits/read");
-  expect(calls[0].env?.CODEX_HOME).toBe(home);
+  const request = JSON.parse(readFileSync(receipt, "utf8"));
+  expect(request.input).toContain("account/rateLimits/read");
+  expect(request.home).toBe(home);
   expect(usageRefreshCapability(strategy.accounts.work)).toBe("provider-command");
 });
 
@@ -44,38 +46,44 @@ test("idle Claude refresh remains passive and does not spawn an agent", async ()
 test("active refresh waits for a passive read, then makes its own provider request", async () => {
   let finishFirst!: (value: { code: number; stdout: string; stderr: string }) => void;
   const first = new Promise<{ code: number; stdout: string; stderr: string }>(resolve => { finishFirst = resolve; });
+  let signalFirst!: () => void;
+  const firstStarted = new Promise<void>(resolve => { signalFirst = resolve; });
   let calls = 0;
   const response = { code: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
-  const ctx = fakeCtx({ readOnly: true, run: async () => ++calls === 1 ? first : response });
-  const account = { name: "plan", kind: "endpoint", usage: "quota", quotaSource: "arkcli" } as AccountCfg;
+  const ctx = pluginFixtureCtx({ run: async () => {
+    if (++calls === 1) { signalFirst(); return first; }
+    return response;
+  } });
+  const account = { name: "plan", kind: "endpoint", source: "endpoint", usage: "quota", quotaSource: "arkcli" } as AccountCfg;
   const passive = readAccountUsage(ctx, account, []);
-  await Promise.resolve();
+  await firstStarted;
   const active = readAccountUsage(ctx, account, [], true);
   finishFirst(response);
   await Promise.all([passive, active]);
   expect(calls).toBe(2);
-});
+}, 15_000);
 
 test("an older passive Codex log cannot replace a newer provider reading after cache expiry", async () => {
-  const ctx = fakeCtx({ now: 1_800_000_000 });
-  const account = { name: "work", kind: "codex", usage: "quota" } as AccountCfg;
-  const live = spyOn(codexLive, "readCodexLive").mockResolvedValue({
-    windows: [{ name: "weekly", usedPct: 40, resetsAt: null, lengthS: 604800, paced: true }],
-    capturedAt: ctx.now, stale: false, source: "provider-cli",
-  });
-  const logs = spyOn(codex, "readCodex").mockResolvedValue({
-    windows: [{ name: "weekly", usedPct: 20, resetsAt: null, lengthS: 604800, paced: true }],
-    capturedAt: ctx.now - 300, stale: false, source: "session-log",
-  });
+  const ctx = pluginFixtureCtx({ now: 1_800_000_000 });
+  syntheticCodex(ctx, 40);
+  const account = { name: "work", kind: "codex", source: "default", usage: "quota" } as AccountCfg;
+  const sessions = join(ctx.home, ".codex", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const log = join(sessions, "rollout-refresh.jsonl");
+  writeFileSync(log, JSON.stringify({ timestamp: new Date((ctx.now - 300) * 1000).toISOString(),
+    payload: { rate_limits: { primary: { used_percent: 20, window_minutes: 10080 } } } }) + "\n");
   try {
     await readAccountUsage(ctx, account, [], true);
     ctx.now += 61;
     const later = await readAccountUsage(ctx, account, []);
     expect(later.windows[0]?.usedPct).toBe(40);
     expect(later.source).toBe("provider-cli");
-    expect(logs).toHaveBeenCalledTimes(1);
-    logs.mockResolvedValue({ windows: [{ name: "weekly", usedPct: 10, resetsAt: null, lengthS: 604800, paced: true }], capturedAt: null, stale: false, source: "session-log" });
+    expect(later.stale).toBe(false);
+    writeFileSync(log, JSON.stringify({ timestamp: new Date((ctx.now - 100) * 1000).toISOString(),
+      payload: { rate_limits: { primary: { used_percent: 10, window_minutes: 10080 } } } }) + "\n");
     ctx.now += 61;
-    expect((await readAccountUsage(ctx, account, [])).windows[0]?.usedPct).toBe(40);
-  } finally { live.mockRestore(); logs.mockRestore(); }
+    const newest = await readAccountUsage(ctx, account, []);
+    expect(newest.windows[0]?.usedPct).toBe(40);
+    expect(newest.stale).toBe(false);
+  } finally { await shutdownPlugins(ctx); }
 });

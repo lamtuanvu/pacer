@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.1.0"
+version = "0.2.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -15,9 +15,10 @@ rust-version.workspace = true
 testing = []
 
 [dependencies]
-pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.1.0" }
-pacer-plugin-decision-protocol = { path = "../plugin-decision-protocol", version = "0.1.0" }
-pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.1.0" }
+pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.2.0" }
+pacer-plugin-decision-protocol = { path = "../plugin-decision-protocol", version = "0.2.0" }
+pacer-plugin-install-protocol = { path = "../plugin-install-protocol", version = "0.2.0" }
+pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.2.0" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

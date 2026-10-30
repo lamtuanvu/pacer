@@ -16,6 +16,7 @@ export const REASON_CODES = [
   // facts that could change the outcome
   "cached_preview", "capacity_unmeasured", "default_model_unresolved", "enforcement_unverified", "engine_not_running",
   "learning_unavailable", "tasks_unavailable", "reserved_capacity", "admission_hooks", "ranked_inputs_ignored",
+  "classifier_unavailable",
 ] as const;
 export const reasonCodeSchema = z.enum(REASON_CODES);
 export type ReasonCode = z.infer<typeof reasonCodeSchema>;
@@ -72,6 +73,7 @@ const TEXT: Record<ReasonCode, (f: ReasonFacts, s?: string) => string> = {
   reserved_capacity: () => "Capacity reserved by running work may change this at admission.",
   ranked_inputs_ignored: f => `Executor ranking ignores these dispatch inputs: ${f.fields}.`,
   admission_hooks: () => "Configured admission hooks are not run by this preview.",
+  classifier_unavailable: f => `The classifier plugin did not answer (${f.error}), so the task kind is unknown.`,
 };
 
 export function reason(code: ReasonCode, outcome: Reason["outcome"], facts: ReasonFacts = {}, subject?: string, text?: string): Reason {

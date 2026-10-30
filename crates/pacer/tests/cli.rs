@@ -325,7 +325,7 @@ fn line_flags_tolerate_unknown_arguments_and_preserve_pacer_off_behavior() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    assert_eq!(o.stdout, "▬┃63 ⚑4\n".as_bytes());
+    assert_eq!(o.stdout, "policy:unknown ⚑4\n".as_bytes());
     let mut disabled = snapshot;
     disabled["disabled"] = serde_json::json!(true);
     write_link(home.path(), &disabled, 0.0);

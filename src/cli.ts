@@ -323,7 +323,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
+    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -699,7 +699,10 @@ if (import.meta.main) {
   const r = await main(process.argv.slice(2));
   // Any command that stopped a kept-alive lane (stop, dispatch stop, session end) finishes releasing its worker first.
   await settleLiveReleases();
-  if (r.out) process.stdout.write(r.out.endsWith("\n") ? r.out : `${r.out}\n`);
-  if (r.err) process.stderr.write(r.err.endsWith("\n") ? r.err : `${r.err}\n`);
+  const writes = await Promise.allSettled([
+    ...(r.out ? [Bun.write(Bun.stdout, r.out.endsWith("\n") ? r.out : `${r.out}\n`)] : []),
+    ...(r.err ? [Bun.write(Bun.stderr, r.err.endsWith("\n") ? r.err : `${r.err}\n`)] : []),
+  ]);
+  if (writes.some(result => result.status === "rejected")) process.exit(1);
   if (!r.keepAlive) process.exit(r.code);
 }

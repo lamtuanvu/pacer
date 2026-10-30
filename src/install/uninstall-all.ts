@@ -1,3 +1,4 @@
+import { cleanupRecordedPlanner } from "./recorded-cleanup";
 import { accessSync, chmodSync, constants, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -181,12 +182,13 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
       if (json) (deps.print ?? (text => process.stderr.write(text + "\n")))(renderPlan());
       if (!await confirm(`${runningNotice}Remove all of this? [y/N] `)) return finish(0, "pacer: uninstall cancelled");
     }
+    const pendingCleanup = () => results.some(r => (r.kind === "agent" || r.kind === "plugin") && r.status === "failed");
     for (const step of plan) {
       if (step.kind === "binary" && !args.includes("--binary")) continue;
       try {
         let details: string[] = [];
         switch (step.kind) {
-          case "agent": details = reportDetails(await (deps.agent ?? uninstallPlanner)(ctx, step.target)); break;
+          case "agent": details = reportDetails(await (deps.agent ?? cleanupRecordedPlanner)(ctx, step.target)); break;
           case "service": await (deps.service ?? (ctx => serviceBackend(ctx, { platform })))(ctx).uninstall(); break;
           case "plugin": details = reportDetails(await (deps.plugin ?? uninstallPlugin)(ctx)); break;
           case "path-block": removeRcPathBlock(step.target); break;
@@ -195,11 +197,12 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
             break;
           case "home":
             // Integration backups live in PACER_HOME; keep it so a failed restore can be retried.
-            if (results.some(r => r.kind === "agent" && r.status === "failed")) throw new Error("kept: an agent restore failed and its backups live here; fix it and rerun");
+            if (pendingCleanup()) throw new Error("kept: recorded agent or plugin cleanup failed; recovery state and backups are retained here. Resolve the reported failure and rerun");
             safeHome(ctx);
             (deps.removeHome ?? (path => rmSync(path, { recursive: true, force: true })))(step.target);
             break;
           case "binary":
+            if (pendingCleanup()) throw new Error("kept: recorded cleanup is pending; retain the pacer binary to resolve the failure and retry");
             if (!existsSync(step.target) && results.some(result => result.kind === "app-link" && result.target === step.target && result.status === "ok")) {
               details = ["removed with the app link"];
             } else if (binaryInsideHome && !existsSync(step.target) && results.some(result => result.kind === "home" && result.status === "ok")) {

@@ -27,7 +27,7 @@ export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
     else if(key==='--max-tasks' || key==='--rank') options[key==='--rank'?'rank':'max_tasks']=Number(value);
     else throw Error(`unknown option ${key}`);
    }
-   const result=set(ctx,id,options);return {code:0,out:[...(result.migrated ? migrationLines(strategyPath(ctx),result.migrated) : []),`${result.id}: updated`,...result.warnings].join('\n'),err:''};
+   const result=await set(ctx,id,options);return {code:0,out:[...(result.migrated ? migrationLines(strategyPath(ctx),result.migrated) : []),`${result.id}: updated`,...result.warnings].join('\n'),err:''};
   }
   if(!["block","unblock"].includes(cmd)||!id)throw new Error("usage: pacer executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list");
   let duration:string|undefined,reason:string|undefined;

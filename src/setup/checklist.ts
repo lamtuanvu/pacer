@@ -1,7 +1,8 @@
+import { policyWords, type PolicySummary } from "../view-model/words";
 import { PLANNERS } from "../config/strategy";
 
 export interface SetupItem { id:string; title:string; status:"done"|"pending"|"failed"; required:boolean; installed?:boolean; detail?:string; command?:string; action?:string; agent?:string; options?:string[] }
-export interface SetupChecklist { integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
+export interface SetupChecklist { policy?: PolicySummary; integration?: {configuration:"configured"|"unverified";invocation:"unverified"}; checkedAt:number; complete:boolean; ready:boolean; items:SetupItem[] }
 export interface SetupFacts {
  version:string|null; planner:string|null; service:{installed:boolean;running:boolean}; link:boolean;
  signedIn?:boolean; loginCommand?:string; connected?:boolean;
@@ -41,5 +42,5 @@ export function setupChecklist(f:SetupFacts, checkedAt:number):SetupChecklist {
  return updateChecklist({checkedAt,complete:false,ready:false,items},f);
 }
 /** Timestamps must never trigger an iframe reload. */
-export const setupKey=(s:SetupChecklist)=>JSON.stringify([s.ready,s.items]);
-export const setupText=(s:SetupChecklist)=>s.ready?"Setup ✓":["Setup",...s.items.map(i=>`${i.status==="done"?"✓":i.status} ${i.title}${i.detail?`: ${i.detail}`:""}${i.command?` · ${i.command}`:""}`)].join("\n");
+export const setupKey=(s:SetupChecklist)=>JSON.stringify([s.ready,s.items,s.policy]);
+export const setupText=(s:SetupChecklist)=>s.ready?`Setup ✓\n${policyWords(s.policy)}`:["Setup",policyWords(s.policy),...s.items.map(i=>`${i.status==="done"?"✓":i.status} ${i.title}${i.detail?`: ${i.detail}`:""}${i.command?` · ${i.command}`:""}`)].join("\n");

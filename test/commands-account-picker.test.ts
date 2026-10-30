@@ -1,3 +1,4 @@
+import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -6,6 +7,7 @@ import {parseCatalog} from "../src/endpoints/catalog";
 import {loadStrategy} from "../src/config/strategy";
 import {fakeCtx} from "./helpers";
 
+const noServers = async () => { throw Error("no local servers"); };
 const providers = parseCatalog(JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "models-dev-sample.json"), "utf8")));
 function setup(signed: string[] = ["openrouter"]) {
   const state = {signed};
@@ -18,7 +20,7 @@ function setup(signed: string[] = ["openrouter"]) {
 function script(answers: string[], extra: Partial<AccountDeps> = {}) {
   const questions: string[] = [], printed: string[] = [];
   const deps: AccountDeps = {prompt: async q => { questions.push(q); if (!answers.length) throw Error(`unexpected prompt: ${q}`); return answers.shift()!; },
-    print: l => { printed.push(l); }, fetch: (async () => { throw Error("no local servers"); }) as never, ...extra};
+    print: l => { printed.push(l); }, fetch: noServers, discover: discoveryFromFetch(noServers), ...extra};
   return {deps, questions, printed};
 }
 
@@ -59,7 +61,7 @@ test("a local server with one model says model, and no recommendation is explain
     if (u.startsWith("http://127.0.0.1:11434/")) return Response.json({data: [{id: "nomic-embed-text:latest"}]});
     throw Error("offline");
   }) as never;
-  const {deps, printed, questions} = script(["3", "1", "llama3", "", "n"], {fetch: local});
+  const {deps, printed, questions} = script(["3", "1", "llama3", "", "n"], {discover: discoveryFromFetch(local)});
   expect((await accountCmd(["add"], ctx, deps)).code).toBe(0);
   expect(printed.some(l => l.includes("Ollama (127.0.0.1:11434)   1 model · free"))).toBe(true);
   expect(printed).toContain("No model here can run an executor, so there is nothing to recommend. Enter a model id.");

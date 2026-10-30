@@ -3,22 +3,23 @@ import {bundledPluginSpawn} from '../src/plugins/index';
 import {fakeCtx} from './helpers';
 import {fileURLToPath} from 'node:url';
 const runtime={executable:'/fixture/bin/bun',bunVersion:'1.4.2'};
-test('source front door retains wrapper routing but replaces raw selector with this host source',()=>{
- const ctx=fakeCtx({env:{PACER_BIN:'/fixture/guard',PACER_CORE_ARGV:'["/untrusted/selector","private-marker"]',SECRET:'private-marker'}});
- const spec=bundledPluginSpawn(ctx,'pacer-agent-session',runtime);
- expect(spec.cwd).toBe(ctx.pacerHome);
- expect(spec.argv).toEqual(['/fixture/guard','plugin','run','pacer-agent-session']);
- expect(spec.env).toEqual({PACER_CORE_ARGV:JSON.stringify([runtime.executable,fileURLToPath(new URL('../src/cli.ts',import.meta.url))])});
- expect(JSON.stringify(spec.env)).not.toContain('private-marker');
-});
-test('ordinary guards and compiled core launches do not receive a source selector',()=>{
- const ctx=fakeCtx({env:{PACER_BIN:'/fixture/guard'}});expect(bundledPluginSpawn(ctx,'pacer-agent-session',runtime).env).toEqual({});
- ctx.env.PACER_CORE_ARGV='["/untrusted"]';expect(bundledPluginSpawn(ctx,'pacer-agent-session',{executable:'/fixture/pacer-core',bunVersion:'1.4.2'}).env).toEqual({});
- expect(bundledPluginSpawn(ctx,'pacer-agent-session',{executable:'/fixture/bun'}).env).toEqual({});
-});
+for (const id of ['pacer-agent-session', 'pacer-usage']) {
+ test(`${id}: source front door retains wrapper routing but replaces raw selector with this host source`,()=>{
+  const ctx=fakeCtx({env:{PACER_BIN:'/fixture/guard',PACER_CORE_ARGV:'["/untrusted/selector","private-marker"]',SECRET:'private-marker'}});
+  const spec=bundledPluginSpawn(ctx,id,runtime);
+  expect(spec.cwd).toBe(ctx.home);
+  expect(spec.argv).toEqual(['/fixture/guard','plugin','run',id]);
+  expect(spec.env).toEqual({PACER_CORE_ARGV:JSON.stringify([runtime.executable,fileURLToPath(new URL('../src/cli.ts',import.meta.url))])});
+  expect(JSON.stringify(spec.env)).not.toContain('private-marker');
+ });
+ test(`${id}: ordinary guards and compiled core launches do not receive a source selector`,()=>{
+  const ctx=fakeCtx({env:{PACER_BIN:'/fixture/guard'}});expect(bundledPluginSpawn(ctx,id,runtime).env).toEqual({});
+  ctx.env.PACER_CORE_ARGV='["/untrusted"]';expect(bundledPluginSpawn(ctx,id,{executable:'/fixture/pacer-core',bunVersion:'1.4.2'}).env).toEqual({});
+  expect(bundledPluginSpawn(ctx,id,{executable:'/fixture/bun'}).env).toEqual({});
+ });
+}
 
-
-test('bundled selector crosses the sealed spawn boundary; installed peer keeps five keys', async () => {
+test('bundled selector crosses the sealed spawn boundary; installed peer keeps its sealed environment', async () => {
  const {spawn}=await import('node:child_process');
  const {PluginRegistry}=await import('../src/plugins/registry');
  const {PLUGIN_PROTOCOL_VERSION}=await import('../src/plugins/protocol');
@@ -36,11 +37,26 @@ test('bundled selector crosses the sealed spawn boundary; installed peer keeps f
  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed invoked bundle launcher');}});
  try {
   expect((await bundled.doctor(ctx,'pacer-agent-session'))[0]?.ok).toBe(true);
-  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-agent-session',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION,PACER_CORE_ARGV:'fixed-selector'});
+  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-agent-session',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION,BUN_RUNTIME_TRANSPILER_CACHE_PATH:"",PACER_CORE_ARGV:'fixed-selector'});
   await bundled.shutdown();
   installFixture('good',join(ctx.pacerHome,'plugins'));
   await installed.enable(ctx,'fx-good',true);
   expect((await installed.doctor(ctx,'fx-good'))[0]?.ok).toBe(true);
-  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION});
+  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION,BUN_RUNTIME_TRANSPILER_CACHE_PATH:""});
  } finally {await bundled.shutdown();await installed.shutdown();rmSync(ctx.home,{recursive:true,force:true});}
 });
+
+for (const id of ['pacer-endpoints', 'pacer-notify']) {
+ test(`${id} pure metadata matches the original awaited direct entry lifecycle`, async () => {
+  const {BUNDLED}=await import('../plugins/bundled');
+  const {PLUGIN_PROTOCOL_VERSION}=await import('../src/plugins/protocol');
+  const bundle=BUNDLED.find(item=>item.manifest.id===id)!;
+  const entry=fileURLToPath(new URL(`../plugins/${id}/index.ts`,import.meta.url));
+  const child=Bun.spawn([process.execPath,entry],{stdin:'pipe',stdout:'pipe',stderr:'pipe',env:{BUN_RUNTIME_TRANSPILER_CACHE_PATH:''},timeout:5000});
+  child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'plugin.hello',params:{protocol:PLUGIN_PROTOCOL_VERSION,pacer:'0.9.0',manifest:bundle.manifest,config:{},grants:[]}})+'\n');
+  child.stdin.end();
+  const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  expect({code,err}).toEqual({code:0,err:''});
+  expect(JSON.parse(out)).toMatchObject({jsonrpc:'2.0',id:1,result:{id,version:bundle.manifest.version,contributes:Object.keys(bundle.manifest.contributes)}});
+ });
+}

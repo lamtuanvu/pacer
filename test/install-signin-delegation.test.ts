@@ -20,6 +20,25 @@ test("fake agent completion mode writes the Codex summary and exits", () => {
   expect(readFileSync(join(cwd, "takeover-change.txt"), "utf8")).toBe("headless change\n");
 });
 
+// Uses the existing production build artifact, avoiding a second compiler path.
+// This must run the real CLI graph: a tiny replacement entry misses module cycles.
+e2e("compiled production Core loads for version, help and JSON-RPC hello", async () => {
+  const home = tmpDir(), binary = join(root, "dist", "pacer-core");
+  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", PATH: process.env.PATH, TZ: "Asia/Ho_Chi_Minh" };
+  for (const args of [["--version"], ["--help"]]) {
+    const child = Bun.spawn([binary, ...args], { env, stdout: "pipe", stderr: "pipe", timeout: 10_000 });
+    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out).toContain(args[0] === "--version" ? "pacer " : "usage: pacer");
+  }
+  const child = Bun.spawn([binary, "api", "--stdio"], { env, stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: 10_000 });
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }) + "\n");
+  child.stdin.end();
+  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ code, err }).toEqual({ code: 0, err: "" });
+  expect(JSON.parse(out)).toMatchObject({ jsonrpc: "2.0", id: 1, result: { protocol: "3.0.0" } });
+}, 30_000);
+
 async function sandbox() {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer"), bin = join(home, "bin"), repo = join(home, "repo"), codexHome = join(home, ".codex");

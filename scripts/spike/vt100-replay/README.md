@@ -77,3 +77,47 @@ The harness now reports three comparisons separately: original xterm source vers
 Actual public-exporter run: six native source-state failures remain (`insert-mode`, `attributes`, `emoji`, `wrap-edge`, `scroll-region-origin`, `wrap-disabled`); four native source-raster failures remain (`insert-mode`, `attributes`, `emoji`, `wrap-disabled`). Three reference raster defects are independently observed (`scroll-region-origin`, `alternate-active`, `full-screen-redraw`). The two alternate-buffer native replays match the original hidden-cursor rendering: those initial raster failures were reference serializer artifacts. Origin-mode parsing retains the correct original cursor `(3,19)` internally, but public replay does not export the origin setting/region; xterm's checkpoint independently misplaces the cursor.
 
 The callback evidence identifies unsupported `CSI 4 h`, SGR 9 and `CSI ? 7 l`; these require genuine drawing/attribute changes, not just replay suffixes. The wide-edge wrap policy intentionally differs from xterm in vt100 source, and the Unicode cursor difference is present in native parser state before export. A small fork/upstream patch feasibility experiment continues only under untracked `.work/` and does not activate production code. Native cutover remains blocked.
+
+## Reference-oracle investigation, 2026-10-24
+
+Reproduced at the isolated preparation base with the unchanged production `Screen`
+checkpoint, native vt100 0.18.1 public adapter, and Chrome 155. The observed six
+native source-state failures and four source-raster failures remain exactly those
+listed above. No production dependency, session host or forwarding route changed.
+
+The state oracle now observes DECTCEM through xterm's public parser callbacks,
+returning `false` so normal parsing still runs. Cursor visibility is absent from
+`term.modes`; previously a state-only run missed the two hidden-cursor checkpoint
+defects. The actual reference now has **three state failures and three raster
+failures**: `scroll-region-origin`, `alternate-active`, `full-screen-redraw`.
+
+Two reference serializer causes are demonstrated by the installed addon source:
+it emits DECOM after restoring the cursor, which homes it, and never serializes
+DECTCEM. A **prospective, spike-only** export appends the observed scroll region,
+DECOM-relative cursor placement and visibility restoration. Its separate
+`prospectiveReference` report fields have zero state/raster failures across all
+24 synthetic streams. The report hashes the spike reference implementation as
+well as the actual production source. These diagnostic fields never participate
+in the verdict: the unchanged actual checkpoint still fails the strict gate.
+This is evidence for a later TypeScript serializer correction, not evidence that
+production checkpoints were fixed or live-validated.
+
+The prospective export is bounded to this corpus. It is not a complete terminal
+serializer: resize/reflow, per-buffer saved margins, saved cursors, pending-wrap
+continuation and arbitrary application output still require dedicated tests.
+Actual production serializer correction and CT-11 live validation remain pending.
+
+The existing vt100 APIs still do not establish a faithful exporter: callback
+observations can preserve otherwise unhandled nonvisual modes, but cannot recover
+cell state discarded by unsupported insert mode, SGR 9 or disabled autowrap.
+The dependency explicitly uses a different wide-edge wrap policy, and the emoji
+cursor difference already exists before export. Origin-region restoration is an
+export gap; repairing only that gap cannot resolve the other five native state
+failures. A dependency change or additional terminal model would require a
+separate architecture proposal and validation; this spike makes neither change.
+
+Applicable governance at this run: constitution 0.10.0 (established rules stay in
+force while proposed amendments remain proposals), CT-1–4/11, REPO-1/3–5,
+ARCH-1/9/12 and RUST-7. This is test-only preparation, exempt from CT-11 runtime
+validation; all live session, CLI/API, web/tray and desktop cutover behavior remains
+UNVERIFIED. M2-07 Task 1 and M3-02 stay blocked.

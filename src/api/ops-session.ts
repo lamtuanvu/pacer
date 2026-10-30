@@ -11,8 +11,9 @@ import {
   resolveAttachments,
 } from "../attachments/store";
 import { prepareAgentAttachment } from "../plugins/agent-session";
-import { launchTaskRunner, spawnRunner, taskStop } from "../tasks/api";
-import { updateTask } from "../tasks/store";
+import { admissionCtx, prepareDelegate, launchTaskRunner, spawnRunner, taskStop } from "../tasks/api";
+import { withWork } from "../update/desktop/admission";
+import { readTask, withTaskLock, updateTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import { pidAlive } from "../link/store";
 import { readSessionFile } from "../session/files";
@@ -86,7 +87,7 @@ export const sessionOps: Record<string, OpDef> = {
     description:
       "Explicitly resume the native conversation with the same agent and account.",
     params: z.object({ id, expect_rev: z.number().int().positive() }),
-    handler: async (ctx, p, deps) => {
+    handler: async (ctx, p, deps) => withWork(ctx,{kind:"operation",id:p.id,label:"Resuming interactive session"},async()=>{
       const task = requireConversation(ctx, p.id);
       if (
         task.rev !== p.expect_rev ||
@@ -122,7 +123,19 @@ export const sessionOps: Record<string, OpDef> = {
           "not_allowed",
           executor?.reason ?? "Resume is unavailable for this agent",
         );
-      updateTask(ctx, p.id, (t) => {
+      const mode=task.placement?.mode??task.run?.mode??(task.placement?.requested==="new"?"new":"current");
+      let currentPreparation=prepared;
+      const admission=await prepareDelegate(admissionCtx(ctx),{
+        brief:task.brief,kind:null,executor:task.requestedExecutor,worktree:mode,repoRef:prepared.repo,repoValidated:true,admissionTaskLock:p.id,
+        admissionContext:()=>JSON.stringify({task:readTask(ctx,p.id),preparation:currentPreparation}),
+      },deps.spawnRunner??spawnRunner,undefined,()=>"conversation-resume",candidate=>candidate.kind===null&&candidate.executor===task.requestedExecutor&&candidate.worktree===mode);
+      if(admission.policies) currentPreparation=await prepareSession(admissionCtx(ctx),{repo:task.repo?.key??task.brief.repo});
+      if((await sessionInfo(admissionCtx(ctx),p.id,undefined,false)).live) throw new CoreError("conflict","The previous session is still active");
+      return admission.consume(({revalidate})=>{
+      revalidate();
+      withTaskLock(ctx,p.id,()=>{
+       revalidate();
+       updateTask(admissionCtx(ctx), p.id, (t) => {
         if (t.rev !== p.expect_rev)
           throw new CoreError("conflict", "Session changed");
         t.state = "queued";
@@ -131,6 +144,7 @@ export const sessionOps: Record<string, OpDef> = {
         delete t.run;
         delete t.runnerPid;
         delete t.queue;
+       });
       });
       try {
         launchTaskRunner(ctx, p.id, deps.spawnRunner ?? spawnRunner);
@@ -152,7 +166,8 @@ export const sessionOps: Record<string, OpDef> = {
         );
       }
       return { task_id: p.id, state: "queued" };
-    },
+      });
+    }),
   }),
   "session.attachment.prepare": op({
     description:

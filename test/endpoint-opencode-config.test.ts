@@ -1,15 +1,22 @@
-import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
+import {pluginRegistry,shutdownPlugins} from "../src/plugins";
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, readFileSync, statSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy } from "../src/config/strategy";
-import { renderOpencodeConfig, writeOpencodeConfig } from "../src/endpoints/opencode-config";
+import { renderOpencodeConfig as renderPluginConfig } from "../plugins/pacer-endpoints/opencode-config";
+import { projectEndpointAccounts, writeEndpointConfig } from "../src/plugins/endpoint-adapter";
+const renderOpencodeConfig = (strategy: ReturnType<typeof loadStrategy>) => renderPluginConfig(projectEndpointAccounts(strategy.accounts));
+const writeOpencodeConfig = (ctx: ReturnType<typeof fakeCtx>) => writeEndpointConfig(ctx, loadStrategy(ctx).accounts);
 import { runnerEnv } from "../src/exec/launch";
 import { selectBackend } from "../src/exec/backend";
 import { fakeCtx } from "./helpers";
 
+const contexts: ReturnType<typeof fakeCtx>[] = [];
+afterEach(async () => { await Promise.all(contexts.splice(0).map(ctx => shutdownPlugins(ctx))); });
 const secret = "sk-config-test-only-secret";
 function setup(key = "env:ENDPOINT_TEST_KEY") {
   const ctx = fakeCtx({env: {ENDPOINT_TEST_KEY: secret}});
+  contexts.push(ctx);
   mkdirSync(ctx.pacerHome, {recursive: true});
   const raw = {planner: "claude-code", accounts: {main: {kind: "claude"}, "test-api": {kind: "endpoint", usage: "unmetered", connection: {api: "openai-compatible", base_url: "https://example.test/v1", key, models: [{id: "model", context: 128000, output: 16000, tools: true}]}}, local: {kind: "endpoint", usage: "unmetered", model: "external/model"}}, routing: [{default: ["opencode#test-api", "opencode#local"]}]};
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
@@ -87,7 +94,7 @@ test("connection endpoints bypass Orca even when forced; external providers also
 test("account changes regenerate the config, retaining only current connections", async () => {
   const {accountCmd} = await import("../src/commands/accounts");
   const {ctx, raw} = setup();
-  const path = writeOpencodeConfig(ctx);
+  const path = await writeOpencodeConfig(ctx);
   // This connection has no runner, so the existing remove command can remove it.
   raw.routing = [{default: ["opencode#local"]}];
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
@@ -114,4 +121,31 @@ test("invalid inline OpenCode config fails without logging its contents", async 
     expect(message).toBe("Invalid OPENCODE_CONFIG_CONTENT: expected a JSON object");
     expect(message).not.toContain(secret);
   }
+});
+
+
+test("managed launch refuses disabled endpoint plugin without builtin config fallback", async () => {
+  const { ctx, strategy } = setup();
+  await pluginRegistry(ctx).disable(ctx, "pacer-endpoints");
+  await expect(runnerEnv(ctx, strategy.runners["opencode#test-api"]!)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(existsSync(join(ctx.pacerHome, "opencode/opencode.json"))).toBe(false);
+});
+
+
+test("plugin config write retains unchanged file identity and mtime while repairing private mode", async () => {
+  const { ctx } = setup();
+  const path = await writeOpencodeConfig(ctx), before = statSync(path);
+  chmodSync(path, 0o644);
+  await writeOpencodeConfig(ctx);
+  const after = statSync(path);
+  expect(after.ino).toBe(before.ino);
+  expect(after.mtimeMs).toBe(before.mtimeMs);
+  expect(after.mode & 0o777).toBe(0o600);
+});
+
+test("missing endpoint key refuses before creating a config", async () => {
+  const { ctx, strategy } = setup();
+  delete ctx.env.ENDPOINT_TEST_KEY;
+  await expect(runnerEnv(ctx, strategy.runners["opencode#test-api"]!)).rejects.toThrow("Key missing for endpoint test-api");
+  expect(existsSync(join(ctx.pacerHome, "opencode/opencode.json"))).toBe(false);
 });

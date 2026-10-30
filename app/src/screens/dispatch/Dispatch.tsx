@@ -11,7 +11,7 @@ import { capacity, needsYou, otherReposNeedingYou, plannerMeter, type Scope } fr
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { ago, clock } from "../../../../src/view-model/time";
-import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { attentionStatus, executorLabel, paceStatus, policyCaption } from "../../../../src/view-model/words";
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
 import { AgentMark } from "../../ds/AgentMark";
@@ -288,8 +288,10 @@ function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, 
     {!narrow && <RepoFilter snapshot={snapshot} query={query} menu />}
     {!hideNewTask && <Button variant="primary" size="sm" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="Meta+N">New task{!narrow && <> <Kbd>⌘N</Kbd></>}</Button>}
   </div>;
-  const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span></div>;
-  return narrow ? null
+  const policy = <span className="pc-dispatch__policy muted">{policyCaption(snapshot.policy)}</span>;
+  const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span>{policy}</div>;
+  // The narrow layout has no header; its policy caption stands in for it in every setup state.
+  return narrow ? policy
     : <header className="pc-dispatch__header">{title}{controls}</header>;
 }
 

@@ -1,3 +1,4 @@
+import { withVersionFixtures } from "./planner-detect-fixtures";
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,9 +6,9 @@ import { setupCmd, type SetupDeps } from "../src/commands/setup";
 import { validateStrategy } from "../src/config/strategy";
 import { readManifest } from "../src/install/manifest";
 import { main } from "../src/cli";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 function fixture(bins = ["claude", "codex", "cursor-agent", "opencode"]) {
- const ctx = fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } });
+ const ctx = withVersionFixtures(fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } }));
  let installed = false, installs = 0, questions: string[] = [], previews: string[] = [];
  const deps: SetupDeps = { tty: false, stdoutTTY: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; },
   onboardingClient: async () => { throw new Error("No service in the setup unit fixture"); },
@@ -121,4 +122,13 @@ test("init still succeeds when the first-delegation offer cannot reach the servi
  const r=await setupCmd(["--yes","--no-dashboard"],f.ctx,{...f.deps,tty:true,print:line=>lines.push(line),onboardingClient:async()=>{throw new Error("pacer isn't running");}});
  expect(r.code).toBe(0);
  expect(lines.join("\n")).toContain("Try a first delegation later");
+});
+test('init exposes actual policy mode in text and JSON even with no policy plugins',async()=>{
+ const f=fixture([]);
+ const first=await setupCmd(['--json'],f.ctx,f.deps);
+ expect(JSON.parse(first.out).policy).toEqual({mode:'open',plugins:0});
+ const path=join(f.ctx.pacerHome,'strategy.yaml');
+ const {writeFileSync}=await import('node:fs');writeFileSync(path,readFileSync(path,'utf8')+'\nplugins:\n  policy:\n    mode: closed\n');
+ const next=await setupCmd([],f.ctx,f.deps);
+ expect(next.out).toContain('policy: closed (0 plugins)');
 });

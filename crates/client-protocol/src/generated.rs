@@ -2553,6 +2553,7 @@ impl<'de> ::serde::Deserialize<'de> for AccountTestParamsName {
 ///      "items": {
 ///        "type": "string",
 ///        "enum": [
+///          "policy",
 ///          "plugin_state",
 ///          "task_started",
 ///          "task_settled",
@@ -2677,6 +2678,7 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsBefore {
 ///{
 ///  "type": "string",
 ///  "enum": [
+///    "policy",
 ///    "plugin_state",
 ///    "task_started",
 ///    "task_settled",
@@ -2707,6 +2709,8 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsBefore {
     PartialOrd,
 )]
 pub enum ActivityListParamsKindsItem {
+    #[serde(rename = "policy")]
+    Policy,
     #[serde(rename = "plugin_state")]
     PluginState,
     #[serde(rename = "task_started")]
@@ -2742,6 +2746,7 @@ impl ::std::convert::From<&Self> for ActivityListParamsKindsItem {
 impl ::std::fmt::Display for ActivityListParamsKindsItem {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
+            Self::Policy => f.write_str("policy"),
             Self::PluginState => f.write_str("plugin_state"),
             Self::TaskStarted => f.write_str("task_started"),
             Self::TaskSettled => f.write_str("task_settled"),
@@ -2762,6 +2767,7 @@ impl ::std::str::FromStr for ActivityListParamsKindsItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
+            "policy" => Ok(Self::Policy),
             "plugin_state" => Ok(Self::PluginState),
             "task_started" => Ok(Self::TaskStarted),
             "task_settled" => Ok(Self::TaskSettled),

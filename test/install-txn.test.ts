@@ -5,7 +5,7 @@ import { fakeCtx } from "./helpers";
 import { PACER, recordingRun, snapshot } from "./install-helpers";
 import { applyUndo, mergeUndo, piecesPresent, readManifest } from "../src/install/manifest";
 import { InstallError, runInstall } from "../src/install/txn";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { uninstallPlanner } from "./install-plugin-adapter";
 import { upsertBlock } from "../src/install/blocks";
 
 const block = [{ kind: "block", style: "md" }] as const;

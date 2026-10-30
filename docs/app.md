@@ -92,7 +92,9 @@ checklist and advance in place; the Setup route stays open. **Change** returns t
 planner selection without connecting integrations until the connection step.
 
 The connection card explains additions and edits in plain words. **Show the files**
-reveals technical paths and the undo command before consent. **Skip for now** leaves
+reveals technical paths and the undo command before consent. Tab into each long
+preview and use the Left and Right Arrow keys to scroll its full text horizontally.
+**Skip for now** leaves
 connection pending, with a return action in the rail. Restart open planner sessions
 after connecting. Executor checkboxes enable or block work, and arrow buttons save
 priority. **Looks right** confirms the list; an empty list offers the existing

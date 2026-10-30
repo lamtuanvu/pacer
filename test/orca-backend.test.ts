@@ -1346,6 +1346,6 @@ test("an idle-expired lane keeps its worktree, so its open question can still be
   // The answer starts a new attempt from the lane's worktree head, as before the worker was released.
   updateTask(x.ctx, asked.id, t => { t.brief.repo = mkdtempSync(join(tmpdir(), "pacer-idle-")); });
   const inputs: {brief: {base?: string}}[] = [];
-  await answer(x.ctx, asked.id, "go with B", {}, {delegate: (c, input) => { inputs.push(input); return createTask(c, {brief: input.brief, kind: null, requestedExecutor: "codex", timeoutS: 1}); }});
+  await answer(x.ctx, asked.id, "go with B", {}, {delegate: async (c, input) => { inputs.push(input); const create = () => createTask(c, {brief: input.brief, kind: null, requestedExecutor: "codex", timeoutS: 1}); return input.commitWith ? input.commitWith(create) : create(); }});
   expect(inputs[0]?.brief.base).toBe(LANE_HEAD);
 });

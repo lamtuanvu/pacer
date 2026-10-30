@@ -4,7 +4,7 @@ import { opencodeConfigPath } from "../install/opencode";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import type { Catalog } from "./catalog";
-import { discoverModels } from "./models";
+import { discoverEndpointModels } from "../plugins/endpoint-adapter";
 import { classify, type UsageClass } from "./recommend";
 
 export type CandidateGroup = "signed_in" | "local" | "catalog";
@@ -45,11 +45,14 @@ export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<stri
 function addedBy(accounts: Record<string, AccountCfg>, provider: string, baseUrl?: string): string | null {
   return Object.values(accounts).find(a => (a.source === "opencode" && a.provider === provider) || (!!baseUrl && a.connection?.base_url === baseUrl))?.name ?? null;
 }
-export async function detectCandidates(ctx: Ctx, deps: { fetch?: typeof fetch; catalog: Catalog | null; accounts: Record<string, AccountCfg> }): Promise<Detection> {
+export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof discoverEndpointModels; catalog: Catalog | null; accounts: Record<string, AccountCfg> }): Promise<Detection> {
   const notes: string[] = [], candidates: Candidate[] = [];
   const opencode = ctx.which("opencode") !== null;
   const catalog = deps.catalog;
-  const local = Promise.all(LOCAL_SERVERS.map(async s => ({ s, r: await discoverModels({ baseUrl: s.base_url, key: null, fetch: deps.fetch, timeoutMs: 1000 }) })));
+  // Each probe settles on its own: one failing server (or an unavailable endpoint plugin) never fails detection.
+  const probeFailures = new Set<string>();
+  const local = Promise.all(LOCAL_SERVERS.map(async s => ({ s, r: await (deps.discover ?? discoverEndpointModels)(ctx, { baseUrl: s.base_url, key: null, timeoutMs: 1000 })
+    .catch((error: unknown) => { probeFailures.add(error instanceof Error ? error.message : String(error)); return { listed: false as const }; }) })));
   if (!opencode) notes.push("Install OpenCode to use providers you have signed in to or connect new ones.");
   const signed = opencode ? await signedInProviders(ctx) : [];
   if (signed === null) notes.push("Could not read OpenCode sign-ins; showing other options.");
@@ -59,7 +62,9 @@ export async function detectCandidates(ctx: Ctx, deps: { fetch?: typeof fetch; c
     seen.add(p.id);
     candidates.push({ group: "signed_in", provider: p.id, name: p.name, added: addedBy(deps.accounts, p.id), usage: classify({ id: p.id }, catalog?.providers[p.id]) });
   }
-  for (const { s, r } of await local) if (r.listed)
+  const probes = await local;
+  for (const failure of probeFailures) notes.push(`Could not check local model servers: ${failure}`);
+  for (const { s, r } of probes) if (r.listed)
     candidates.push({ group: "local", provider: s.provider, name: s.name, base_url: s.base_url, models: r.models.length, added: addedBy(deps.accounts, s.provider, s.base_url), usage: classify({ id: s.provider, local: true }) });
   if (opencode && catalog) for (const p of Object.values(catalog.providers)) {
     if (seen.has(p.id) || p.id === "ollama" || p.id === "lmstudio" || !p.models.length) continue;

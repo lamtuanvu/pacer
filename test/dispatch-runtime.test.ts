@@ -85,3 +85,30 @@ test("managed work honors the cumulative attempt cap inside one runner invocatio
  runAttempt:async(_c,cfg)=>{launched.push(cfg.id);return{exec:{code:1,stdout:"",stderr:"quota exceeded",timedOut:false},report:"quota",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:1,timedOut:false,limitHit:true,log:""}};},verifyRepo:async()=>({files:""})});
  expect(launched, JSON.stringify({state:result.state,queue:result.queue,report:result.result?.report,decisions:dispatchDatabase(ctx).query("SELECT data FROM work_decisions WHERE task_id=?").get(task.id)})).toHaveLength(1);expect(result.attempts).toHaveLength(3);
 });
+test("managed work retries an untried model on an already-tried runner, as on main (B4)",async()=>{
+ const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
+ const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
+ const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id,{maxAttempts:3});
+ await certifiedClaude(ctx,s,repo);
+ const launched:string[]=[];
+ const result=await runTask(ctx,task.id,{loadStrategy:()=>s,hooks:defaultHooks,computeStatus:async(statusCtx)=>({generatedAt:statusCtx.now,strategy:"test",planner:"codex",mode:"normal",disabled:false,calendarPace:false,providers:[{id:"claude-code",usage:"unmetered",windows:[],binding:null,verdict:"OK",installed:true,stale:false}],executors:{ranked:[],excluded:[]}}),
+ runAttempt:async(_c,cfg)=>{launched.push(cfg.model??"");const failed=launched.length===1;return{exec:{code:failed?1:0,stdout:failed?"":"ok",stderr:failed?"quota exceeded":"",timedOut:false},report:failed?"quota":"ok",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:failed?1:0,timedOut:false,limitHit:failed,log:""}};},verifyRepo:async()=>({files:""})});
+ expect(launched, JSON.stringify({state:result.state,queue:result.queue,report:result.result?.report})).toHaveLength(2);
+ expect(new Set(launched).size).toBe(2);expect(result.state).toBe("done");
+});
+test("strict managed work honors a route policy exclusion and never launches the excluded runner (F7)",async()=>{
+ const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
+ const {policyGateFixture}=await import("./fixtures/policy-host");
+ const f=policyGateFixture({verdict:"amend",amend:{exclude:["claude-code"]}});const ctx=f.ctx,repo=f.repo;
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
+ const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id);
+ await certifiedClaude(ctx,s,repo);
+ const launched:string[]=[];
+ const result=await runTask(ctx,task.id,{loadStrategy:()=>s,hooks:defaultHooks,computeStatus:async(statusCtx)=>({generatedAt:statusCtx.now,strategy:"test",planner:"codex",mode:"normal",disabled:false,calendarPace:false,providers:[{id:"claude-code",usage:"unmetered",windows:[],binding:null,verdict:"OK",installed:true,stale:false}],executors:{ranked:[],excluded:[]}}),
+ runAttempt:async(_c,cfg)=>{launched.push(cfg.id);return{exec:{code:0,stdout:"ok",stderr:"",timedOut:false},report:"ok",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:0,timedOut:false,limitHit:false,log:""}};},verifyRepo:async()=>({files:""})});
+ expect(launched).toEqual([]);
+ expect(f.calls().map(line=>JSON.parse(line).input.candidates)[0]).toContain("claude-code");
+ expect(["queued","failed","limit"]).toContain(result.state);
+ expect(JSON.stringify({queue:result.queue,result:result.result})).toContain("fx-policy");
+});
