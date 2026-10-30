@@ -120,17 +120,34 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query}
  const reloadDetail=selected?reload:()=>{setOwnRequested(true);ownDetail.reload();};
  const task=liveTask??detail;
  const session=useQuery<SessionInfo>('task.session',{id},'',false,!!task&&task.state!=='queued');
- const [wantsControl,setWantsControl]=useState(false),[driving,setDriving]=useState(false),[takeRequested,setTakeRequested]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>();
- const controls=useRef<TerminalActions|null>(null),dialogs=useDialogs();
- const take=async(initial?:'starting'|'driving')=>{setBusy(true);try{if(!initial&&session.data?.host==='builtin'&&session.data.live){setWantsControl(true);setTakeRequested(true);}else await takeoverSession({id,state:initial,call:api.call.bind(api),starting:()=>{},ready:info=>{session.setData(info);setWantsControl(true);setTakeRequested(true);}});}catch(e){setError(e);}finally{setBusy(false);}};
+ const [driving,setDriving]=useState(false),[takeRequested,setTakeRequested]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>();
+ const controls=useRef<TerminalActions|null>(null),takeVersion=useRef(0),dialogs=useDialogs();
+ const take=async(initial?:'starting'|'driving')=>{
+  const version=++takeVersion.current;
+  setBusy(true);
+  try{
+   if(!initial&&session.data?.host==='builtin'&&session.data.live){setTakeRequested(true);}
+   else await takeoverSession({id,state:initial,call:api.call.bind(api),starting:()=>{},ready:info=>{
+    if(version!==takeVersion.current)return;
+    session.setData(info);setTakeRequested(true);
+   }});
+  }catch(e){if(version===takeVersion.current)setError(e);}
+  finally{if(version===takeVersion.current)setBusy(false);}
+ };
+ const handBack=()=>{
+  // A pending startup poll must not reclaim input after an explicit handback.
+  takeVersion.current++;setBusy(false);
+  controls.current?.release();setDriving(false);setTakeRequested(false);
+ };
+ useEffect(()=>()=>{takeVersion.current++;},[id]);
  useEffect(()=>{const params=new URLSearchParams(location.hash.split('?')[1]);const pending=params.get('takeover');if(pending==='1'&&!session.data)return;if(pending){params.delete('takeover');history.replaceState(null,'',`${location.hash.split('?')[0]}?${params}`);void take(pending==='starting'||pending==='driving'?pending:undefined);}},[id,session.data?.host,session.data?.live]);
  // Opening a workspace is read-only, even when another viewer controls the session.
  const [stoppedAt,setStoppedAt]=useState<string>();
  const taskRevision=JSON.stringify([task?.rev,task?.state]);
  const stopped=stoppedAt===taskRevision;
  const t=stopped&&task?{...task,state:'stopped' as const}:task,s=session.data,live=!!s?.live&&!!t&&['running','queued','needs_input'].includes(t.state);
- const end=async()=>{if(!await dialogs.confirm('Stop this task? The output and changes are kept.','Stop task','Stop task'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});setStoppedAt(taskRevision);setWantsControl(false);setDriving(false);session.reload();}catch(e){setError(e);}};
- return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b>{t?.executor&&`${executorLabel(t.executor)} · `}{t?.title??t?.goal}</b><span>{t?.repo?.label} {detail?.branch&&`· ${detail.branch}`} · {t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Task result':driving?"You control this session":'Watching · read-only'}</span></div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" className="pc-workspace-handback" variant="quiet" icon="hand-back" aria-label="Hand back" title="Hand back" onClick={()=>{controls.current?.release();setDriving(false);setWantsControl(false);setTakeRequested(false);}}/>:(s?.takeover.available||s?.host==='builtin'&&live)&&<Button variant="secondary" size="sm" busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:<>{t.state==='needs_input'&&detail&&<WorkspaceQuestion task={{...detail,...t}} query={query} reload={reloadDetail}/>}{!s?<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={wantsControl} resize={wantsControl} onControlChange={setDriving} takeRequested={takeRequested} onTakeSent={()=>setTakeRequested(false)} onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>}</>;
+ const end=async()=>{if(!await dialogs.confirm('Stop this task? The output and changes are kept.','Stop task','Stop task'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});setStoppedAt(taskRevision);handBack();session.reload();}catch(e){setError(e);}};
+ return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b>{t?.executor&&`${executorLabel(t.executor)} · `}{t?.title??t?.goal}</b><span>{t?.repo?.label} {detail?.branch&&`· ${detail.branch}`} · {t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Task result':driving?"You control this session":'Watching · read-only'}</span></div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" aria-label="Hand back" title="Hand back" onClick={handBack}/>:(s?.takeover.available||s?.host==='builtin'&&live)&&<Button variant="secondary" size="sm" busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:<>{t.state==='needs_input'&&detail&&<WorkspaceQuestion task={{...detail,...t}} query={query} reload={reloadDetail}/>}{!s?<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} autoControl={false} externalControls onControlChange={setDriving} takeRequested={takeRequested} onTakeSent={()=>setTakeRequested(false)} onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>}</>;
 }
 
 export function workspaceWait(task:Pick<ApiTask,'queue'>) {

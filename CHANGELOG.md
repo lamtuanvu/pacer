@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Open available live workspace sessions interactively and fit the visible pane without an extra takeover click. Occupied sessions keep their controller until confirmed takeover; followers scroll at normal font size. Handback preserves the terminal, hidden tabs never resize it, and available sessions reconnect with control. Terminal colors use a coherent dark palette in both app themes, and workspace toolbar controls share quiet compact styling with danger reserved for ending a session.
+
 ### Added
 
 - Make task workspaces the primary destination from Dispatch, Tasks and successful task creation. Simplify the composer with advanced controls and routing details, explain configured checks, show queued/result/question states, make watching and explicit control clear, and preserve unknown metrics. Task history remains available.

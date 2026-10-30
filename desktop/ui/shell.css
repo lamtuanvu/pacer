@@ -66,6 +66,25 @@
   --board-chart-4: #7f8f6f;
   --board-chart-5: #b9b4a8;
   --board-on-series: #ffffff;
+  --terminal-background: #000000;
+  --terminal-foreground: #e6edf3;
+  --terminal-selection: #334155;
+  --terminal-black: #000000;
+  --terminal-red: #ff7b72;
+  --terminal-green: #7ee787;
+  --terminal-yellow: #e3b341;
+  --terminal-blue: #79c0ff;
+  --terminal-magenta: #d2a8ff;
+  --terminal-cyan: #a5d6ff;
+  --terminal-white: #d4d4d4;
+  --terminal-bright-black: #8b949e;
+  --terminal-bright-red: #ffa198;
+  --terminal-bright-green: #aff5b4;
+  --terminal-bright-yellow: #f8e3a1;
+  --terminal-bright-blue: #a5d6ff;
+  --terminal-bright-magenta: #e2c5ff;
+  --terminal-bright-cyan: #b3f0ff;
+  --terminal-bright-white: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -357,6 +376,25 @@
   --board-chart-4: #7f8f6f;
   --board-chart-5: #b9b4a8;
   --board-on-series: #ffffff;
+  --terminal-background: #000000;
+  --terminal-foreground: #e6edf3;
+  --terminal-selection: #334155;
+  --terminal-black: #000000;
+  --terminal-red: #ff7b72;
+  --terminal-green: #7ee787;
+  --terminal-yellow: #e3b341;
+  --terminal-blue: #79c0ff;
+  --terminal-magenta: #d2a8ff;
+  --terminal-cyan: #a5d6ff;
+  --terminal-white: #d4d4d4;
+  --terminal-bright-black: #8b949e;
+  --terminal-bright-red: #ffa198;
+  --terminal-bright-green: #aff5b4;
+  --terminal-bright-yellow: #f8e3a1;
+  --terminal-bright-blue: #a5d6ff;
+  --terminal-bright-magenta: #e2c5ff;
+  --terminal-bright-cyan: #b3f0ff;
+  --terminal-bright-white: #ffffff;
 }
 }
 :root[data-theme="dark"] {
@@ -425,6 +463,25 @@
   --board-chart-4: #7f8f6f;
   --board-chart-5: #b9b4a8;
   --board-on-series: #ffffff;
+  --terminal-background: #000000;
+  --terminal-foreground: #e6edf3;
+  --terminal-selection: #334155;
+  --terminal-black: #000000;
+  --terminal-red: #ff7b72;
+  --terminal-green: #7ee787;
+  --terminal-yellow: #e3b341;
+  --terminal-blue: #79c0ff;
+  --terminal-magenta: #d2a8ff;
+  --terminal-cyan: #a5d6ff;
+  --terminal-white: #d4d4d4;
+  --terminal-bright-black: #8b949e;
+  --terminal-bright-red: #ffa198;
+  --terminal-bright-green: #aff5b4;
+  --terminal-bright-yellow: #f8e3a1;
+  --terminal-bright-blue: #a5d6ff;
+  --terminal-bright-magenta: #e2c5ff;
+  --terminal-bright-cyan: #b3f0ff;
+  --terminal-bright-white: #ffffff;
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }

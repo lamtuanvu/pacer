@@ -12,7 +12,13 @@ snapshot. Selecting a task loads its details once; task events refresh those
 details after a short debounce. Open session panels retain their output stream.
 The task page (`#/tasks/<id>`) also follows events rather than polling task details.
 Task pages show the complete display title, with a copy-ID button in the breadcrumb.
-Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero. Running
+Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero.
+Live agent sessions open watching read-only with explicit secondary **Take control**.
+Followers retain authoritative PTY dimensions, normal-size text and scrolling.
+**Hand back** releases input without clearing output or reclaiming it on reconnect.
+Hidden panels never fit or resize the PTY. Terminal surfaces share a dark palette
+in both app themes, including ANSI colors and a contrast floor for agent text.
+The toolbar uses quiet handback and danger **Stop task** icons. Running
 cards name the agent and recorded phase and show up to two meaningful output lines,
 omitting echoed instructions and shortening home and temporary paths.
 The shared page-control worker checks for remote actions every ten seconds.
