@@ -46,16 +46,18 @@ export async function verifyRepo(
   const started = performance.now();
   const r = await execProcess({ argv, cwd: repo, env, timeoutMs });
   const durationS = Math.round((performance.now() - started) / 100) / 10;
-  const tail = `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const outputTail = `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const timeoutMessage = `acceptance timed out after ${timeoutMs / 1000} s (acceptance_timeout_min=${timeoutMs / 60_000})`;
+  const tail = r.timedOut ? [outputTail, timeoutMessage].filter(Boolean).join("\n") : outputTail;
   const passed = tail.match(/(\d+) pass(ed)?/i)?.[1];
   const failed = tail.match(/(\d+) fail(ed)?/i)?.[1];
-  const summary = [passed && `${passed} passed`, failed && `${failed} failed`].filter(Boolean).join(" · ") || undefined;
-  const hint = acceptanceHint(r.code, durationS, tail);
+  const summary = r.timedOut ? timeoutMessage : [passed && `${passed} passed`, failed && `${failed} failed`].filter(Boolean).join(" · ") || undefined;
+  const hint = r.timedOut ? "Raise acceptance_timeout_min (or --acceptance-timeout-min) to allow more time, up to 120 minutes." : acceptanceHint(r.code, durationS, tail);
   return {
     files,
     acceptance: {
       cmd: acceptance, passed: r.code === 0 && !r.timedOut, tail, durationS, summary, machine: null,
-      exitCode: r.code, shell, ...(hint ? { hint } : {}),
+      exitCode: r.code, shell, ...(r.timedOut ? { timedOut: true } : {}), ...(hint ? { hint } : {}),
     },
   };
 }

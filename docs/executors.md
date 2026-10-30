@@ -47,7 +47,7 @@ When `pacer delegate` overrides a brief’s requested `worktree: current` placem
 
 A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
 
-The executor contract asks workers to stay in scope, avoid further delegation, avoid commits/pushes and run acceptance. pacer records reports, logs and any acceptance result; provider-limit detection can retry another ranked executor. Review the changes and run acceptance independently before `pacer review <id> --accept` or `--reject`.
+The executor contract asks workers to stay in scope, avoid further delegation, avoid commits/pushes and run acceptance. Set `acceptance_timeout_min` in the brief (or `--acceptance-timeout-min`) to an integer from 1 to 120 for the acceptance deadline in minutes; the default is 10, independent of the executor timeout, and retries preserve it. Timed-out acceptance results report `timedOut: true`, the deadline in the tail/summary, and a hint to raise the limit. pacer records reports, logs and any acceptance result; provider-limit detection can retry another ranked executor. Review the changes and run acceptance independently before `pacer review <id> --accept` or `--reject`.
 
 ```sh
 pacer tasks --json

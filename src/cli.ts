@@ -78,7 +78,7 @@ const USAGE = `usage: pacer <command>
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
-           [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
+           [--acceptance-timeout-min <n>] [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
            [--interactive] [--group <name>]        interactive: routed/reviewed like any delegated task, with a live terminal;
                                                      group: lanes nested under one named Orca parent worktree
@@ -315,6 +315,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
+    if(opts["acceptance-timeout-min"]!==undefined)raw.acceptance_timeout_min=Number(str(opts["acceptance-timeout-min"]));
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);

@@ -218,3 +218,22 @@ test("delegate reports current placement overridden to new with its reason", asy
     expect(result.out).toContain("current overridden to new (executor requires an isolated checkout)");
   } finally {cliDeps.spawnRunner = previous;}
 });
+
+test("delegate acceptance timeout flag overrides the brief and rejects invalid values", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const path = join(ctx.home, "brief.json");
+  writeFileSync(path, JSON.stringify({ goal: "Check timeout", repo: ctx.home, acceptance_timeout_min: 20 }));
+  await withNoSpawn(async () => {
+    const fromFile = await main(["delegate", "--brief-file", path, "--json"], ctx);
+    expect(fromFile.code).toBe(0);
+    expect(JSON.parse(fromFile.out).brief.acceptanceTimeoutMin).toBe(20);
+    const overridden = await main(["delegate", "--brief-file", path, "--acceptance-timeout-min", "30", "--json"], ctx);
+    expect(overridden.code).toBe(0);
+    expect(JSON.parse(overridden.out).brief.acceptanceTimeoutMin).toBe(30);
+    for (const value of ["0", "121", "1.5", "oops"]) {
+      const invalid = await main(["delegate", "--brief-file", path, "--acceptance-timeout-min", value], ctx);
+      expect(invalid.code).toBe(2);
+      expect(invalid.err).toContain("acceptance_timeout_min");
+    }
+  });
+});

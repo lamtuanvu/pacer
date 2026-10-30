@@ -46,9 +46,11 @@ write a brief JSON file:
 
 Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
-`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_pipefail`, `constraints`, `context`,
+`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_timeout_min`, `acceptance_pipefail`, `constraints`, `context`,
 `worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors cannot delegate onward.
+
+`acceptance_timeout_min` (or `--acceptance-timeout-min`) is an integer from 1 to 120, default 10. It limits the acceptance command separately from the executor timeout. Retries preserve it. Timed-out results include `timedOut: true`, the deadline in the tail/summary, and a hint to raise this field.
 
 `acceptance` runs exactly as written, as `bash -c "<cmd>"` (or `sh -c` where bash is
 unavailable): idioms like `grep -v ... | (! grep .)` or `git log | grep -q ...` keep

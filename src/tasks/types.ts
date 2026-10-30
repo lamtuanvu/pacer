@@ -27,6 +27,8 @@ export interface Brief {
   repo: string;
   scope?: string;
   acceptance?: string;
+  /** Acceptance deadline in minutes (integer 1–120); omitted means 10. */
+  acceptanceTimeoutMin?: number;
   constraints?: string;
   context?: string;
   feedback?: string;
@@ -113,7 +115,7 @@ export interface Verification {
   /** `exitCode` and `shell` are always set by `verifyRepo`; optional so hand-built results (tests, other callers) need not supply them. */
   acceptance?: {
     cmd: string; passed: boolean; tail: string; durationS?: number; summary?: string; machine?: string | null;
-    exitCode?: number; shell?: string; hint?: string;
+    exitCode?: number; shell?: string; hint?: string; timedOut?: boolean;
   };
 }
 

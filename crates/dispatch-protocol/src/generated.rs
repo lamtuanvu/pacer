@@ -354,6 +354,11 @@ impl<'de> ::serde::Deserialize<'de> for DispatchAnswerParamsText {
 ///      "type": "string",
 ///      "maxLength": 20000
 ///    },
+///    "acceptance_timeout_min": {
+///      "type": "integer",
+///      "maximum": 120.0,
+///      "minimum": 1.0
+///    },
 ///    "constraints": {
 ///      "type": "string",
 ///      "maxLength": 20000
@@ -530,6 +535,8 @@ impl<'de> ::serde::Deserialize<'de> for DispatchAnswerParamsText {
 pub struct DispatchChildParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub acceptance: ::std::option::Option<DispatchChildParamsAcceptance>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub acceptance_timeout_min: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub constraints: ::std::option::Option<DispatchChildParamsConstraints>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -5709,6 +5716,11 @@ impl<'de> ::serde::Deserialize<'de> for DispatchStopParamsId {
 ///      "type": "string",
 ///      "maxLength": 20000
 ///    },
+///    "acceptance_timeout_min": {
+///      "type": "integer",
+///      "maximum": 120.0,
+///      "minimum": 1.0
+///    },
 ///    "constraints": {
 ///      "type": "string",
 ///      "maxLength": 20000
@@ -5890,6 +5902,8 @@ impl<'de> ::serde::Deserialize<'de> for DispatchStopParamsId {
 pub struct DispatchSubmitParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub acceptance: ::std::option::Option<DispatchSubmitParamsAcceptance>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub acceptance_timeout_min: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub constraints: ::std::option::Option<DispatchSubmitParamsConstraints>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]

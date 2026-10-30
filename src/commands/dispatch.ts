@@ -11,7 +11,7 @@ export async function dispatchCmd(args: string[], ctx: Ctx): Promise<Result> {
   try {
     const sub=args[0];
     if(sub!=="preview"){
-      const {pos,flags}=commandArgs(args.slice(1),["repo","goal","title","kind","executor","request-id","id","after","timeout","note","expect-rev","min-tier","model","priority","depends-on","dependency","reason","relation","state","before","text","feedback","acceptance","context","constraints"],["json","accept","reject","allow-delegation","tools","force","exclude"]);
+      const {pos,flags}=commandArgs(args.slice(1),["repo","goal","title","kind","executor","request-id","id","after","timeout","note","expect-rev","min-tier","model","priority","depends-on","dependency","reason","relation","state","before","text","feedback","acceptance","acceptance-timeout-min","context","constraints"],["json","accept","reject","allow-delegation","tools","force","exclude"]);
       if(pos.length)throw Error(USAGE);
       const opt={...(flags["min-tier"]||flags.tools?{requirements:{...(flags["min-tier"]?{minTier:String(flags["min-tier"])}:{}),...(flags.tools?{tools:true}:{})}}:{}),...(flags.model?{model:String(flags.model)}:{}),...(flags.priority?{priority:Number(flags.priority)}:{}),...(flags["allow-delegation"]?{allowDelegation:true}:{})};
       let op:string,params:Record<string,unknown>;
@@ -21,7 +21,7 @@ export async function dispatchCmd(args: string[], ctx: Ctx): Promise<Result> {
         case "child":
           if(!flags.goal||sub==="submit"&&!flags.repo||sub==="child"&&!flags["request-id"])throw Error(USAGE);
           op=sub==="submit"?"dispatch.submit":"dispatch.child";
-          params={goal:flags.goal,title:flags.title,kind:flags.kind,executor:flags.executor,requestId:flags["request-id"],acceptance:flags.acceptance,context:flags.context,constraints:flags.constraints,...(sub==="submit"?{repo:resolve(String(flags.repo))}:{}),options:opt};break;
+          params={goal:flags.goal,title:flags.title,kind:flags.kind,executor:flags.executor,requestId:flags["request-id"],acceptance:flags.acceptance,...(flags["acceptance-timeout-min"]!==undefined?{acceptance_timeout_min:Number(flags["acceptance-timeout-min"])}:{}),context:flags.context,constraints:flags.constraints,...(sub==="submit"?{repo:resolve(String(flags.repo))}:{}),options:opt};break;
         case "tree":case "events":case "wait":case "stop":case "review":case "retry":case "answer":
           if(!id)throw Error(USAGE);
           op=`dispatch.${sub}`;params={id};
