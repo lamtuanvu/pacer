@@ -1,3 +1,4 @@
+import { ImmediateSave } from "../../ds/ImmediateSave";
 import { useRef, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceKind } from "../../../../src/plugins/registry";
 import { AppLink } from "../../navigation";
@@ -6,7 +7,7 @@ import { Switch } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Pill } from "../../ds/Pill";
 import { useDialogs } from "../../ds/useDialogs";
-import { ErrorMessage } from "../task-shared";
+import { useTaskContext, ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
 
 import { pluginPresentation } from "./plugin-presentation";
@@ -48,7 +49,7 @@ export function PluginsSection() {
           {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}
         </div>
         <span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}</span>
-        <Switch size="sm" aria-label={`Enable ${presentation.name}`} aria-describedby={plugin.error ? errorId : undefined} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin, event.currentTarget)} />
+        <ImmediateSave value={plugin.enabled} save={() => toggle(plugin)}>{(value, change, saving) => <Switch size="sm" aria-label={`Enable ${presentation.name}`} aria-describedby={plugin.error ? errorId : undefined} checked={value} disabled={saving || busy || resource.loading || plugin.state === "refused"} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave>
       </li>;
     })}</ul> : <p className="pc-settings-board__caption">No plugins installed.</p>}
     <span className="pc-settings-board__caption">A plugin can add a settings page, an activity-bar view, a side-panel tab, routing engines or usage readers. Each one is listed here with what it adds.</span>
@@ -60,6 +61,7 @@ export function PluginsSection() {
 /** Shared enable flow, including the explicit capability and surface grant. */
 export function usePluginToggle(reload: () => void, loading = false) {
   const action = useOperation(undefined, { notifySuccess: false });
+  const {api} = useTaskContext();
   const dialogs = useDialogs();
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -70,14 +72,13 @@ export function usePluginToggle(reload: () => void, loading = false) {
     }
     pending.current = true; setBusy(true);
     try {
-      const result = await action.run(plugin.enabled ? "plugin.disable" : "plugin.enable", { id: plugin.id });
-      const enabled = result?.data as EnableResult | undefined;
+      const enabled = await api.call<EnableResult>(plugin.enabled ? "plugin.disable" : "plugin.enable", { id: plugin.id });
       if (enabled?.state === "needs_grant") {
         action.clear();
         const surfaces = (enabled.surfaces ?? []).map(kind => surfaceNames[kind][1]);
         if (await dialogs.confirm(`${pluginPresentation(plugin).name} asks for:\n${(enabled.needs ?? []).map(name => `• ${name}`).join("\n") || "No capabilities"}${surfaces.length ? `\nAdds: ${surfaces.join(", ")}.` : ""}\nIt runs as you, with your access, until plugin sandboxing lands. Grant and enable?`, "Enable plugin", "Grant and enable")) {
-          await action.run("plugin.enable", { id: plugin.id, grant: true });
-        }
+          await api.call("plugin.enable", { id: plugin.id, grant: true });
+        } else return false;
       }
     } finally {
       reload(); pending.current = false; setBusy(false);

@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { ImmediateSave } from "../../ds/ImmediateSave";
+import { ImmediateSetting } from "./ImmediateSetting";
+import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import { Checkbox, Disclosure, Switch } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
 import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
@@ -71,7 +73,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     <a className="pc-inline-link" href={`https://github.com/lamtuanvu/pacer/releases/${status.target && /^\d+\.\d+\.\d+$/.test(status.target) ? `tag/v${status.target}` : "latest"}`}>Release notes</a>
     {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
     <div className="u3-actions">{view.action && <Button key={view.action} variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
-    {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><Checkbox className="pc-checkbox__input" checked={status.autoDownload} disabled={busy || !state.connected || !available.actions.includes("configure")} onChange={event => void run("configure", event.currentTarget.checked)}/></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
+    {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><ImmediateSetting value={status.autoDownload} operation={value => {const request=intent(available,"configure",{autoDownload:value}); return {op:request.op!,params:request.params};}}>{(value, change, saving) => <Checkbox className="pc-checkbox__input" checked={value} disabled={busy||saving||!state.connected} onChange={event => change(event.currentTarget.checked)}/>}</ImmediateSetting></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
     {!state.connected && <p role="status">Reconnecting… update status may be out of date.</p>}
     <ErrorMessage error={error}/>{dialogs.dialog}
   </div>;
@@ -168,6 +170,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
 }
 
 function AutomaticUpdateCheck({ busy = false, initialData, checkedAt }: { busy?: boolean; initialData?: ConfigData; checkedAt?: number }) {
-  const config = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(config.reload);
-  return <><SettingRow variant="board" label="Check automatically" description={`Once a day, in the background.${checkedAt ? ` Last checked ${time(checkedAt)}.` : ""}`}><Switch size="sm" aria-label="Check automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
+  const id = useId();
+  const config = useResource<ConfigData>("config.get", {}, initialData);
+  return <><SettingRow controlId={id} variant="board" label="Check automatically" description={`Once a day, in the background.${checkedAt ? ` Last checked ${time(checkedAt)}.` : ""}`}><ImmediateSetting value={config.data?.keys.update_check?.value !== false} operation={value => ({op:"config.set",params:{key:"update_check",value}})} onSaved={config.reload}>{(value, change, saving) => <label className="pc-checkbox pc-checkbox--bare"><Switch id={id} size="sm" aria-label="Check automatically" checked={value} disabled={!config.data||busy||saving} onChange={event => change(event.currentTarget.checked)}/></label>}</ImmediateSetting></SettingRow><ResourceState resource={config}><span/></ResourceState></>;
 }

@@ -46,6 +46,7 @@ browserTest('density persists and announces shell changes; App does not duplicat
   expect(await height()).toBe(32);
   expect(await page.getByRole('button',{name:'Density sample action'}).evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
   expect(await page.locator('.pc-list-row').first().evaluate(el=>getComputedStyle(el).padding)).toBe('8px 12px');
+  await density.getByRole('button',{name:'Compact',exact:true}).click();
   await density.getByRole('button',{name:'Comfortable'}).click();
   expect(await page.evaluate(()=>localStorage.getItem('pacer.density'))).toBe('normal');
   expect(await page.evaluate(()=>(window as any).densityEvent)).toBe('normal');
@@ -96,16 +97,16 @@ browserTest('desktop does not expose a banners switch backed by the global notif
  }finally{await page.close();}
 });
 
-browserTest('density remains applied for this session when persistence is denied',async()=>{
+browserTest('density rolls back and reports an inline error when persistence is denied',async()=>{
  const page=await browser.newPage();
  try{
   await page.addInitScript(()=>{Storage.prototype.setItem=()=>{throw new Error('storage denied');};});
   await page.goto(String(server.url));
   const density=page.getByRole('group',{name:'Density',exact:true});
   await density.getByRole('button',{name:'Compact',exact:true}).click();
-  await page.waitForFunction(()=>document.documentElement.dataset.density==='compact');
+  await page.getByRole('alert').filter({hasText:"Couldn't save: storage denied"}).waitFor();
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-  expect(await page.locator('.pc-topbar__new').evaluate(el=>el.getBoundingClientRect().height)).toBe(28);
-  expect(await page.getByRole('status').getByText('Applied for this session. Device storage is unavailable.').count()).toBe(1);
+  expect(await page.locator('.pc-topbar__new').evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
+  expect(await density.getByRole('button',{name:'Comfortable'}).getAttribute('aria-pressed')).toBe('true');
  }finally{await page.close();}
 });

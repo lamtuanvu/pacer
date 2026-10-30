@@ -1,3 +1,4 @@
+import { ImmediateSave } from "../../ds/ImmediateSave";
 import { useContext, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceInfo, DoctorReport } from "../../../../src/plugins/registry";
 import { Page, Skeleton } from "../../ds/Patterns";
@@ -46,7 +47,7 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
             {<div className="pc-plugin-tags"><span className="pc-settings-board__caption">May</span>{!may.length && <span className="pc-plugin-tag pc-plugin-tag--outlined">No additional access</span>}{may.map(text => <span key={text} className="pc-plugin-tag pc-plugin-tag--outlined">{text}</span>)}</div>}
             {reports[plugin.id] && <p role="status">{reports[plugin.id]}</p>}
           </div>
-          <div className="pc-plugin-card__actions"><span className="pc-plugin-inline"><span className="pc-settings-board__caption">{plugin.enabled ? "On" : "Off"}</span><Switch size="sm" aria-label={`Enable ${presentation.name}`} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin,event.currentTarget)}/></span>
+          <div className="pc-plugin-card__actions"><span className="pc-plugin-inline"><span className="pc-settings-board__caption">{plugin.enabled ? "On" : "Off"}</span><ImmediateSave value={plugin.enabled} save={() => toggle(plugin)}>{(value, change, saving) => <Switch size="sm" aria-label={`Enable ${presentation.name}`} checked={value} disabled={saving || busy || resource.loading || plugin.state === "refused"} onChange={event => change(event.currentTarget.checked)}/>}</ImmediateSave></span>
             {plugin.state === "refused" && <span className="pc-settings-board__caption">Fix the plugin's reported error before enabling.</span>}
             <div className="pc-plugin-inline">{page && <AppButtonLink className="pc-plugin-settings-link" to={routes.pluginSettings(plugin.id)}>Settings</AppButtonLink>}<ActionMenu label={`More actions for ${presentation.name}`} items={[{label:"Run checks",onSelect:() => void doctor(plugin)},...(!plugin.bundled ? [{label:"Remove…",onSelect:() => void remove(plugin)}] : [])]}/></div>
           </div>

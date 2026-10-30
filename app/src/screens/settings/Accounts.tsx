@@ -1,3 +1,4 @@
+import { ImmediateSetting } from "./ImmediateSetting";
 import { markAgent } from "../../../../src/view-model/agents";
 import { useState } from "preact/hooks";
 import { clock } from "../../../../src/view-model/time";
@@ -54,11 +55,8 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
   const refreshButton = (account: string) => <Button size="sm" variant="quiet" busy={refreshing === account} disabled={!!refreshing || !state.connected} onClick={() => void refresh(account)}>Refresh usage<span className="sr-only"> for {account}</span></Button>;
   return (
     <SettingsBoard id="accounts" title="Agents" caption="Who plans, who executes, and what each one is allowed to use."
-      actions={<>
-        <Button onClick={() => void action.run("account.signin", { interactive: "account-add-orca" })}>Link an Orca account</Button>
-        <Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button>
-      </>}>
-      <AgentsIntro tab="accounts" />
+      >
+      <AgentsIntro tab="accounts" actions={<><Button onClick={() => void action.run("account.signin", {interactive:"account-add-orca"})}>Link an Orca account</Button><Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button></>}/>
       <div className="u3-accounts-info"><Icon name="lock"/><span>An account is where quota comes from. pacer never reads or copies an agent's own sign-in.</span></div>
       <ResourceState resource={query} empty="No accounts yet. Add an account to get started.">
         <div className="u3-table-wrap u3-agents-table">
@@ -132,8 +130,8 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
 
 /** The service's existing account policy, saved independently from executor limits. */
 export function AccountPolicy({initialData}:{initialData?:ConfigData}) {
-  const query=useResource<ConfigData>('config.get',{},initialData), action=useOperation(query.reload), {state}=useTaskContext();
+  const query=useResource<ConfigData>('config.get',{},initialData), {state}=useTaskContext();
   const mode=query.data?.keys?.['pacing.accounts']?.value, threshold=query.data?.keys?.['pacing.fill_threshold']?.value;
   if(mode!=='spread'&&mode!=='fill')return null;
-  return <section className="u3-account-policy" aria-label="When an agent has several accounts"><div><SectionHeading>When an agent has several accounts</SectionHeading><p className="u3-muted">Choose how work uses an agent's accounts.</p></div><div className="u3-account-policy-controls"><SegmentedControl variant="board" label="Multiple accounts" value={mode} disabled={action.busy||!state.connected} options={[{value:'spread',label:'Spread evenly'},{value:'fill',label:'Fill one, then the next'}]} onChange={value=>void action.run('config.set',{key:'pacing.accounts',value})}/>{mode==='fill'&&threshold!==undefined&&<label className="u3-fill">Move to the next account at <TextInput aria-label="Account fill threshold" type="number" min="50" max="100" step="1" required value={String(threshold)} disabled={action.busy||!state.connected} onChange={e=>{if(e.currentTarget.validity.valid)void action.run('config.set',{key:'pacing.fill_threshold',value:Number(e.currentTarget.value)});}}/>% used</label>}{!state.connected&&<p className="u3-muted">Reconnecting. Account policy changes will be available when the service reconnects.</p>}<Feedback action={action}/></div></section>;
+  return <section className="u3-account-policy" aria-label="When an agent has several accounts"><div><SectionHeading>When an agent has several accounts</SectionHeading><p className="u3-muted">Choose how work uses an agent's accounts.</p></div><div className="u3-account-policy-controls"><ImmediateSetting value={mode} operation={value => ({op:"config.set",params:{key:"pacing.accounts",value}})} onSaved={query.reload}>{(value, change, busy) => <SegmentedControl variant="board" label="Multiple accounts" value={value} disabled={busy||!state.connected} options={[{value:"spread",label:"Spread evenly"},{value:"fill",label:"Fill one, then the next"}]} onChange={change}/>}</ImmediateSetting>{mode==='fill'&&threshold!==undefined&&<ImmediateSetting value={String(threshold)} operation={value => ({op:"config.set",params:{key:"pacing.fill_threshold",value:Number(value)}})} onSaved={query.reload}>{(value, change, busy) => <label className="u3-fill">Move to the next account at <TextInput aria-label="Account fill threshold" type="number" min="50" max="100" step="1" required value={value} disabled={busy||!state.connected} onChange={event => {if(event.currentTarget.validity.valid)change(event.currentTarget.value);}}/>% used</label>}</ImmediateSetting>}{!state.connected&&<p className="u3-muted">Reconnecting. Account policy changes will be available when the service reconnects.</p>}</div></section>;
 }

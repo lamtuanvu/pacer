@@ -778,3 +778,27 @@ All former loading-state calls use `Skeleton`; refresh-only indicators were remo
 | `shell/Layout.tsx` | route: task/list/settings/dashboard |
 | `tray/Tray.tsx` | rows |
 | `screens/session/TasksPage.tsx` | list via ResourceView |
+
+### ImmediateSave and ReleaseRange
+
+`ImmediateSave<T>` wraps one save-on-click control with `value`, a synchronous or
+asynchronous `save(next)` callback, and a render callback `(value, change, busy)`.
+It owns optimistic state, synchronous duplicate-input locking, rollback, and a
+polite checkmarked Saved notice lasting two seconds. A false result cancels
+without a notice. The busy control dims to .65 and is inert; controls also receive
+`busy` for native disabling. Errors appear immediately below the control with
+plain public copy and collapsed technical details. Presentation and spacing use
+shared tokens; success uses the 12px caption token and good foreground token.
+Callers supply an accessible name. Keyboard semantics remain those of the wrapped
+control. `ReleaseRange` previews input and commits once on pointer/key release or
+blur; pointer cancellation restores its saved value. These are original components.
+
+Settings Budget & pacing, Accounts, App preferences, executor Takes work, host
+preferences, Updates and Plugins compose this boundary. `ImmediateSetting` binds
+it to service operations in the settings consumer; DS imports no service state.
+Machines and other explicit Save forms retain their draft and SaveBar behavior.
+
+`SettingRow.controlId` links its visible label to an explicitly identified control
+inside a render callback (where static child discovery cannot inspect it). The
+caller assigns that ID to the actual control. Automatic discovery remains the
+default for direct children; Automatic update check uses the explicit link.

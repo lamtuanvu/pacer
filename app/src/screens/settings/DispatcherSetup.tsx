@@ -1,3 +1,4 @@
+import { RepositoryChoices } from "./Dispatcher";
 import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { executorReadiness } from "../../../../src/view-model/capacity";
 import { executorLabel } from "../../../../src/view-model/words";
@@ -273,6 +274,7 @@ export function DispatcherGuidedSetup({ view, onSaved, onLadderDraft }: { view: 
     : <GuidedSetup view={view} onSaved={onSaved} onLadderDraft={onLadderDraft} repos={[]} />;
 }
 function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view: DispatcherConfigView; onSaved: () => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; repos: ScopeOption[]; listError?: ComponentChildren }) {
+  const {state} = useTaskContext();
   const [scope, setScope] = useState(""), [dirty, setDirty] = useState(false), [notice, setNotice] = useState("");
   const [oneRepo, setOneRepo] = useState(false);
   const pickScope = (one: boolean) => { if (dirty || one === oneRepo) return; setOneRepo(one); setScope(one ? repos[0]?.value ?? "" : ""); setNotice(""); };
@@ -289,7 +291,7 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
       </div>
       {dirty && <p id="dispatcher-scope-reason">Save or discard your changes to switch scope.</p>}
       {!repos.length && <p id="dispatcher-scope-no-repo" className="u3-muted">Add a repository to edit its own executor list.</p>}
-      <p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
+      {state.features.ops.has("project.strategy.list") && <RepositoryChoices/>}<p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
       {listError}
     </Section>
     <ScopedEditor key={scope} view={view} scope={scope} notice={notice} repoLabel={options.find(option => option.value === scope)?.label ?? scope}
