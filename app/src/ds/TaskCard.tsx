@@ -7,6 +7,7 @@ import { classNames } from "./classNames";
 import { HostChip } from "./HostChip";
 import { Icon } from "./icons";
 import { MetaRow } from "./MetaRow";
+import { SubtaskToggle } from "./SubtaskToggle";
 import { Pill } from "./Pill";
 
 export type TaskCardView = "session" | "brief" | "changes";
@@ -102,10 +103,10 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
       {regular && <MetaRow items={node.meta} label="Task facts" />}
     </div>
     {node.children.length > 0 && <>
-      <div className="pc-task-card__kids"><button type="button" className="pc-task-card__toggle" aria-expanded={expanded} aria-controls={listId}
+      <div className="pc-task-card__kids"><SubtaskToggle aria-expanded={expanded} aria-controls={listId}
         aria-label={`${plural(node.children.length)} of ${heading}`} onClick={() => onToggle(node.id)}>
-        <Icon name="branch" />{plural(node.children.length)}<span className="pc-task-card__chevron" aria-hidden="true" />
-      </button></div>
+        {plural(node.children.length)}
+      </SubtaskToggle></div>
       {expanded && <Children nodes={node.children} selectedId={selectedId} href={href} id={listId} onSelect={onSelect} density={density} heading={headingFor} />}
     </>}
   </article>;

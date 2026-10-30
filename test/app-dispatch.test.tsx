@@ -240,8 +240,8 @@ test("narrow Dispatch follows the board: planner, Needs you, Running without des
 
 test("repos are one All repos button that opens the repository menu", () => {
   const html = view();
-  expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<svg[^>]*aria-hidden="true"><path d="M6 9l6 6 6-6"/);
-  expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<svg/);
+  expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<\/button>/);
+  expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<\/button>/);
   expect(html).not.toContain("Budgets are shared across repos");
 });
 

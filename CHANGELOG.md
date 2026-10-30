@@ -11,6 +11,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Preserve board-sized segmented items and subtask chips across device densities, restore usage-popover button padding, and align repository chips and current-task row styling.
+
 - Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
 
 
