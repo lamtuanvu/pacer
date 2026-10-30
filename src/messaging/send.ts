@@ -36,15 +36,15 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
   // A turn the guardrail allowed still passes project policy; a policy hold says why (ADR 0015).
   const { delivery, hold } = verdict.hold ? { delivery: "held" as const, hold: undefined } : await deliver(ctx, input.to, deps.spawnRunner);
   // As pacer answer does: an answer that reaches no turn leaves the task's question open for the legacy retry.
-  // The question message is read only once the answer reaches its task, as the app's composer does; a held answer leaves it unread.
+  // The question is read once delivery is decided; an answer project policy held leaves it unread, so it can be answered again.
   if (answered && delivery !== "turn_started" && delivery !== "queued") answered.undo?.();
-  if (answered && (delivery === "turn_started" || delivery === "queued" || delivery === "pull")) readMessages(ctx, answered.question.to, [answered.question.id]);
+  if (answered && delivery !== "held") readMessages(ctx, answered.question.to, [answered.question.id]);
   return { ...r, delivery, ...(hold ? { hold } : {}) };
 }
 
 /**
  * An answer to a task's question, as pacer answer records it: the task's question is answered before the turn starts,
- * and the caller marks the question read once the answer reaches a turn. Returns the question and how to reopen the
+ * and the caller marks the question read once delivery is decided. Returns the question and how to reopen the
  * task's question (absent when it was not open), or undefined when the reply is not to a question from that task.
  */
 function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, body: string): { question: Message; undo?: () => void } | undefined {
