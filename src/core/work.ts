@@ -20,7 +20,7 @@ import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/stor
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
 
-export interface WorkInput {goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
+export interface WorkInput {goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;acceptanceTimeoutMin?:number;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export async function submitWork(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=spawnRunner){
  if(ctx.env.PACER_WORK_GRANT)return delegateChild(ctx,input,spawn);
@@ -28,7 +28,7 @@ export async function submitWork(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=spawn
  if(!input.repo)throw new CoreError("invalid_input","Repository is required");
  const repo=await resolvePolicyRepoInput(ctx,input.repo);await requireRepoDirectory(repo.path);
  const options=workOptionsSchema.parse({...input.options,kind:input.kind??input.options?.kind});
- const task=delegateTask(ctx,{brief:{goal:input.goal,repo:repo.path,acceptance:input.acceptance,context:input.context,constraints:input.constraints},title:input.title,
+ const task=delegateTask(ctx,{brief:{goal:input.goal,repo:repo.path,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints},title:input.title,
   repoRef:repo,repoValidated:true,kind:(KINDS as readonly string[]).includes(input.kind??"")?input.kind:null,executor:input.executor,requestId:input.requestId,source:"planner",dispatch:options},spawn);
  return task;
 }
@@ -68,7 +68,7 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
  return withLockSync(ctx,`work-request-${hash([scope,key])}`,()=>{
   const prior=db.query<{fingerprint:string;task_id:string},[string,string]>("SELECT * FROM work_requests WHERE scope=? AND key=?").get(scope,key);
   if(prior){if(prior.fingerprint!==fingerprint)throw new CoreError("conflict","Idempotency key was used for different child work");return readTask(ctx,prior.task_id)!;}
-  const request:DelegateInput={brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
+  const request:DelegateInput={brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
    repoRef:parent.repo,repoValidated:true,kind:(KINDS as readonly string[]).includes(input.kind??"")?input.kind:null,executor:input.executor,source:"planner",dispatch:options,workParent:caller.taskId,
    workGrant:token,workRequest:{scope,key,fingerprint},worktree:"new",worktree_reason:"Isolated delegated child work"};
   return delegateTask({...ctx,env:{...ctx.env,PACER_ROLE:undefined,PACER_WORK_GRANT:undefined}},request,spawn,strategy);

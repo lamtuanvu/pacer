@@ -259,6 +259,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   }
 
   const exec = isObj(raw.execution) ? raw.execution : {};
+  if (exec.auto_clean !== undefined && typeof exec.auto_clean !== "boolean") p.push("execution.auto_clean must be a boolean");
   if (localMaxTasksProblem(exec.local_max_tasks)) p.push(LOCAL_MAX_TASKS_ERROR);
   if (exec.local_memory_pressure_limit != null && !(MEMORY_PRESSURE_LIMITS as readonly unknown[]).includes(exec.local_memory_pressure_limit)) p.push(LOCAL_MEMORY_PRESSURE_LIMIT_ERROR);
   if (localLoadLimitProblem(exec.local_load_limit)) p.push(LOCAL_LOAD_LIMIT_ERROR);

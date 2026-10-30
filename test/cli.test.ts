@@ -203,3 +203,37 @@ test("pacer clean --dry-run --json prints the plan", async () => {
   expect(r.code).toBe(0);
   expect(JSON.parse(r.out)).toEqual({ removed: [], kept: [] });
 });
+
+test("delegate reports current placement overridden to new with its reason", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const {updateTask} = await import("../src/tasks/store");
+  const previous = cliDeps.spawnRunner;
+  cliDeps.spawnRunner = (c, id) => {
+    updateTask(c, id, t => {t.placement = {requested: "current", mode: "new", why: "executor requires an isolated checkout"};});
+    return 1;
+  };
+  try {
+    const result = await main(["delegate", "--goal", "placement output", "--repo", ctx.home, "--worktree", "current"], ctx);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("current overridden to new (executor requires an isolated checkout)");
+  } finally {cliDeps.spawnRunner = previous;}
+});
+
+test("delegate acceptance timeout flag overrides the brief and rejects invalid values", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const path = join(ctx.home, "brief.json");
+  writeFileSync(path, JSON.stringify({ goal: "Check timeout", repo: ctx.home, acceptance_timeout_min: 20 }));
+  await withNoSpawn(async () => {
+    const fromFile = await main(["delegate", "--brief-file", path, "--json"], ctx);
+    expect(fromFile.code).toBe(0);
+    expect(JSON.parse(fromFile.out).brief.acceptanceTimeoutMin).toBe(20);
+    const overridden = await main(["delegate", "--brief-file", path, "--acceptance-timeout-min", "30", "--json"], ctx);
+    expect(overridden.code).toBe(0);
+    expect(JSON.parse(overridden.out).brief.acceptanceTimeoutMin).toBe(30);
+    for (const value of ["0", "121", "1.5", "oops"]) {
+      const invalid = await main(["delegate", "--brief-file", path, "--acceptance-timeout-min", value], ctx);
+      expect(invalid.code).toBe(2);
+      expect(invalid.err).toContain("acceptance_timeout_min");
+    }
+  });
+});

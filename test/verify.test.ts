@@ -103,3 +103,20 @@ for (const [output, summary] of [["38 passed", "38 passed"], ["36 pass\n2 fail",
     expect(v.acceptance?.machine).toBeNull();
   });
 }
+
+test("timed-out acceptance records the deadline and a hint, preserving output", async () => {
+  const v = await verifyRepo(await gitRepo(), "echo started; sleep 5", env, 50);
+  expect(v.acceptance).toMatchObject({ passed: false, timedOut: true });
+  expect(v.acceptance?.tail).toContain("started");
+  expect(v.acceptance?.tail).toContain("acceptance timed out after 0.05 s (acceptance_timeout_min=");
+  expect(v.acceptance?.summary).toContain("acceptance timed out after 0.05 s");
+  expect(v.acceptance?.hint).toContain("Raise acceptance_timeout_min");
+});
+
+test("a genuine exit 137 is not classified as a timeout", async () => {
+  const v = await verifyRepo(await gitRepo(), "exit 137", env);
+  expect(v.acceptance?.exitCode).toBe(137);
+  expect(v.acceptance?.timedOut).toBeUndefined();
+  expect(v.acceptance?.tail).toBe("");
+  expect(v.acceptance?.summary).toBeUndefined();
+});

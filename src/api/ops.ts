@@ -470,17 +470,19 @@ export const OPS: Record<string, OpDef> = {
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
   "attention.snooze": op({ description: "Snooze a raised attention item.", params: z.object({id:z.string().min(1).max(256),for:z.enum(["1h","4h","1d"])}), handler: (ctx,p) => attention.snooze(ctx,p.id,p.for) }),
-  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: (ctx, p) => {
+  "task.dismiss": op({ description: "Hide settled tasks; unknown ids are reported.", params: z.object({ ids: z.array(id).min(1).max(100), expect_rev }), handler: async (ctx, p) => {
     const dismissed: string[] = [], unknown: string[] = [];
+    let pending: ReturnType<typeof core.tasks.dismiss> | undefined;
     // Lock in a stable order and check every revision before dismissing any task.
     const ids = [...new Set<string>(p.ids)].sort();
     const locked = (index: number): void => {
       if (index < ids.length) { withTaskLock(ctx, ids[index]!, () => locked(index + 1)); return; }
       for (const id of p.ids) { const t = readTask(ctx, id); if (t) core.tasks.checkRev(ctx, t, p.expect_rev); }
-      const r = core.tasks.dismiss(ctx, p.ids);
-      dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
+      pending = core.tasks.dismiss(ctx, p.ids);
     };
     locked(0);
+    const r = await pending!;
+    dismissed.push(...r.dismissed.map(t => t.id)); unknown.push(...r.unknown);
     return { dismissed, unknown };
   } }),
   "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
@@ -519,8 +521,8 @@ export const OPS: Record<string, OpDef> = {
   "dispatch.explain": op({ description: "Explain, read-only, which executor a request would go to: task.delegate ranking (via: delegate, the default) or dispatch.submit/child ladder (via: dispatch), the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.", params: explainInputSchema, handler: (ctx, p) => explainDispatch(ctx, p) }),
   "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
   "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
-  "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
-  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),
+  "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await submitWork(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
   "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
   "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),
