@@ -3,13 +3,15 @@
  * CI (Linux): a delegated run and a session host that the service started survive
  * `systemctl --user restart pacer-serve.service`. Without a user service manager the result is UNVERIFIED.
  */
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 const root = join(import.meta.dir, "..", "..");
 const systemctl = process.env.PACER_SURVIVAL_SYSTEMCTL ?? "systemctl";
+const unitLink = join(process.env.PACER_SURVIVAL_UNIT_DIR ?? join(process.env.HOME ?? "", ".config/systemd/user"), "pacer-serve.service");
+const lstatOrNull = (path: string) => { try { return lstatSync(path); } catch { return null; } };
 const note = (line: string) => { console.log(line); if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`); };
 async function run(argv: string[], env: Record<string, string | undefined>) {
   try {
@@ -45,7 +47,7 @@ symlinkSync(join(root, "test/fixtures/bin/fake-agent"), join(bin, "codex"));
 writeFileSync(join(userHome, ".codex", "auth.json"), "{}");
 writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct, launch_mode: headless}\n");
 const port = 47_000 + Math.floor(Math.random() * 1000);
-const env = { ...process.env, HOME: userHome, XDG_CONFIG_HOME: join(userHome, ".config"), PACER_HOME: pacerHome, PACER_BIN: join(bin, "pacer"), PACER_PORT: String(port), PACER_NO_UPDATE_CHECK: "1", PATH: `${bin}:${process.env.PATH}` };
+const env = { ...process.env, HOME: userHome, PACER_HOME: pacerHome, PACER_BIN: join(bin, "pacer"), PACER_PORT: String(port), PACER_NO_UPDATE_CHECK: "1", PATH: `${bin}:${process.env.PATH}` };
 const pacer = async (...args: string[]) => { const r = await run([join(bin, "pacer"), ...args], env); if (r.code !== 0) throw Error(`pacer ${args.join(" ")} exited ${r.code}: ${r.err}${r.out}`); return r.out; };
 await run(["git", "-C", repo, "init", "-q"], env);
 await run(["git", "-C", repo, "-c", "user.name=CI", "-c", "user.email=ci@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], env);
@@ -71,8 +73,11 @@ let isolatedUnit = false;
 try {
   const prior = await run([systemctl, "--user", "show", "pacer-serve.service", "--property=FragmentPath", "--value"], env);
   if (prior.out.trim()) throw Error(`Refusing to replace an existing user service: ${prior.out.trim()}`);
-  const imported = await run([systemctl, "--user", "import-environment", "XDG_CONFIG_HOME"], env);
-  if (imported.code !== 0) throw Error(`could not isolate systemd's user unit lookup: ${imported.err}`);
+  // systemd's user manager reads units from the runner's real home, which it fixed at
+  // startup; link the disposable home's unit there so pacer still writes only its own files.
+  if (existsSync(unitLink) || lstatOrNull(unitLink)) throw Error(`Refusing to replace an existing user unit: ${unitLink}`);
+  mkdirSync(dirname(unitLink), { recursive: true });
+  symlinkSync(join(userHome, ".config/systemd/user/pacer-serve.service"), unitLink);
   isolatedUnit = true;
   await pacer("service", "install", "--replace");
   const servicePid = await until("the service to answer", health);
@@ -107,6 +112,10 @@ try {
   await op("task.stop", { id: task.task_id }).catch(() => {});
   await op("terminal.close", { id: terminal.id, expect_rev: terminal.rev }).catch(() => {});
 } finally {
-  if (isolatedUnit) await run([join(bin, "pacer"), "service", "uninstall", "--stop-work", "--yes"], env);
+  if (isolatedUnit) {
+    await run([join(bin, "pacer"), "service", "uninstall", "--stop-work", "--yes"], env);
+    if (lstatOrNull(unitLink)?.isSymbolicLink()) unlinkSync(unitLink);
+    await run([systemctl, "--user", "daemon-reload"], env);
+  }
 }
 process.exit(failed ? 1 : 0);
