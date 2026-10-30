@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { createQuery, type QueryState } from '../app/src/data/query';
+import { createQuery, dedupeQuery, type QueryState } from '../app/src/data/query';
 import { queryRevision } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import snapshot from './fixtures/ui/snapshot.json';
@@ -164,4 +164,50 @@ test('filtered reads opt in to previous data across keys without publishing late
   query.update('version.get', '{}', '1');
   expect(states.at(-1)?.data).toBeUndefined();
   query.dispose();
+});
+
+test('identical in-flight reads from separate consumers share one request and clear after errors', async () => {
+  const api = deferredApi();
+  const owner = {};
+  const one = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  const two = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  expect(api.calls).toHaveLength(1);
+  api.calls[0]!.resolve('one');
+  expect(await one).toBe('one');
+  expect(await two).toBe('one');
+  const failed = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  api.calls[1]!.reject(new Error('offline'));
+  await expect(failed).rejects.toThrow('offline');
+  const retry = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  expect(api.calls).toHaveLength(3);
+  api.calls[2]!.resolve('retry');
+  expect(await retry).toBe('retry');
+});
+
+test('tree reads refresh on relevant task changes but not unrelated invalidations', () => {
+  const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+  const task=state.snapshot.tasks[0]!;
+  const before=queryRevision(state,'dispatch.tree',{id:task.id});
+  expect(queryRevision({...state,invalidations:{plugin:10}},'dispatch.tree',{id:task.id})).toBe(before);
+  expect(queryRevision({...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map(t=>t.id===task.id?{...t,state:'running',rev:(t.rev??0)+1}:t)}},'dispatch.tree',{id:task.id})).not.toBe(before);
+});
+
+test('a task state event refreshes selected detail even without a timestamp change', () => {
+  const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+  const task=state.snapshot.tasks[0]!;
+  const before=queryRevision(state,'task.get',{id:task.id});
+  const changed={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map(t=>t.id===task.id?{...t,state:t.state==='running'?'done':'running'}:t)}};
+  expect(queryRevision(changed,'task.get',{id:task.id})).not.toBe(before);
+});
+
+test('returning to an identical pending selection does not queue a duplicate read', async () => {
+  const api=deferredApi(), query=createQuery(api.call,()=>{});
+  query.update('task.get','{"id":"one"}','1');
+  query.update('task.get','{"id":"two"}','1');
+  query.update('task.get','{"id":"one"}','1');
+  api.calls[0]!.resolve('one');
+  await settle();
+  expect(api.calls.filter(call=>(call.params as {id:string}).id==='one')).toHaveLength(1);
+  query.dispose();
+  api.calls[1]!.resolve('two');
 });

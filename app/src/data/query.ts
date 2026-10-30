@@ -36,9 +36,10 @@ export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>
         return;
       }
       current = entry;
-      if (entry.revision !== revision || changedQuery) {
+      const changedRevision = entry.revision !== revision;
+      if (changedRevision || changedQuery) {
         entry.revision = revision;
-        if (entry.pending) entry.dirty = true;
+        if (entry.pending) entry.dirty ||= changedRevision;
         else if (!disposed) void fetch(entry);
       }
       emit(entry);
@@ -51,4 +52,18 @@ export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>
     },
     dispose() { disposed = true; },
   };
+}
+
+// Separate hook instances may read the same resource (including across portals).
+// Keep only pending reads: mutations and explicit reloads must always reach the service.
+const inFlight = new WeakMap<object, Map<string, Promise<unknown>>>();
+export function dedupeQuery<T>(owner: object, call: (op: string, params: unknown) => Promise<T>, op: string, params: unknown): Promise<T> {
+  let reads = inFlight.get(owner);
+  if (!reads) { reads = new Map(); inFlight.set(owner, reads); }
+  const key = JSON.stringify([op, params]);
+  const pending = reads.get(key);
+  if (pending) return pending as Promise<T>;
+  const request = call(op, params).finally(() => { reads.delete(key); });
+  reads.set(key, request);
+  return request;
 }

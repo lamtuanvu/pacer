@@ -811,3 +811,5 @@ spacing; Dispatch owns its seven-column responsive grid and 12px column gap.
 The variant retains native link semantics, focus and hover states, and whole-row
 keyboard navigation, with no nested interactive controls. Production consumer:
 `app/src/screens/dispatch/Dispatch.tsx` Live dispatch ledger.
+
+**Terminal overview preview** (`app/src/term/LazyTerminal.tsx`, `term.tsx`). The specialized terminal renderer remains outside the DS and loads xterm only on demand. `preview` suppresses the session action row; the task overview passes `control={false}` and `resize={false}` and retains connection status, authoritative dimensions and the canonical Screen reader checkbox. Its screen-owned frame is bounded to the 320px size token, with full-size glyphs and a focusable viewport that scrolls on both axes rather than scaling the remote screen down. Watching never takes control, sends input or changes PTY geometry; the workspace link opens the full session. Headless and failed-check text stays in bounded, focusable output regions. No upstream components or provenance changed.

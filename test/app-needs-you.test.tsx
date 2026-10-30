@@ -37,6 +37,6 @@ for (const state of ["uncertain", "eligible"] as const) test(`Needs you includes
 test("Needs you retains the exact footnote and uses workspace copy for review session links", () => {
   const html = renderRows([]);
   expect(html).toContain("Answering, retrying or accepting here resumes the task where it stopped. Everything you do is recorded in the task's dispatch trace.");
-  expect(html).toMatch(/href="#\/tasks\/[^"/]+"[^>]*>Open workspace<\/a>/);
+  expect(html).toMatch(/href="#\/workspace\?task=[^"&]+"[^>]*>Open workspace<\/a>/);
   expect(html).not.toContain(">Dispatch trace</a>");
 });

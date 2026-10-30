@@ -5,6 +5,14 @@ It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
 embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
 pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available for one pacer minor release. The app consumes the read model during this overlap.
 
+## Workspace reads
+
+Workspace (`#/workspace`) renders task cards from task history and the live
+snapshot. Selecting a task loads its details once; task events refresh those
+details after a short debounce. Open session panels retain their output stream.
+The task page (`#/tasks/<id>`) also follows events rather than polling task details.
+The shared page-control worker checks for remote actions every ten seconds.
+
 ## Open the app
 
 With the background service installed and running:
@@ -57,7 +65,15 @@ command under Sign out; run it in a terminal.
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
 attach command appear only for live or recorded terminal sessions.
-Opening a running task in the app takes control of its live Pacer terminal when
+The task overview shows a bounded, read-only terminal preview for built-in
+interactive sessions, using the raw session stream and its authoritative size.
+Text stays at its normal font size in a scrollable viewport, including on narrow
+screens. Focus the output region to scroll with the keyboard. It never takes
+control or resizes the agent, and reconnects after interruptions.
+Headless runs keep a plain output tail; failed checks show their acceptance
+output. Orca sessions link through the workspace to Orca.
+
+Opening a running task in the Session view takes control of its live Pacer terminal when
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.

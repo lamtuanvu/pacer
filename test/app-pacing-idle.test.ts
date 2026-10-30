@@ -37,9 +37,10 @@ test('control claims and setup checks have bounded sequential idle polling',asyn
   now=second*1000;
   for(const timer of [...timers])if(!timer.cancelled&&timer.at<=now){timer.cancelled=true;timer.run();}
   await settle();
+  if(second===30)expect((calls['client.control.claim']??0)-1+(calls['setup.check']??0)-1).toBeLessThanOrEqual(5);
  }
  expect(calls['client.control.enroll']).toBe(1);
- expect(calls['client.control.claim']).toBe(13);
+ expect(calls['client.control.claim']).toBe(7);
  expect(calls['setup.check']).toBe(3);
  stopControl();stopSetup();
  expect(timers.filter(timer=>!timer.cancelled)).toHaveLength(0);

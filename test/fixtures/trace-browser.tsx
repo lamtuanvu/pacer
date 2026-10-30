@@ -20,7 +20,9 @@ const node={waivedChildren:[],review:{accepted:true},taskId:"trace-root",parentI
 if(scenario==="routing-only" || scenario==="no-candidates") node.decisions=[];
 const tree={nodes:[node,{...node,taskId:"trace-child",title:scenario==="long"?"A very long subtask title ".repeat(10):"Run demo-stages flow with WebGL enabled",parentId:"trace-root",state:"done",createdAt:now-130}],totals:{tokens:usage}};
 if(scenario==="root-only") tree.nodes=[node];
+const calls:string[]=[];(window as any).traceCalls=calls;
 const api={async call(op:string){
+ calls.push(op);
  if(op==="task.get") {if(scenario==="error")throw new Error("Task read failed");return task;}
  if(op==="dispatch.tree") {if(scenario==="tree-error")throw new Error("Trace read failed");return tree;}
  return {};

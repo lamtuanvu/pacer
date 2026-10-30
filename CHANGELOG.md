@@ -20,6 +20,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Bind live accessibility inspection to an owned AX window, stop cyclic observations, and report uncertain native action effects honestly.
+- Render interactive task overview output as a bounded, read-only terminal from the raw PTY session instead of flattening terminal redraws into log lines; keep full-size text in a keyboard-scrollable viewport.
+
+- Preserve complete API task titles even when they match the goal, while legacy briefs still produce clean compact labels.
+
+- Load workspace task details only for the selected task, coalesce duplicate reads and event bursts, and stop polling the task page.
+
 - Preserve board-sized segmented items and subtask chips across device densities, restore usage-popover button padding, and align repository chips and current-task row styling.
 
 - Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.

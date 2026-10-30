@@ -54,6 +54,6 @@ export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray'
       if ((error as {code?:string}).code === 'not_allowed') enrollment = undefined;
     }
   };
-  const stop = startPolling(poll, 5000, schedule);
+  const stop = startPolling(poll, 10_000, schedule);
   return () => { stopped = true; stop(); };
 }

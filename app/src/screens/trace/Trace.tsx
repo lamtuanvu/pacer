@@ -1,6 +1,5 @@
 import { NowCard, CostTiles, Acceptance } from "./Overview";
 import { TaskActions } from "./TaskActions";
-import { useEffect } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { clock, durationWords } from "../../../../src/view-model/time";
@@ -24,11 +23,6 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const {state}=useTaskContext();
   const task=useQuery<TaskDetail>("task.get",{id});
   const tree=useQuery<TraceTree>("dispatch.tree",{id});
-  useEffect(()=>{
-    if (!task.data || !["queued","running"].includes(task.data.state)) return;
-    const timer=setInterval(()=>{task.reload();tree.reload();},5000);
-    return ()=>clearInterval(timer);
-  },[id,task.data?.state]);
   if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
   const t=task.data, root=tree.data?.nodes.find(n=>n.taskId===id), nodes=tree.data?.nodes ?? [];
   const steps=traceSteps(t,tree.data), totals=tree.data?.totals.tokens ?? (t.work?undefined:t.tokens);

@@ -157,14 +157,15 @@ test('route plumbing: Add agent receives the host link and host detail receives 
   expect(render(<SettingsGeneral section="hosts" initialData={settings} />, state)).toContain('Add a remote host');
 });
 
-test('Agents: only Executors has a planner card; Accounts has the factual banner and sign-in column',()=>{
+test('Agents: Executors and Accounts have a planner card; Accounts has the factual banner and sign-in column',()=>{
  const snapshot=withState({planner:{agent:'codex',runner:'codex',advice:'Planner advice'},accounts:[summary({name:'team',signedIn:false,source:'Observed source'})]});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,snapshot);
  expect(executors).toContain('aria-label="Planner"');
  expect(executors).not.toContain('>Connected<');
  expect(executors).not.toContain('class="u3-save-bar"');
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,snapshot);
- expect(html).not.toContain('Change planner');
+ expect(html).toContain('aria-label="Planner"');
+ expect(html).toContain('Change planner');
  expect(html).toContain('An account is where quota comes from.');
  expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
  expect(html).not.toContain('Endpoint keys stay in your keychain');

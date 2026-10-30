@@ -1,3 +1,4 @@
+import { ImmediateSetting } from "../app/src/screens/settings/ImmediateSetting";
 import { Switch } from "../app/src/ds/Controls";
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
@@ -53,13 +54,16 @@ test('host full live sessions switch follows service capability and dispatches b
  expect(HostSessionSwitch({alias:'devbox',host:{},run})).toBeNull();
  for(const [session,enabled] of [['recording',true],['full',false]] as const) {
   const node=HostSessionSwitch({alias:'devbox',host:{session},run})!;
-  expect(node.type).toBe(Switch);
-  expect(node.props.checked).toBe(session==='full');
-  expect(node.props['aria-label']).toBe('Full live sessions');
-  node.props.onChange!({currentTarget:{checked:enabled}} as any);
+  expect(node.type).toBe(ImmediateSetting);
+  expect(node.props.operation(enabled)).toMatchObject({op:"host.set",params:{alias:"devbox",session:enabled?"full":"recording"}});
+  const control=node.props.children(node.props.value,(value:boolean)=>{const request=node.props.operation(value);run(request.op,request.params);},false);
+  expect(control.type).toBe(Switch);
+  expect(control.props.checked).toBe(session==='full');
+  expect(control.props['aria-label']).toBe('Full live sessions');
+  control.props.onChange!({currentTarget:{checked:enabled}} as any);
  }
  expect(calls).toEqual([['host.set',{alias:'devbox',session:'full'}],['host.set',{alias:'devbox',session:'recording'}]]);
- expect(renderToString(<HostSessionSwitch alias="devbox" host={{session:'full'}} run={run}/>)).toContain('role="switch"');
+ expect(renderSettings(<HostSessionSwitch alias="devbox" host={{session:'full'}} run={run}/>)).toContain('role="switch"');
 });
 test('session adapter feeds the real brief, acceptance and timeline',()=>{
  const task=detail as unknown as TaskDetail;

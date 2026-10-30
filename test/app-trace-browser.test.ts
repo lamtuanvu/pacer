@@ -76,3 +76,25 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
   }
  }finally{await browser.close();}
 },30000);
+
+
+browserTest('running task page does not poll task detail or session while idle',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json'});
+ expect(result.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  const page=await browser.newPage();
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/?scenario=running#/tasks/trace-root');
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  await page.locator('.pc-trace').waitFor();
+  await page.waitForTimeout(500);
+  const before=await page.evaluate(()=>(window as any).traceCalls.length);
+  await page.clock.install();
+  await page.clock.runFor(30000);
+  const calls=await page.evaluate(()=>(window as any).traceCalls as string[]);
+  expect(calls.length-before).toBeLessThanOrEqual(5);
+  expect(calls.filter(op=>op==='task.get')).toHaveLength(1);
+  expect(calls.filter(op=>op==='task.session')).toHaveLength(1);
+ } finally {await browser.close();}
+},30000);

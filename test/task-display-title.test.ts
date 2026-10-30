@@ -13,7 +13,7 @@ for (const [goal, expected] of [
 ]) test(`display title: ${goal}`, () => {
   expect(fullTaskTitle({ brief: { goal } })).toBe(expected);
   expect(taskTitle({ brief: { goal } })).toBe(expected);
-  expect(displayTitle({ fullTitle: goal, goal })).toBe(expected);
+  expect(displayTitle({ title: goal, goal })).toBe(expected);
 });
 test("derived labels clip at words without leaving brackets open", () => {
   const goal = "Repair the settings page and preserve the selected session (including every saved preference and scroll position)";
