@@ -248,8 +248,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-statusbar__usage-button::-webkit-scrollbar{display:none}
 .pc-statusbar__usage-button:hover,.pc-statusbar__usage-button[aria-expanded="true"]{background:var(--surface-lane)}
 .pc-statusbar__stale{color:var(--warn-fg);font-weight:var(--type-body-strong-weight)}
-.pc-usage-popover__head,.pc-usage-account__head{display:flex;align-items:center;gap:var(--space-2)}
-.pc-usage-popover__head{position:sticky;top:calc(-1*var(--space-3));z-index:var(--layer-base);padding:var(--space-2) 0;background:var(--surface-card)}
+.pc-usage-account__head{display:flex;align-items:center;gap:var(--space-2)}
 .pc-usage-details{display:flex;flex-direction:column}
 .pc-usage-account{padding:var(--space-3) 0;border-top:1px solid var(--line)}
 .pc-usage-account__head>.muted{margin-left:auto;font-size:var(--type-caption-size)}
