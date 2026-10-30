@@ -25,6 +25,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Keep task-page titles complete, expose Open workspace in every state, move copy-ID into the breadcrumb, and show a concise running summary without echoed executor instructions or machine paths.
 
+- Match Workspace task heads and nested sessions to board 26, restore active-panel controls beside search, and prefer live child sessions on opening a task.
+
 - Restore the Tasks board layout and selected-task card, preserve tablet titles, and keep search icons clear of their text. Show repository and branch identity in New task, enforce its 10 MB attachment limit, and align its split-work summary with submitted policy.
 
 - Match Dispatch, Needs you and Insights board spacing, typography, chart colours and mobile containment; retain complete path-safe task titles and readable budget status.

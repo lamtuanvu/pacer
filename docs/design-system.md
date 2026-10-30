@@ -859,3 +859,17 @@ a bold label. Agent choice cards and wizard steps own auto-height geometry and
 body typography independently of shared button density. The Agents column layout
 places the details aside beside the entire page, with no compounded gutter.
 These are original project variants; upstream provenance and licenses are unchanged.
+
+Workspace board 26 retains a specialized three-row task head in `screens/workspace`:
+a shared Button selects the whole head (pressed state), with a leading live status
+dot, ellipsized title, 18px host chip and mono repository, then status and tokens.
+Session toggles and collapsed 26px icon targets or expanded 28px minimum rows are
+sibling controls, with independent keyboard targets. The Tasks tree supplies status
+and attention vocabulary. The frame's active-panel actions live right of search;
+board IconButtons are 28px with native title tooltips, ink-filled takeover and bad
+end-session tone. Session control remains owned by the panel, with confirmation on
+end; file panels hand local workspace paths to VS Code's registered file URI handler.
+Desktop geometry uses generated tokens; live status respects reduced motion.
+
+Workspace control glyphs (`take-over`, `hand-back`, `stop-session`) follow the approved
+board 26 SVG paths. Board IconButton geometry has no border and uses a 16px glyph.

@@ -10,7 +10,7 @@ export interface FrameHeading { title: string; agent?: string }
 export interface FrameSlots {
   /** Title-bar area after the page title: the screen's facts and actions. */
   title: HTMLElement | null;
-  /** Actions inside the bordered layout-toggle group, after the panel toggles. */
+  /** Actions for the active panel, right of search and before the layout toggles. */
   actions?: HTMLElement | null;
   left: HTMLElement | null;
   right: HTMLElement | null;

@@ -40,7 +40,7 @@ export interface TopBarProps {
   plannerFigure?: boolean;
   /** A screen's own title and agent, shown instead of `title`. */
   heading?: FrameHeading | null;
-  /** Receives the action slot after the layout toggles. */
+  /** Receives the active panel action slot right of search. */
   actions?: (element: HTMLElement | null) => void;
   /** Receives the title-bar area a screen fills with its facts and actions. */
   context?: (element: HTMLElement | null) => void;
@@ -66,6 +66,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
     {narrow && showActions && narrowSearch}
     {showActions && <>
+    {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     {planner && !(narrow && title === "Dispatch") && <a href="#/settings/planner" className="pc-planner pc-inline-link">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
@@ -76,7 +77,6 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {!narrow && <LayoutToggle icon="topbar-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
       {!narrow && <LayoutToggle icon="topbar-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
       {!narrow && <LayoutToggle icon="topbar-right" label="Toggle right panel" keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
-      {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
     {narrow && title === "Dispatch" ? <IconButton icon="plus" aria-label="New task" onClick={onDelegate} /> : (!narrow || delegate) && <DensityContext.Provider value="compact"><ButtonLink href="#/tasks/new" className="pc-topbar__new" variant="secondary" size="sm" onClick={event => { event.preventDefault(); onDelegate(); }}>New task</ButtonLink></DensityContext.Provider>}
