@@ -12,8 +12,9 @@ import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
                                   start isolated service and disposable repo; ui seeds sample data;
+                                  plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
