@@ -71,7 +71,7 @@ export function accountUsageFreshness(account: import("../api/read-model/types")
   if (!historical) return null;
   const ageS = account.capturedAt == null || !account.eligibility ? null
     : Math.max(0, account.eligibility.evaluatedAt - account.capturedAt);
-  return ageS === null ? "Stale reading · refresh to use"
+  return ageS === null ? "Stale reading · check account usage"
     : `Reading ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} old`;
 }
 
@@ -105,7 +105,7 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
 
 export function executorWeekUsage(executor: ExecutorRow, snapshot: ClientSnapshot): string {
   const account = snapshot.accounts?.find(a => a.executors?.includes(executor.id) || a.name === executor.account);
-  if (executor.stale || account?.stale || executor.eligibility?.reasons.some(r => r.code === "budget_expired_or_unknown")) return "Stale · refresh to use";
+  if (executor.stale || account?.stale || executor.eligibility?.reasons.some(r => r.code === "budget_expired_or_unknown")) return "Stale · check account usage";
   if (account?.verdict === "UNMETERED" || executor.eligibility?.budget === "not_required") return "Unmetered";
   if (executor.usedPct == null) return "No usage reported";
   const window = account?.window === "weekly" ? "week" : account?.window ?? "week";

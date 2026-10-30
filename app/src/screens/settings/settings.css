@@ -280,14 +280,14 @@
 /* Accounts retains all six board columns until its own container needs cards. */
 .u3-accounts-scroll{max-width:100%;position:relative;container-type:inline-size;container-name:accounts-table}
 #accounts .u3-agents-table table,#accounts .u3-agents-table thead,#accounts .u3-agents-table tbody{display:block}
-#accounts .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.3fr) var(--size-130) minmax(var(--size-160),1fr) var(--size-150) minmax(0,1fr) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4);align-items:center}
+#accounts .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.3fr) var(--size-130) minmax(var(--size-160),1fr) var(--size-150) minmax(0,1fr) var(--size-180);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4);align-items:center}
 #accounts .u3-agents-table th,#accounts .u3-agents-table td{display:block;min-width:0;width:auto;padding:0;border:0;overflow-wrap:anywhere}
 #accounts .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
 #accounts .u3-account-actions--open{grid-column:1 / -1}
 #accounts .u3-chip{max-width:100%;box-sizing:border-box;white-space:normal}
 #executors .u3-agents-table thead tr,#accounts .u3-agents-table thead tr{padding:var(--size-9) var(--space-4);background:var(--surface-card);border-bottom:1px solid var(--line)}
 #executors .u3-agents-table th,#accounts .u3-agents-table th{background:transparent}
-@container accounts-table (max-width:760px){
+@container accounts-table (max-width:960px){
  #accounts .u3-agents-table thead{display:none}
  #accounts .u3-agents-table tr{grid-template-columns:minmax(0,1fr)}
  #accounts .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
