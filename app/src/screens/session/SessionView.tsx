@@ -13,6 +13,7 @@ export function SessionView({
   onTakeSent,
   onFiles,
   onReadFile,
+  onReopen,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
@@ -22,11 +23,12 @@ export function SessionView({
   onTakeSent: () => void;
   onFiles: (files: File[]) => void;
   onReadFile?: ReadSessionFile;
+  onReopen?: () => void;
 }) {
   if (session?.host === "builtin")
     return (
-      <>
-      {session.live && <ReopenToUpdate host={session.hostVersion} />}
+      <div className="pc-session-view">
+      {session.live && <ReopenToUpdate host={session.hostVersion} onReopen={onReopen} />}
       <LinkedTerminal
         id={task.id}
         attempt={session.attempt ?? null}
@@ -45,7 +47,7 @@ export function SessionView({
         footer={footer}
         onFiles={onFiles}
       />
-      </>
+      </div>
     );
   return (
     <div className="pc-session-empty" role="status">

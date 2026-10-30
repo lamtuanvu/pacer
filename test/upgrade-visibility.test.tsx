@@ -35,6 +35,18 @@ test("Reopen to update appears only outside the support window", () => {
   expect(renderToString(<ReopenToUpdate host={null} />)).toBe("");
 });
 
+test("unsupported session notice is compact and its action precedes terminal input", () => {
+  const html = renderToString(<SessionView task={{ id: "t-20261029-000000-aaaa", state: "running" } as never}
+    session={{ host: "builtin", live: true, hostVersion: { pacer: "0.7.0", older: true, supported: false }, attach: { ws: "ws://localhost" }, capabilities: { control: true, resize: true }, cols: 80, rows: 24 } as never}
+    active footer={null} takeRequested={false} onTakeSent={() => {}} onFiles={() => {}} onReopen={() => {}} />);
+  expect(html).toContain('class="pc-session-view"');
+  expect(html).toContain('pc-alert--compact');
+  expect(html).toContain('pc-alert__actions');
+  expect(html).toContain('<button');
+  expect(html).toContain('Create a new task');
+  expect(html.indexOf('Create a new task')).toBeLessThan(html.indexOf('data-linked-terminal'));
+});
+
 test("an ended session does not claim it keeps running", () => {
   const html = renderToString(<SessionView task={{ id: "t-20261029-000000-aaaa", state: "done" } as never}
     session={{ host: "builtin", live: false, hostVersion: { pacer: "0.7.0", older: true, supported: false }, attach: { ws: "ws://localhost" }, capabilities: { control: false, resize: false }, cols: 80, rows: 24 } as never}
