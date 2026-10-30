@@ -123,7 +123,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   // its environment first, so "external:mcp" applies only when no planner environment is present.
   const msgDeps = () => ({ spawnRunner: spawnFn, participant: "external:mcp" });
   server.registerTool("task_answer", {
-    description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
+    description: "Answer an executor question. A local task with a resumable session continues in that session once project policy admits it; otherwise the task is retried on the same executor. Only needs_input tasks can be answered.",
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
   }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},msgDeps()) as Record<string,unknown>));
   server.registerTool("msg_send", {

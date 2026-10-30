@@ -96,7 +96,7 @@ const USAGE = `usage: pacer <command>
   takeover <task-id> [--no-attach]
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
-  answer <task-id> "<text>"                       answer a question and retry on the same executor
+  answer <task-id> "<text>"                       answer a question; resumes the session or retries
   send <task-id> "<message>" [--force] [--json]  deliver a message into a running interactive lane's live terminal
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)

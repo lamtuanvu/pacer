@@ -11,5 +11,5 @@ export function helloBody() {
 
 export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "message" | "machine" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant" | "discovery.found"; data: unknown }
 
-export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant" | "machine" | "discovery.found"> };
+export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant" | "machine" | "message" | "discovery.found"> };
 export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "budget" | "alert"> };

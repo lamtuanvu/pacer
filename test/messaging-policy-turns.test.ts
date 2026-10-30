@@ -104,3 +104,11 @@ test("task.answer under a veto falls back to the legacy retry, which policy refu
   expect(store.pendingFor(f.ctx, `task:${f.id}`)).toEqual([]);
   expect(store.inbox(f.ctx, "human").filter(m => m.from === `task:${f.id}`)).toEqual([]);
 });
+
+test("message events stay v3-only, and the app names a policy hold's reason", async () => {
+  const { toV2Event } = await import("../src/api/v2-compat");
+  expect(toV2Event({ seq: 1, at: 1, type: "message", data: { kind: "message", id: "m-1", value: {} } })).toBeNull();
+  const { answerDeliveryWords } = await import("../src/view-model/words");
+  expect(answerDeliveryWords("held", { reason: "repository frozen" })).toBe("Answer held, not delivered yet: project policy holds this task (repository frozen). The question stays open.");
+  expect(answerDeliveryWords("held")).toContain("a messaging rule needs your confirmation first");
+});

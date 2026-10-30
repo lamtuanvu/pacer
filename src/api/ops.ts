@@ -405,7 +405,7 @@ export const OPS: Record<string, OpDef> = {
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
   "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(getWork(ctx,p.id)?stopWork(ctx,p.id,p.expect_rev):core.tasks.stop(ctx, p.id))) }),
   "task.answer": op({
-    description: "Answer an executor question and retry on the same executor. Conflicts unless awaiting input.",
+    description: "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
