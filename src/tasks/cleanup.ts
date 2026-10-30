@@ -16,6 +16,7 @@ import { listTasksWhere, readTask } from "./store";
 import { withLock } from "../core/lock";
 import { cleanTaskRuns } from "./diff";
 import { taskActivity } from "./activity";
+import { isClosed } from "../messaging/turns";
 import type { Ctx } from "../types";
 
 const NOT_OWN_WORKTREE = "worktree path is not this task's worktree; not deleted";
@@ -108,6 +109,7 @@ function pruneRuns(ctx: Ctx, t: TaskRecord): string | null {
   catch (e) { return `worktree deleted; run files could not be pruned: ${e instanceof Error ? e.message : String(e)}`; }
 }
 
+const OPEN_FOR_MESSAGES = "task is open for messages; review, dismiss or close it (pacer msg close) to clean";
 type CleanResult = { removed: string[]; kept: { id: string; reason: string }[] };
 function cleanable(t: TaskRecord): boolean {
   return TERMINAL_STATES.includes(t.state) && (t.state !== "needs_input" || t.question?.answer !== undefined)
@@ -187,6 +189,8 @@ async function cleanTaskLocked(ctx: Ctx, id: string, o: { dryRun?: boolean; forc
       }
       if (!t.run.host && !await withTimeout(() => repoFs.access(wt)).then(() => true, error => { if (["ENOENT","ENOTDIR"].includes(error.code)) return false; throw error; })) continue;
       const path = own.path;
+      // A resolved task without a verdict still accepts messages, and its next turn resumes in this worktree.
+      if (!isClosed(t) && t.interactionMode !== "conversation") { kept.push({ id: t.id, reason: OPEN_FOR_MESSAGES }); continue; }
       if (shared(t, path)) { kept.push({ id: t.id, reason: "worktree is shared with an active or unreviewed task" }); continue; }
       if (top === null) {
         // Without the repository git cannot check or remove the worktree; --force deletes only this task's verified directory.

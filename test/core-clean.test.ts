@@ -447,6 +447,18 @@ test("resolve triggers cleanup as soon as work becomes resolved", async () => {
   expect(existsSync(w.path)).toBe(false);
 });
 
+test("cleanup keeps a resolved task's worktree while the task is open for messages", async () => {
+  const {ctx, t, w} = await finished({reviewed: false});
+  autoStrategy(ctx);
+  updateTask(ctx, t.id, x => {x.state = "failed"; x.resolved = "already on main";});
+  await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(true);
+  expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "task is open for messages; review, dismiss or close it (pacer msg close) to clean"}]);
+  updateTask(ctx, t.id, x => {x.msgClosed = true;});
+  expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+  expect(existsSync(w.path)).toBe(false);
+});
+
 test("service sweep retries cleanup, honours opt-out and never records kept reasons", async () => {
   const {ctx, t, w} = await finished({dirty: true});
   autoStrategy(ctx);
