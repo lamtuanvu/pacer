@@ -1,11 +1,12 @@
+import { timingSafeEqual } from "node:crypto";
 import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Launch } from "../exec/launch";
 import type { McpChoices } from "../exec/claude-trust";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
-import { readTask } from "../tasks/store";
+import { isTaskId, readTask } from "../tasks/store";
 import { validateTaskId } from "./targets";
 
 export type ReportStatus = "done" | "failed" | "needs-input" | "running" | "turn-ended";
@@ -141,25 +142,58 @@ function withClaudeSettings(dir: string, launch: Launch, options: InteractiveOpt
   writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, ...(hooks ? {hooks} : {})}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
+/** Resolve a canonical runs/<task-id>/<positive attempt> without escaped layout components. */
+function reportRun(path: string): {dir: string; home: string; id: string; attempt: string} {
+  const invalid = () => Error("invalid PACER_RUN_DIR layout; expected <pacerHome>/runs/<task-id>/<attempt> without symlink escapes");
+  let dir: string;
+  try { dir = realpathSync(path); } catch { throw invalid(); }
+  const attempt = basename(dir), id = basename(dirname(dir)), runs = dirname(dirname(dir)), home = dirname(runs);
+  if (basename(runs) !== "runs" || !isTaskId(id) || !/^[1-9][0-9]*$/.test(attempt)) throw invalid();
+  // A whole-directory alias is allowed, but components of a supplied runs layout
+  // cannot redirect a run into a different home, task or attempt.
+  const supplied = resolve(path), suppliedRuns = dirname(dirname(supplied));
+  if (basename(suppliedRuns) === "runs") {
+    const expected = join(realpathSync(dirname(suppliedRuns)), "runs", basename(dirname(supplied)), basename(supplied));
+    if (dir !== expected) throw invalid();
+  }
+  return {dir, home, id, attempt};
+}
+
 /** Bind agent reports to the active attempt, including when --task is supplied. */
-export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"} {
+export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"; note?: string} {
   const fromRun = ctx.env.PACER_RUN_DIR;
   const insideRun = fromRun !== undefined;
   if (!insideRun && (ctx.env.PACER_ROLE || ctx.env.PACER_REPORT_TOKEN !== undefined || !explicitTask)) {
-    throw Error("user reports require an explicit --task from the user's own CLI");
+    throw Error("user reports require an explicit --task from the user's own CLI; pacer report must run in the executor's launch environment for agent reports");
   }
-  id ??= insideRun ? basename(dirname(realpathSync(fromRun))) : undefined;
+  const launch = insideRun ? reportRun(fromRun) : undefined;
+  id ??= launch?.id;
   if (!id) throw Error("report requires --task or its launch environment");
   validateTaskId(id);
-  const task = readTask(ctx, id);
-  if (!task?.run || task.run.host || task.state !== "running") throw Error("task has no active local run");
+  if (launch && id !== launch.id) throw Error("report task id does not match PACER_RUN_DIR's task directory; use the executor's launch environment");
+  const store = launch ? {...ctx, pacerHome: launch.home} : ctx;
+  const task = readTask(store, id);
+  if (!task) throw Error(launch
+    ? `task ${id} not found in the launch home derived from PACER_RUN_DIR; check the executor's launch environment`
+    : `task ${id} not found in PACER_HOME; pacer report must run in the executor's launch environment`);
+  if (task.state !== "running") throw Error(`task ${id} is not running (state: ${task.state}); report only for the active attempt`);
+  if (!task.run || task.run.host) throw Error(`task ${id} has no active local run; report from its local executor`);
   const dir = realpathSync(task.run.dir);
-  if (insideRun && realpathSync(fromRun) !== dir) throw Error("report run directory does not match the task's current attempt");
-  const metadata = JSON.parse(readFileSync(join(dir, "interactive.json"), "utf8"));
-  if (insideRun && (typeof metadata.reportToken !== "string" || !metadata.reportToken || ctx.env.PACER_REPORT_TOKEN !== metadata.reportToken)) {
-    throw Error("invalid or missing PACER_REPORT_TOKEN for this attempt");
+  if (launch && (task.id !== launch.id || launch.dir !== dir || String(task.run.attempt) !== launch.attempt)) {
+    throw Error("report attempt mismatch: PACER_RUN_DIR does not match the task's current attempt; use the current launch environment");
   }
-  return {dir, source: insideRun ? "agent" : "user"};
+  const metadata = JSON.parse(readFileSync(join(dir, "interactive.json"), "utf8"));
+  if (insideRun) {
+    const supplied = Buffer.from(ctx.env.PACER_REPORT_TOKEN ?? "");
+    const expected = Buffer.from(typeof metadata.reportToken === "string" ? metadata.reportToken : "");
+    if (!supplied.length || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      throw Error("PACER_REPORT_TOKEN mismatch or missing for this attempt; use the executor's launch token");
+    }
+  }
+  let currentHome = resolve(ctx.pacerHome);
+  try { currentHome = realpathSync(currentHome); } catch { /* An overridden home may not exist. */ }
+  const note = launch && currentHome !== launch.home ? "pacer: PACER_HOME was ignored for this report; using the launch home from PACER_RUN_DIR" : undefined;
+  return {dir, source: insideRun ? "agent" : "user", ...(note ? {note} : {})};
 }
 
 /** Why this Codex cannot take per-run hook overrides (codex-cli >= 0.162.1), or null when it can. */
@@ -190,8 +224,8 @@ export function reportCommand(args: string[], ctx: Ctx): Result {
       else if (!args[i].startsWith("-") && !id) id = args[i];
       else throw Error("usage: pacer report [task-id] --status done|failed|needs-input|running --summary <text>");
     }
-    const {dir, source} = reportDestination(ctx, id, explicitTask);
+    const {dir, source, note} = reportDestination(ctx, id, explicitTask);
     writeReport(dir, status, summary, source);
-    return {code: 0, out: `Reported ${status}`, err: ""};
+    return {code: 0, out: `Reported ${status}`, err: note ?? ""};
   } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
 }
