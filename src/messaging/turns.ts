@@ -188,6 +188,7 @@ async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRun
 /**
  * Start the task's next message turn after fresh policy admission (ADR 0015), retrying when the policy context changed meanwhile.
  * A held turn leaves its messages pending, records why in the task's activity, and reports it to their senders unless quiet.
+ * Policy that still changes on the third admission holds the turn too.
  */
 export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean; quiet?: boolean } = {}): Promise<TurnDelivery> {
   for (let attempt = 0; ; attempt++) {
@@ -199,8 +200,16 @@ export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defau
       if (!o.quiet) await reportHold(ctx, id, admitted, spawn);
       return { delivery: "held", hold: admitted };
     }
+    let hold: TurnHold;
     try { return { delivery: startTurnIfIdle(ctx, id, spawn, { replay: o.replay, executor: admitted.executor, guard: admitted.guard }) }; }
-    catch (e) { if (attempt < 2 && e instanceof CoreError && e.code === "conflict") continue; throw e; }
+    catch (e) {
+      if (!(e instanceof CoreError && e.code === "conflict")) throw e;
+      if (attempt < 2) continue;
+      // Policy kept changing under admission: the messages wait for the next send rather than failing it.
+      hold = { reason: `Project policy changed while this task's next turn was admitted (${e.message})` };
+    }
+    if (!o.quiet) await reportHold(ctx, id, hold, spawn);
+    return { delivery: "held", hold };
   }
 }
 

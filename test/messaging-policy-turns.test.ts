@@ -1,5 +1,5 @@
 // A continuation turn passes fresh project policy admission, as a new attempt does (ADR 0015).
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { policyGateFixture } from "./fixtures/policy-host";
@@ -11,6 +11,7 @@ import { writeProjectStrategy } from "../src/config/project-strategies";
 import { loadStrategy } from "../src/config/strategy";
 import { resolveRepo } from "../src/core/repos";
 import { projectReferences } from "../src/engine/project-routing";
+import * as projectPolicy from "../src/core/project-policy";
 
 /** A task that finished on codex with a resumable session, under a policy plugin that allows everything so far. */
 function settled(repo = tmpDir()) {
@@ -192,5 +193,61 @@ test("an answer that policy holds leaves the question unread and the task's ques
   const again = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt" }, { appAuthenticated: true, spawnRunner: () => 1 });
   expect(again.delivery).toBe("turn_started");
   expect(store.getMessage(f.ctx, question.id)?.readAt).not.toBeNull();
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
+});
+
+test("project policy that changes during queue admission on every retry holds the turn and reopens the answered question", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex", "cursor"]);
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  // Each admission sees a project that allows only codex; each queue commit then sees one that allows only cursor.
+  let reads = 0;
+  const real = projectPolicy.projectSnapshot;
+  const spy = spyOn(projectPolicy, "projectSnapshot").mockImplementation((ctx, s, key) => {
+    const snap = real(ctx, s, key);
+    return { ...snap, selection: { ...snap.selection!, executors: reads++ % 2 ? ["cursor"] : ["codex"] } };
+  });
+  try {
+    const r = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt", requestId: "req-1" }, { appAuthenticated: true, spawnRunner: () => 1 });
+    expect(r.delivery).toBe("held");
+    expect(r.hold?.reason).toContain("Project policy changed while this task's next turn was admitted");
+    expect(reads).toBe(6);
+  } finally { spy.mockRestore(); }
+  expect(f.decisions().filter(c => c.decision === "route")).toHaveLength(3);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.state).toBe("done");
+  expect(t.pendingTurn).toBeUndefined();
+  expect(t.question).toEqual({ text: "which file?", at: f.ctx.now });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["same.txt"]);
+  expect(store.inbox(f.ctx, "human").filter(m => m.from === `task:${f.id}` && m.kind === "report").map(m => m.body)).toEqual([expect.stringContaining("[held] Messages to task")]);
+});
+
+test("a policy-held answer replayed with its request id stays open while held, then answers the question once policy allows", async () => {
+  const f = settled();
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  const answer = () => sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt", requestId: "req-1" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  expect((await answer()).delivery).toBe("held");
+  // Replayed while still held: the same message, still held, the question still open and unread.
+  const held = await answer();
+  expect(held).toMatchObject({ duplicate: true, delivery: "held", hold: { reason: expect.stringContaining("repository frozen") } });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(readTask(f.ctx, f.id)!.question).toEqual({ text: "which file?", at: f.ctx.now });
+  // Replayed after policy allows: the turn resumes the same session with the answer recorded and the question read.
+  f.policy({ verdict: "allow" });
+  const again = await answer();
+  expect(again).toMatchObject({ duplicate: true, delivery: "turn_started" });
+  expect(again.message.id).toBe(held.message.id);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.question?.answer).toBe("same.txt");
+  expect(t.pendingTurn).toMatchObject({ executor: "codex", session: { id: "sid-1", source: "header" } });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).not.toBeNull();
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.id)).toEqual([held.message.id]);
+  // A further replay, once a turn took the answer, reports it queued and changes nothing.
+  store.claimPending(f.ctx, `task:${f.id}`, t.pendingTurn!.id);
+  expect((await answer()).delivery).toBe("queued");
   expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
 });
