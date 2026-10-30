@@ -351,6 +351,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   const allowed = (raw: string) => {
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
     if (/^\/needs-you\?answer=t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/.test(raw)) return true;
+    if (/^\/workspace(?:\?task=[A-Za-z0-9_-]+(?:&panel=(?:session|changes|notes))?)?$/.test(raw)) return true;
     if (raw.includes("?")) return false;
     return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
   };
@@ -365,7 +366,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   expect(literals.length).toBeGreaterThan(15);
   for (const route of literals) { expect(cases.allowed).toContain(route); expect(allowed(route)).toBe(true); }
   const html = draw({...fixture(), tasks: [{...fixture().tasks[0]!,id:"task-1"}]});
-  for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(cases.allowed).toContain(match[1]!);
+  for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(allowed(match[1]!)).toBe(true);
   const routes: string[] = [];
   await performAction({label:"Answer",op:"task.answer",params:{id:"t-20261029-153500-a0f9"}}, api, {...ipc,desktop:true,open:async route=>{routes.push(route);}});
   expect(routes).toEqual(["/needs-you?answer=t-20261029-153500-a0f9"]);
@@ -487,4 +488,12 @@ test("browser tray Answer opens the Needs you question panel", async () => {
   const routes: string[] = [];
   await performAction({ label: "Answer", op: "task.answer", params: { id: "task-1" } }, api, { ...ipc, desktop: false, open: async route => { routes.push(route); } });
   expect(routes).toEqual(["/needs-you?answer=task-1"]);
+});
+
+test('attention task titles open their task page independently of the primary action',()=>{
+ const snapshot=fixture();
+ const item=snapshot.attention!.find(i=>i.taskId)!;
+ const html=section(draw({...snapshot,attention:[item]}),'Needs you');
+ expect(html).toContain(`href="/app/#/tasks/${encodeURIComponent(item.taskId!)}"`);
+ expect(html).toContain('tray-task-title');
 });

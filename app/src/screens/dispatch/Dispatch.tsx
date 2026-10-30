@@ -134,7 +134,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
         : running && node.state.tone === "info" ? { ...node.state, label: "Working" } : node.state;
       const why = task?.queue?.detail ?? task?.brokenReason ?? (task?.retryOf ? "Retried on executor" : null);
       const lead = node.agents.length > 1 ? `${node.agents.length} agents` : task?.executor ? executorLabel(task.executor) : "Not assigned";
-      return <li key={node.id}><ListRowLink className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}${running ? "" : "/trace"}`, query)}>
+      return <li key={node.id}><ListRowLink className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)}>
         <span className="pc-dispatch-caption">{node.updatedAt ? clock(node.updatedAt, now) : ""}</span>
         <span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption pc-dispatch-decision__repo pc-ellipsis">{node.repo}{node.children.length > 0 ? ` · ${node.children.length} subtasks` : ""}</span></span>
         <span><Pill tone="neutral">{task?.kind ?? "Unclassified"}</Pill></span>

@@ -124,12 +124,12 @@ test("Needs you shows three urgent cards, one board action and an All in Needs y
   expect(answer).toContain(">Answer<");
 });
 
-test("Live dispatch is a six-row decision ledger with seven columns and session or trace links", () => {
+test("Live dispatch is a six-row decision ledger with seven columns and task page links", () => {
   const html = section(view(), "live-dispatch");
   expect(strip(html)).toContain("Live dispatch 2 running 1 queued Kind · routed to · why · tokens");
   expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(6);
   expect(html).toContain('href="#/tasks/t-0420"');
-  expect(html).toContain('href="#/tasks/t-0422/trace"');
+  expect(html).toContain('href="#/tasks/t-0422"');
   expect(html).toContain("pc-dispatch-decision__agents");
   expect(html).toContain("pc-dispatch-decision__tokens");
   expect(html).toContain("pc-dispatch-decision__status");

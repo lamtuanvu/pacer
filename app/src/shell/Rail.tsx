@@ -15,7 +15,7 @@ const ITEMS: { name: "insights" | "dispatch" | "review" | "sessions" | "terminal
   { name: "review", label: "Needs you", to: routes.needsYou(), icon: "needs-you", count: c => c.attention, words: "items", tone: "warn" },
   { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "task-checklist", count: () => 0, words: "running", tone: "info" },
   { name: "insights", label: "Insights", to: routes.insights(), icon: "activity-insights", count: () => 0, words: "", tone: "info" },
-  { name: "terminal", label: "Terminal", to: routes.terminal(), icon: "activity-terminal", count: () => 0, words: "", tone: "info" },
+  { name: "terminal", label: "Workspace", to: routes.terminal(), icon: "activity-terminal", count: () => 0, words: "", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const EXECUTOR_PROBLEMS = new Set(["failing", "down", "blocked", "exhausted"]);
@@ -31,9 +31,9 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
     {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
       const n = counts && !(narrow && item.name === "sessions") ? item.count(counts) : 0;
-      const label = item.name === "terminal" ? "Terminal panel (Ctrl+`)" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
-      return <Tooltip key={item.name} text={item.name === "terminal" ? "Terminal panel" : label} shortcut={item.name === "terminal" ? "Ctrl+`" : undefined}>
-        <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label} onClick={item.name === "terminal" && terminal ? event => {event.preventDefault(); terminal.toggle();} : undefined} aria-expanded={item.name === "terminal" ? terminal?.open : undefined} aria-current={primaryFor(route) === item.name ? "page" : undefined}>
+      const label = item.name === "terminal" ? "Workspace" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
+      return <Tooltip key={item.name} text={label}>
+        <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label}  aria-current={primaryFor(route) === item.name ? "page" : undefined}>
           <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}
         </AppLink>
       </Tooltip>;

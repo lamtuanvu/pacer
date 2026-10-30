@@ -251,6 +251,12 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
       && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px"
       && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === (name === "--pc-dock-height" ? "dock?.getBoundingClientRect().height ?? 0" : "sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0")) return;
+    // SidePanel's bounded drag/keyboard measurement is a unitless geometry channel.
+    // CSS multiplies it by the generated one-pixel token; neighboring styles stay checked.
+    if (path === "app/src/ds/SidePanel.tsx" && name === "--pc-panel-width"
+      && node.type === "CallExpression" && node.callee.type === "MemberExpression"
+      && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "panelElement.current.style.setProperty"
+      && source.slice(value.start ?? 0,value.end ?? 0) === "String(width)") return;
     // These exact data channels are owned by the meter and are unitless clamped values.
     if (path === "app/src/ds/UsageMeter.tsx" && ["--used", "--pace"].includes(name)
       && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "clamp" && value.arguments.length === 1

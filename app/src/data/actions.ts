@@ -23,7 +23,8 @@ export function uiHref(params: Record<string, unknown>): string {
   const id = typeof params.id === "string" ? encodeURIComponent(params.id) : "";
   switch (params.view) {
     case "review": return id ? `#/tasks/${id}` : "#/needs-you";
-    case "task": case "session": return id ? `#/tasks/${id}` : "#/tasks";
+    case "task": return id ? `#/tasks/${id}` : "#/tasks";
+    case "session": return id ? `#/workspace?task=${id}` : "#/workspace";
     case "settings": return `#${settingsPath(params.section)}`;
     default: return "#/";
   }
@@ -58,7 +59,7 @@ export function createActionRunner(deps: ActionDeps) {
       if (action.op === "mode.hold" || action.op === "mode.release" || action.op.startsWith("desktop.update.") || action.op === "task.review" || action.op === "dispatch.review") await deps.refetch();
       if (action.op === "task.takeover") {
         const state = (result as {state?: string})?.state;
-        deps.navigate(`${uiHref({view:"session",id:action.params.id})}${state === "starting" || state === "driving" ? `?takeover=${state}` : ""}`);
+        deps.navigate(`${uiHref({view:"session",id:action.params.id})}${state === "starting" || state === "driving" ? `&panel=session&takeover=${state}` : ""}`);
       }
       const job = (result as { job?: { id?: unknown } } | null)?.job;
       if (job && typeof job.id === "string") return set(key, { status: "job", jobId: job.id });

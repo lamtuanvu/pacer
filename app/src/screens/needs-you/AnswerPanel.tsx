@@ -16,7 +16,7 @@ export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
   const agent = markAgent(task?.executor ?? "codex"), name = agentInfo(agent).name;
   const question = task?.question as (NonNullable<TaskDetail["question"]> & { options?: string[] }) | undefined;
   const available = task?.state === "needs_input" && question && question.answer === undefined && !task.retriedBy;
-  const session = `#/tasks/${encodeURIComponent(id)}`;
+  const session = `#/workspace?task=${encodeURIComponent(id)}&panel=session`;
   const send = () => {
     if (!text.trim() || text.length > 2000 || !available || action.busy) return;
     void action.run("task.answer", { id, text: text.trim(), expect_rev: task.rev }, close);

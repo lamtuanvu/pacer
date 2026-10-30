@@ -81,3 +81,5 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray .pc-kbd{font-family:var(--font-mono);font-size:var(--type-label-size);line-height:var(--type-label-line);padding:0 var(--size-5);border:1px solid currentColor;border-radius:var(--radius-4);opacity:.7;background:transparent;color:inherit}
 
 .tray-login-icon{width:var(--size-16);height:var(--size-16);fill:none;stroke:currentColor;stroke-width:var(--stroke-icon);stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tray-task-title{display:block;min-width:0;max-width:100%;color:var(--ink);text-decoration:none}
+.tray-task-title>strong{display:block}

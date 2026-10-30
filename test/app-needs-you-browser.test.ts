@@ -14,6 +14,7 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     await page.addScriptTag({ content: await build.outputs[0]!.text(), type: "module" });
     await page.getByRole("tab", { name: /Questions/ }).click();
     expect(await page.locator(".ny-item").count()).toBe(1);
+    expect(await page.locator(".ny-content").getAttribute("href")).toBe("#/tasks/question");
     const answerLink = page.getByRole("link", { name: "Answer", exact: true });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);

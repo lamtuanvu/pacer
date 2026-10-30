@@ -27,11 +27,11 @@ export function TaskAside({node,parent,position,href}:TaskAsideProps){
  const activity=detail?timelineCopy(detail.timeline).slice(-4).reverse():[];
  return <aside className="pc-task-aside" aria-label="Selected task">
   <div className="pc-task-aside__section pc-task-aside__head">
-   <span className="pc-task-aside__title"><span className={`pc-task-card__dot pc-task-card__dot--child pc-task-card__dot--${tone(node)}${node.state.live?" pc-status-dot__dot--live":""}`} aria-hidden="true"/><b title={node.title}>{heading||taskHeading(node.title)}</b>{agent&&<AgentMark agent={agent} size={20}/>}</span>
+   <span className="pc-task-aside__title"><span className={`pc-task-card__dot pc-task-card__dot--child pc-task-card__dot--${tone(node)}${node.state.live?" pc-status-dot__dot--live":""}`} aria-hidden="true"/><TextAction href={hrefFor(routes.task(node.id,current.query))}><b title={node.title}>{heading||taskHeading(node.title)}</b></TextAction>{agent&&<AgentMark agent={agent} size={20}/>}</span>
    <span className="pc-task-aside__caption">{[position,agent&&agentInfo(agent).name,ran,node.tokens].filter(Boolean).join(" · ")}</span>
    <DensityContext.Provider value="settings"><span className="pc-task-aside__buttons">
-    <ButtonLink variant="primary" href={href(node.id)}>Open session</ButtonLink>
-    <ButtonLink href={hrefFor(routes.trace(node.id,current.query))}>Dispatch trace</ButtonLink>
+    <ButtonLink variant="primary" href={hrefFor(routes.workspace(node.id), current.query)}>Open workspace</ButtonLink>
+    <ButtonLink href={hrefFor(routes.trace(node.id,current.query))}>Open task page</ButtonLink>
    </span></DensityContext.Provider>
   </div>
   <div className="pc-task-aside__section"><span className="pc-task-aside__label"><Icon name="routing"/>Linked work</span>

@@ -679,3 +679,45 @@ opened-file tabs; file Source/Preview and file side-panel tabs; Tasks filter;
 Needs you kind filter; Inspector Task/Agents/plugin panels; workspace terminals;
 and command search scopes. Surface styles retain only specialized layout and
 sizes; selected decoration and motion belong to SelectionStrip.
+
+### Task page and Workspace (boards 25–26)
+
+Task titles open `#/tasks/<id>`. This is the Overview destination for every state;
+legacy trace, review and failure URLs redirect there. The page uses the recorded
+state, token roll-ups, routing trace, candidate decisions and acceptance result.
+Task IDs are secondary metadata rather than breadcrumb text. Rejection keeps its
+required note; retry keeps the existing executor/feedback/edit-brief choices.
+
+`#/workspace?task=<id>&panel=<panel>` is the work surface. The activity rail’s
+Workspace icon uses `M3 4h18v16H3zM9 4v16M9 12h12`; Ctrl+backtick still toggles
+the bottom terminal on other screens. The left frame is 272px; the task inspector
+is 320px. Task cards contain collapsible session rows or 26px icon controls with
+accessible names and portal tooltips. Selection and task navigation are sibling
+controls. The current task starts expanded. Recent results, active tasks and tasks
+needing review remain available, with the shared status vocabulary and tints.
+
+The middle uses shared `Tabs` for session, shell, file, diff and earlier-attempt
+panels. Tabs retain mounted terminals when switched; closing a panel closes its
+view, leaving the underlying session available. Arrow keys, Home and End follow
+the shared tab-strip behavior. `+` opens a shell in the selected worktree, the
+interactive agent chooser, or the existing bounded file viewer. New interactive
+sessions currently create a separate task through `session.create`; the chooser
+states this service limitation and preserves the selected worktree and brief.
+Earlier-attempt panels show metadata because the current service has no replay
+operation for a selected historical attempt.
+
+The open panel owns the top-bar context and actions. Following agent terminals
+are read-only until Take over; Hand back releases control. End session keeps the
+existing confirmation. Shells reuse the terminal client and xterm. The right
+inspector provides Overview, Changes and Notes; selecting a change opens a middle
+diff panel. `NowCard`, `CostTiles` and `Acceptance` own the shared overview patterns
+and compact presentation. All geometry and appearances use generated tokens,
+including 4/6/8/12/full radii and the shared type scale. Workspace remains lazy
+loaded; no new dependency or upstream component was introduced.
+
+`SidePanel.resize` adds a bounded, persisted width with a 6px separator. It accepts
+`key`, `initial`, `min`, and `max`; the Workspace defaults are 272/320 with bounds
+200–480/260–560. Arrow keys adjust 16px, Home/End select bounds, and double-click
+restores the default. `--pc-panel-width` is the narrowly checked, unitless geometry
+adapter for this user-selected measurement; CSS multiplies by `--size-1`. Other
+styles and custom properties remain subject to the ordinary token checks.

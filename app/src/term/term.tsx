@@ -13,10 +13,10 @@ import { SessionClient, type SessionState } from "./client";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
-export interface TerminalActions { find: () => void; clear: () => void; reader: () => void }
-export interface TerminalViewProps { onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
+export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
+export interface TerminalViewProps { onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange}:TerminalViewProps){
  const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
@@ -94,11 +94,13 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();fileLinks?.dispose();term.dispose();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
  },[id,url,label,control,resize,live,shell,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
- useLayoutEffect(()=>{onActions?.({find:()=>setFindOpen(true),clear:()=>terminal.current?.clear(),reader:()=>setReader(value=>!value)});return()=>onActions?.(null);},[id]);
+ useLayoutEffect(()=>{onActions?.({find:()=>setFindOpen(true),clear:()=>terminal.current?.clear(),reader:()=>setReader(value=>!value),release:()=>client.current?.release()});return()=>onActions?.(null);},[id]);
  useEffect(()=>{onInputLocked?.(state.status==='live'&&!state.you);},[state.status,state.you,onInputLocked]);
  useLayoutEffect(()=>{if(findOpen) pane.current?.closest('.pc-terminal-view')?.querySelector<HTMLInputElement>('.pc-terminal-search input')?.focus();},[findOpen]);
  // Focus on the next frame, after the control state renders.
  useEffect(()=>{if(!state.you)return;const frame=requestAnimationFrame(()=>{const active=document.activeElement;if(active?.matches("input,textarea")&&!mount.current?.contains(active))return;terminal.current?.focus();});return ()=>cancelAnimationFrame(frame);},[state.you]);
+ useEffect(()=>{onControlChange?.(state.you);},[state.you,onControlChange]);
+ useEffect(()=>{if(!takeRequested)taken.current=false;},[takeRequested]);
  useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
  const hint=state.you?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] to release.`:shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';

@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+- Consolidate task destinations into the task page and add Workspace for sessions, shells, files and diffs.
+
 ### Changed
 
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
