@@ -163,6 +163,7 @@ export interface RunnerHandover {
 
 export interface RunRef {
   interactionMode?: InteractionMode;
+  session?: "interactive";
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
   turnResume?: "replayed";
@@ -204,6 +205,38 @@ export interface LiveWorker {
 }
 
 export interface TaskRecord {
+  /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
+  baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
+    originHash: string; base?: string; sha?: string };
+  /** Exact local attempt directory claimed before creation and cleared with the durable run reference. */
+  runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string;
+    session?: "interactive";
+    host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
+  /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
+  startIntent?: { attempt: number; providerId: string; dir: string };
+  /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
+  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Exact terminal interactive report reaped by the host before logical settlement. */
+  executorReportReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number;
+    status: "done" | "failed"; summary: string; at: number; exitCode: number };
+  /** Durable exact placement claimed before an executor-owned Git worktree effect. */
+  worktreeIntent?: { attempt: number; providerId: string; repoTop: string; repoMain: string;
+    path: string; workdir: string; branch: string; baseSha: string };
+  /** PREPARE may have reached SSH; only read-only reconciliation may follow a missing receipt. */
+  remotePrepareIntent?: { attempt: number; providerId: string; executor: string; alias: string;
+    hostFingerprint: string; repoTop: string; originHash: string; checkout: string; tag: string;
+    baseSha: string; base: string; missingBaseReceiptAt?: number; bundleRetryIssuedAt?: number };
+  /** Fix the local destination before a remote bundle can publish a branch. */
+  remoteTransferIntent?: { attempt: number; providerId: string; dir: string;
+    startedAt: number; branch: string; oldHead: string };
+  /** Complete fixed preflight proved an exited failed remote attempt has no commits to transfer. */
+  remoteTransferNoWork?: { attempt: number; providerId: string; dir: string;
+    startedAt: number; exitCode: number };
+  /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
+  executorProvider?: string;
+  /** A stop request is not terminal until the exact executor exit is verified. */
+  stopPending?: { attempt: number; requestedAt: number; providerId: string; graceMs: number;
+    reason?: "user" | "deadline" };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;

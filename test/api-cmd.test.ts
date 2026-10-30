@@ -6,7 +6,7 @@ import { cmdToOp, runMappedCmd } from "../src/api/cmd";
 import { ApiError } from "../src/api/client";
 import { CoreError } from "../src/core/errors";
 import { consoleCommands, type ConsoleDeps } from "../src/console/console";
-import { createTask, readTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 async function ctxWithStrategy() {
@@ -24,6 +24,21 @@ test("runMappedCmd reports success and errors and skips unmapped commands", asyn
   expect(readTask(ctx, t.id)?.state).toBe("stopped");
   expect(await runMappedCmd(call, { cmd: "stop", taskId: "missing" })).toMatchObject({ handled: true, ok: false, message: expect.stringMatching(/^pacer: .*missing/) });
   expect(await runMappedCmd(call, { cmd: "refresh" })).toEqual({ handled: false });
+});
+
+test("mapped stop reports pending while a provider-owned executor may still run", async () => {
+  const ctx = await ctxWithStrategy();
+  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, current => {
+    current.state = "running";
+    current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct";
+  });
+  const result = await runMappedCmd((op, params) => callOp(ctx, op, params), { cmd: "stop", taskId: task.id });
+  expect(result).toEqual({ handled: true, ok: true, message: `${task.id} stop pending` });
+  expect(readTask(ctx, task.id)?.state).toBe("running");
+  expect(readTask(ctx, task.id)?.stopPending).toBeDefined();
 });
 
 for (const ErrorType of [ApiError, CoreError]) test(`runMappedCmd preserves ${ErrorType.name} hints`, async () => {

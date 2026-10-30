@@ -32,14 +32,14 @@ test("policy config defaults open and rejects malformed policy instead of silent
   }
 });
 test("policy contracts expose bounded decision-specific amendments and policy activity", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.7.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.8.0");
   expect(ACTIVITY_KINDS).toContain("policy");
   expect(
     manifestSchema.safeParse({
       id: "fx-policy",
       version: "1.0.0",
       publisher: "test",
-      host: "^1.6",
+      host: "^1",
       contributes: { policy: {} },
     }).success,
   ).toBe(true);
@@ -186,7 +186,7 @@ test("older peers cannot use unnegotiated observation helpers or send requests",
     },
   });
   expect(writes.some((m) => m.method?.startsWith("capability."))).toBe(false);
-  expect(writes[0].result.protocol).toBe("1.7.0");
+  expect(writes[0].result.protocol).toBe("1.8.0");
 });
 
 test("older peers cannot bootstrap callbacks and unowned direct brokers still deny", async () => {
@@ -243,7 +243,7 @@ test("full metadata envelope remains exclusive for chunks and negotiates impleme
       id: 1,
       method: "plugin.hello",
       params: {
-        protocol: "1.6.0",
+        protocol: "1.5.0",
         features: ["policyObservations", "chunkedResults"],
         config: {},
         grants: [],

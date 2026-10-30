@@ -234,7 +234,7 @@ fn plugin_area(name: &str) -> &'static str {
         "plugin-install-protocol"
     } else if name.starts_with("hostRunner.") || name.starts_with("capability.hosts.") {
         "plugin-hosts-protocol"
-    } else if name.starts_with("executor.") || name.starts_with("capability.process.") {
+    } else if name.starts_with("executor.") || name.starts_with("capability.process.") || name.starts_with("capability.worktree.") {
         "plugin-exec-protocol"
     } else if policy_definition(name) {
         "plugin-policy-protocol"

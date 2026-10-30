@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
 import { repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
@@ -52,6 +53,15 @@ async function snapshot(ctx: Ctx, alias: string, taskId: string, baseSha: string
   const tag = `${key.split("/").at(-1)}-${createHash("sha1").update(key).digest("hex").slice(0, 8)}`;
   const args = [path, tag, taskId, baseSha, branch, String(task.attempts.length + 1)];
   if (args.some(value => value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value))) return deny();
+  const owned = task.remotePrepareIntent;
+  if (owned && (task.state !== "running" || task.stopPending || task.run ||
+    task.executorProvider !== owned.providerId || task.executor !== owned.executor ||
+    owned.attempt !== task.attempts.length + 1 || owned.alias !== alias ||
+    owned.hostFingerprint !== JSON.stringify(host) ||
+    owned.repoTop !== realpathSync(git.top) ||
+    owned.originHash !== createHash("sha256").update(url).digest("hex") ||
+    owned.checkout !== path || owned.tag !== tag ||
+    owned.baseSha !== baseSha || owned.base !== branch)) return deny();
   return { task, host, url, args };
 }
 

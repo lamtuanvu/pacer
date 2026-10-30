@@ -30,6 +30,8 @@ export interface HostClient extends ObservationClient {
   streamProgress?: (streamId: string, seq: number, bytes: Uint8Array) => Promise<void>;
   /** Present only for an owned hostRunner.stream request. One frame until ack. */
   streamInput?: { next(): Promise<{ bytes: Uint8Array; ack(): Promise<void> }> };
+  /** Send a bounded event during the owning executor.run call. */
+  progress?(event: unknown): void;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
   /** Sign `payload` with the machine key under a purpose declared in the manifest scopes for `identity.sign` (host >= 1.4.0). */
@@ -71,7 +73,7 @@ export class PluginError extends Error {
   }
 }
 
-export const PROTOCOL = "1.7.0";
+export const PROTOCOL = "1.8.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
@@ -173,6 +175,11 @@ export async function serve(o: ServeOptions): Promise<void> {
       },
       events: {async subscribe(types){observations();const result=await call<{ok:true;readOwner:string}>("capability.events.subscribe",{types});if(result.ok!==true||typeof result.readOwner!=="string"||!result.readOwner.length||result.readOwner.length>256)throw new PluginError("plugin_refused","invalid read owner acknowledgement");readOwner=result.readOwner;}},
       call,
+      progress(event) {
+        if (request?.method !== "executor.run" || signal?.aborted)
+          throw new PluginError("capability_denied", "executor progress requires an active run");
+        send({ method: "$/progress", params: { id: request.id, event } });
+      },
       ...(request?.method === "hostRunner.stream" && meta?.capabilityCall ? { streamProgress: async (streamId: string, seq: number, bytes: Uint8Array) => {
         if (signal?.aborted || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(streamId) ||
           !Number.isSafeInteger(seq) || seq < 0 || !(bytes instanceof Uint8Array) || bytes.length < 1 || bytes.length > 65_536)
@@ -291,7 +298,8 @@ export async function serve(o: ServeOptions): Promise<void> {
         streamInputs.set(id, { streamId: (r.params as Json).streamId as string, nextSeq: 0 });
       try {
         const host = hostFor(r._meta, controller.signal,
-          r.method === "hostRunner.stream" && typeof id === "number" ? { method: r.method, id } : undefined);
+          (r.method === "hostRunner.stream" || r.method === "executor.run") && typeof id === "number"
+            ? { method: r.method, id } : undefined);
         const result = await handler(r.params ?? {}, host, controller.signal);
         if(o.onEvent&&["diagnostic.ping","policy.before"].includes(r.method)&&!readOwner) {
           if(!host||!r._meta||typeof (r._meta as Json).capabilityCall!=="string")throw new PluginError("capability_denied","observations need an actual owning host call");

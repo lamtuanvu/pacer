@@ -6,6 +6,7 @@ import { CoreError } from "../core/errors";
 import type { CallAuthority } from "./authority";
 import { resolveBoundCredential } from "./credential-bindings";
 import { secretReference } from "./http-protocol";
+import { writeOwnerBytes } from "./capability-write";
 
 const MAX_OUTPUT = 1048576, MAX_CHUNK = 262144;
 const CODEX_LIVE_ARGV = ["codex", "-s", "read-only", "-a", "never", "app-server"];
@@ -17,7 +18,8 @@ const CODEX_LIVE_REQUEST = [
 interface Pin {
   argv: readonly string[];
   timeoutMs: number;
-  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
+  stdin?: string;
+  mode?: "codex-live" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex";
   input?: Uint8Array;
   selected: string | null;
   canonical?: string;
@@ -31,8 +33,10 @@ interface Pin {
     env: Readonly<Record<string, string>>;
     secretEnv: Readonly<Record<string, string>>;
   };
+  capture?: { stdout: string; stderr: string };
+  suppressOutput?: boolean;
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; prepareRecoverUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -44,7 +48,12 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
   if (states.has(authority)) return;
   const pins = authority.resources.commands.map(command => {
     const selected = authority.ctx.which(command.argv[0]!);
-    const pin: Pin = { argv: command.argv, timeoutMs: command.timeoutMs, selected, mode: command.mode };
+    const pin: Pin = { argv: command.argv, timeoutMs: command.timeoutMs, selected, mode: command.mode,
+      stdin: command.stdin, capture: command.capture, suppressOutput: command.suppressOutput };
+    if (pin.suppressOutput && pin.capture) invalid("sensitive provider output cannot be captured");
+    if (command.stdin !== undefined && (typeof command.stdin !== "string" ||
+      Buffer.byteLength(command.stdin, "utf8") > 262144 || command.mode !== undefined))
+      invalid("invalid issued provider stdin");
     if (command.mode === "prepare-bundle") {
       if (!(command.input instanceof Uint8Array) || command.input.length > 50 * 1024 * 1024 ||
         command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
@@ -52,6 +61,11 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
         command.secretEnv !== undefined || command.timeoutMs > 60_000)
         deny("remote prepare input was not issued by the host");
       pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "prepare-recover") {
+      if (command.argv[0] !== "ssh" || command.input !== undefined || command.inputSha256 !== undefined ||
+        command.cwd !== undefined || command.env !== undefined || command.secretEnv !== undefined ||
+        command.timeoutMs > 30_000)
+        deny("remote prepare recovery was not issued by the host");
     } else if (command.mode === "start-input") {
       if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 50 * 1024 * 1024 ||
         command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
@@ -78,7 +92,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
       (JSON.stringify(command.argv) !== JSON.stringify(CODEX_LIVE_ARGV) ||
         !authority.accountHome || !isAbsolute(authority.accountHome) ||
         command.env?.CODEX_HOME !== authority.accountHome || command.cwd !== undefined ||
-        command.secretEnv !== undefined || command.timeoutMs > 15_000))
+        command.secretEnv !== undefined || command.stdin !== undefined || command.timeoutMs > 15_000))
       deny("Codex live command was not issued for this account");
     if (command.cwd !== undefined || command.env !== undefined || command.secretEnv !== undefined) {
       const env = command.env ?? {}, secretEnv = command.secretEnv ?? {};
@@ -105,7 +119,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, prepareRecoverUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -149,7 +163,7 @@ export async function readSpawnOutput(authority: CallAuthority, params: Record<s
 export async function answerSpawn(authority: CallAuthority, declaredScopes: readonly string[], params: Record<string, unknown>): Promise<unknown> {
   const state = stateOf(authority);
   if (state.cleanupFailure) throw state.cleanupFailure;
-  if (Object.keys(params).some(key => !["argv", "timeoutMs", "env", "cwd"].includes(key))) invalid("provider stdin and other overrides are unavailable");
+  if (Object.keys(params).some(key => !["argv", "timeoutMs", "env", "cwd", "stdin"].includes(key))) invalid("provider command override is unavailable");
   const { argv, timeoutMs } = params;
   if (!Array.isArray(argv) || argv.length < 1 || argv.length > 32 || argv.some(arg => typeof arg !== "string" || arg.length > 4096 || arg.includes("\0")) || !Number.isSafeInteger(timeoutMs) || (timeoutMs as number) <= 0) invalid("invalid provider command");
   const args = argv as string[];
@@ -159,7 +173,9 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (candidates.every(pin => !pin.context) && (Object.hasOwn(params, "env") || Object.hasOwn(params, "cwd"))) invalid("provider env and cwd overrides are unavailable");
   const pin = candidates.find(candidate => (candidate.mode === "codex-live"
     ? !Object.hasOwn(params, "env") && !Object.hasOwn(params, "cwd")
-    : contextMatches(candidate, params)) && (timeoutMs as number) <= candidate.timeoutMs)
+    : contextMatches(candidate, params)) &&
+    (candidate.stdin === undefined ? !Object.hasOwn(params, "stdin") : params.stdin === candidate.stdin) &&
+    (timeoutMs as number) <= candidate.timeoutMs)
     ?? deny("provider command context or timeout is not owned by this call");
   if (pin.mode === "codex-live") {
     if (state.liveUsed) deny("Codex live command already used by this call");
@@ -168,6 +184,10 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (pin.mode === "prepare-bundle") {
     if (state.prepareUsed) deny("remote prepare command already used by this call");
     state.prepareUsed = true;
+  }
+  if (pin.mode === "prepare-recover") {
+    if (state.prepareRecoverUsed) deny("remote prepare recovery already used by this call");
+    state.prepareRecoverUsed = true;
   }
   if (pin.mode === "start-input") {
     if (state.startUsed) deny("remote start command already used by this call");
@@ -263,14 +283,18 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
   try {
     authority.assertActive();
     validatePin(pin);
-    child = spawn(pin.canonical!, argv.slice(1), {
-      stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      ...(pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
+    const start = () => spawn(pin.canonical!, argv.slice(1), {
+      stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" || pin.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
+      ...(pin.mode === "prepare-bundle" || pin.mode === "prepare-recover" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
+    child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();
     if (pin.mode === "codex-live") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "Codex usage request input failed"); stop(); });
       child.stdin?.write(CODEX_LIVE_REQUEST);
+    } else if (pin.stdin !== undefined) {
+      child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "provider input failed"); stop(); });
+      child.stdin?.end(pin.stdin, "utf8");
     }
     if (pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "remote host input failed"); stop(); });
@@ -346,8 +370,16 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
   if (failure) throw failure;
   authority.assertActive();
   const stdout = Buffer.concat(parts[0]!), stderr = Buffer.concat(parts[1]!);
+  // A child can emit a credential fragment; whole-secret matching cannot make
+  // secret-bearing output safe for durable files or the plugin transport.
+  if (pin.suppressOutput) return { code, stdout: "", stderr: "", timedOut };
   if (secrets.some(secret => stdout.includes(Buffer.from(secret)) || stderr.includes(Buffer.from(secret)))) {
     throw new CoreError("capability_denied", "provider output exposed an injected credential", undefined, { reason: "credential_reflection" });
+  }
+  if (pin.capture) {
+    const scopes = ["${PACER_HOME}/runs/**"];
+    await writeOwnerBytes(authority, scopes, pin.capture.stdout, stdout, 0o600);
+    await writeOwnerBytes(authority, scopes, pin.capture.stderr, stderr, 0o600);
   }
   const inline = { code, stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"), timedOut };
   const inlineFits = Buffer.byteLength(JSON.stringify(inline)) <= 768 * 1024;

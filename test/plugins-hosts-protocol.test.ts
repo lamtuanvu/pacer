@@ -11,7 +11,10 @@ const request: HostRunnerRunInput = { session, script: "PROBE", args: [], timeou
 
 test("hosts methods use one declared capability and bounded fixed-script envelopes", () => {
   expect(Object.keys(HOSTS_METHODS).sort()).toEqual([
-    "capability.hosts.close", "capability.hosts.fetch", "capability.hosts.open", "capability.hosts.run",
+    "capability.hosts.claimOwned", "capability.hosts.close", "capability.hosts.fetch",
+    "capability.hosts.open", "capability.hosts.pollOwned", "capability.hosts.prepareOwned",
+    "capability.hosts.readOwnedOutput", "capability.hosts.run", "capability.hosts.startOwned",
+    "capability.hosts.stopOwned", "capability.hosts.transferOwned",
   ]);
   expect(manifestSchema.safeParse({
     id: "fx-host-client", version: "1.0.0", publisher: "test", host: "^1.7",
@@ -38,6 +41,9 @@ test("hosts methods use one declared capability and bounded fixed-script envelop
   expect(HOSTS_METHODS["capability.hosts.close"].params.safeParse({ session, alias: "other" }).success).toBe(false);
   expect(HOSTS_METHODS["capability.hosts.open"].result.safeParse({ session }).success).toBe(true);
   expect(HOSTS_METHODS["capability.hosts.open"].result.safeParse({ session: "short" }).success).toBe(false);
+  expect(HOSTS_METHODS["capability.hosts.transferOwned"].params.safeParse({ taskId: "t-fixture", attempt: 1 }).success).toBe(true);
+  expect(HOSTS_METHODS["capability.hosts.transferOwned"].params.safeParse({ taskId: "t-fixture", attempt: 1,
+    sshTarget: "user@host" }).success).toBe(false);
 });
 
 test("published schema names every hosts method and rejects caller-selected targets", () => {

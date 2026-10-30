@@ -67,7 +67,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       detached: true, cwd: spec.cwd, env: {...launchEnv, HOME: ctx.home, PACER_HOME: ctx.pacerHome, ...(interactive ? { PACER_REPORT_TOKEN: reportToken } : {})}, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
-    writeFileSync(join(spec.dir, "pid"), String(proc.pid));
+    writeFileSync(join(spec.dir, "pid"), String(proc.pid), { mode: 0o600 });
     return { pid: proc.pid };
   } catch (e) {
     if (lease && !attempted) finishWorkSync(ctx, lease);
@@ -105,11 +105,17 @@ export function readRun(dir: string): RunState {
 }
 
 /** TERM the run's process group, then KILL after graceMs. Returns the recorded exit, or 137 when it had to be killed. */
-export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: number) => Promise<void>; expectedIdentities?: { host: ProcessIdentity; child: ProcessIdentity } } = {}): Promise<{ code: number; killed: boolean }> {
+export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: number) => Promise<void>;
+  /** Scoped plugin stop rechecks its persisted owner before any signal or file effect. */
+  expectedIdentities?: { host: ProcessIdentity; child: ProcessIdentity }; guard?: (effect: "signal" | "write") => void; pipeOnly?: boolean; requireRecordedExit?: boolean } = {}): Promise<{ code: number; killed: boolean }> {
   const sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms));
   const s = readRun(dir);
   if (s.exit !== null) return { code: s.exit, killed: false };
-  if (s.pid === null || !s.alive) return { code: s.exit ?? 137, killed: false };
+  const noReceipt = (): { code: number; killed: boolean } => {
+    if (o.requireRecordedExit) throw new Error("detached run stop has no recorded exit");
+    return { code: 137, killed: false };
+  };
+  if (s.pid === null || !s.alive) return noReceipt();
   const end = Date.now() + (o.graceMs ?? 5000);
   // The wrapper can exit before its atomic exit receipt appears. Once it is gone,
   // wait within the original grace period rather than signalling an unowned PID.
@@ -125,7 +131,10 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
   while (!existsSync(join(dir, "child")) && Date.now() < end) {
     const now = readRun(dir);
     if (now.exit !== null) return { code: now.exit, killed: false };
-    if (!now.alive) return { code: (await waitForExit()) ?? 137, killed: false };
+    if (!now.alive) {
+      const exit = await waitForExit();
+      return exit === null ? noReceipt() : { code: exit, killed: false };
+    }
     await sleep(50);
   }
   if (o.expectedIdentities) {
@@ -146,24 +155,40 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
   }
   const beforeTerm = readRun(dir);
   if (beforeTerm.exit !== null) return { code: beforeTerm.exit, killed: false };
+  if (!beforeTerm.alive) {
+    const exit = await waitForExit();
+    return exit === null ? noReceipt() : { code: exit, killed: false };
+  }
+  o.guard?.("signal");
+
+  if (beforeTerm.exit !== null) return { code: beforeTerm.exit, killed: false };
   if (!beforeTerm.alive) return { code: (await waitForExit()) ?? 137, killed: false };
   killTree(s.pid, "SIGTERM");
   while (Date.now() < end) {
     const now = readRun(dir);
     if (now.exit !== null) return { code: now.exit, killed: false };
-    if (!now.alive) return { code: (await waitForExit()) ?? 137, killed: false };
+    if (!now.alive) {
+      const exit = await waitForExit();
+      return exit === null ? noReceipt() : { code: exit, killed: false };
+    }
     await sleep(50);
   }
   const beforeKill = readRun(dir);
   if (beforeKill.exit !== null) return { code: beforeKill.exit, killed: false };
-  if (!beforeKill.alive) return { code: 137, killed: false };
+  if (!beforeKill.alive) return noReceipt();
   // The PTY child owns a separate session, outside the host process group.
   const child = num(join(dir, "child"));
-  if (child !== null && Number.isInteger(child) && child > 1) killTree(child, "SIGKILL");
+  if (!o.pipeOnly && child !== null && Number.isInteger(child) && child > 1) {
+    o.guard?.("signal");
+    killTree(child, "SIGKILL");
+  }
+  o.guard?.("signal");
   killTree(s.pid, "SIGKILL");
   await sleep(100);
   const after = readRun(dir);
   if (after.exit !== null) return { code: after.exit, killed: false };
+  if (o.requireRecordedExit) throw new Error("detached run stop has no recorded exit");
+  o.guard?.("write");
   writeFileSync(join(dir, "exit"), "137");
   return { code: 137, killed: true };
 }

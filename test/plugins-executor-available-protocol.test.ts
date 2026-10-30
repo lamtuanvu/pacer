@@ -13,8 +13,8 @@ const manifest = (contributes: unknown) => ({
 });
 const available = EXTENSION_METHODS["executor.available"];
 
-test("staged executor manifest and availability contract are exact and protocol 1.5 compatible", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.7.0");
+test("staged executor manifest and availability contract are exact and protocol 1.7 compatible", () => {
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.8.0");
   expect(SDK_PROTOCOL).toBe(PLUGIN_PROTOCOL_VERSION);
   expect(EXTENSION_POINTS).toContain("executor");
   expect(executorContribution.safeParse({ backends: ["direct"] }).success).toBe(true);
@@ -34,7 +34,7 @@ test("staged executor manifest and availability contract are exact and protocol 
   expect(available.result.safeParse({ available: true, unsafe: "extra" }).success).toBe(false);
   expect(available.result.safeParse({ available: true, reason: "x".repeat(1025) }).success).toBe(false);
   const published = JSON.parse(readFileSync(join(import.meta.dir, "..", "docs", "plugin-protocol.schema.json"), "utf8"));
-  expect(published.version).toBe("1.7.0");
+  expect(published.version).toBe("1.8.0");
   expect(published.$defs.manifest.properties.contributes.properties.executor.properties.backends.prefixItems[0].const).toBe("direct");
   expect(published.$defs["executor.available.params"].properties.strategy.properties.name.maxLength).toBe(128);
   expect(published.$defs["executor.available.result"].additionalProperties).toBe(false);
@@ -62,7 +62,7 @@ test("installed fake executor validates availability without launching an attemp
     await expect(registry.call(ctx, "fx-executor", "executor.available", { strategy: { name: "default" } }, { deadlineMs: 0 }))
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(registry.call(ctx, "fx-executor", "executor.run", {}))
-      .rejects.toMatchObject({ code: "unknown_op" });
+      .rejects.toMatchObject({ code: "invalid_input" });
   } finally { await registry.shutdown(); }
   writeFileSync(join(folder, "fixture.json"), JSON.stringify({ available: true, malformed: true }));
   const malformed = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundle"); }, eventPumpMs: 0 });
