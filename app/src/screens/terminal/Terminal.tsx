@@ -130,7 +130,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   }, [menu]);
   const closeMenu = () => { setMenu(null); menuTrigger.current?.focus(); };
   const pane = (tab: TerminalRecord, first = false) => <div key={tab.id} className="pc-workspace-terminal__pane" style={{ flexGrow: first && secondary ? ratio : 1 }} role="region" aria-label={`Terminal: ${tab.title}`}>
-    {tab.live && <ReopenToUpdate host={tab.hostVersion} />}
+    {tab.live && <ReopenToUpdate host={tab.hostVersion} onReopen={() => { void open(tab.cwd); }} actionLabel="Open a new terminal" surface="terminal" busy={busy} />}
     <LazyTerminal key={tab.id} id={tab.id} url={tab.attach.ws} label="pacer terminal" cols={tab.cols} rows={tab.rows} control resize live={tab.live} shell
       onActions={controls => { if (controls) actions.current.set(tab.id, controls); else actions.current.delete(tab.id); setReady(previous => previous[tab.id] === !!controls ? previous : { ...previous, [tab.id]: !!controls }); }}
       onInputLocked={value => setLocked(previous => previous[tab.id] === value ? previous : { ...previous, [tab.id]: value })} />

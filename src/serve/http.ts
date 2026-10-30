@@ -19,6 +19,8 @@ import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
 import { shutdownPlugins } from "../plugins";
 import { triggerHandover } from "../tasks/handover-service";
+import { recoverFixtureHandover } from "../service/upgrade";
+import { compiledNativeFixture } from "../update/desktop/native-fixture";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
 import { sessionWebSocket, upgradeSession, upgradeTerminal, type SessionWS } from "./session-ws";
 import { isExecutorSession } from "../install/role";
@@ -62,7 +64,8 @@ export function startServer(
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
-  recoverJobs(initialCtx, undefined, async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary);
+  recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
+    async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
   // History gets its token index in the background; it reads logs and writes only attempt_usage.
   try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
   void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
