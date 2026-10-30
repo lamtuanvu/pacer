@@ -112,11 +112,26 @@ export function cancelJob(ctx: Ctx, id: string, onChange?: OnChange): Job {
   controllers.get(key(ctx, id))?.abort();
   return job;
 }
-export function recoverJobs(ctx: Ctx, onChange?: OnChange): void {
+/**
+ * A running update.apply whose Restart step names this version is the upgrade intent the old service left.
+ * With `afterRestart`, the new service hands running work over first and completes the job with its report.
+ */
+export function recoverJobs(ctx: Ctx, onChange?: OnChange, afterRestart?: (job: Job) => Promise<string>): void {
   for (const job of listJobs(ctx)) {
     if(job.state !== "running") continue;
     const restart=job.kind==='update.apply' ? job.steps.find(s=>s.name==='Restart' && s.state==='running') : undefined;
     if(restart?.detail===currentVersion()) {
+      if(afterRestart) {
+        const finish=(detail:string,error?:unknown)=>{
+          const latest=getJob(ctx,job.id);if(latest.state!=="running")return;
+          const step=latest.steps.find(s=>s.name==='Restart');if(step){step.state=error?'failed':'passed';step.detail=detail;}
+          latest.state=error?'failed':'passed';latest.endedAt=Date.now()/1000;
+          if(error)latest.error={code:'interrupted',message:detail};
+          save(ctx,latest,onChange);
+        };
+        void afterRestart(job).then(detail=>finish(detail),error=>finish(`${currentVersion()} · running work was not handed over: ${error instanceof Error?error.message:String(error)}`,error));
+        continue;
+      }
       restart.state='passed';job.state='passed';job.endedAt=ctx.now;save(ctx,job,onChange);continue;
     }
     if(alive(job.pid)) continue;

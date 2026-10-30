@@ -15,6 +15,9 @@ import { readManifest } from "./manifest";
 import { appLink, removePathBlock } from "./path-block";
 import { pacerArgv } from "./self";
 import { uninstallPlanner, type UninstallReport } from "./uninstall";
+import { isExecutorSession } from "./role";
+import { UPGRADE_CLI_REFUSAL } from "../service/upgrade";
+import { runningWork, workCounts } from "../service/running-work";
 
 export const UNINSTALL_ALL_USAGE = "uninstall --all [--yes] [--binary] [--force] [--json]";
 interface BlockingTask {
@@ -108,6 +111,7 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
   if (!args.includes("--all") || args.some(arg => !["--all", "--yes", "--binary", "--force", "--json"].includes(arg))) {
     return { code: 2, out: "", err: `usage: pacer ${UNINSTALL_ALL_USAGE}` };
   }
+  if (isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer uninstall: ${UPGRADE_CLI_REFUSAL}` };
   const json = args.includes("--json"), tty = deps.tty ?? !!process.stdin.isTTY;
   const plan: PlanStep[] = [], results: StepResult[] = [];
   let blockedByTasks: BlockingTask[] = [], warning: string | undefined;
@@ -166,6 +170,8 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
     if (!args.includes("--binary") && binaryInsideHome) {
       throw new Error("binary is inside PACER_HOME; rerun with --binary to approve its removal");
     }
+    const live = plan.some(step => step.kind === "service") ? workCounts(await runningWork(ctx)) : { tasks: 0, sessions: 0 };
+    const runningNotice = live.tasks || live.sessions ? `${live.tasks} task${live.tasks === 1 ? "" : "s"} and ${live.sessions} session${live.sessions === 1 ? "" : "s"} are running. They keep running after the service is removed. ` : "";
     if (!args.includes("--yes")) {
       if (!tty) return finish(2, "pacer: non-TTY uninstall requires confirmation; rerun with --yes");
       const confirm = deps.confirm ?? (async (question: string) => {
@@ -174,7 +180,7 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
       });
       // Keep stdout valid JSON while still showing the complete plan before confirmation.
       if (json) (deps.print ?? (text => process.stderr.write(text + "\n")))(renderPlan());
-      if (!await confirm("Remove all of this? [y/N] ")) return finish(0, "pacer: uninstall cancelled");
+      if (!await confirm(`${runningNotice}Remove all of this? [y/N] `)) return finish(0, "pacer: uninstall cancelled");
     }
     const pendingCleanup = () => results.some(r => (r.kind === "agent" || r.kind === "plugin") && r.status === "failed");
     for (const step of plan) {

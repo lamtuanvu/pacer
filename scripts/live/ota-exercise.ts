@@ -1,6 +1,6 @@
 import { prepareManualCandidate } from "./ota-candidate";
 /** Fixed live managed-update scenarios. Every update write crosses the guarded public API. */
-import { constants, closeSync, fstatSync, openSync, readFileSync, realpathSync, writeSync } from "node:fs";
+import { constants, closeSync, existsSync, fstatSync, openSync, readFileSync, realpathSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { HttpClient } from "../../src/api/http-client";
@@ -18,6 +18,7 @@ import { fixtureEnvironment, fixtureInstallation, inspectFixtureJobs, seedFixtur
 import { makeCtx } from "../../src/ctx";
 import { hasReservation } from "../../src/update/desktop/admission";
 import { readNativeTransaction } from "../../src/update/desktop/native-record";
+import { assertRealAppUnchanged, realAppNote, snapshotRealApp } from "./ota-real-app";
 
 export function incarnationExited(expected: ProcessIdentity): boolean {
   const current = processIdentity(expected.pid);
@@ -35,6 +36,15 @@ export function privateFixtureBytes(path: string, limit: number): Buffer {
     return bytes;
   } finally { closeSync(fd); }
 }
+export function realAppEvidencePair(root: string, resuming: boolean): { before: string; after: string } {
+  const evidence = join(root, "evidence");
+  if (!resuming) return { before: join(evidence, "real-app-before.json"), after: join(evidence, "real-app-after.json") };
+  for (let n = 1; n < 10000; n++) {
+    const before = join(evidence, `real-app-before.resume-${n}.json`), after = join(evidence, `real-app-after.resume-${n}.json`);
+    if (!existsSync(before) && !existsSync(after)) return { before, after };
+  }
+  throw Error("No free real-app resume evidence pair");
+}
 export async function runManagedExercise(id: string, scenario: string, options: OtaOptions = {}): Promise<void> {
   if (!(MANAGED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("UNVERIFIED: this fixed scenario has no native exercise driver");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
@@ -43,6 +53,10 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   const resuming = resumableStartup(state.runtime, state.exercise, incarnationExited);
   if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || (state.runtime && !resuming) || state.exercise || session.stopped || !session.serviceIdentity || (!resuming && !sameProcess(session.serviceIdentity, processIdentity(session.pid)))) throw Error("UNVERIFIED: fresh native fixture and exact source service ownership required");
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
+  // The installed app may keep running beside the fixture; prove it is untouched at the end.
+  const realApp = snapshotRealApp(enumerateNativeProcesses());
+  const realAppEvidence = realAppEvidencePair(session.root, resuming);
+  writeFileSync(realAppEvidence.before, JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   const before = await inspectFixtureJobs(state);
   if (resuming) {
     if (before.desktops.length || before.jobs[1].loaded || before.jobs[1].state !== "reserved") throw Error("Startup has unexpected native participants");
@@ -210,11 +224,25 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       if (!survived) throw Error("Final desktop/service survival after native retirement was not established");
     }
+    const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
+    writeFileSync(realAppEvidence.after, JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    assertRealAppUnchanged(realApp, realAppAfter);
+    record(session, { kind: "note", behavior: `OTA ${scenario} installed app untouched`, surface: "native desktop", verdict: realApp.processes.length && !realAppAfter.processes.length ? "UNVERIFIED" : "PASS", text: realAppNote(realApp, realAppAfter) });
     state = readOtaRecord(id, options);
     updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, request: null }, exercise: { ...state.exercise!, state: expected === "recovery-failed" ? "failed" : "complete" } }, options);
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "PASS", text: `Observed ${expectedJournal}${outcome ? " with matching public status" : " offline, with both faults consumed, admission retained and desktop/service absent"}; exact native checkpoint and journal evidence verified. Configuration and authentication token remained byte-identical. Owned native processes and registrations retained until verified retirement.` });
   } catch (error) {
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "desktop / public API / native journal", verdict: "FAIL", text: error instanceof Error ? error.message : "Native exercise failed; resources and evidence retained." });
     throw error;
-  } finally { clearInterval(journalTrace); if (journalTraceFd !== undefined) closeSync(journalTraceFd); unsubscribe(); client.close(); }
+  } finally {
+    clearInterval(journalTrace);
+    try { if (journalTraceFd !== undefined) closeSync(journalTraceFd); }
+    finally { try { unsubscribe(); } finally { client.close(); } }
+    if (!existsSync(realAppEvidence.after)) try {
+      writeFileSync(realAppEvidence.after, JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      try { record(session, { kind: "note", behavior: `OTA ${scenario} installed app after-snapshot`, surface: "native desktop", verdict: "UNVERIFIED", text: error instanceof Error ? error.message : "Real-app after-snapshot failed" }); }
+      catch { /* Keep the exercise's original error when even the note cannot be written. */ }
+    }
+  }
 }

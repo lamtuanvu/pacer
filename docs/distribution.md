@@ -162,6 +162,14 @@ executable. Compiled native-enabled CLIs never fall back to runtime C compilatio
 Library validation stays enabled; additional nested code or symlink payloads
 require a reviewed signing/extraction contract.
 
+Live-validation fixture builds (`ota-fixture`) use separate identifiers:
+`dev.pacer.desktop.fixture`, `dev.pacer.desktop.fixture.cli`,
+`dev.pacer.desktop.fixture.native-shim` and
+`dev.pacer.desktop.fixture.update-helper`. The build compiles the identifier
+set in; no environment variable or setting selects it. The release desktop,
+front door and service refuse fixture identifiers, and release packaging never
+signs with them.
+
 After Apple accepts the complete signed app, the pipeline staples the ticket,
 checks it with `stapler` and Gatekeeper, and archives exactly `pacer.app` with
 AppleDouble generation disabled. Tauri CLI **2.12.3** signs the final bytes with

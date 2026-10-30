@@ -5716,6 +5716,27 @@ Params JSON Schema:
 }
 ```
 
+### `service.handover`
+
+After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "wait_s": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `service.install`
 
 Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.
@@ -5742,6 +5763,21 @@ Params JSON Schema:
 ### `service.status`
 
 Whether the login service is installed and running, with its process id when known.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `service.work`
+
+Running tasks and live sessions with their runner and host versions, and the sessions that need Reopen to update. Versions and counts only, never paths.
 
 Params JSON Schema:
 

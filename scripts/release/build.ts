@@ -104,7 +104,8 @@ export function frontDoorBuildEnvironment(o: CompileOptions, inherited: NodeJS.P
   if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
   return { ...inherited, PACER_BUILD_VERSION: o.version, CARGO_TARGET_DIR: join(o.root, "target"),
     PACER_BUILD_APPLE_TEAM_ID: o.desktopTrust?.appleTeamId ?? "",
-    PACER_BUILD_SIGNING_CERT_SHA1: o.desktopTrust?.signingCertSha1 ?? "" };
+    PACER_BUILD_SIGNING_CERT_SHA1: o.desktopTrust?.signingCertSha1 ?? "",
+    PACER_BUILD_DESKTOP_FIXTURE: "" };
 }
 
 export async function compileFrontDoor(o: CompileOptions): Promise<void> {

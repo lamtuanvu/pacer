@@ -1,6 +1,6 @@
 import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
-import { withWork } from "../update/desktop/admission";
+import { advertiseHandover, commitHandoverIfRequested, withAttemptWork, withdrawHandover } from "../tasks/handover";
 import { probeAgentSession } from "../session/agent-probe";
 import { conversationIdentity } from "../session/native-identity";
 import { conversationActivity } from "../session/conversation";
@@ -99,12 +99,23 @@ function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
 export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
-  let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
+  let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = run.idleAlertedAt !== undefined;
   let fingerprint: string | undefined;
-  let waiting = false, controlled = false;
-  let waitKey: string | undefined;
+  let waiting = !!run.waitKey, controlled = false;
+  let waitKey: string | undefined = run.waitKey;
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
+  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
+    if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
+    if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
+    try {
+      updateTask(ctx, task.id, t => {
+        if (t.run?.dir !== run.dir) return;
+        if (patch.waitKey === null) delete t.run.waitKey; else if (patch.waitKey !== undefined) t.run.waitKey = patch.waitKey;
+        if (patch.idleAlertedAt !== undefined) t.run.idleAlertedAt = patch.idleAlertedAt;
+      });
+    } catch { /* alert bookkeeping is best effort */ }
+  };
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
@@ -148,6 +159,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (needsInput) {
       if (!waiting) {
         waitKey = `needs-input-${task.id}-${crypto.randomUUID()}`;
+        remember({waitKey});
         try { await publish(ctx, [{type: "alert", data: {key: waitKey!, level: "warn", title: "Task needs input: attach to answer", body: cleanSummary(s.report!.summary).slice(0, 1000), at: Math.floor(now)}}]); } catch { /* best effort */ }
       }
       p.phase = "needs-input";
@@ -155,6 +167,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (waiting && !needsInput && waitKey) {
       try { await publish(ctx, [{type: "alert", data: {key: waitKey, level: "info", title: "Task input resumed", body: "The input wait has cleared", at: Math.floor(now)}}]); } catch { /* best effort */ }
       waitKey = undefined;
+      remember({waitKey: null});
     }
     waiting = !!needsInput;
     if (run.takeover) p.phase = "driving";
@@ -171,6 +184,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     }
     if (!conversation && p.phase === "idle" && !alerted) {
       alerted = true;
+      remember({idleAlertedAt: now});
       try {
         await publish(ctx, [{ type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
       } catch { /* alerts are best effort */ }
@@ -185,11 +199,20 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const host = run.host ? loadStrategy(ctx).hosts[run.host] : undefined;
   if (run.host && (!host || !run.remoteDir)) throw new Error(`remote run ${task.id} has no configured host or run directory`);
   const io = host ? new RemoteRunIO(ctx, host, run.remoteDir!, run.dir) : localRunIO(run.dir);
-  const end: SuperviseEnd = await supervise({
-    io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
-    interactionMode: run.interactionMode,
-    isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
-  });
+  const eligible = !run.takeover && advertiseHandover(ctx, task.id, run);
+  let end!: SuperviseEnd;
+  try {
+    end = await supervise({
+      io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
+      interactionMode: run.interactionMode,
+      isStopped: () => readTask(ctx, task.id)?.state === "stopped",
+      onPoll: async state => {
+        const next = onPoll ? await onPoll(state) : "continue";
+        if (eligible && next === "continue") commitHandoverIfRequested(ctx, task.id, run);
+        return next;
+      },
+    });
+  } finally { if (eligible) withdrawHandover(ctx, task.id); }
   if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
     const path = join(run.dir, "stdout");
     try {
@@ -365,7 +388,7 @@ const launchArgv = (run: RunRef) => { try { return readFileSync(join(run.dir, "a
 
 /** One executor attempt through the executor's own CLI, under the file-backed supervisor. */
 export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
-  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
+  return withAttemptWork(ctx, task.id, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
 }
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
@@ -469,7 +492,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     }
     if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;
     const interactive = cfg.session === "interactive";
-    const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+    const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
     if (!interactive && cfg.via !== "opencode") {
       if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
       if (agent === "cursor") {
@@ -543,7 +566,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
 
 /** Re-attach to an attempt whose pacer runner died (Task 6). */
 export async function resumeAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
-  return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => resumeAttemptAdmitted(ctx, cfg, task));
+  return withAttemptWork(ctx, task.id, () => resumeAttemptAdmitted(ctx, cfg, task));
 }
 async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord): Promise<AttemptOutcome> {
   if (!task.run) throw new Error(`task ${task.id} has no run to resume`);

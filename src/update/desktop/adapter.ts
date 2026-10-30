@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
+import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
 import type { Candidate, Installation } from "./types";
 
 export const MAX_FRAME_BYTES = 256 * 1024;
@@ -44,7 +45,7 @@ const candidate = z.object({
 }).strict();
 const absolutePath = z.string().min(1).max(4096).refine(value => value.startsWith("/") && !value.includes("\0"));
 const installation = z.object({
-  id: identifier, appPath: absolutePath, bundleId: z.literal("dev.pacer.desktop"), ownerUid: integer,
+  id: identifier, appPath: absolutePath, bundleId: z.literal(DESKTOP_IDENTIFIERS.desktop), ownerUid: integer,
   arch, pacerHome: absolutePath, port: z.number().int().min(1).max(65535), serviceLabel: z.string().min(1).max(128),
   ownership: z.enum(["managed", "attached"]), version,
 }).strict();
@@ -63,7 +64,7 @@ const commandSchema = z.discriminatedUnion("command", [
 const preparation = { reservationId: identifier, journalSha256: hash };
 const response = { ...binding, sequence: integer };
 const frameSchema = z.discriminatedUnion("kind", [
-  z.object({ ...response, kind: z.literal("hello"), version, bundleId: z.literal("dev.pacer.desktop"), arch }).strict(),
+  z.object({ ...response, kind: z.literal("hello"), version, bundleId: z.literal(DESKTOP_IDENTIFIERS.desktop), arch }).strict(),
   z.object({ ...response, kind: z.literal("progress"), downloadedBytes: integer, totalBytes: integer.nullable() }).strict(),
   z.object({ ...response, kind: z.literal("checked"), candidate: candidate.nullable() }).strict(),
   z.object({ ...response, kind: z.literal("downloaded"), candidate, downloadedBytes: integer, totalBytes: integer }).strict(),

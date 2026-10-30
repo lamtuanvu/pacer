@@ -54,3 +54,10 @@ test("Rust front door trust pins come only from explicit build options", async (
     .toMatchObject({ PACER_BUILD_APPLE_TEAM_ID: "", PACER_BUILD_SIGNING_CERT_SHA1: "B".repeat(40) });
   expect(() => frontDoorBuildEnvironment({ ...options, desktopTrust: { signingCertSha1: "bad" } })).toThrow();
 });
+
+test("release front-door builds never inherit the fixture identifier flag", async () => {
+  const { frontDoorBuildEnvironment } = await import("../scripts/release/build");
+  const options = { root: tmpDir(), target: TARGETS.find(target => target.os === "darwin")!, version: "1.2.3", outfile: "unused" };
+  expect(frontDoorBuildEnvironment(options, { PACER_BUILD_DESKTOP_FIXTURE: "1" }).PACER_BUILD_DESKTOP_FIXTURE).toBe("");
+  expect(frontDoorBuildEnvironment({ ...options, desktopTrust: { signingCertSha1: "B".repeat(40) } }, { PACER_BUILD_DESKTOP_FIXTURE: "1" }).PACER_BUILD_DESKTOP_FIXTURE).toBe("");
+});
