@@ -25,6 +25,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     const title=document.querySelector(".pc-trace h1")!,circle=document.querySelector(".pc-trace__circle")!;
     return {font:getComputedStyle(title).fontSize,weight:getComputedStyle(title).fontWeight,circle:circle.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth};
    });
+   expect(await page.locator('.pc-trace h1').innerText()).toBe('A very long root task title with enough words to verify that the trace heading wraps naturally within the viewport without hiding the review actions or pushing content outside the application canvas');
    expect(geometry).toEqual({font:"28px",weight:"650",circle:26,overflow:false});
    const design=await page.evaluate(()=>{
     const style=(selector:string)=>getComputedStyle(document.querySelector(selector)!);
@@ -98,3 +99,27 @@ browserTest('running task page does not poll task detail or session while idle',
   expect(calls.filter(op=>op==='task.session')).toHaveLength(1);
  } finally {await browser.close();}
 },30000);
+
+browserTest('task header keeps workspace access in every state and copy ID in the breadcrumb',async()=>{
+ const build=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',minify:true});
+ const source=await build.outputs[0]!.text();
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  for(const state of ['review','running','failed','accepted','stopped']) {
+   const page=await browser.newPage({viewport:{width:1440,height:900}});
+   await page.route('http://pacer.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+   await page.goto(`http://pacer.test/?scenario=${state}#/tasks/trace-root`);
+   await page.addScriptTag({content:source});
+   await page.locator('.pc-trace__header').waitFor();
+   const actions=page.locator('.pc-trace__actions');
+   expect(await actions.getByRole('link',{name:'Open workspace',exact:true}).getAttribute('href')).toBe('#/workspace?task=trace-root');
+   expect(await actions.getByRole('button',{name:'Copy task ID'}).count()).toBe(0);
+   expect(await page.getByRole('navigation',{name:'Breadcrumb'}).getByRole('button',{name:'Copy task ID'}).count()).toBe(1);
+   if(state==='running') {
+    await actions.getByRole('link',{name:'Take over',exact:true}).waitFor();
+    expect(await actions.locator('a,button').allTextContents()).toEqual(['Open workspace','Stop','Take over']);
+   }
+   await page.close();
+  }
+ }finally {await browser.close();}
+});

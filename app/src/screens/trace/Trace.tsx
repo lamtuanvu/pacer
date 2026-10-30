@@ -1,3 +1,4 @@
+import { useState } from "preact/hooks";
 import { NowCard, CostTiles, Acceptance } from "./Overview";
 import { TaskActions } from "./TaskActions";
 import type { TaskDetail } from "../../../../src/core/task-detail";
@@ -6,7 +7,7 @@ import { clock, durationWords } from "../../../../src/view-model/time";
 import { kindCopy } from "../../../../src/view-model/copy";
 import { agentSlot } from "../insights/model";
 import { taskPageStatus as taskStatus } from "../../../../src/view-model/words";
-import { ButtonLink, TextAction } from "../../ds/Button";
+import { ButtonLink, IconButton, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { EmptyState, Skeleton } from "../../ds/Patterns";
@@ -21,6 +22,7 @@ function Agent({agent,chip=false}:{agent:string;chip?:boolean}) {
 /** Recorded task facts only: planning attribution and missing historical decisions remain unknown. */
 export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const {state}=useTaskContext();
+  const [copied,setCopied]=useState(false);
   const task=useQuery<TaskDetail>("task.get",{id});
   const tree=useQuery<TraceTree>("dispatch.tree",{id});
   if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
@@ -51,9 +53,9 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const measuredTotal=tokenRows.reduce((sum,r)=>sum+r.total,0);
   let offset=0;
   return <div className="pc-trace">
-    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span title="Task ID is available from the task menu">{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span></nav>
+    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><IconButton icon="notes" size="xs" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/></nav>
     <header className="pc-trace__header">
-      <div className="pc-trace__identity"><h1>{t.title?.trim()||t.fullTitle?.trim()||t.goal}</h1>
+      <div className="pc-trace__identity"><h1>{t.fullTitle?.trim()||t.goal?.trim()||t.brief.goal}</h1>
         <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill>{status.label!=="Checks failed"&&<Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>}{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap pc-trace__mono">{t.repo.label} · {t.branch??"Not recorded"}</span><span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
       </div>
       <div className="pc-trace__actions">

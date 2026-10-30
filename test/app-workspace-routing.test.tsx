@@ -38,3 +38,22 @@ test('recorded verdicts do not keep presenting a result as ready for review',asy
   expect(html).not.toContain('Ready for your review');
  }
 });
+
+test('running now-card uses the recorded phase and omits unavailable identity details',async()=>{
+ const {renderToString}=await import('preact-render-to-string');
+ const {NowCard}=await import('../app/src/screens/trace/Overview');
+ const {TaskContext}=await import('../app/src/screens/task-shared');
+ const {initialState}=await import('../app/src/data/store');
+ const fixture=(await import('./fixtures/ui/task-get.json')).default;
+ for(const [phase,word] of [['working','editing'],['testing','testing'],['idle','waiting']]) {
+  const task={...fixture,state:'running',review:null,summary:'Unknown',executor:'codex#personal',progress:{phase,files:3},acceptance:{state:'pending'}} as unknown as import('../src/core/task-detail').TaskDetail;
+  const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as never}}><NowCard task={task} compact/></TaskContext.Provider>);
+  expect(html).toContain(`Codex is ${word} now`);
+  expect(html).toContain('Codex · personal · 3 files touched so far · runs acceptance when it finishes');
+  expect(html).not.toContain('Unknown');
+ }
+ const missing={...fixture,state:'running',review:null,executor:'unknown#unknown',attempts:[],cost:{executor:null},summary:'Unknown',acceptance:{state:'pending'}} as unknown as import('../src/core/task-detail').TaskDetail;
+ const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as never}}><NowCard task={missing} compact/></TaskContext.Provider>);
+ expect(html).toContain('The agent is editing now');
+ expect(html).not.toContain('Unknown');
+});

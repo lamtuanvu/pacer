@@ -1,6 +1,6 @@
 import {clock,durationWords} from '../../../../src/view-model/time';
 import type { TaskDetail } from '../../../../src/core/task-detail';
-import { taskStatus } from '../../../../src/view-model/words';
+import { agentInfo, markAgent } from '../../../../src/view-model/agents';
 import { ButtonLink } from '../../ds/Button';
 import { hrefFor, routes } from '../../router';
 import { TaskOutputPreview } from './TaskOutputPreview';
@@ -10,8 +10,13 @@ export function NowCard({task:t,compact=false}:{task:TaskDetail;compact?:boolean
  const failed=t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state);
  const active=['running','queued','needs_input'].includes(t.state);
  const tone=failed?'bad':t.state==='needs_input'?'warn':'info';
- const title=failed?'What failed':t.review?t.review.accepted?'Result accepted':'Result rejected':active?t.state==='needs_input'?'The agent needs your answer':t.state==='queued'?'Waiting to start':'The agent is working':'Ready for your review';
- const detail=t.review?t.review.accepted?'The accepted result and report are recorded on this task.':'The rejected result and review note are recorded on this task.':failed?t.acceptance.summary??'Inspect the failing check output before retrying.':active?t.summary??taskStatus(t).label:`${t.files.length} files changed · ${t.acceptance.state==='passed'?'Checks passed':'Checks not recorded'} · the planner summary is in Notes`;
+ const executor=t.executor||t.attempts.at(-1)?.executor;
+ const identity=executor?agentInfo(markAgent(executor)).name:null;
+ const agent=identity&&!/^unknown$/i.test(identity)?identity:'The agent';
+ const account=executor?.split('@')[0]?.split('#')[1]||t.cost.executor?.account;
+ const phase=t.state==='needs_input'?'waiting':t.progress?.phase==='testing'?'testing':['needs-input','idle','lost-contact','starting'].includes(t.progress?.phase??'')?'waiting':'editing';
+ const title=failed?'What failed':t.review?t.review.accepted?'Result accepted':'Result rejected':active?t.state==='needs_input'?`${agent} is waiting now`:t.state==='queued'?'Waiting to start':`${agent} is ${phase} now`:'Ready for your review';
+ const detail=t.review?t.review.accepted?'The accepted result and report are recorded on this task.':'The rejected result and review note are recorded on this task.':failed?t.acceptance.summary??'Inspect the failing check output before retrying.':active?[agent,account&&!/^unknown$/i.test(account)?account:null,`${t.progress?.files??t.files.length} files touched so far`,t.brief.acceptance?'runs acceptance when it finishes':null].filter(Boolean).join(' · '):`${t.files.length} files changed · ${t.acceptance.state==='passed'?'Checks passed':'Checks not recorded'} · the planner summary is in Notes`;
  const output=failed?t.acceptance.tail:'';
  return <section aria-label="Now" className={`pc-task-now pc-task-now--${tone}${compact?' pc-task-now--compact':''}`}><div className="pc-task-now__body"><span className="pc-trace__circle" aria-hidden="true">{failed?'✕':'◐'}</span><div><h2>{title}</h2><span className="pc-trace__cap pc-trace__detail">{detail}</span></div>{!compact&&<ButtonLink href={hrefFor(routes.workspace(t.id,failed?'changes':active?'session':'changes'))}>{failed?'Inspect in the workspace':active?'Follow in the workspace':'Review changes in the workspace'}</ButtonLink>}</div>{!compact&&(output?<pre tabIndex={0} aria-label="Failed check output" className="pc-task-now__output pc-trace__mono">{output}</pre>:active&&!failed?<TaskOutputPreview key={t.id} task={t}/>:null)}</section>;
 }
