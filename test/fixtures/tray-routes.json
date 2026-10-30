@@ -15,7 +15,12 @@
     "/settings/updates",
     "/settings/hosts/workstation",
     "/tasks/new",
-    "/needs-you?answer=t-20261029-153500-a0f9"
+    "/needs-you?answer=t-20261029-153500-a0f9",
+    "/workspace",
+    "/workspace?task=task-1",
+    "/workspace?task=task-1&panel=session",
+    "/workspace?task=task-1&panel=changes",
+    "/workspace?task=task-1&panel=notes"
   ],
   "rejected": [
     "/?new=task",
@@ -51,6 +56,11 @@
     "/needs-you?answer=t-20261029-153500-a0f9/",
     "/needs-you?answer=t-20261029-153500-a0f9%00",
     "/tasks?answer=t-20261029-153500-a0f9",
-    "pacer://needs-you?answer=t-20261029-153500-a0f9"
+    "pacer://needs-you?answer=t-20261029-153500-a0f9",
+    "/workspace?task=../x",
+    "/workspace?task=one&task=two",
+    "/workspace?panel=session",
+    "/workspace?task=one&panel=unknown",
+    "/workspace?task=one&x=1"
   ]
 }

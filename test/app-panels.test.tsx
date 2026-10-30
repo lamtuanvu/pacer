@@ -40,7 +40,7 @@ test("panel_toggle_has_aria_expanded_and_controls", () => {
   expect(closed).toMatch(/aria-label="Show Details"[^>]*aria-expanded="false"/);
   expect(closed).not.toContain("aria-controls");
   // The toggle reports the next state.
-  const button = (open!.props.children as any[])[0].props.children;
+  const button = (open!.props.children as any[]).find(child => child?.props?.className === "pc-side-panel__bar").props.children;
   button.props.onClick();
   expect(changes).toEqual([false]);
 });

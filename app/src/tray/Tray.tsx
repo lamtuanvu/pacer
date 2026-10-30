@@ -209,15 +209,16 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const task = snapshot?.tasks.find(t => t.id === item.taskId);
           const status = attentionStatus(item, snapshot.tasks);
           const detail = item.detail?.trim();
+          const taskTitle=<strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong>;
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
             leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
-            content={<><strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong><span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
+            content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
             actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
       {model.active.length > 0 ? <section className="tray-section tray-running-section" aria-label="Running"><div className="tray-section-heading"><SectionHeading>Running</SectionHeading><TextAction href={appHref("/sessions")} onClick={navigate("/sessions")}>All {snapshot.counts?.running ?? model.active.length} in Tasks</TextAction></div>
-        {model.active.slice(0, 2).map(task => <ListRowLink key={task.id} className="tray-running" href={appHref(`/sessions/${encodeURIComponent(task.id)}`)} onClick={navigate(`/sessions/${encodeURIComponent(task.id)}`)}>
+        {model.active.slice(0, 2).map(task => <ListRowLink key={task.id} className="tray-running" href={appHref(`/tasks/${encodeURIComponent(task.id)}`)} onClick={navigate(`/tasks/${encodeURIComponent(task.id)}`)}>
           <AgentMark agent={runnerAgent(task.executor ?? "unknown")} size={20} labelled={false} /><span className="tray-grow"><strong className="tray-ellipsis" title={shortTitle(task)}>{shortTitle(task)}</strong><span className="tray-running-caption"><span className="tray-phase">{taskStatus(task).label}</span><span className="tray-ellipsis">{[durationWords(snapshot!.at - (task.attemptStartedAt ?? task.updatedAt)), task.repo?.label].filter(Boolean).map(part => `\u00a0· ${part}`).join("")}</span></span></span><span className="tray-chevron"><Icon name="chevron-right" /></span>
         </ListRowLink>)}
         {waitingRow}

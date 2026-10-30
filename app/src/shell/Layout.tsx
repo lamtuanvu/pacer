@@ -99,7 +99,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, true);
   const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, true);
   const newTaskPanels = !narrow && wide && route.name === "new-task";
-  const taskPanels = !narrow && wide && route.name === "sessions" && route.view !== "trace" && !!route.id && !!context && !state.sessionEnded;
+  const taskPanels = !narrow && wide && route.name === "terminal" && !!context && !state.sessionEnded;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.
   const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
   const [tasksOpen, setTasksOpen] = usePanelState("tasks", roomy);
@@ -172,8 +172,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" bar={false} open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
-  const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
-  const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
+  const tasks = taskPanels && <SidePanel side="left" label="Workspace" resize={{key:"pacer.workspace.left-width",initial:272,min:200,max:480}} wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
+  const details = taskPanels && <SidePanel side="right" label="Task" resize={{key:"pacer.workspace.right-width",initial:320,min:260,max:560}} open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}

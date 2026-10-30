@@ -6,7 +6,7 @@ export function Icon({ name }: { name: IconName }) {
     "settings-release": "M9 11l3 3 8-8M20 12v7H4V5h11",
     "activity-dispatch": "M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10",
     "activity-insights": "M4 20V10M10 20V4M16 20v-7M22 20H2",
-    "activity-terminal": "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4",
+    "activity-terminal": "M3 4h18v16H3zM9 4v16M9 12h12",
     "command-nav": "M5 12h14M13 6l6 6-6 6",
     "command-terminal": "M3 4h18v16H3zM7 9l3 3-3 3M13 15h4",
     "command-pause": "M8 5v14M16 5v14",

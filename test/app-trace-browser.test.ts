@@ -16,7 +16,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
    await page.addScriptTag({content:source});
    await page.locator(".pc-trace__subtask").waitFor();
    expect(await page.getByRole("heading",{name:"Dispatch trace",exact:true}).count()).toBe(1);
-   expect(await page.getByRole("link",{name:"Accept result"}).getAttribute("href")).toBe("#/tasks/trace-root/review");
+   expect(await page.getByRole("button",{name:"Accept result"}).count()).toBe(1);
    expect(await page.locator(".pc-trace__cost>div").count()).toBe(4);
    expect(await page.locator(".pc-trace__candidate").count()).toBe(2);
    expect(await page.locator(".pc-trace__candidate-head").innerText()).toContain("capable with spare capacity");
@@ -46,8 +46,8 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
    for (const [selector,background,foreground] of [[".pc-trace__circle--done","--good-bg","--good-fg"],[".pc-trace__circle--current","--info-bg","--info-fg"],[".pc-trace__acceptance-result .pc-trace__state",null,"--good-fg"]] as const) {
     expect(await page.locator(selector).first().evaluate((el,{background,foreground})=>{const probe=document.createElement("span");probe.style.color=`var(${foreground})`;if(background)probe.style.backgroundColor=`var(${background})`;el.append(probe);const actual=getComputedStyle(el),expected=getComputedStyle(probe);const match=actual.color===expected.color && (!background || actual.backgroundColor===expected.backgroundColor);probe.remove();return match;},{background,foreground})).toBe(true);
    }
-   await page.getByRole("link",{name:"Accept result"}).focus();
-   expect(await page.evaluate(()=>document.activeElement?.matches("a.pc-btn--primary"))).toBe(true);
+   await page.getByRole("button",{name:"Accept result"}).focus();
+   expect(await page.evaluate(()=>document.activeElement?.matches("button.pc-btn--primary"))).toBe(true);
    await page.close();
   }
   for(const scenario of ["running","error","tree-error","null-proposal","routing-only","no-candidates","root-only"]){
@@ -70,7 +70,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     expect(await page.locator(".pc-trace__card").first().innerText()).toContain("Planning and review tokens: Not recorded");
    }
    else if(scenario==="null-proposal"){await page.locator(".pc-trace__steps").waitFor();expect(await page.locator(".pc-trace__steps").innerText()).toContain("Dispatch decision recorded");expect(await page.locator(".pc-trace__candidates").innerText()).toContain("No alternatives were recorded for this step.");expect(await page.locator(".pc-trace__candidates").innerText()).not.toContain("capable with spare capacity");}
-   else if(scenario==="running"){await page.locator(".pc-trace").waitFor();expect(await page.getByRole("link",{name:"Accept result"}).count()).toBe(0);}
+   else if(scenario==="running"){await page.locator(".pc-trace").waitFor();expect(await page.getByRole("button",{name:"Accept result"}).count()).toBe(0);}
    else{await page.getByRole("alert").waitFor();expect(await page.getByRole("alert").innerText()).toContain(scenario==="error"?"Task read failed":"Trace read failed");}
    await page.close();
   }

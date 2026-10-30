@@ -5,10 +5,10 @@ import type { TaskDetail } from "../src/core/task-detail";
 const task = (extra = {}) => ({ id:"task-1", rev:3, state:"failed", attempts:[], acceptance:{cmd:"bun run typecheck && bun test",state:"failed",tail:"test failed",durationS:12}, ...extra }) as unknown as TaskDetail;
 describe("failure and review routes", () => {
   test("round trip and navigation", () => {
-    for (const [target, name] of [[routes.failure("a b"),"task-failure"],[routes.reviewTask("a b"),"task-review"]] as const) {
+    for (const [target, name] of [[routes.failure("a b"),"sessions"],[routes.reviewTask("a b"),"sessions"]] as const) {
       const route = resolveRoute(hrefFor(target));
       expect(route).toMatchObject({ name, id:"a b" });
-      if (!("redirect" in route)) { expect(primaryFor(route)).toBe("review"); expect(pageOwnsTitle(route)).toBe(true); }
+      if (!("redirect" in route)) { expect(primaryFor(route)).toBe("sessions"); expect(pageOwnsTitle(route)).toBe(true); }
     }
     expect(resolveRoute("#/tasks/x/review/invalid")).toMatchObject({name:"dispatch"});
   });

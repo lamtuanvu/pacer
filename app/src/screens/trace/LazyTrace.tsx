@@ -13,5 +13,5 @@ export function LazyTrace(props: Props) {
     void import("./Trace").then(m=>{if(active)setView(()=>m.Trace);}).catch(()=>{if(active)setError(true);});
     return ()=>{active=false;};
   },[attempt]);
-  return View ? <View {...props}/> : error ? <div role="alert">Could not load dispatch trace. <Button onClick={()=>retry(n=>n+1)}>Try again</Button></div> : <LoadingState label="Loading dispatch trace…"/>;
+  return View ? <View {...props}/> : error ? <div role="alert">Could not load task. <Button onClick={()=>retry(n=>n+1)}>Try again</Button></div> : <LoadingState label="Loading task…"/>;
 }

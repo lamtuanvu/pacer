@@ -272,3 +272,10 @@ test("assistant header clearance is a scoped measured geometry channel", () => {
     expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
   }
 });
+
+test('panel resize geometry allows only its bounded width channel, not neighboring styles',()=>{
+ const path='app/src/ds/SidePanel.tsx';
+ expect(checkUiSource(path,'panelElement.current.style.setProperty("--pc-panel-width",String(width));')).toEqual([]);
+ for(const source of ['panelElement.current.style.setProperty("--other-width",String(width));','panelElement.current.style.width = `${width}px`;','panelElement.current.style.setProperty("--pc-panel-width", "272px");'])expect(checkUiSource(path,source)).not.toEqual([]);
+ expect(checkUiSource('app/src/screens/Other.tsx','panelElement.current.style.setProperty("--pc-panel-width",String(width));')).not.toEqual([]);
+});

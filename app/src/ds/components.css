@@ -1091,3 +1091,10 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-command__panel{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 
 .pc-selection-strip.pc-tabs .pc-btn[aria-selected=true],.pc-selection-strip.pc-tabs .pc-btn[aria-current=page]{color:var(--ink)}
+/* Workspace panel geometry; the shared frame owns dragging and keyboard resizing. */
+.pc-side-panel:has(>.pc-panel-resize){position:relative}
+.pc-panel-resize.pc-btn{position:absolute;top:0;bottom:0;width:var(--size-6);height:100%;padding:0;min-height:0;border:0;border-radius:0;cursor:ew-resize;z-index:var(--layer-sticky);background:transparent;touch-action:none}
+.pc-panel-resize--left{right:calc(var(--size-6) * -.5)}.pc-panel-resize--right{left:calc(var(--size-6) * -.5)}
+.pc-panel-resize.pc-btn:hover,.pc-panel-resize.pc-btn:focus-visible{background:var(--focus)}
+.pc-side-panel:has(>.pc-panel-resize){width:calc(var(--size-1) * var(--pc-panel-width));flex-basis:calc(var(--size-1) * var(--pc-panel-width))}
+.pc-side-panel:has(>.pc-panel-resize){z-index:var(--layer-sticky)}

@@ -289,7 +289,7 @@ export function StartWork() {
         params,
       );
       clearDraft();
-      location.hash = `#/tasks/${encodeURIComponent(result.task_id)}?control=start`;
+      location.hash = `#/workspace?task=${encodeURIComponent(result.task_id)}&panel=session&takeover=1`;
     } catch (e) {
       setError(e);
     } finally {

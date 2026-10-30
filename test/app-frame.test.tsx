@@ -75,7 +75,7 @@ test("dock_not_rendered_on_terminal_route", () => {
   try {
     // Saved open: other routes mount the dock, the terminal route never does and offers no dock control.
     expect(withService("#/")).toContain('<div class="pc-dock"><fieldset class="pc-offline-controls"><section id="pc-terminal-dock"');
-    const terminal = withService("#/terminal");
+    const terminal = withService("#/workspace");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
     expect(terminal).toContain('aria-label="Toggle terminal panel (Ctrl+`)"');
@@ -107,11 +107,11 @@ test("the planner chip carries the mode pill with a tone from the mode", () => {
 });
 
 
-test("only session detail routes retain the shell page heading", () => {
+test("task pages own their heading and Workspace owns its panel context", () => {
   for (const hash of ["#/tasks", "#/tasks/new"]) {
     expect(withService(hash)).not.toMatch(/<h1\b/);
   }
   for (const hash of ["#/tasks/task-1"]) {
-    expect(withService(hash)).toMatch(/<h1\b/);
+    expect(withService(hash)).not.toMatch(/<h1\b/);
   }
 });
