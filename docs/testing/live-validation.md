@@ -63,7 +63,7 @@ Handed helpers may hold durable recovery authorization and must survive control 
 
 For `serve --port 0`, original argv retains literal zero while evidence records the actual nonzero bound port. Registration and native listener checks use the actual port and exact recorded launch identity. Do not rewrite evidence argv or bypass public guards.
 
-For unseeded sandboxes, `HOME` stays unchanged so installed executors keep their authentication and usage readers see actual usage. The harness never reads or copies native tool credentials. `PACER_HOME`, `PACER_PORT`, `PACER_BIN`, `PACER_BACKEND=direct`, `PACER_NO_UPDATE_CHECK=1` and `PACER_ORCA_USER_DATA` select sandbox state. A minimal sandbox strategy initially routes to Codex; edit only the sandbox's `home/strategy.yaml` when testing other installed executors.
+For unseeded sandboxes, `HOME` stays unchanged so installed executors keep their authentication and usage readers see actual usage. The harness never reads or copies native tool credentials. `PACER_HOME`, `PACER_PORT`, `PACER_BIN`, `PACER_BACKEND=direct`, `PACER_NO_UPDATE_CHECK=1` and `PACER_ORCA_USER_DATA` select sandbox state. The sandbox drops every other inherited `PACER_*` value, so an outer pacer session's role, task ID, work grant and tokens never reach it. Only display and diagnostic settings pass through: `PACER_THEME`, `PACER_COLOR`, `PACER_ASCII`, `PACER_PLAIN`, `PACER_NO_ANIM`, `PACER_LOGIN_ENV` and `PACER_TRACE_STATUS`. `PACER` itself (for example `PACER=off`) is kept. A minimal sandbox strategy initially routes to Codex; edit only the sandbox's `home/strategy.yaml` when testing other installed executors.
 
 **Never run live work against the user's checkout or real `~/.pacer`.** Use the disposable `repo/` for delegations. Never copy the user's pacer strategy, account homes or credentials into evidence. Real executors spend real subscription or paid budget. The harness does not start an executor until you request a delegation.
 
@@ -183,7 +183,7 @@ The session is named `pacer-live-my-change`, sized 120 by 40, with the sandbox e
 
 ### Real delegation
 
-Run this from a planner session: executor-role sessions must not delegate onward. Pick an installed executor and use a small task appropriate to the change. All repository paths in briefs and `--repo` must refer to the disposable `repo/`, never the checkout being reviewed.
+Run this from a planner session: executor-role sessions must not delegate onward. When the outer environment has `PACER_ROLE=executor` or `PACER_TASK_ID`, the guard exits **3** for `delegate`, `retry`, `review --send-back|--retry-on`, `dispatch submit|child|retry`, and `api call` of `task.delegate`, `task.retry`, `task.retry_all`, `dispatch.submit`, `dispatch.child`, `dispatch.retry` or a `task.review` without an inline accept or reject verdict. The role is checked outside the sandbox and is not passed into it. The guard covers `live pacer` and the guarded `pacer` on `PATH`; it does not cover delegation started from the dashboard or app through the D8 proxy. Pick an installed executor and use a small task appropriate to the change. All repository paths in briefs and `--repo` must refer to the disposable `repo/`, never the checkout being reviewed.
 
 ```sh
 bun run live pacer --id my-change -- delegate \

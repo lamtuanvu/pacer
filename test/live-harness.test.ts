@@ -15,7 +15,7 @@ import { taskStatus, taskStop } from "../src/tasks/api";
 import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
 import { computeStatus } from "../src/engine/status";
-import { refusal } from "../scripts/live/guard";
+import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
@@ -42,9 +42,40 @@ describe("live guard (D3)", () => {
   });
 });
 
+describe("live guard: executor sessions do not delegate onward", () => {
+  const delegation = [
+    ["delegate", "--goal", "x", "--executor", "codex", "--wait"], ["retry", "t-1"], ["review", "t-1", "--send-back", "--note", "n"], ["review", "t-1", "--retry-on", "codex"],
+    ["dispatch", "submit", "--goal", "x", "--repo", "."], ["dispatch", "child", "--goal", "x"], ["dispatch", "retry", "w-1"],
+    ["api", "call", "task.delegate", "--params-file", "-"], ["api", "call", "--params", "{}", "dispatch.submit"], ["api", "call", "task.retry_all"], ["api", "call", "dispatch.child"],
+    ["api", "call", "task.review", "--params", '{"id":"t-1","verdict":"send_back","note":"n"}'], ["api", "call", "task.review", "--params-file", "-"],
+  ];
+  const allowed = [["status", "--json"], ["review", "t-1", "--accept"], ["wait", "t-1"], ["dispatch", "tree", "w-1"], ["api", "call", "task.list"], ["api", "call", "task.review", "--params", '{"id":"t-1","verdict":"accept"}']];
+  for (const outer of [{ PACER_ROLE: "executor" }, { PACER_TASK_ID: "t-outer" }]) {
+    for (const args of delegation) test(`refuses ${args.join(" ")} with ${Object.keys(outer)[0]}`, () => expect(executorRefusal(args, outer)).toContain("cannot delegate onward"));
+    for (const args of allowed) test(`allows ${args.join(" ")} with ${Object.keys(outer)[0]}`, () => expect(executorRefusal(args, outer)).toBeUndefined());
+  }
+  test("planner sessions may delegate", () => {
+    for (const args of delegation) expect(executorRefusal(args, { PACER_ROLE: "planner" })).toBeUndefined();
+    expect(executorRefusal(["delegate"], {})).toBeUndefined();
+  });
+  test("live pacer refuses before dispatch without passing the role into the sandbox", async () => {
+    const session = fixture();
+    expect(sandboxEnv(session, { PACER_ROLE: "executor", PACER_TASK_ID: "t-outer" }).PACER_ROLE).toBeUndefined();
+    expect(await main(["pacer", "--id", "missing-session", "--", "delegate", "--goal", "x"], { PACER_ROLE: "executor" })).toBe(3);
+  });
+  test("executable guard refuses delegation from an executor shell", () => {
+    const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "delegate", "--goal", "x"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PACER_ROLE: "executor" } });
+    expect(child.exitCode).toBe(3);
+    expect(child.stderr.toString()).toContain("cannot delegate onward");
+  });
+});
+
 test("sandbox environment keeps HOME and auth references but overrides pacer state", () => {
   const session = fixture();
-  const env = sandboxEnv(session, { HOME: "/real-home", PATH: "/tool-bin", PACER_HOME: "/wrong", PACER_PORT: "4317", PACER_BIN: "/installed-pacer", PACER_BACKEND: "orca", PACER_ROLE: "executor", PACER_TASK_ID: "t-outer", PACER_WORK_GRANT: "grant", PACER_REPORT_TOKEN: "token" });
+  const leaked = ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_REPORT_TOKEN", "PACER_CORE_ARGV", "PACER_INTERNAL_TOKEN", "PACER_AUTH_TOKEN", "PACER_ENFORCEMENT_TOKEN"];
+  const inherited = { HOME: "/real-home", PATH: "/tool-bin", PACER: "off", PACER_HOME: "/wrong", PACER_PORT: "4317", PACER_BIN: "/installed-pacer", PACER_BACKEND: "orca", PACER_ROLE: "executor", PACER_TASK_ID: "t-outer", PACER_WORK_GRANT: "grant", PACER_REPORT_TOKEN: "token", PACER_CORE_ARGV: "[\"/outer-core\"]", PACER_INTERNAL_TOKEN: "internal", PACER_AUTH_TOKEN: "auth", PACER_ENFORCEMENT_TOKEN: "enforcement",
+    PACER_THEME: "light", PACER_COLOR: "16", PACER_ASCII: "1", PACER_PLAIN: "1", PACER_NO_ANIM: "1", PACER_LOGIN_ENV: "off", PACER_TRACE_STATUS: "1" };
+  const env = sandboxEnv(session, inherited);
   expect(env.HOME).toBe("/real-home");
   expect(env.PATH).toBe(`${session.root}/bin:/tool-bin`);
   expect(env.PACER_HOME).toBe(join(session.root, "home"));
@@ -53,7 +84,12 @@ test("sandbox environment keeps HOME and auth references but overrides pacer sta
   expect(env.PACER_NO_UPDATE_CHECK).toBe("1");
   expect(env.PACER_BACKEND).toBe("direct");
   // An outer executor session must not leak its identity or tokens into the sandbox.
-  for (const key of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_REPORT_TOKEN"]) expect(env[key]).toBeUndefined();
+  for (const key of leaked) expect(env[key]).toBeUndefined();
+  // Display and diagnostic settings pass through; PACER (policy, not identity) is kept.
+  for (const key of ["PACER_THEME", "PACER_COLOR", "PACER_ASCII", "PACER_PLAIN", "PACER_NO_ANIM", "PACER_LOGIN_ENV", "PACER_TRACE_STATUS"]) expect(env[key]).toBe(inherited[key as keyof typeof inherited]);
+  expect(env.PACER).toBe("off");
+  // The rust front door sets its own core argv rather than the outer session's.
+  expect(JSON.parse(sandboxEnv({ ...session, frontDoor: "rust" }, inherited).PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "..", "src", "cli.ts")]);
   expect(env.PACER_ORCA_USER_DATA).toBe(join(session.root, "orca-profile"));
   expect(environmentScript(session)).not.toContain("export HOME=");
   expect(env.PACER_CORE_ARGV).toBeUndefined();
