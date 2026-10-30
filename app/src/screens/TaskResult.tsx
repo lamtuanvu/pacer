@@ -91,11 +91,11 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
     inFlight.current = true;setPending(true);setRefused("");
     requestId.current ||= crypto.randomUUID();
     try {
-      const result = await api.call<{ delivery?: string }>("msg.send", answerParams(task.id, question.id, answer, requestId.current));
+      const result = await api.call<{ delivery?: string; hold?: { reason?: string } }>("msg.send", answerParams(task.id, question.id, answer, requestId.current));
       // A held or undelivered answer leaves the question unread, so it stays here to answer or confirm.
       if (answerDelivered(result?.delivery)) await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
       requestId.current = "";setAnswer("");
-      onSent(answerDeliveryWords(result?.delivery));
+      onSent(answerDeliveryWords(result?.delivery, result?.hold));
       // The service publishes the cleared question too; refetching keeps this session right if that event is late.
       void runner?.refetch();
     } catch (error) {

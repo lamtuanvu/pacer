@@ -54,7 +54,7 @@ test("a mid-turn message or question to the parent does not swallow the turn's r
   await sendMessage(exec, { to: PARENT, body: "progress: halfway" });
   await sendMessage(exec, { to: PARENT, body: "which flavor?", kind: "question" });
   endRun(ctx, id, "done", "X is done");
-  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  await onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
   expect(reportsTo(ctx, PARENT, id).sort()).toEqual(["[done] X is done", "progress: halfway", "which flavor?"]);
 });
 
@@ -65,7 +65,7 @@ test("a report the agent already sent to its parent during the turn suppresses t
   claimTurnMessages(ctx, readTask(ctx, id)!);
   await sendMessage({ ...ctx, now: ctx.now + 1, env: { PACER_ROLE: "executor", PACER_TASK_ID: id } }, { to: PARENT, body: "X done, details", kind: "report" });
   endRun(ctx, id, "done", "X is done");
-  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  await onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
   expect(reportsTo(ctx, PARENT, id)).toEqual(["X done, details"]);
 });
 
@@ -96,7 +96,7 @@ test("a turn's report also reaches a sender that is not the parent", async () =>
   await sendMessage(ctx, { to: `task:${id}`, body: "from the human" }, human);
   claimTurnMessages(ctx, readTask(ctx, id)!);
   endRun(ctx, id, "done", "answered");
-  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  await onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
   expect(reportsTo(ctx, PARENT, id)).toEqual(["[done] answered"]);
   expect(reportsTo(ctx, "human", id)).toEqual(["[done] answered"]);
 });
@@ -109,7 +109,7 @@ test("a legacy task with no origin still replies to the sender of its turn", asy
   await sendMessage(ctx, { to: `task:${id}`, body: "from the human" }, { appAuthenticated: true, spawnRunner: spawn });
   claimTurnMessages(ctx, readTask(ctx, id)!);
   endRun(ctx, id, "done", "answered");
-  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  await onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
   expect(reportsTo(ctx, "human", id)).toEqual(["[done] answered"]);
 });
 
@@ -121,7 +121,7 @@ test("turn ids are unique even when a run ends before any attempt", async () => 
   const first = readTask(ctx, id)!.pendingTurn!.id;
   // The runner fails before runAttempt: no attempt is appended and nothing is claimed.
   updateTask(ctx, id, t => { t.state = "failed"; t.result = { status: "failed", executor: "codex", model: null, files: "", report: "boom", backend: "direct" }; });
-  onRunEnded(ctx, id, spawn);
+  await onRunEnded(ctx, id, spawn);
   await sendMessage(ctx, { to: `task:${id}`, body: "two" }, { spawnRunner: spawn });
   const second = readTask(ctx, id)!.pendingTurn!.id;
   expect(second).not.toBe(first);
@@ -132,7 +132,7 @@ test("turn ids are unique even when a run ends before any attempt", async () => 
   updateTask(ctx, id, t => { t.state = "running"; });
   endRun(ctx, id, "done", "did one and two");
   const before = spawned.length;
-  onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
+  await onRunEnded({ ...ctx, now: ctx.now + 10 }, id, spawn);
   expect(spawned.length).toBe(before + 1);
   expect(readTask(ctx, id)!.pendingTurn?.id).not.toBe(second);
 });
@@ -151,7 +151,7 @@ test("a resumed turn rejected with a nonzero exit replays even when the task set
   claimTurnMessages(ctx, readTask(ctx, id)!);
   const raw = '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"errors":["No conversation found with session ID: sid-1"]}';
   endRun(ctx, id, "partial", raw, 1);
-  onRunEnded(ctx, id, spawn);
+  await onRunEnded(ctx, id, spawn);
   expect(spawned.length).toBe(2);
   expect(readTask(ctx, id)!.pendingTurn?.replay).toBe(true);
   expect(store.pendingFor(ctx, `task:${id}`).map(m => m.body)).toEqual(["do Z"]);
@@ -164,7 +164,7 @@ test("a rejected resume that cannot replay reports a readable error, not raw JSO
   await sendMessage(ctx, { to: `task:${id}`, body: "do Z" }, { spawnRunner: spawn });
   claimTurnMessages(ctx, readTask(ctx, id)!);
   endRun(ctx, id, "failed", '{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["No conversation found with session ID: sid-1"]}', 1);
-  onRunEnded(ctx, id, spawn);
+  await onRunEnded(ctx, id, spawn);
   const [body] = reportsTo(ctx, PARENT, id);
   expect(body).toContain("No conversation found with session ID: sid-1");
   expect(body).not.toContain('"type":"result"');

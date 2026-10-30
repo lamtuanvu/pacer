@@ -11,7 +11,7 @@ Delegation is a one-shot handoff. Follow-ups (send-back, answer, retry) start a 
 1. Messaging is agent to agent. Participants are `human`, `external:<key>` (agents pacer did not launch) and `task:<id>` (agents pacer launched). How a message is delivered depends on the participant's kind, not on its position in the tree.
 2. Routing, rates, caps, liveness and hook strength are configurable guardrails. They are evaluated in the service on every send. The default guardrail is: top-level sessions may message their direct children and other top-level sessions; children may message their parent and, with a work grant, their siblings and their own children; anyone may message the human; the human may message anyone.
 3. Three protocol invariants cannot be configured: the sender identity is derived from the credential, grant or role env; sends are idempotent by `(sender, request_id)`; message bodies reach agents only as argument-vector or stdin data (SEC-5).
-4. A message to an agent pacer launched runs a new turn through the existing runner, so admission, budget, slots and token accounting apply. The turn resumes the stored native session in the same worktree.
+4. A message to an agent pacer launched runs a new turn through the existing runner, so admission, budget, slots and token accounting apply. Every continuation turn (message, answer, send-back) first passes fresh project policy admission, as a new attempt does ([ADR 0015](0015-policy-admission-and-task-mutation-locks.md)). The turn resumes the stored native session in the same worktree while policy admits that executor.
 5. Refusals reuse the existing error codes and carry `data.reason`. No new `CoreErrorCode` is added.
 
 ## Identity sources and accepted exceptions

@@ -5,13 +5,15 @@ import { callerParticipant, rootOf, taskOf } from "./participants";
 import { checkSend } from "./policy";
 import { readTask, updateTask } from "../tasks/store";
 import * as store from "./store";
-import { assertOpen, deliver, notifyMessage, readMessages, type Delivery } from "./turns";
+import { assertOpen, deliver, notifyMessage, readMessages, type Delivery, type TurnHold } from "./turns";
 import { participantSchema, type Message, type MsgKind } from "./types";
 
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
 export interface SendDeps { appAuthenticated?: boolean; participant?: string; spawnRunner?: SpawnRunner }
 
-export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {}): Promise<{ message: Message; duplicate: boolean; delivery: Delivery }> {
+export interface SendResult { message: Message; duplicate: boolean; delivery: Delivery; hold?: TurnHold }
+
+export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {}): Promise<SendResult> {
   if (!participantSchema.safeParse(input.to).success) throw new CoreError("invalid_input", `Invalid participant ${input.to}`);
   const kind = input.kind ?? "message";
   if (kind === "nudge") throw new CoreError("not_allowed", "Only the broker sends nudges", undefined, { reason: "msg_forbidden", layer: "protocol" });
@@ -31,10 +33,11 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   void notifyMessage(ctx, r.message);
   const undo = kind === "answer" && !verdict.hold ? recordAnswer(ctx, caller.id, input.to, input.replyTo!, body) : undefined;
-  const delivery = verdict.hold ? "held" : deliver(ctx, input.to, deps.spawnRunner);
+  // A turn the guardrail allowed still passes project policy; a policy hold says why (ADR 0015).
+  const { delivery, hold } = verdict.hold ? { delivery: "held" as const, hold: undefined } : await deliver(ctx, input.to, deps.spawnRunner);
   // As pacer answer does: an answer that reaches no turn leaves the question open for the legacy retry.
   if (undo && delivery !== "turn_started" && delivery !== "queued") undo();
-  return { ...r, delivery };
+  return { ...r, delivery, ...(hold ? { hold } : {}) };
 }
 
 /**
@@ -52,13 +55,16 @@ function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, bod
   return () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } });
 }
 
-function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null }, fingerprint: string, deps: SendDeps): { message: Message; duplicate: boolean; delivery: Delivery } {
+async function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null }, fingerprint: string, deps: SendDeps): Promise<SendResult> {
   if (prior.fingerprint !== null && prior.fingerprint !== fingerprint) {
     throw new CoreError("conflict", "That request id was already used for a different message", undefined, { reason: "msg_request_mismatch" });
   }
   const { fingerprint: _, ...message } = prior;
   if (message.status === "held") return { message, duplicate: true, delivery: "held" };
   // The first delivery never started a turn: try again.
-  if (message.status === "pending") return { message, duplicate: true, delivery: deliver(ctx, message.to, deps.spawnRunner) };
+  if (message.status === "pending") {
+    const { delivery, hold } = await deliver(ctx, message.to, deps.spawnRunner);
+    return { message, duplicate: true, delivery, ...(hold ? { hold } : {}) };
+  }
   return { message, duplicate: true, delivery: "queued" };
 }

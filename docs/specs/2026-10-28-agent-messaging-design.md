@@ -157,7 +157,7 @@ interface DeliveryDriver {
 
 When a recipient is not `working`, the broker batches all its undelivered messages into one turn:
 
-1. Admission: route, budget, slot and tree-cap checks, the same as an attempt. A refused admission leaves the messages queued and records why.
+1. Admission: project policy (the delegate decision, then the route decision over the executors that can run the turn), then route, budget, slot and tree-cap checks, the same as an attempt. The prior executor resumes while policy still admits it; if policy excludes it, the first admitted executor replays the thread in a fresh session. A veto or no admitted executor holds the turn: the messages stay pending, the sender gets `delivery: "held"` with `hold { reason, plugin? }`, and each sender gets a `[held]` report naming the reason, which is unread for the human and raises the task's message attention. The next delivery admits again. `task.answer` and the `send_back` verdict instead fall back to their retry, which policy admits or refuses as a new delegation.
 2. Launch the native resume in the node's worktree, with only the new messages as the prompt, passed as an argument vector (SEC-5):
    - codex: `codex exec resume <sid> -` (prompt on stdin)
    - claude-code: `claude -p --resume <sid> --output-format stream-json …`

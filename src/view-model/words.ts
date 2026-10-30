@@ -200,5 +200,7 @@ const answerDeliveries: Record<string, string> = {
   live_unavailable: "Answer saved, but the task can't continue from here yet.",
   no_session: "Answer saved, but the task has no session to continue.",
 };
-export const answerDeliveryWords = (delivery: unknown): string =>
-  typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";
+export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown }): string =>
+  // Project policy held the task's next turn: say why; the answer waits with the question still open.
+  delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
+    : typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";

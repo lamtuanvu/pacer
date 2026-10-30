@@ -99,8 +99,8 @@ test("a run that never claimed its turn does not restart and reports the undeliv
   endRun(ctx, id, "failed", "duplicate brief");
   // The run end is processed after the attempt ended.
   const later = { ...ctx, now: ctx.now + 10 };
-  onRunEnded(later, id, spawn);
-  onRunEnded(later, id, spawn);
+  await onRunEnded(later, id, spawn);
+  await onRunEnded(later, id, spawn);
   expect(spawned.length).toBe(1);
   const t = readTask(ctx, id)!;
   expect(t.pendingTurn).toBeUndefined();
@@ -131,8 +131,8 @@ test("a work child does not report to its work parent", async () => {
   updateTask(ctx, parent, t => { t.state = "done"; });
   updateTask(ctx, child.id, t => { t.state = "done"; t.result = { status: "done", executor: "codex", model: null, files: "", report: "child", backend: "direct" }; });
   const { spawned, spawn } = spawner();
-  onRunEnded(ctx, child.id, spawn);
-  onRunEnded(ctx, parent, spawn);
+  await onRunEnded(ctx, child.id, spawn);
+  await onRunEnded(ctx, parent, spawn);
   expect(store.inbox(ctx, `task:${parent}`)).toEqual([]);
   expect(spawned).toEqual([]);
   expect(readTask(ctx, parent)!.state).toBe("done");
@@ -144,7 +144,7 @@ test("a failed resumed turn releases its messages and retries once with a replay
   await sendMessage(ctx, { to: `task:${id}`, body: "do Z" }, { spawnRunner: spawn });
   claimTurnMessages(ctx, readTask(ctx, id)!);
   endRun(ctx, id, "failed", "session not found");
-  onRunEnded(ctx, id, spawn);
+  await onRunEnded(ctx, id, spawn);
   expect(spawned.length).toBe(2);
   const t = readTask(ctx, id)!;
   expect(t.pendingTurn?.replay).toBe(true);
@@ -155,7 +155,7 @@ test("a failed resumed turn releases its messages and retries once with a replay
   claimTurnMessages(ctx, t);
   updateTask(ctx, id, x => { x.run = { ...x.run!, turnResume: "replayed" }; });
   endRun(ctx, id, "failed", "still broken");
-  onRunEnded(ctx, id, spawn);
+  await onRunEnded(ctx, id, spawn);
   expect(spawned.length).toBe(2);
   expect(store.inbox(ctx, PARENT).filter(m => m.from === `task:${id}`).map(m => m.body)).toEqual(["[failed] still broken"]);
 });
@@ -168,7 +168,7 @@ test("a replay turn launches fresh with the brief and the thread", async () => {
   await sendMessage(ctx, { to: `task:${id}`, body: "earlier note" }, { spawnRunner: () => 1 });
   claimTurnMessages(ctx, readTask(ctx, id)!);
   endRun(ctx, id, "failed", "session not found");
-  onRunEnded(ctx, id, () => 1);
+  await onRunEnded(ctx, id, () => 1);
   updateTask(ctx, id, t => { delete t.run; t.state = "running"; });
   await runAttempt(ctx, s.providers.codex!, readTask(ctx, id)!);
   const argv = readFileSync(join(bin, "argv"), "utf8");
@@ -209,13 +209,13 @@ test("starting a turn clears settled state and keeps the result's worktree", asy
   expect(t.worktree).toBe(wt);
 });
 
-test("legacy tasks without an origin do not report", () => {
+test("legacy tasks without an origin do not report", async () => {
   const { ctx, id } = finished("codex", t => { delete t.origin; t.source = "planner"; });
-  onRunEnded(ctx, id);
+  await onRunEnded(ctx, id);
   expect(store.inbox(ctx, "external:planner")).toEqual([]);
 });
 
-test("a question from an earlier attempt of the same run does not replace the run-end report", () => {
+test("a question from an earlier attempt of the same run does not replace the run-end report", async () => {
   const { ctx, id } = finished("codex", t => {
     t.attempts = [
       { ...t.attempts[0]!, startedAt: t.createdAt + 1, limitHit: true },
@@ -223,7 +223,7 @@ test("a question from an earlier attempt of the same run does not replace the ru
     ];
   });
   store.insertMessage({ ...ctx, now: ctx.now + 50 }, { taskId: id, rootId: `task:${id}`, from: `task:${id}`, to: PARENT, kind: "question", body: "which?", replyTo: null, requestId: null });
-  onRunEnded({ ...ctx, now: ctx.now + 200 }, id);
+  await onRunEnded({ ...ctx, now: ctx.now + 200 }, id);
   expect(store.inbox(ctx, PARENT).map(m => m.kind)).toEqual(["question", "report"]);
 });
 

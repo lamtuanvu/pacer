@@ -24,7 +24,7 @@ function assertCanRead(ctx: Parameters<OpDef["handler"]>[0], deps: Parameters<Op
 
 export const msgOps: Record<string, OpDef> = {
   "msg.send": op({
-    description: "Send a message to another participant. A message to a settled task starts a turn that resumes its native session.",
+    description: "Send a message to another participant. A message to a settled task starts a turn that resumes its native session once project policy admits it (delegate, then route); another admitted executor replays the thread when policy excludes the prior one. A veto or no admitted executor returns delivery held with hold { reason, plugin? }, and the message stays pending.",
     params: z.object({ to: participantSchema, body: z.string().min(1).max(1 << 20), kind: z.enum(MSG_KINDS).optional(), reply_to: z.string().max(64).optional(), request_id: z.string().min(1).max(128).optional() }).strict(),
     handler: (ctx, p, deps) => sendMessage(ctx, { to: p.to, body: p.body, kind: p.kind, replyTo: p.reply_to, requestId: p.request_id }, deps),
   }),
@@ -72,10 +72,10 @@ export const msgOps: Record<string, OpDef> = {
   "msg.confirm": op({
     description: "Release a message that a guardrail held for human confirmation.",
     params: z.object({ id: z.string().max(64) }).strict(),
-    handler: (ctx, p, deps) => {
+    handler: async (ctx, p, deps) => {
       if (callerParticipant(ctx, deps).id !== "human") throw new CoreError("not_allowed", "Only the human confirms held messages", undefined, { reason: "msg_forbidden", layer: "protocol" });
       const m = store.confirmHeld(ctx, p.id);
-      return { message: m, delivery: deliver(ctx, m.to, deps.spawnRunner) };
+      return { message: m, ...await deliver(ctx, m.to, deps.spawnRunner) };
     },
   }),
   "msg.close": op({

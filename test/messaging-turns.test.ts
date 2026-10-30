@@ -51,8 +51,8 @@ test("claiming renders a prompt; run end reports to the parent once", async () =
   expect(claim.messages.length).toBe(1);
   expect(renderTurnPrompt(ctx, readTask(ctx, id)!, claim.messages)).toContain("also handle X");
   updateTask(ctx, id, t => { t.state = "done"; t.attempts.push({ ...t.attempts[0]!, startedAt: 3, endedAt: 4 }); t.result = { ...t.result!, report: "second report" }; });
-  onRunEnded(ctx, id);
-  onRunEnded(ctx, id);
+  await onRunEnded(ctx, id);
+  await onRunEnded(ctx, id);
   const inbox = store.inbox(ctx, "external:claude-code");
   expect(inbox.map(m => [m.kind, m.body])).toEqual([["report", "[done] second report"]]);
   expect(readTask(ctx, id)!.pendingTurn).toBeUndefined();
@@ -63,7 +63,7 @@ test("a turn that hit a limit puts its messages back", async () => {
   await sendMessage(ctx, { to: `task:${id}`, body: "x" }, { spawnRunner: () => 1 });
   claimTurnMessages(ctx, readTask(ctx, id)!);
   updateTask(ctx, id, t => { t.state = "limit"; t.result = { ...t.result!, status: "limit" }; t.attempts.push({ ...t.attempts[0]!, limitHit: true }); });
-  onRunEnded(ctx, id);
+  await onRunEnded(ctx, id);
   expect(store.pendingFor(ctx, `task:${id}`).length).toBe(1);
 });
 

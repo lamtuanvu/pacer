@@ -31,7 +31,7 @@ import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
 import { callerParticipant, parentOf, rootOf } from "../messaging/participants";
 import * as msgStore from "../messaging/store";
-import { notifyMessage, readMessages, startTurnIfIdle } from "../messaging/turns";
+import { beginTurn, notifyMessage, readMessages } from "../messaging/turns";
 
 /** True when the next turn can resume the task's own native session. */
 function canContinue(ctx: Ctx, t: TaskRecord): boolean {
@@ -182,15 +182,16 @@ type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | P
  * Returns null when no turn started; the message is then marked read so it never reaches a later turn,
  * and the caller falls back to the legacy retry.
  */
-function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answer" | "message"; body: string; replyTo: string | null; requestId: string }, deps: RetryDeps,
-  before?: () => void, undo?: () => void): ApiTask | null {
+async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answer" | "message"; body: string; replyTo: string | null; requestId: string }, deps: RetryDeps,
+  before?: () => void, undo?: () => void): Promise<ApiTask | null> {
   const id = task.id, to = `task:${id}`;
   const from = callerParticipant(ctx, { appAuthenticated: deps.appAuthenticated, participant: deps.participant }).id;
   const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, to), from, to, kind: m.kind, body: m.body, replyTo: m.replyTo, requestId: m.requestId });
   if (r.duplicate) return apiTask(ctx, readTask(ctx, id)!); // A retried request: the first one already acted.
   void notifyMessage(ctx, r.message);
   before?.();
-  if (startTurnIfIdle(ctx, id, deps.spawnRunner ?? spawnRunner) === "turn_started") return apiTask(ctx, readTask(ctx, id)!);
+  // A policy hold falls back to the legacy retry, which project policy admits as a new attempt (a veto refuses it there).
+  if ((await beginTurn(ctx, id, deps.spawnRunner ?? spawnRunner, { quiet: true })).delivery === "turn_started") return apiTask(ctx, readTask(ctx, id)!);
   undo?.();
   msgStore.markRead(ctx, to, [r.message.id]);
   return null;
@@ -255,7 +256,7 @@ export async function review(
       validateReview();
       const prior = current.retriedBy ? readTask(ctx, current.retriedBy) : null;
       if (prior && ["queued", "running"].includes(prior.state)) throw new CoreError("conflict", `${id} already has an active retry ${prior.id}`);
-      const task = continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, deps);
+      const task = await continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, deps);
       if (task) return { task, retry: task };
     }
     // Both policy decisions finish before the single guarded retry+verdict commit.
@@ -480,7 +481,7 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       if (!t.question) return;
       if (answer === undefined) { delete t.question.answer; delete t.question.answeredAt; } else { t.question.answer = answer; t.question.answeredAt = ctx.now; }
     });
-    const task = continueWithMessage(ctx, current, { kind: "answer", body: text, replyTo: question?.id ?? null, requestId: `answer:${id}:${current.rev}` }, deps,
+    const task = await continueWithMessage(ctx, current, { kind: "answer", body: text, replyTo: question?.id ?? null, requestId: `answer:${id}:${current.rev}` }, deps,
       () => setAnswer(text), () => setAnswer());
     if (task) {
       if (question) readMessages(ctx, question.to, [question.id]);

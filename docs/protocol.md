@@ -4853,7 +4853,7 @@ Params JSON Schema:
 
 ### `msg.send`
 
-Send a message to another participant. A message to a settled task starts a turn that resumes its native session.
+Send a message to another participant. A message to a settled task starts a turn that resumes its native session once project policy admits it (delegate, then route); another admitted executor replays the thread when policy excludes the prior one. A veto or no admitted executor returns delivery held with hold { reason, plugin? }, and the message stays pending.
 
 Params JSON Schema:
 

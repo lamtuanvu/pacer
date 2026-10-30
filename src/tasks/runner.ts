@@ -161,7 +161,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     if (ownership.claimed && getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
-    try { onRunEnded({...ctx, now: Date.now()/1000}, id, deps.spawnRunner); }
+    try { await onRunEnded({...ctx, now: Date.now()/1000}, id, deps.spawnRunner); }
     catch (error) { console.warn(`pacer: message delivery after ${id} failed: ${error instanceof Error ? error.message : String(error)}`); }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await autoCleanTask(ctx, id);

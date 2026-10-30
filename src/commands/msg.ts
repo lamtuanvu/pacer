@@ -43,9 +43,11 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
         if (pos.length !== 2) return { code: 2, out: "", err: "usage: pacer msg send <task|participant> | --to <participant> \"<text>\" [--question] [--answer <id>] [--request-id <k>] [--wait] [--json]" };
         const r = await call(ctx, "msg.send", { to: target(pos[0]!), body: pos[1], kind: f("answer") ? "answer" : flags.question ? "question" : "message",
           ...(f("answer") ? { reply_to: f("answer") } : {}), ...(f("request-id") ? { request_id: f("request-id") } : {}) });
-        if (!flags.wait) return out(json, r, `sent ${r.message.id} (${r.delivery})`);
+        // A policy hold names its reason; a guardrail hold waits for confirmation.
+        const held = r.hold ? `held by project policy: ${r.hold.reason}; the message stays pending` : undefined;
+        if (!flags.wait) return out(json, r, `sent ${r.message.id} (${r.delivery})${held ? `: ${held}` : ""}`);
         // No turn will run for these, so no reply is coming: say why instead of waiting out the timeout.
-        const why = NO_REPLY[r.delivery as string];
+        const why = held ?? NO_REPLY[r.delivery as string];
         if (why) return out(json, { sent: r, reply: null, reason: `${r.delivery}: ${why}` }, `sent ${r.message.id} (${r.delivery}); not waiting: ${why}`);
         const w = await call(ctx, "msg.wait", { reply_to: r.message.id, timeout_s: Number(f("timeout") ?? 600) });
         return out(json, { sent: r, reply: w }, show(w.messages));
@@ -56,7 +58,7 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
       }
       case "log": { const r = await call(ctx, "msg.log", { task: pos[0] }); return out(json, r, show(r.messages)); }
       case "read": { const r = await call(ctx, "msg.read", { ids: pos }); return out(json, r, `marked ${r.read} read`); }
-      case "confirm": { const r = await call(ctx, "msg.confirm", { id: pos[0] }); return out(json, r, `released ${r.message.id} (${r.delivery})`); }
+      case "confirm": { const r = await call(ctx, "msg.confirm", { id: pos[0] }); return out(json, r, `released ${r.message.id} (${r.delivery})${r.hold ? `: held by project policy: ${r.hold.reason}` : ""}`); }
       case "close": { const r = await call(ctx, "msg.close", { task: pos[0] }); return out(json, r, `closed ${r.task}`); }
       case "policy": {
         const check = flags.check ? { from: f("from"), to: f("to") && target(f("to")!), kind: f("kind") ?? "message" } : undefined;

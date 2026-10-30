@@ -4,7 +4,10 @@ import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
 import { publishTaskMessages } from "./publish";
 import { launchTaskRunner, spawnRunner as defaultSpawn, type SpawnRunner } from "../tasks/api";
-import { loadStrategy, type ProviderCfg } from "../config/strategy";
+import { loadStrategy, type ProviderCfg, type Strategy } from "../config/strategy";
+import { appendActivity } from "../activity/log";
+import { executorsFor } from "../engine/rank";
+import { admissionLifetime } from "../tasks/creation-admission";
 import { getWork } from "../dispatch/work";
 import { headlessTurnPath } from "../exec/launch";
 import { withoutPlannerSession } from "../exec/process";
@@ -52,29 +55,43 @@ export function turnCapable(ctx: Ctx, t: TaskRecord): boolean {
 /** The task worktree a message turn resumes in; the turn fails when it is gone. */
 export const turnWorktree = (t: TaskRecord): string | null => t.worktree ?? t.result?.worktree ?? null;
 
+/** Why no turn can start for this task now, or null when one can. Checked again under the task lock. */
+function turnBlocked(ctx: Ctx, t: TaskRecord | null): Delivery | null {
+  if (!t || isClosed(t)) return "closed";
+  if (getWork(ctx, t.id)) return "pull";
+  if (t.interactionMode === "conversation") return "live_unavailable";
+  if (t.state === "queued" || t.state === "running") return "queued";
+  if (!store.pendingFor(ctx, `task:${t.id}`).length) return "queued";
+  if (!sessionAgent(t) || !turnCapable(ctx, t)) return "no_session";
+  const root = rootOf(ctx, `task:${t.id}`);
+  if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
+  return null;
+}
+
 /**
  * Begin a resume turn when the task is settled and has pending messages. A turn runs headless through the direct backend;
  * a runner that cannot do that leaves the messages pending. Managed work nodes read theirs with their grant (plan 1).
+ * Callers outside tests use beginTurn, which admits the turn through project policy first.
  */
-export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean } = {}): Delivery {
+export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean; executor?: string; guard?: () => void } = {}): Delivery {
   let start = false;
   const result = withTaskLock(ctx, id, (): Delivery => {
     const t = readTask(ctx, id);
-    if (!t || isClosed(t)) return "closed";
-    if (getWork(ctx, id)) return "pull";
-    if (t.interactionMode === "conversation") return "live_unavailable";
-    if (t.state === "queued" || t.state === "running") return "queued";
-    if (!store.pendingFor(ctx, `task:${id}`).length) return "queued";
-    const executor = sessionAgent(t);
-    if (!executor || !turnCapable(ctx, t)) return "no_session";
+    const blocked = turnBlocked(ctx, t);
+    if (blocked || !t) return blocked ?? "closed";
+    const prior = sessionAgent(t)!;
+    // Policy admitted another executor: it cannot resume the prior session, so it replays the thread.
+    const executor = o.executor ?? prior;
+    if (executor !== prior && !headlessTurnPath(turnRunner(ctx, executor))) return "no_session";
+    const replay = !!o.replay || executor !== prior;
+    o.guard?.();
     const root = rootOf(ctx, `task:${id}`);
-    if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
     // The runner deletes run when the attempt starts, so the session to resume is captured now.
-    const session = t.run?.executor === executor ? t.run.agentSession : undefined;
-    const turn = turnKey(ctx, t, !!o.replay);
+    const session = !replay && t.run?.executor === executor ? t.run.agentSession : undefined;
+    const turn = turnKey(ctx, t, replay);
     store.recordTurn(ctx, { id: turn, taskId: id, rootId: root, at: ctx.now });
     updateTask(ctx, id, x => {
-      x.pendingTurn = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(o.replay ? { replay: true } : {}) };
+      x.pendingTurn = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(replay ? { replay: true } : {}) };
       x.requestedExecutor = executor;
       x.state = "queued";
       x.worktree = x.worktree ?? x.result?.worktree;
@@ -90,10 +107,82 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
   return result;
 }
 
-export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Delivery {
+/** Why project policy holds a task's next message turn. */
+export interface TurnHold { reason: string; plugin?: string }
+export interface TurnDelivery { delivery: Delivery; hold?: TurnHold }
+
+/** The task's executors that could run its next turn: the prior one first, then its routing rule's local headless executors. */
+function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string): string[] {
+  let s: Strategy;
+  try { s = loadStrategy(ctx); } catch { return [prior]; }
+  const planner = (id: string) => s.runners[id]?.agent === s.planner.agent && s.runners[id]?.account === s.planner.account;
+  const others = executorsFor(t.kind ?? null, s).filter(id => id !== prior && s.runners[id]?.enabled !== false && !planner(id) && !!headlessTurnPath(turnRunner(ctx, id)));
+  return [prior, ...new Set(others)];
+}
+
+const policyHold = (e: CoreError): TurnHold => ({ reason: e.message, ...(e.hint?.startsWith("plugin ") ? { plugin: e.hint.slice(7) } : {}) });
+
+/**
+ * A continuation turn is a new attempt, so it passes the same project policy as one: the delegate decision for the task's
+ * brief and executor, then the route decision over the executors that can run the turn. The prior executor resumes its session
+ * while policy still admits it; otherwise the first admitted executor replays the thread. A veto, or no admitted executor, holds it.
+ */
+async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; guard: () => void } | TurnHold> {
+  const prior = sessionAgent(t)!;
+  const { applyPolicy } = await import("../plugins/policy");
+  const context = () => { const x = readTask(ctx, t.id); return JSON.stringify(x && { executor: sessionAgent(x), state: x.state, attempts: x.attempts.length, kind: x.kind, repo: x.brief.repo, worktree: turnWorktree(x) }); };
+  const placement = t.placement?.mode ?? (t.placement?.requested === "current" || t.placement?.requested === "new" ? t.placement.requested : "auto");
+  try {
+    const delegate = await applyPolicy(ctx, "delegate", { goal: t.brief.goal, repo: t.brief.repo, kind: t.kind ?? null, requestedExecutor: prior, placement },
+      { contextFingerprint: context, eligibleRunnerIds: [prior], allowedPlacements: [placement], validateDelegate: () => false, ...admissionLifetime(ctx) });
+    const route = await applyPolicy(ctx, "route", { taskId: t.id, candidates: turnCandidates(ctx, t, prior) }, { contextFingerprint: context, ...admissionLifetime(ctx) });
+    if (route.params.decision !== "route") throw new CoreError("invalid_input", "Invalid route policy receipt");
+    const admitted = route.params.input.candidates;
+    const executor = admitted.includes(prior) ? prior : admitted[0];
+    if (!executor) {
+      const plugins = [...new Set(Object.values(route.excludedBy))];
+      return { reason: `No executor is admitted for this task's next turn${plugins.length ? ` (excluded by plugin ${plugins.join(", ")})` : ""}`, ...(plugins.length === 1 ? { plugin: plugins[0] } : {}) };
+    }
+    return { executor, guard: () => { delegate.revalidate(); route.revalidate(); } };
+  } catch (e) {
+    if (e instanceof CoreError && (e.code === "not_allowed" || e.code === "plugin_timeout")) return policyHold(e);
+    throw e;
+  }
+}
+
+/** Tell each sender of a held turn's messages why they wait, once per set of pending messages. */
+async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRunner): Promise<void> {
+  const pending = store.pendingFor(ctx, `task:${id}`);
+  const last = pending.at(-1);
+  if (!last) return;
+  appendActivity(ctx, { kind: "message", level: "warn", text: `Messages to task ${id} are held: ${hold.reason}`, taskId: id });
+  const body = `Messages to task ${id} are held by project policy and stay pending: ${hold.reason}. They are delivered with the next message once policy admits a turn.`;
+  for (const from of new Set(pending.map(m => m.from).filter(f => f !== `task:${id}`))) await report(ctx, id, from, "[held]", body, `held:${last.id}:${from}`, spawn);
+}
+
+/**
+ * Start the task's next message turn after fresh policy admission (ADR 0015), retrying when the policy context changed meanwhile.
+ * A held turn leaves its messages pending, records why in the task's activity, and reports it to their senders unless quiet.
+ */
+export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean; quiet?: boolean } = {}): Promise<TurnDelivery> {
+  for (let attempt = 0; ; attempt++) {
+    const t = readTask(ctx, id);
+    const blocked = turnBlocked(ctx, t);
+    if (blocked || !t) return { delivery: blocked ?? "closed" };
+    const admitted = await admitTurn(ctx, t);
+    if (!("executor" in admitted)) {
+      if (!o.quiet) await reportHold(ctx, id, admitted, spawn);
+      return { delivery: "held", hold: admitted };
+    }
+    try { return { delivery: startTurnIfIdle(ctx, id, spawn, { replay: o.replay, executor: admitted.executor, guard: admitted.guard }) }; }
+    catch (e) { if (attempt < 2 && e instanceof CoreError && e.code === "conflict") continue; throw e; }
+  }
+}
+
+export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<TurnDelivery> {
   const id = taskOf(to);
-  if (!id) return "pull";
-  return startTurnIfIdle(ctx, id, spawn);
+  if (!id) return Promise.resolve({ delivery: "pull" });
+  return beginTurn(ctx, id, spawn);
 }
 
 const label = (p: string) => p === "human" ? "the user" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
@@ -133,10 +222,10 @@ export function claimTurnMessages(ctx: Ctx, task: TaskRecord): { turnId: string;
   return { turnId, messages };
 }
 
-function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): void {
+async function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): Promise<void> {
   const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
     body: `${head} ${readable(body).slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
-  if (!r.duplicate) { void notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
+  if (!r.duplicate) { void notifyMessage(ctx, r.message); await deliver(ctx, parent, spawn); }
 }
 
 /** An agent CLI's JSON error result (Claude's stream-json) as one readable line; other text is kept. */
@@ -175,7 +264,7 @@ const agentReport = (m: Message) => m.kind === "report" && !/^(report|undelivere
  * After a run settles: report to the parent once per attempt, then deliver anything that arrived meanwhile.
  * A turn whose run never claimed its messages is not restarted; a rejected resume is retried once as a replay.
  */
-export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
+export async function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): Promise<void> {
   const t = readTask(ctx, id);
   if (!t || t.interactionMode === "conversation" || ["queued", "running"].includes(t.state)) return;
   // Called again for a run whose turn already ended: that call reported it.
@@ -198,13 +287,13 @@ export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
     else if (!claimed) {
       // The run ended before it picked up the messages: they stay pending, and the sender learns why.
       const why = (t.result?.report ?? "").trim().split("\n").filter(Boolean).slice(-5).join("\n");
-      if (parent) report(ctx, id, parent, `[not delivered] The run for task ${id} ended (${t.state}) before it received your messages; they are still pending.`, why ? `\n\n${why}` : "", `undelivered:${turnId}`, spawn);
+      if (parent) await report(ctx, id, parent, `[not delivered] The run for task ${id} ended (${t.state}) before it received your messages; they are still pending.`, why ? `\n\n${why}` : "", `undelivered:${turnId}`, spawn);
       return;
     } else if (!t.pendingTurn.replay && rejectedResume(t)) {
       // A rejected resume (unknown session, missing history): put the messages back and replay the thread once.
       rejected = true;
       store.releaseTurn(ctx, turnId);
-      if (startTurnIfIdle(ctx, id, spawn, { replay: true }) === "turn_started") return;
+      if ((await beginTurn(ctx, id, spawn, { replay: true })).delivery === "turn_started") return;
       restart = false;
     }
   }
@@ -214,13 +303,13 @@ export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
   if (!limited && t.state !== "needs_input") {
     const body = rejected ? `The agent could not resume its session, and a replay could not start; your messages are still pending.\n\n${t.result?.report ?? ""}`
       : t.result?.report ?? `Run ended: ${t.state}`;
-    if (parent && !reported) report(ctx, id, parent, `[${t.state}]`, body, `report:${turnId}`, spawn);
+    if (parent && !reported) await report(ctx, id, parent, `[${t.state}]`, body, `report:${turnId}`, spawn);
     // Senders other than the parent wait for a reply too, even when the task has no report reader (legacy tasks);
     // a report is never echoed back to the task that sent one.
     const others = new Set(turnMessages.filter(m => m.from !== parent && m.from !== `task:${id}` && m.kind !== "report").map(m => m.from));
-    for (const to of others) report(ctx, id, to, `[${t.state}]`, body, `report:${turnId}:${to}`, spawn);
+    for (const to of others) await report(ctx, id, to, `[${t.state}]`, body, `report:${turnId}:${to}`, spawn);
   }
-  if (restart) startTurnIfIdle(ctx, id, spawn);
+  if (restart) await beginTurn(ctx, id, spawn);
 }
 
 export function assertOpen(ctx: Ctx, to: string): void {
