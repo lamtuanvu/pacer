@@ -1,10 +1,8 @@
-import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
-import { useFrame } from "../../shell/slots";
 import { useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { Page } from "../../ds/Page";
 import { Button } from "../../ds/Button";
-import { TextInput } from "../../ds/Controls";
+import { SearchInput } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Tabs } from "../../ds/Patterns";
 import { SearchPicker } from "../../ds/SearchPicker";
@@ -54,9 +52,6 @@ export interface TasksPageProps {
 export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork, updating = false }: TasksPageProps) {
   const busy = useDelayedBusy(updating);
   const {state} = useTaskContext();
-  const frame = useFrame();
-  // The Inspector shows the selected task; the inline aside covers it only while the Inspector is closed.
-  const showAside = frame?.inline !== false || !frame?.details?.open;
   const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -79,15 +74,13 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
-  return <><LazyWorkPanels query={query} selected={here?.node.id ?? null} /><Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
+  return <><Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         <h1 className="pc-tasks-page__title">Tasks</h1>
         {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{` · ${summary.tokens ?? "— tokens"}`}</span>}
       </div>
-      <label className="pc-tasks-page__search"><span className="sr-only">Search tasks</span><Icon name="overview" />
-        <TextInput type="search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />
-      </label>
+      <SearchInput label="Search tasks" className="pc-tasks-page__search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />
       {repos.length > 0 && <SearchPicker label={`${repoLabel} · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
         value={query.repo || null} onChange={go} options={[{ value: null, label: "All repos" }, ...repos.map(repo => ({ value: repo.key, label: repo.label, searchText: `${repo.label} ${repo.key}` }))]} />}
       <Button variant="primary" onClick={onNew}>New task</Button>
@@ -107,7 +100,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
             : hasMoreWork && <Button size="sm" busy={loadingMoreWork} onClick={onLoadMoreWork}>Load more subtasks</Button>}
         </div>}
       </section>
-      {here && showAside && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
+      {here && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
     </div>
   </Page></>;
 }

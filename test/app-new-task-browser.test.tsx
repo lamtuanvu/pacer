@@ -67,7 +67,7 @@ browserTest("new_task_desktop_ready_flow_delegates_with_cmd_enter", async () => 
     await page.getByText("Draft saved just now").waitFor();
     await page.keyboard.press("Meta+Enter");
     await page.waitForFunction(() => location.hash === "#/tasks");
-    expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ goal: REQUEST, repo: "econ-v1/node", kind: "feature", worktree: "new", source: "ui" })]);
+    expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ goal: REQUEST, repo: "econ-v1/node", kind: "feature", worktree: "new", dispatch: { allowDelegation: true, maxConcurrent: 3 }, source: "ui" })]);
     // A delegated task clears the saved draft.
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1") ?? "{}").request ?? "")).toBe("");
   });
@@ -88,7 +88,7 @@ browserTest("new_task_focus_order_and_radio_keys", async () => {
       "radio:New worktreeRecommendedIsolated copy · your checkout stays untouched",
       "radio:Feature· detected",
       "button:Add a check",
-      "summary:More options · base branch main",
+      "summary:More options · planner may split it · up to 3 in parallel · no deadline",
       "summary:Send to a specific agent · this task only",
       "button:Delegate task⌘↵",
     ]);
@@ -476,3 +476,17 @@ browserTest('canvas_new_task_has_breadcrumb_above_title_and_cancel_returns_to_di
   await page.waitForFunction(()=>location.hash==='#/');
  });
 },15000);
+
+browserTest("repository_picker_identity_and_attachment_size_match_the_board", async () => {
+  await withComposer(async page => {
+    const picker = page.locator(".pc-new-task__pick .pc-choice-picker__trigger");
+    await page.locator(".pc-new-task__pick .pc-choice-picker__branch").waitFor();
+    expect(await picker.locator("svg").count()).toBe(1);
+    expect(await picker.locator("strong").textContent()).toBe("econ-v1/node");
+    expect(await picker.locator(".pc-choice-picker__branch").textContent()).toBe("main");
+    expect(await picker.evaluate(el => ({ gap: getComputedStyle(el).gap, height: el.getBoundingClientRect().height }))).toEqual({ gap: "10px", height: 40 });
+    await page.getByLabel("Attach a file", { exact: true }).setInputFiles({ name: "too-big.log", mimeType: "text/plain", buffer: Buffer.alloc(10_000_001) });
+    await page.getByText("Attachment exceeds 10 MB", { exact: true }).waitFor();
+    expect(await calls(page, "session.draft.create")).toEqual([]);
+  });
+});

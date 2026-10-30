@@ -109,7 +109,7 @@ test("labels_match_status_vocabulary", () => {
 test("host_and_title_use_public_copy", () => {
   const nodes = taskTree(snapshot(), { now });
   expect(find(nodes, "t-0420")!.host).toEqual({ name: "devbox", kind: "remote" });
-  expect(find(nodes, "t-0421")!.host).toEqual({ name: "This Mac", kind: "local" });
+  expect(find(nodes, "t-0421")!.host).toEqual({ name: "Local Mac", kind: "local" });
   expect(find(nodes, "t-0420")!.title).toBe("Add SSH keepalive to remote runs");
   expect(find(nodes, "t-0420")!.meta.find(item => item.icon === "time")?.text).toBe("running for 14m");
 });
@@ -128,7 +128,7 @@ test("unknown_host_omitted", () => {
   const nodes = taskTree(snap, { now });
   expect(find(nodes, "t-0422")!.host).toBeUndefined();
   expect(find(nodes, "t-0405")!.host).toBeUndefined();
-  expect(find(nodes, "t-0409")!.host).toEqual({ name: "This Mac", kind: "local" });
+  expect(find(nodes, "t-0409")!.host).toEqual({ name: "Local Mac", kind: "local" });
 });
 
 test("review_outcome_and_unknown_time_follow_facts", () => {

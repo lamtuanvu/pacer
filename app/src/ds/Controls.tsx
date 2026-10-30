@@ -4,6 +4,7 @@ import { forwardRef } from "preact/compat";
 import { cloneElement, isValidElement, toChildArray, type JSX, type ComponentChildren, type VNode } from "preact";
 import { useId, useLayoutEffect, useRef } from "preact/hooks";
 import { ChoicePicker } from "./ChoicePicker";
+import { Icon } from "./icons";
 
 type InputProps = JSX.InputHTMLAttributes<HTMLInputElement>;
 
@@ -12,6 +13,13 @@ export const TextInput = forwardRef<HTMLInputElement, InputProps>(function TextI
   const density = useDensity();
   return <input {...props} ref={ref} className={classes('pc-input', `pc-control--${density}`, className)} />;
 });
+/** Search adornment stays in flow at every density, including touch. */
+export function SearchInput({ label, className, ...props }: InputProps & { label: string }) {
+  return <label className={classes("pc-search-input", className)}>
+    <span className="sr-only">{label}</span><Icon name="search" />
+    <TextInput {...props} type="search" />
+  </label>;
+}
 export const TextArea = forwardRef<HTMLTextAreaElement, JSX.TextareaHTMLAttributes<HTMLTextAreaElement>>(function TextArea({ className, ...props }, ref) {
   const density = useDensity();
   return <textarea {...props} ref={ref} className={classes('pc-input', 'pc-textarea', `pc-control--${density}`, className)} />;

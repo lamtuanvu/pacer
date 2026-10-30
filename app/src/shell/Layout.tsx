@@ -89,7 +89,7 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   const wide = useMedia(PANEL_MEDIA, true);
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
-  const workPanels = !narrow && wide && !!context && !state.sessionEnded && (route.name === "dispatch" || (route.name === "sessions" && !route.id));
+  const workPanels = !narrow && wide && !!context && !state.sessionEnded && route.name === "dispatch";
   const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, route.name !== "dispatch", route.name === "dispatch");
   const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, route.name !== "dispatch", route.name === "dispatch");
   const newTaskPanels = !narrow && wide && route.name === "new-task";

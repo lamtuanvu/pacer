@@ -113,8 +113,8 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
     expect(await title.textContent()).toBe('Fix the retry bug');
     expect(await aside.getByText(/Delegated by Codex via pacer delegate/).count()).toBe(1);
     expect(await title.evaluate(node => getComputedStyle(node).fontWeight)).toBe('700');
-    expect(await aside.getByRole('link', { name: 'Open session' }).evaluate(node => node.getBoundingClientRect().height)).toBe(32);
-    expect(await aside.getByRole('link', { name: 'Dispatch trace' }).getAttribute('href')).toBe('#/tasks/t-1/trace');
+    expect(await aside.getByRole('link', { name: 'Open workspace' }).evaluate(node => node.getBoundingClientRect().height)).toBe(32);
+    expect(await aside.getByRole('link', { name: 'Open task page' }).getAttribute('href')).toBe('#/tasks/t-1');
     expect(await title.getAttribute('title')).toContain('Full brief');
     expect(await title.evaluate(node => ({ whiteSpace: getComputedStyle(node).whiteSpace, overflow: getComputedStyle(node).textOverflow, height: node.getBoundingClientRect().height }))).toEqual({ whiteSpace: 'nowrap', overflow: 'ellipsis', height: 19 });
     expect(await aside.locator('.pc-task-aside__caption').first().textContent()).toBe('Root task · Codex · 12m · 214k tokens');
@@ -162,3 +162,22 @@ browserTest('board_row_geometry_and_state_tokens_match_at_both_desktop_sizes_and
     }
   } finally { await page.close(); }
 }, 30_000);
+
+browserTest('tablet_keeps_titles_readable_and_search_adornment_in_flow', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const width of [1440, 768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(server.url.toString());
+      const geometry = await page.evaluate(() => {
+        const title = document.querySelector('.pc-task-card__title')!.getBoundingClientRect();
+        const input = document.querySelector('.pc-search-input input')!.getBoundingClientRect();
+        const icon = document.querySelector('.pc-search-input svg')!.getBoundingClientRect();
+        return { title: title.width, gap: input.left - icon.right, overflow: document.documentElement.scrollWidth > innerWidth };
+      });
+      expect(geometry.title).toBeGreaterThan(100);
+      expect(geometry.gap).toBe(8);
+      expect(geometry.overflow).toBe(false);
+    }
+  } finally { await page.close(); }
+});
