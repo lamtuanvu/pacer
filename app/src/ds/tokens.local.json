@@ -27,6 +27,95 @@
         },
         "usage": "Answer modal scrim.",
         "provisional": "Answer board 21 value; not yet in the design system."
+      },
+      {
+        "name": "assistant-violet",
+        "value": {
+          "light": "#8b5cf6",
+          "dark": "#8b5cf6"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "assistant-cyan",
+        "value": {
+          "light": "#06b6d4",
+          "dark": "#06b6d4"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "assistant-blue",
+        "value": {
+          "light": "#3b82f6",
+          "dark": "#3b82f6"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-gradient-1",
+        "value": {
+          "light": "#7c6bd6",
+          "dark": "#7c6bd6"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-gradient-2",
+        "value": {
+          "light": "#3fa7b8",
+          "dark": "#3fa7b8"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-gradient-3",
+        "value": {
+          "light": "#5b7fd8",
+          "dark": "#5b7fd8"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-blob-1",
+        "value": {
+          "light": "#8b7be0",
+          "dark": "#8b7be0"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-blob-2",
+        "value": {
+          "light": "#48b3c4",
+          "dark": "#48b3c4"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "aurora-blob-3",
+        "value": {
+          "light": "#6a8ee0",
+          "dark": "#6a8ee0"
+        },
+        "usage": "Decorative assistant board palette; never text or status.",
+        "provisional": "Shell board inline value."
+      },
+      {
+        "name": "assistant-avatar",
+        "value": {
+          "light": "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)",
+          "dark": "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)"
+        },
+        "provisional": "Shell inline decorative avatar."
       }
     ]
   },
@@ -429,6 +518,31 @@
         "value": "1400ms",
         "usage": "Soft opacity pulse for page skeletons.",
         "provisional": "Loading board 27 motion."
+      },
+      {
+        "name": "motion-aurora-shift",
+        "value": "16000ms",
+        "provisional": "Shell board decorative motion; respects reduced motion."
+      },
+      {
+        "name": "motion-aurora-breathe",
+        "value": "7000ms",
+        "provisional": "Shell board decorative motion; respects reduced motion."
+      },
+      {
+        "name": "motion-aurora-first",
+        "value": "9000ms",
+        "provisional": "Shell board decorative motion; respects reduced motion."
+      },
+      {
+        "name": "motion-aurora-middle",
+        "value": "11000ms",
+        "provisional": "Shell board decorative motion; respects reduced motion."
+      },
+      {
+        "name": "motion-aurora-last",
+        "value": "13000ms",
+        "provisional": "Shell board decorative motion; respects reduced motion."
       }
     ]
   }

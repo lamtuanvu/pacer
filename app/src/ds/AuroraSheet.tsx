@@ -65,7 +65,7 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     }
   }}>
     <div className="pc-aurora__veil" aria-hidden="true" />
-    <div className="pc-aurora__glow" aria-hidden="true"><span /><span /><span /><span /></div>
+    <div className="pc-aurora__glow" aria-hidden="true"><div className="pc-aurora__gradient" /><div className="pc-aurora__blobs"><span /><span /><span /></div></div>
     <div className="pc-aurora__column">
       {header && <div className="pc-aurora__bar">{header}</div>}
       <div ref={log} role="log" aria-label={logLabel} aria-live="polite" aria-relevant="additions" tabIndex={0} className="pc-aurora__log" data-expanded={expanded ? "true" : "false"}>{messages}</div>

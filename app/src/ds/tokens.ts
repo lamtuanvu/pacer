@@ -48,7 +48,17 @@ export type ColorToken =
   | "aurora-3"
   | "ink-on-fill"
   | "shadow-tray-menu-tint"
-  | "answer-scrim";
+  | "answer-scrim"
+  | "assistant-violet"
+  | "assistant-cyan"
+  | "assistant-blue"
+  | "aurora-gradient-1"
+  | "aurora-gradient-2"
+  | "aurora-gradient-3"
+  | "aurora-blob-1"
+  | "aurora-blob-2"
+  | "aurora-blob-3"
+  | "assistant-avatar";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -99,4 +109,14 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
   "shadow-tray-menu-tint": { light: "rgb(9 9 11 / .16)", dark: "rgb(0 0 0 / .55)" },
   "answer-scrim": { light: "color-mix(in srgb, var(--ink) 14%, transparent)", dark: "color-mix(in srgb, var(--ink) 14%, transparent)" },
+  "assistant-violet": { light: "#8b5cf6", dark: "#8b5cf6" },
+  "assistant-cyan": { light: "#06b6d4", dark: "#06b6d4" },
+  "assistant-blue": { light: "#3b82f6", dark: "#3b82f6" },
+  "aurora-gradient-1": { light: "#7c6bd6", dark: "#7c6bd6" },
+  "aurora-gradient-2": { light: "#3fa7b8", dark: "#3fa7b8" },
+  "aurora-gradient-3": { light: "#5b7fd8", dark: "#5b7fd8" },
+  "aurora-blob-1": { light: "#8b7be0", dark: "#8b7be0" },
+  "aurora-blob-2": { light: "#48b3c4", dark: "#48b3c4" },
+  "aurora-blob-3": { light: "#6a8ee0", dark: "#6a8ee0" },
+  "assistant-avatar": { light: "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)", dark: "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)" },
 };

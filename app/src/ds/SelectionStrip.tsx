@@ -12,7 +12,7 @@ export interface SegmentOption {
 export interface StripProps {
   label: string; id?: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
-  variant?: "board" | "insights" | "result"; describedBy?: string;
+  variant?: "board" | "insights" | "result" | "terminal"; describedBy?: string;
 }
 export function tabStep(key: string, at: number, length: number): number | undefined {
   if (!length) return undefined;
@@ -100,7 +100,7 @@ export function SelectionStrip({ label, id, value, options, onChange, disabled, 
     onChange(next);
   };
   return <div ref={list} role={mode === "tabs" ? "tablist" : mode === "nav" ? "navigation" : "group"} aria-label={label} aria-describedby={describedBy}
-    className={classNames(mode === "segmented" ? "pc-segmented" : "pc-tabs", "pc-selection-strip", mode === "nav" && "pc-tabs--nav", variant && `pc-segmented--${variant}`, className)}>
+    className={classNames(mode === "segmented" ? "pc-segmented" : "pc-tabs", "pc-selection-strip", mode === "nav" && "pc-tabs--nav", variant && (variant === "terminal" ? "pc-tabs--terminal" : `pc-segmented--${variant}`), className)}>
     <span ref={indicator} aria-hidden="true" className="pc-selection-indicator" hidden />
     {options.map(option => {
       const props: ButtonProps & { "data-strip-value": string } = {
