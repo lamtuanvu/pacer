@@ -22,7 +22,7 @@ type Filter = "all" | Exclude<TaskBucket, "other">;
 const FILTERS: { value: Filter; label: string; dot?: string }[] = [
   { value: "all", label: "All" },
   { value: "needs", label: "Needs you", dot: "bad" }, { value: "running", label: "Running", dot: "info" },
-  { value: "accepted", label: "Accepted", dot: "good" }, { value: "stopped", label: "Stopped" },
+  { value: "accepted", label: "Accepted", dot: "good" }, { value: "stopped", label: "Stopped", dot: "muted" },
 ];
 const PAGE = 20;
 const matches = (node: TaskNodeView, needle: string): boolean => !needle
