@@ -5,7 +5,7 @@ import type { TaskDetail } from "../src/core/task-detail";
 import { MessageAnswer, TaskResultView } from "../app/src/screens/TaskResult";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
-import { answerParams, legacyQuestionPending, messageQuestion } from "../app/src/model/task-answer";
+import { answerDelivered, answerParams, legacyQuestionPending, messageQuestion } from "../app/src/model/task-answer";
 import { actionRoute } from "../app/src/tray/model";
 import { answerDeliveryWords, messageRefusalWords } from "../src/view-model/words";
 
@@ -31,6 +31,13 @@ test("a pacer ask question keeps the legacy composer only", () => {
 
 test("the answer is a msg.send reply to the question", () => {
   expect(answerParams("t-1", "m-1", "  Stripe \n", "r-1")).toEqual({ to: "task:t-1", kind: "answer", reply_to: "m-1", body: "Stripe", request_id: "r-1" });
+});
+
+test("only an answer that reached the task reads its question", () => {
+  for (const delivery of ["turn_started", "queued", "pull"]) expect(answerDelivered(delivery)).toBe(true);
+  for (const delivery of ["held", "closed", "cap", "live_unavailable", "no_session", undefined, 3]) expect(answerDelivered(delivery)).toBe(false);
+  expect(answerDeliveryWords("held")).toContain("not delivered yet");
+  expect(answerDeliveryWords("held")).toContain("question stays open");
 });
 
 test("the composer shows the question, a labelled answer box and one primary action", () => {

@@ -48,3 +48,28 @@ browserTest("a running task's answer link lands on a focused composer that sends
     await box.waitFor({ state: "detached" });
   } finally { await browser.close(); }
 }, 30000);
+
+browserTest("a held answer keeps the question unread and says why it was not delivered", async () => {
+  const { source, css } = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.route("https://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>session</title><div id="app"></div>' }));
+    await page.goto("https://pacer.test/#/sessions/t-0412/answer");
+    await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = "asked"; (window as any).DELIVERY = "held"; }, css);
+    await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
+    const panel = page.getByRole("complementary", { name: "Session details" });
+    await panel.getByText("Which provider should the flow use?").waitFor();
+    await focused(page, ".pc-session-details textarea");
+    await page.keyboard.type("Use Stripe");
+    await panel.getByRole("button", { name: "Send answer" }).click();
+    await panel.getByRole("status").filter({ hasText: "Answer held, not delivered yet: a messaging rule needs your confirmation first." }).waitFor();
+    const ops = await page.evaluate(() => (window as any).CALLS.map((c: any) => c.op));
+    expect(ops).toContain("msg.send");
+    expect(ops).not.toContain("msg.read");
+    // The task reloads with its question still unread, so the composer stays.
+    await page.waitForFunction(() => (window as any).CALLS.filter((c: any) => c.op === "task.get").length >= 2);
+    expect(await panel.getByText("Which provider should the flow use?").count()).toBe(1);
+    expect(await panel.getByRole("textbox", { name: "Your answer" }).count()).toBe(1);
+  } finally { await browser.close(); }
+}, 30000);

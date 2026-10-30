@@ -41,7 +41,9 @@ const api = { async call(op: string, params: unknown) {
   if (op === "task.get") return task();
   if (op === "task.session") return session;
   if (op === "task.diff") return diff;
-  if (op === "msg.send") { question = undefined; return { delivery: "turn_started" }; }
+  // window.DELIVERY sets msg.send's delivery; like the service, only a delivered answer reads the question.
+  if (op === "msg.send") { const delivery = (window as any).DELIVERY ?? "turn_started"; if (delivery !== "held") question = undefined; return { delivery }; }
+  if (op === "msg.read") { question = undefined; return { read: 1 }; }
   if (op === "task.list") return { tasks: [], next: null };
   // Snapshot rows have no parentId: dispatch.list supplies the tree edges separately.
   if (op === "dispatch.list") {

@@ -23,7 +23,7 @@ import type { Verdict } from "./review/model";
 import { Page, PageTitle, Stack } from "../ds/Page";
 import { LazyWork } from "./work/LazyWork";
 import { ApiError } from "../data/api";
-import { answerParams, legacyQuestionPending, messageQuestion } from "../model/task-answer";
+import { answerDelivered, answerParams, legacyQuestionPending, messageQuestion } from "../model/task-answer";
 export { legacyQuestionPending } from "../model/task-answer";
 
 export function resultSummary(task: TaskDetail): string {
@@ -80,7 +80,7 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
   </>;
 }
 
-/** Answers a question the task sent the human with msg.send, then marks it read. */
+/** Answers a question the task sent the human with msg.send, then marks it read once the answer reaches the task. */
 export function MessageAnswer({ task, question, focus = false, onSent }: { task: TaskDetail; question: { id: string; text: string }; focus?: boolean; onSent: (message: string) => void }) {
   const { api } = useTaskContext(), runner = useActions();
   const [answer,setAnswer] = useState(""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
@@ -92,8 +92,8 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
     requestId.current ||= crypto.randomUUID();
     try {
       const result = await api.call<{ delivery?: string }>("msg.send", answerParams(task.id, question.id, answer, requestId.current));
-      // msg.send already reads a delivered answer's question; a held one stays unread without this.
-      await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
+      // A held or undelivered answer leaves the question unread, so it stays here to answer or confirm.
+      if (answerDelivered(result?.delivery)) await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
       requestId.current = "";setAnswer("");
       onSent(answerDeliveryWords(result?.delivery));
       // The service publishes the cleared question too; refetching keeps this session right if that event is late.

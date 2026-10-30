@@ -194,7 +194,7 @@ const answerDeliveries: Record<string, string> = {
   turn_started: "Answer sent. The task is continuing.",
   queued: "Answer sent. The task will continue next.",
   pull: "Answer sent. The task will read it.",
-  held: "Answer saved. It waits for your confirmation before it is delivered.",
+  held: "Answer held, not delivered yet: a messaging rule needs your confirmation first. The question stays open.",
   closed: "Answer saved, but this task no longer takes messages.",
   cap: "Answer saved, but the task can't continue now. It has reached its limit.",
   live_unavailable: "Answer saved, but the task can't continue from here yet.",

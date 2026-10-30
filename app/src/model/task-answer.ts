@@ -16,3 +16,6 @@ export function messageQuestion(task: AnswerTask): { id: string; text: string } 
 /** The msg.send answer to a task's question; the request id makes a repeated click send once. */
 export const answerParams = (taskId: string, questionId: string, body: string, requestId: string) =>
   ({ to: `task:${taskId}`, kind: "answer" as const, reply_to: questionId, body: body.trim(), request_id: requestId });
+/** msg.send deliveries that hand the answer to the task; any other leaves the question open and unread. */
+const DELIVERED = new Set(["turn_started", "queued", "pull"]);
+export const answerDelivered = (delivery: unknown): boolean => typeof delivery === "string" && DELIVERED.has(delivery);
