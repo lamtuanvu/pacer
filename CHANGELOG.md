@@ -19,6 +19,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.
 
+- Derive readable task labels from Markdown briefs, preserving explicit titles and complete bracket groups; keep the Sessions navigator mounted with its scroll and data when selecting another task.
+
 - Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
 
 
