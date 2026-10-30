@@ -347,7 +347,9 @@ export const OPS: Record<string, OpDef> = {
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
   "service.handover": op({ description: "After an upgrade, ask older runners to hand their live attempts to this service's version. Waits up to wait_s seconds (default and maximum 60) and returns counts. Owner-only; refused for delegated callers.", params: z.object({wait_s: z.number().int().min(0).max(60).optional()}), handler: async (ctx, p) => {
-    const r = await triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000});
+    const fixture = (await import("../update/desktop/native-fixture")).compiledNativeFixture();
+    const r = await (await import("../service/upgrade")).recoverFixtureHandover(ctx.pacerHome, fixture,
+      () => triggerHandover(ctx, {waitMs: (p.wait_s ?? 60) * 1000}));
     return {pacer: r.pacer, tasks: r.tasks, sessions: r.sessions, handed_over: r.handedOver, kept_on_previous_runner: r.keptOnPreviousRunner, summary: r.summary};
   } }),
   "service.work": op({ description: "Running tasks and live sessions with their runner and host versions, and the sessions that need Reopen to update. Versions and counts only, never paths.", params: z.object({}), handler: async ctx => {
