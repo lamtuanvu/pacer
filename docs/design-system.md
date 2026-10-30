@@ -813,3 +813,12 @@ keyboard navigation, with no nested interactive controls. Production consumer:
 `app/src/screens/dispatch/Dispatch.tsx` Live dispatch ledger.
 
 **Terminal overview preview** (`app/src/term/LazyTerminal.tsx`, `term.tsx`). The specialized terminal renderer remains outside the DS and loads xterm only on demand. `preview` suppresses the session action row; the task overview passes `control={false}` and `resize={false}` and retains connection status, authoritative dimensions and the canonical Screen reader checkbox. Its screen-owned frame is bounded to the 320px size token, with full-size glyphs and a focusable viewport that scrolls on both axes rather than scaling the remote screen down. Watching never takes control, sends input or changes PTY geometry; the workspace link opens the full session. Headless and failed-check text stays in bounded, focusable output regions. No upstream components or provenance changed.
+
+### Dispatch and Insights fidelity variants
+
+- `Button` / `ButtonLink` accept `typography="board"`: 12px line height and regular secondary weight, retaining the active density, focus, disabled/busy semantics and keyboard behavior. Needs you row actions and Insights CSV use this variant.
+- `UsageMeter variant="board"` uses the line-colour 8px track and a pace marker extending 4px above/below it. Other meter sizes retain clipping and existing geometry. Dispatch planner cards consume this variant; meter accessibility and reduced-motion behavior are unchanged.
+- `Stack space="board"` owns the 20px board section gap. Insights uses it instead of overriding shared stack spacing.
+- `ListRow layout="attention"` owns the 12px attention padding in either desktop density. Dispatch attention cards use its existing sibling content/action slots and tone semantics.
+- `board-chart-1` through `board-chart-5` preserve the board's categorical fill colours across schemes. Dispatch token shares and Insights charts use these decorative tokens; adjacent text uses accessible ink tokens. Heatmap text retains accessible foregrounds rather than borrowing series colours.
+- `TextAction heading` is the inline 22px heading-row action used by narrow Dispatch's “All N” link. It retains anchor semantics, keyboard focus and the shared link colours, without the generic 44px touch line box expanding the board heading.

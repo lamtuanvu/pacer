@@ -50,6 +50,12 @@
   --ink-on-fill: #ffffff;
   --shadow-tray-menu-tint: rgb(9 9 11 / .16);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -320,6 +326,12 @@
   --ink-on-fill: #18181b;
   --shadow-tray-menu-tint: rgb(0 0 0 / .55);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
 }
 }
 :root[data-theme="dark"] {
@@ -372,6 +384,12 @@
   --ink-on-fill: #18181b;
   --shadow-tray-menu-tint: rgb(0 0 0 / .55);
   --answer-scrim: color-mix(in srgb, var(--ink) 14%, transparent);
+  --board-chart-1: #4f7a94;
+  --board-chart-2: #c08a6a;
+  --board-chart-3: #8b9bd0;
+  --board-chart-4: #7f8f6f;
+  --board-chart-5: #b9b4a8;
+  --board-on-series: #ffffff;
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }

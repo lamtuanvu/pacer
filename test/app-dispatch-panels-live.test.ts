@@ -69,6 +69,8 @@ test.skipIf(!login || !process.env.PACER_TEST_BROWSER)("live Dispatch starts clo
     await otherWindow.close();
     await page.getByRole("button", { name: "Toggle left panel", exact: true }).click();
     await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
+    await page.setViewportSize({ width: 600, height: 900 });
+    expect(await page.locator(".pc-dispatch-decision").first().evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.setViewportSize({ width: 375, height: 900 });
     await capture("closed-375");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

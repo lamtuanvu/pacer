@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Match Dispatch, Needs you and Insights board spacing, typography, chart colours and mobile containment; retain complete path-safe task titles and readable budget status.
+
 - Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
 - Consolidate task destinations into the task page and add Workspace for sessions, shells, files and diffs.

@@ -1,5 +1,5 @@
 /* Main board geometry. All selectors stay inside Dispatch; Needs you owns its page. */
-.pc-page.pc-dispatch{max-width:none;gap:var(--space-5)}
+.pc-page.pc-dispatch{container-type:inline-size;max-width:none;gap:var(--space-5)}
 @media(min-width:560px){.pc-page.pc-dispatch{padding:var(--space-6) var(--space-8) var(--space-10)}}
 .pc-dispatch .pc-dispatch-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-320)),1fr))}
 .pc-dispatch .pc-dispatch__pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-420)),1fr));gap:var(--space-5);align-items:start}
@@ -22,7 +22,7 @@
 @media(max-width:767px){.pc-dispatch .pc-dispatch-decision{grid-template-columns:minmax(0,1fr) auto}.pc-dispatch-decision>.pc-dispatch-caption:first-child{grid-column:1 / -1}.pc-dispatch-decision__task{grid-column:1 / -1}.pc-dispatch-decision>.pc-dispatch-caption[title]{grid-column:1 / -1;grid-row:auto}.pc-dispatch-decision__tokens{text-align:left}.pc-dispatch-decision__status{grid-column:2}.pc-live-dispatch .grow{display:none}}
 
 .pc-dispatch-share{display:flex;height:var(--size-14);border-radius:var(--radius-sm);overflow:hidden;gap:var(--space-half)}
-.pc-dispatch-share__segment--1{background:var(--chart-1)}.pc-dispatch-share__segment--2{background:var(--chart-2)}.pc-dispatch-share__segment--3{background:var(--chart-3)}.pc-dispatch-share__segment--4{background:var(--chart-4)}.pc-dispatch-share__segment--5{background:var(--chart-5)}
+.pc-dispatch-share__segment--1{background:var(--board-chart-1)}.pc-dispatch-share__segment--2{background:var(--board-chart-2)}.pc-dispatch-share__segment--3{background:var(--board-chart-3)}.pc-dispatch-share__segment--4{background:var(--board-chart-4)}.pc-dispatch-share__segment--5{background:var(--board-chart-5)}
 .pc-dispatch-share-table{display:block;border-collapse:collapse;font-size:var(--type-body-size);line-height:var(--type-body-line)}
 .pc-dispatch-share-table thead,.pc-dispatch-share-table tbody{display:block}
 .pc-dispatch-share-table tr{display:grid;grid-template-columns:minmax(0,1fr) var(--size-56) var(--size-72) var(--size-48);gap:var(--space-3);align-items:center;padding:var(--size-7) 0;border-top:1px solid var(--surface-lane)}
@@ -77,3 +77,9 @@
 .pc-dispatch .pc-narrow-attention--warn{border-color:var(--warn-line)}
 @media(min-width:561px){.pc-first-run__actions>.pc-btn,.pc-empty-dispatch .pc-btn{min-height:var(--size-32)}}
 @media(max-width:560px){.pc-first-run__actions>.pc-btn,.pc-empty-dispatch .pc-btn{min-height:var(--size-44)}}
+
+.pc-narrow-running__row.pc-list-row{flex-wrap:nowrap}
+.pc-narrow-running__row>.pc-dispatch-decision__task{flex:1;min-width:0}
+.pc-narrow-running__row>.pc-agent-mark{flex-shrink:0}
+
+@media(min-width:768px){@container(max-width:1000px){.pc-dispatch .pc-dispatch-decision{grid-template-columns:var(--size-44) minmax(0,1fr) var(--size-76) var(--size-150) var(--size-64) calc(2 * var(--size-56))}.pc-dispatch-decision>.pc-dispatch-caption[title]{grid-column:2 / -1;grid-row:2}}}

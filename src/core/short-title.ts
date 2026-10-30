@@ -89,6 +89,11 @@ export function taskTitle(task: { id?: string; title?: string; brief: { goal: st
 export function fullTaskTitle(task: { title?: string; brief: { goal: string } }): string {
   const title = task.title?.trim();
   const goal = task.brief.goal.trim();
-  if (!title || generatedGoalTitle(title, goal) || title === clipTitle(goal) || title === shortTitle(goal) || title === shortTitle(goal, legacyClipTitle)) return goalTitle(goal);
-  return title;
+  if (!title || generatedGoalTitle(title, goal) || title === clipTitle(goal) || title === shortTitle(goal) || title === shortTitle(goal, legacyClipTitle)) return safeDisplayTitle(goalTitle(goal, false));
+  return safeDisplayTitle(title);
+}
+
+/** Keep filesystem locations out of display text, including native title tooltips. */
+function safeDisplayTitle(title: string): string {
+  return title.replace(/(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?\/)[^\s<>`]+)/g, (_, lead: string, path: string) => lead + (path.split(/[\\/]/).filter(Boolean).at(-1) ?? "file"));
 }

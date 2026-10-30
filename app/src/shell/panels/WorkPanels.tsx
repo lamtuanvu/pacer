@@ -171,8 +171,8 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
             <span className="pc-work-panel-caption">
               {executor.usedPct == null
                 ? "Weekly usage unknown"
-                : `${executor.usedPct}% of week used`}
-              {executor.pacePct != null && ` · pace ${executor.pacePct}%`}
+                : `${Math.round(executor.usedPct)}% of week used`}
+              {executor.pacePct != null && ` · pace ${Math.round(executor.pacePct)}%`}
             </span>
           </>
         )}

@@ -27,6 +27,60 @@
         },
         "usage": "Answer modal scrim.",
         "provisional": "Answer board 21 value; not yet in the design system."
+      },
+      {
+        "name": "board-chart-1",
+        "value": {
+          "light": "#4f7a94",
+          "dark": "#4f7a94"
+        },
+        "usage": "Scheme-independent categorical fill from the Dispatch and Insights boards; never text or status.",
+        "provisional": "Dispatch and Insights board series."
+      },
+      {
+        "name": "board-chart-2",
+        "value": {
+          "light": "#c08a6a",
+          "dark": "#c08a6a"
+        },
+        "usage": "Scheme-independent categorical fill from the Dispatch and Insights boards; never text or status.",
+        "provisional": "Dispatch and Insights board series."
+      },
+      {
+        "name": "board-chart-3",
+        "value": {
+          "light": "#8b9bd0",
+          "dark": "#8b9bd0"
+        },
+        "usage": "Scheme-independent categorical fill from the Dispatch and Insights boards; never text or status.",
+        "provisional": "Dispatch and Insights board series."
+      },
+      {
+        "name": "board-chart-4",
+        "value": {
+          "light": "#7f8f6f",
+          "dark": "#7f8f6f"
+        },
+        "usage": "Scheme-independent categorical fill from the Dispatch and Insights boards; never text or status.",
+        "provisional": "Dispatch and Insights board series."
+      },
+      {
+        "name": "board-chart-5",
+        "value": {
+          "light": "#b9b4a8",
+          "dark": "#b9b4a8"
+        },
+        "usage": "Scheme-independent categorical fill from the Dispatch and Insights boards; never text or status.",
+        "provisional": "Dispatch and Insights board series."
+      },
+      {
+        "name": "board-on-series",
+        "value": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "usage": "Accessible foreground on the scheme-independent Codex heatmap series.",
+        "provisional": "Insights heatmap contrast correction."
       }
     ]
   },

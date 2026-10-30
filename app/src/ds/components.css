@@ -989,7 +989,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 }
 /* Touch targets also apply to shared text actions and controls without Button. */
 @media(max-width:560px),(pointer:coarse){
- body :is(.pc-text-action,.pc-inline-link,.pc-aurora-launcher,.pc-task-card__action,.pc-task-card__toggle,.pc-task-card__title,.pc-input):not(.pc-switch):not(.pc-textarea):not(.tray *){box-sizing:border-box;min-height:var(--control-touch);min-width:var(--control-touch)}
+ body :is(.pc-text-action,.pc-inline-link,.pc-aurora-launcher,.pc-task-card__action,.pc-task-card__toggle,.pc-task-card__title,.pc-input):not(.pc-switch):not(.pc-textarea):not(.pc-text-action--heading):not(.tray *){box-sizing:border-box;min-height:var(--control-touch);min-width:var(--control-touch)}
  .pc-inline-link{display:inline-flex;align-items:center}
 }
 /* Transparent borders enlarge the native switch itself while retaining its track. */
@@ -1053,8 +1053,8 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 :root[data-density="compact"]{--button-control:var(--control-compact)}
 @media(min-width:561px) and (pointer:fine){
  :root[data-density] :is(.pc-input:not(.pc-textarea):not(.pc-control--touch),.pc-choice-picker:not(.pc-choice-picker--touch) .pc-choice-picker__trigger,.pc-range:not(.pc-control--touch)):not(.tray *){min-height:var(--button-control)}
- :root[data-density="normal"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.tray *){min-height:var(--control-normal);padding:var(--space-2) var(--space-3)}
- :root[data-density="compact"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.tray *){min-height:var(--control-compact);padding:var(--space-1\.5) var(--space-2)}
+ :root[data-density="normal"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.pc-list-row--attention):not(.tray *){min-height:var(--control-normal);padding:var(--space-2) var(--space-3)}
+ :root[data-density="compact"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.pc-list-row--attention):not(.tray *){min-height:var(--control-compact);padding:var(--space-1\.5) var(--space-2)}
 }
 
 /* Refresh feedback changes paint only; no transition, including reduced motion. */
@@ -1179,3 +1179,17 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 
 /* The Dispatch ledger retains its board rhythm in either control density. */
 .pc-list-row--dispatch{padding:calc(var(--space-2\.5) - var(--size-1)) var(--space-5)}
+
+/* Board-specific typography and meters are opt-in; density and other consumers retain their geometry. */
+.pc-btn.pc-btn--type-board{line-height:var(--size-12)}
+.pc-btn.pc-btn--type-board.pc-btn--secondary{font-weight:var(--type-body-weight)}
+.pc-chip.pc-chip--repo{line-height:var(--size-12)}
+.pc-dispatch__controls .pc-kbd{padding-inline:var(--size-5)}
+.pc-meter.pc-meter--board{background:var(--line);overflow:visible;height:var(--size-8)}
+.pc-meter--board .pc-meter__fill{border-radius:inherit}
+.pc-meter--board .pc-meter__pace{top:calc(-1 * var(--space-1));bottom:calc(-1 * var(--space-1))}
+.pc-stack--board{gap:var(--space-5)}
+.pc-list-row--attention{padding:var(--space-3)}
+.pc-dispatch-decision .pc-dispatch-decision__tokens{font-size:var(--type-body-size)}
+/* A heading action keeps its board line box. The surrounding row remains a clear text link. */
+@media(max-width:560px){body .pc-dispatch-attention .pc-section__head>.pc-text-action{min-height:0}.pc-dispatch-attention.pc-section{gap:var(--space-2)}}

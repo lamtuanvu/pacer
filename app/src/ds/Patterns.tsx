@@ -19,7 +19,7 @@ export function TextRow({ label, value, meta, className }: {
 export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
-  layout?: 'aligned' | 'planner';
+  layout?: 'aligned' | 'planner' | 'attention';
   outlined?: boolean; tone?: 'bad' | 'warn';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */

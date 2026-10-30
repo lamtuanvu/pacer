@@ -10,8 +10,8 @@ import { eligibilityPresentation } from "../../../../src/view-model/eligibility"
 import { capacity, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
-import { ago, clock } from "../../../../src/view-model/time";
-import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { ago, clock, elapsed } from "../../../../src/view-model/time";
+import { attentionStatus, executorLabel, modeWords, paceStatus } from "../../../../src/view-model/words";
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
 import { AgentMark } from "../../ds/AgentMark";
@@ -78,7 +78,7 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = f
   } : null;
   if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
-    <ListRow className={`pc-attn-card${actions === 1 && item.kind === "review" ? " pc-attn-card--review" : ""}`} outlined tone={bad ? "bad" : actions === 1 && item.kind === "review" ? undefined : "warn"}
+    <ListRow layout="attention" className={`pc-attn-card${actions === 1 && item.kind === "review" ? " pc-attn-card--review" : ""}`} outlined tone={bad ? "bad" : actions === 1 && item.kind === "review" ? undefined : "warn"}
       leading={<StatusGlyph status={actions === 1 && item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} />}
       content={<div className={actions === 1 ? "pc-dispatch-attention-copy" : undefined}><div className="pc-attn-card__title"><span className="sr-only">{status.label}: </span>{card.kind === "task"
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
@@ -94,11 +94,11 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
   const cards = needsYouCards(snapshot, scope, { now }), waiting = needsYou(snapshot, scope).length, others = otherReposNeedingYou(snapshot, scope);
   const page = useOverviewPage(cards, "Needs you", standalone ? Math.max(1, cards.length) : 3, scope.repo ?? "");
   const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery(standalone ? "#/needs-you" : "#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
-  const all = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>{standalone ? "All open items" : narrow ? `All ${waiting}` : "All in Needs you"}</TextAction>;
+  const all = <TextAction heading={narrow} className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>{standalone ? "All open items" : narrow ? `All ${waiting}` : "All in Needs you"}</TextAction>;
   return <section className={standalone ? "pc-section" : "pc-section pc-dispatch-attention"} aria-labelledby="needs-you">
     <div className="pc-section__head">
       <SectionHeading variant={standalone ? undefined : "headline"} id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>
-      {!standalone && waiting > 0 && <span className="pc-count pc-count--bad">{waiting}</span>}
+      {!standalone && !narrow && waiting > 0 && <span className="pc-count pc-count--bad">{waiting}</span>}
       <span className="grow" />{standalone ? otherRepos : all}
     </div>
     {cards.length > 0 && <ul className="pc-dispatch-cards pc-dispatch-cards--flush" aria-label="Needs you, most urgent first">
@@ -120,7 +120,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
   const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && roots.some(n => n.id === t.id)).length;
   const runningNow = byState("running"), queued = byState("queued");
   if (narrow) return <section className="pc-narrow-running" aria-labelledby="running-title"><SectionHeading variant="headline" id="running-title">Running</SectionHeading>
-    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : roots.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label} · {node.repo}</span></span></ListRowLink>)}
+    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : roots.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label}{(() => { const start = snapshot.tasks.find(task => task.id === node.id)?.attemptStartedAt; return start ? ` · running ${elapsed(now - start)}` : ""; })()} · {node.repo}</span></span></ListRowLink>)}
   </section>;
   return <section aria-busy={busy || undefined} className={`pc-card-section pc-live-dispatch${busy ? " pc-query-refreshing" : ""}`} aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading variant="headline" id="live-dispatch">Live dispatch</SectionHeading>
@@ -171,7 +171,7 @@ function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapsh
   return <div className="pc-dispatch-split__half" id="planner-budget" aria-label="Planner budget" role="group">
     <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill>{/* The verdict belongs to the planner's own live reading; a borrowed or historical figure would sit under "Usage unknown". */}{(!budget.meter || budget.meter.live) && <StatusPill status={{ ...pace, label: words.label }} />}</div>
     {advice && <p className="pc-dispatch-advice">{advice}</p>}
-    {budget.meter && <UsageMeter used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? pace.tone : "neutral"} verdict={budget.meter.live ? p.verdict : undefined} size="bar" text="none" now={now} />}
+    {budget.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? pace.tone : "neutral"} verdict={budget.meter.live ? p.verdict : undefined} size="bar" text="none" now={now} />}
     {caption && <span className="muted">{caption}</span>}
   </div>;
 }
@@ -328,11 +328,15 @@ function FirstRunData({ snapshot, query }: { snapshot: ClientSnapshot; query: Ro
 function NarrowPlanner({ snapshot, now, routing, shortWindowPct }: { snapshot: ClientSnapshot; now: number; routing: RoutingPreview | null; shortWindowPct: number | null }) {
   const p = plannerMeter(snapshot), budget = plannerBudget(snapshot, now, shortWindowPct);
   const next = routing?.explain ? nextFromExplanation(routing.explain)?.next : routing?.data?.ranked?.[0]?.id;
+  const caption = (budget?.caption ?? "Planner usage is not measured yet").split(" · ");
+  const mode = modeWords(p?.mode || snapshot.mode?.mode || "");
+  const reset = caption.findIndex(part => part.startsWith("resets "));
+  if (mode) caption.splice(reset < 0 ? caption.length : reset, 0, mode);
   return <section className="pc-narrow-planner" aria-label="Planner budget">
     {p ? <><div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong className="grow">{agentInfo(p.agent).name}</strong><StatusPill status={budget?.meter && !budget.meter.live ? { tone: "neutral", glyph: "◷", label: "Historical usage" } : { ...paceStatus(p.verdict), label: p.verdict === "behind" ? "Under pace" : p.verdict === "ahead" ? "Ahead of pace" : plannerPace(p.verdict).label }} /></div>
-      {budget?.meter && <UsageMeter used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? paceStatus(p.verdict).tone : "neutral"} size="bar" text="none" now={now} />}
-      <span className="pc-dispatch-caption">{budget?.caption ?? "Planner usage is not measured yet"}</span></> : <span>Choose a planner in Dispatcher settings.</span>}
-    <span className="pc-dispatch-caption">{next ? <>Next capable task goes to <b>{executorLabel(next)}</b></> : routing?.loading ? "Checking routing…" : "No agent can take new work now."}</span>
+      {budget?.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? paceStatus(p.verdict).tone : "neutral"} size="bar" text="none" now={now} />}
+      <span className="pc-dispatch-caption">{caption.join(" · ")}</span></> : <span>Choose a planner in Dispatcher settings.</span>}
+    <span className="pc-dispatch-caption">{next ? <>Next capable task goes to <b>{executorLabel(next)}</b> · {routing?.explain ? nextFromExplanation(routing.explain)?.step ?? "Project order for this repository" : routing?.data?.policy ? "Project order for this repository" : "Highest ranked available agent"}</> : routing?.loading ? "Checking routing…" : "No agent can take new work now."}</span>
   </section>;
 }
 

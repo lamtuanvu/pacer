@@ -48,7 +48,13 @@ export type ColorToken =
   | "aurora-3"
   | "ink-on-fill"
   | "shadow-tray-menu-tint"
-  | "answer-scrim";
+  | "answer-scrim"
+  | "board-chart-1"
+  | "board-chart-2"
+  | "board-chart-3"
+  | "board-chart-4"
+  | "board-chart-5"
+  | "board-on-series";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -99,4 +105,10 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
   "shadow-tray-menu-tint": { light: "rgb(9 9 11 / .16)", dark: "rgb(0 0 0 / .55)" },
   "answer-scrim": { light: "color-mix(in srgb, var(--ink) 14%, transparent)", dark: "color-mix(in srgb, var(--ink) 14%, transparent)" },
+  "board-chart-1": { light: "#4f7a94", dark: "#4f7a94" },
+  "board-chart-2": { light: "#c08a6a", dark: "#c08a6a" },
+  "board-chart-3": { light: "#8b9bd0", dark: "#8b9bd0" },
+  "board-chart-4": { light: "#7f8f6f", dark: "#7f8f6f" },
+  "board-chart-5": { light: "#b9b4a8", dark: "#b9b4a8" },
+  "board-on-series": { light: "#ffffff", dark: "#ffffff" },
 };
