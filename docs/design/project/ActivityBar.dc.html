@@ -45,7 +45,7 @@ class Component extends DCLogic {
         { id: 'needs', label: 'Needs you, 3 items', href: 'NeedsYou.dc.html', d: 'M12 3a6 6 0 0 0-6 6c0 6-3 7-3 7h18s-3-1-3-7a6 6 0 0 0-6-6zM10 20a2 2 0 0 0 4 0', count: '3' },
         { id: 'tasks', label: 'Tasks', href: 'Tasks.dc.html', d: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2', count: '' },
         { id: 'insights', label: 'Insights', href: 'Insights.dc.html', d: 'M4 20V10M10 20V4M16 20v-7M22 20H2', count: '' },
-        { id: 'terminal', label: 'Terminal panel (Ctrl+`)', href: 'Shell.dc.html', d: 'M4 5h16v14H4zM7 9l3 3-3 3M13 15h4', count: '' }
+        { id: 'terminal', label: 'Workspace', href: 'Workspace.dc.html', d: 'M3 4h18v16H3zM9 4v16M9 12h12', count: '' }
       ].map((i) => ({ ...i, ...st(i.id) })),
       settings: st('settings')
     };
