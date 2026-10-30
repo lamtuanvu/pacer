@@ -177,3 +177,36 @@ export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: s
   if (!argv) throw Error(`no resume launcher for provider "${cfg.id}"`);
   return {cwd: worktree, argv};
 }
+
+const HEADLESS_RESUME = ["codex", "claude-code", "cursor"], HEADLESS_LAUNCH = [...HEADLESS_RESUME, "agy"];
+/** How a message turn reaches this runner headless: resume its session, replay the thread in a fresh launch, or not at all. */
+export function headlessTurnPath(cfg: Pick<ProviderCfg, "id" | "via">): "resume" | "replay" | null {
+  if (parseRunnerId(cfg.id)?.host) return null;
+  if (cfg.via === "opencode") return "resume";
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  return HEADLESS_RESUME.includes(agent) ? "resume" : HEADLESS_LAUNCH.includes(agent) ? "replay" : null;
+}
+
+/** Continue a headless agent's native session with one new prompt; the process exits when the turn ends. */
+export function resumeHeadlessFor(cfg: ProviderCfg, sessionId: string, prompt: string, workdir: string, taskDir: string, taskId: string): Launch {
+  const model = cfg.model;
+  if (cfg.via === "opencode") {
+    return {cwd: workdir, argv: ["opencode", "run", "--standalone", "--agent", "build", ...(model ? ["-m", model] : []), "--auto", "--session", sessionId, prompt]};
+  }
+  switch (parseRunnerId(cfg.id)?.agent ?? cfg.id) {
+    case "codex": {
+      // `codex exec resume` has no -C; the cwd selects the worktree.
+      const lastMessageFile = join(taskDir, `${taskId}.codex-last.md`);
+      return {
+        cwd: workdir, stdin: prompt, lastMessageFile,
+        argv: ["codex", "exec", "resume", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-o", lastMessageFile, ...(model ? ["-m", model] : []), sessionId, "-"],
+      };
+    }
+    case "claude-code":
+      return {cwd: workdir, argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
+    case "cursor":
+      return {cwd: workdir, argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", workdir, "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
+    default:
+      throw new Error(`no headless resume for provider "${cfg.id}"`);
+  }
+}

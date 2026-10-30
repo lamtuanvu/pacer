@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { tmpDir } from "./helpers";
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
-import { launchArgvFor, launchFor, remoteLaunch, resumeLaunchFor } from "../src/exec/launch";
+import { launchArgvFor, launchFor, remoteLaunch, resumeHeadlessFor, resumeLaunchFor } from "../src/exec/launch";
 
 const s = validateStrategy({
   planner: "opencode",
@@ -169,4 +169,14 @@ test("interactive OpenCode uses only supported full-TUI flags", () => {
   expect(launch.argv).toEqual(["opencode", "--standalone", "--auto", "--prompt", "P"]);
   expect(resumeLaunchFor(s.providers["opencode#byteplus"], "session-1", "/repo", "/run").argv)
     .toEqual(["opencode", "--standalone", "--auto", "--session", "session-1"]);
+});
+
+test("headless resume argv per agent", () => {
+  const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: { model: "gpt-5" } } }, "/x");
+  const codex = resumeHeadlessFor(s.providers.codex!, "sid-1", "next", "/wt", "/runs", "t-20261028-120000-aaaa");
+  expect(codex.argv).toEqual(["codex", "exec", "resume", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-o", "/runs/t-20261028-120000-aaaa.codex-last.md", "-m", "gpt-5", "sid-1", "-"]);
+  expect(codex.stdin).toBe("next");
+  expect(codex.cwd).toBe("/wt");
+  const claude = resumeHeadlessFor(s.providers["claude-code"]!, "sid-2", "next", "/wt", "/runs", "t-20261028-120000-aaaa");
+  expect(claude.argv).toEqual(["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--resume", "sid-2", "next"]);
 });

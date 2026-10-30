@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { emptySnapshot } from "../src/link/envelope";
 import { homeModel } from "../app/src/model/home";
+import { deriveItems } from "../src/attention/rules";
 
 test("home derives planner pace without treating missing quota as zero", () => {
   expect(homeModel(emptySnapshot(), []).planner).toBeNull();
@@ -55,4 +56,14 @@ test("home prefers the planner meter over the old budget when a service sends bo
   const budget = { generatedAt: 1, planner: "codex", strategy: "default", mode: "strict", providers: [{ id: "codex", verdict: "AHEAD", usedPct: 90, pacePct: 40, resetsAt: 1, window: "5h", stale: false }], ranked: [] };
   const planner = { runner: "claude-code", agent: "claude-code", usedPct: 20, pacePct: 30, deltaPts: -10, verdict: "on_pace" as const, activeHoursLeft: 1, resetsAt: 2, window: "weekly", stale: true, advice: "", mode: "normal" };
   expect(homeModel({ ...emptySnapshot(), budget, planner }, []).planner).toMatchObject({ name: "Claude Code", used: 20, stale: true, tone: "good" });
+});
+
+test("a Waiting on you message opens its task instead of sending an empty message", () => {
+  const task = { id: "t1", goal: "Fix login", state: "done", executor: "codex", backend: null, worktree: null, updatedAt: 1,
+    messages: { unreadForHuman: 1, question: { id: "m1", text: "Which provider?", at: 1 } } };
+  const attention = deriveItems({ now: 2, tasks: [task] as never, executors: [], accounts: [], planner: null, setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null });
+  const [item] = homeModel({ ...emptySnapshot(), attention } as never, []).attention;
+  expect(item).toMatchObject({ label: "Waiting on you", href: "#/tasks/t1?tab=answer" });
+  expect(item!.actions?.[0]).toMatchObject({ label: "Answer", op: "ui.open", params: { view: "task", id: "t1", tab: "answer" } });
+  expect(item!.actions?.some(a => a.op === "msg.send")).toBe(false);
 });

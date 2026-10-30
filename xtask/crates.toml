@@ -12,6 +12,9 @@ names = ["wasmtime", "axum", "hyper", "rmcp", "reqwest", "ratatui", "crossterm",
 [crates.pacer-client-protocol]
 layer = 0
 generated = true
+[crates.pacer-desktop-protocol]
+layer = 0
+generated = true
 [crates.pacer-dispatch-protocol]
 layer = 0
 generated = true
@@ -22,6 +25,9 @@ generated = true
 layer = 0
 generated = true
 [crates.pacer-discovery-protocol]
+layer = 0
+generated = true
+[crates.pacer-messaging-protocol]
 layer = 0
 generated = true
 [crates.pacer-plugin-ops-protocol]

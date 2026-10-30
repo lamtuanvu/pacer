@@ -36,6 +36,8 @@ import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { taskDatabase, createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
+import { messagingOverrideSchema } from "../messaging/types";
+import { callerParticipant } from "../messaging/participants";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
 export function validBase(base: string): boolean {
@@ -58,6 +60,7 @@ export const delegateSchema = {
   timeout_min: z.number().min(1).max(240).optional(),
   interactive: z.boolean().optional(),
   group: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/, "group must be 1–40 characters, starting alphanumeric, of letters, digits, - and _").optional(),
+  messaging: messagingOverrideSchema.optional(),
 };
 export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateInput {
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
@@ -66,7 +69,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
-    interactive:a.interactive, group:a.group };
+    interactive:a.interactive, group:a.group, messaging:a.messaging };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
@@ -95,7 +98,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string }
+export interface DelegateInput { /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -292,7 +295,9 @@ function commitDelegate(
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
   }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
-  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});
+  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
+    if(!input.workParent)t.origin=input.origin ?? callerParticipant(ctx).id;
+    if(input.messaging)t.messaging=input.messaging;});
   if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });

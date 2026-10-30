@@ -25,6 +25,7 @@ test("ui.open navigates without calling the service", async () => {
   expect(navigated).toEqual(["#/tasks/t%201"]);
   expect(uiHref({ view: "task", id: "t1" })).toBe("#/tasks/t1");
   expect(uiHref({ view: "session", id: "t1" })).toBe("#/tasks/t1");
+  expect(uiHref({ view: "task", id: "t1", tab: "answer" })).toBe("#/tasks/t1?tab=answer");
   expect(uiHref({ view: "settings", section: "executors" })).toBe("#/settings/executors");
   expect(uiHref({ view: "settings" })).toBe("#/settings");
 });

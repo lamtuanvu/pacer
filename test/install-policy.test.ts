@@ -24,6 +24,7 @@ for (const [planner, name] of planners) {
     expect(text).toContain("verify before reporting done");
     expect(text).toContain("run `pacer review <id> --accept|--reject [--kind <k>]`");
     expect(text).toContain("PACER=off");
+    expect(text).toContain("Use `pacer msg send <id> \"…\"` for follow-ups; it continues the same agent and worktree.");
     expect(text).not.toMatch(/\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F|\u20E3/u);
   });
 

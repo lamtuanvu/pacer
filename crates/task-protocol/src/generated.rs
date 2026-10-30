@@ -588,6 +588,138 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///        "research"
 ///      ]
 ///    },
+///    "messaging": {
+///      "type": "object",
+///      "properties": {
+///        "max_turns": {
+///          "type": "integer",
+///          "maximum": 10000.0,
+///          "exclusiveMinimum": 0.0
+///        },
+///        "rules": {
+///          "type": "array",
+///          "items": {
+///            "type": "object",
+///            "required": [
+///              "effect"
+///            ],
+///            "properties": {
+///              "effect": {
+///                "type": "string",
+///                "enum": [
+///                  "allow",
+///                  "deny"
+///                ]
+///              },
+///              "executor": {
+///                "type": "string",
+///                "minLength": 1
+///              },
+///              "from_kind": {
+///                "type": "string",
+///                "enum": [
+///                  "human",
+///                  "external",
+///                  "launched",
+///                  "any"
+///                ]
+///              },
+///              "from_position": {
+///                "type": "string",
+///                "enum": [
+///                  "top",
+///                  "child",
+///                  "any"
+///                ]
+///              },
+///              "grant": {
+///                "type": "string",
+///                "enum": [
+///                  "required",
+///                  "not_required"
+///                ]
+///              },
+///              "kinds": {
+///                "type": "array",
+///                "items": {
+///                  "type": "string",
+///                  "enum": [
+///                    "message",
+///                    "question",
+///                    "answer",
+///                    "report",
+///                    "nudge",
+///                    "close"
+///                  ]
+///                },
+///                "minItems": 1
+///              },
+///              "limits": {
+///                "type": "object",
+///                "properties": {
+///                  "confirm": {
+///                    "type": "boolean"
+///                  },
+///                  "max_bytes": {
+///                    "type": "integer",
+///                    "maximum": 1048576.0,
+///                    "exclusiveMinimum": 0.0
+///                  },
+///                  "per_minute": {
+///                    "type": "integer",
+///                    "maximum": 9007199254740991.0,
+///                    "exclusiveMinimum": 0.0
+///                  }
+///                },
+///                "additionalProperties": false
+///              },
+///              "relation": {
+///                "anyOf": [
+///                  {
+///                    "type": "string",
+///                    "const": "any"
+///                  },
+///                  {
+///                    "type": "array",
+///                    "items": {
+///                      "type": "string",
+///                      "enum": [
+///                        "self",
+///                        "parent",
+///                        "child",
+///                        "sibling",
+///                        "descendant",
+///                        "ancestor",
+///                        "top_peer",
+///                        "same_tree",
+///                        "none"
+///                      ]
+///                    },
+///                    "minItems": 1
+///                  }
+///                ]
+///              },
+///              "repo": {
+///                "type": "string",
+///                "minLength": 1
+///              },
+///              "to_kind": {
+///                "type": "string",
+///                "enum": [
+///                  "human",
+///                  "external",
+///                  "launched",
+///                  "any"
+///                ]
+///              }
+///            },
+///            "additionalProperties": false
+///          },
+///          "maxItems": 50
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "repo": {
 ///      "type": "string",
 ///      "minLength": 1
@@ -669,6 +801,8 @@ pub struct TaskDelegateParams {
     pub interactive: ::std::option::Option<bool>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<TaskDelegateParamsKind>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub messaging: ::std::option::Option<TaskDelegateParamsMessaging>,
     pub repo: TaskDelegateParamsRepo,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub request_id: ::std::option::Option<TaskDelegateParamsRequestId>,
@@ -953,6 +1087,1017 @@ impl ::std::str::FromStr for TaskDelegateParamsKind {
     }
 }
 impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessaging`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "max_turns": {
+///      "type": "integer",
+///      "maximum": 10000.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "rules": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "effect"
+///        ],
+///        "properties": {
+///          "effect": {
+///            "type": "string",
+///            "enum": [
+///              "allow",
+///              "deny"
+///            ]
+///          },
+///          "executor": {
+///            "type": "string",
+///            "minLength": 1
+///          },
+///          "from_kind": {
+///            "type": "string",
+///            "enum": [
+///              "human",
+///              "external",
+///              "launched",
+///              "any"
+///            ]
+///          },
+///          "from_position": {
+///            "type": "string",
+///            "enum": [
+///              "top",
+///              "child",
+///              "any"
+///            ]
+///          },
+///          "grant": {
+///            "type": "string",
+///            "enum": [
+///              "required",
+///              "not_required"
+///            ]
+///          },
+///          "kinds": {
+///            "type": "array",
+///            "items": {
+///              "type": "string",
+///              "enum": [
+///                "message",
+///                "question",
+///                "answer",
+///                "report",
+///                "nudge",
+///                "close"
+///              ]
+///            },
+///            "minItems": 1
+///          },
+///          "limits": {
+///            "type": "object",
+///            "properties": {
+///              "confirm": {
+///                "type": "boolean"
+///              },
+///              "max_bytes": {
+///                "type": "integer",
+///                "maximum": 1048576.0,
+///                "exclusiveMinimum": 0.0
+///              },
+///              "per_minute": {
+///                "type": "integer",
+///                "maximum": 9007199254740991.0,
+///                "exclusiveMinimum": 0.0
+///              }
+///            },
+///            "additionalProperties": false
+///          },
+///          "relation": {
+///            "anyOf": [
+///              {
+///                "type": "string",
+///                "const": "any"
+///              },
+///              {
+///                "type": "array",
+///                "items": {
+///                  "type": "string",
+///                  "enum": [
+///                    "self",
+///                    "parent",
+///                    "child",
+///                    "sibling",
+///                    "descendant",
+///                    "ancestor",
+///                    "top_peer",
+///                    "same_tree",
+///                    "none"
+///                  ]
+///                },
+///                "minItems": 1
+///              }
+///            ]
+///          },
+///          "repo": {
+///            "type": "string",
+///            "minLength": 1
+///          },
+///          "to_kind": {
+///            "type": "string",
+///            "enum": [
+///              "human",
+///              "external",
+///              "launched",
+///              "any"
+///            ]
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 50
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskDelegateParamsMessaging {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_turns: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub rules: ::std::vec::Vec<TaskDelegateParamsMessagingRulesItem>,
+}
+impl ::std::default::Default for TaskDelegateParamsMessaging {
+    fn default() -> Self {
+        Self {
+            max_turns: Default::default(),
+            rules: Default::default(),
+        }
+    }
+}
+///`TaskDelegateParamsMessagingRulesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "effect"
+///  ],
+///  "properties": {
+///    "effect": {
+///      "type": "string",
+///      "enum": [
+///        "allow",
+///        "deny"
+///      ]
+///    },
+///    "executor": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "from_kind": {
+///      "type": "string",
+///      "enum": [
+///        "human",
+///        "external",
+///        "launched",
+///        "any"
+///      ]
+///    },
+///    "from_position": {
+///      "type": "string",
+///      "enum": [
+///        "top",
+///        "child",
+///        "any"
+///      ]
+///    },
+///    "grant": {
+///      "type": "string",
+///      "enum": [
+///        "required",
+///        "not_required"
+///      ]
+///    },
+///    "kinds": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "message",
+///          "question",
+///          "answer",
+///          "report",
+///          "nudge",
+///          "close"
+///        ]
+///      },
+///      "minItems": 1
+///    },
+///    "limits": {
+///      "type": "object",
+///      "properties": {
+///        "confirm": {
+///          "type": "boolean"
+///        },
+///        "max_bytes": {
+///          "type": "integer",
+///          "maximum": 1048576.0,
+///          "exclusiveMinimum": 0.0
+///        },
+///        "per_minute": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "relation": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "const": "any"
+///        },
+///        {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "enum": [
+///              "self",
+///              "parent",
+///              "child",
+///              "sibling",
+///              "descendant",
+///              "ancestor",
+///              "top_peer",
+///              "same_tree",
+///              "none"
+///            ]
+///          },
+///          "minItems": 1
+///        }
+///      ]
+///    },
+///    "repo": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "to_kind": {
+///      "type": "string",
+///      "enum": [
+///        "human",
+///        "external",
+///        "launched",
+///        "any"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskDelegateParamsMessagingRulesItem {
+    pub effect: TaskDelegateParamsMessagingRulesItemEffect,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<TaskDelegateParamsMessagingRulesItemExecutor>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub from_kind: ::std::option::Option<TaskDelegateParamsMessagingRulesItemFromKind>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub from_position: ::std::option::Option<TaskDelegateParamsMessagingRulesItemFromPosition>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub grant: ::std::option::Option<TaskDelegateParamsMessagingRulesItemGrant>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub kinds: ::std::vec::Vec<TaskDelegateParamsMessagingRulesItemKindsItem>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limits: ::std::option::Option<TaskDelegateParamsMessagingRulesItemLimits>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub relation: ::std::option::Option<TaskDelegateParamsMessagingRulesItemRelation>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repo: ::std::option::Option<TaskDelegateParamsMessagingRulesItemRepo>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub to_kind: ::std::option::Option<TaskDelegateParamsMessagingRulesItemToKind>,
+}
+///`TaskDelegateParamsMessagingRulesItemEffect`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "allow",
+///    "deny"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemEffect {
+    #[serde(rename = "allow")]
+    Allow,
+    #[serde(rename = "deny")]
+    Deny,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemEffect {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemEffect) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemEffect {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Allow => f.write_str("allow"),
+            Self::Deny => f.write_str("deny"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemEffect {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "allow" => Ok(Self::Allow),
+            "deny" => Ok(Self::Deny),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemEffect {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskDelegateParamsMessagingRulesItemExecutor(::std::string::String);
+impl ::std::ops::Deref for TaskDelegateParamsMessagingRulesItemExecutor {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskDelegateParamsMessagingRulesItemExecutor> for ::std::string::String {
+    fn from(value: TaskDelegateParamsMessagingRulesItemExecutor) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemExecutor {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemExecutor {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsMessagingRulesItemExecutor {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemFromKind`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "human",
+///    "external",
+///    "launched",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemFromKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "external")]
+    External,
+    #[serde(rename = "launched")]
+    Launched,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemFromKind {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemFromKind) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemFromKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Human => f.write_str("human"),
+            Self::External => f.write_str("external"),
+            Self::Launched => f.write_str("launched"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemFromKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "human" => Ok(Self::Human),
+            "external" => Ok(Self::External),
+            "launched" => Ok(Self::Launched),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemFromKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemFromPosition`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "top",
+///    "child",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemFromPosition {
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "child")]
+    Child,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemFromPosition {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemFromPosition) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemFromPosition {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Top => f.write_str("top"),
+            Self::Child => f.write_str("child"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemFromPosition {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "top" => Ok(Self::Top),
+            "child" => Ok(Self::Child),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemFromPosition {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemGrant`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "required",
+///    "not_required"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemGrant {
+    #[serde(rename = "required")]
+    Required,
+    #[serde(rename = "not_required")]
+    NotRequired,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemGrant {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemGrant) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemGrant {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Required => f.write_str("required"),
+            Self::NotRequired => f.write_str("not_required"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemGrant {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "required" => Ok(Self::Required),
+            "not_required" => Ok(Self::NotRequired),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemGrant {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemKindsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "message",
+///    "question",
+///    "answer",
+///    "report",
+///    "nudge",
+///    "close"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemKindsItem {
+    #[serde(rename = "message")]
+    Message,
+    #[serde(rename = "question")]
+    Question,
+    #[serde(rename = "answer")]
+    Answer,
+    #[serde(rename = "report")]
+    Report,
+    #[serde(rename = "nudge")]
+    Nudge,
+    #[serde(rename = "close")]
+    Close,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemKindsItem {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemKindsItem) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemKindsItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Message => f.write_str("message"),
+            Self::Question => f.write_str("question"),
+            Self::Answer => f.write_str("answer"),
+            Self::Report => f.write_str("report"),
+            Self::Nudge => f.write_str("nudge"),
+            Self::Close => f.write_str("close"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemKindsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "message" => Ok(Self::Message),
+            "question" => Ok(Self::Question),
+            "answer" => Ok(Self::Answer),
+            "report" => Ok(Self::Report),
+            "nudge" => Ok(Self::Nudge),
+            "close" => Ok(Self::Close),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemKindsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemLimits`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "confirm": {
+///      "type": "boolean"
+///    },
+///    "max_bytes": {
+///      "type": "integer",
+///      "maximum": 1048576.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "per_minute": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskDelegateParamsMessagingRulesItemLimits {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub confirm: ::std::option::Option<bool>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_bytes: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub per_minute: ::std::option::Option<::std::num::NonZeroU64>,
+}
+impl ::std::default::Default for TaskDelegateParamsMessagingRulesItemLimits {
+    fn default() -> Self {
+        Self {
+            confirm: Default::default(),
+            max_bytes: Default::default(),
+            per_minute: Default::default(),
+        }
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemRelation`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string",
+///      "const": "any"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "self",
+///          "parent",
+///          "child",
+///          "sibling",
+///          "descendant",
+///          "ancestor",
+///          "top_peer",
+///          "same_tree",
+///          "none"
+///        ]
+///      },
+///      "minItems": 1
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum TaskDelegateParamsMessagingRulesItemRelation {
+    Variant0(::std::string::String),
+    Variant1(::std::vec::Vec<TaskDelegateParamsMessagingRulesItemRelationVariant1Item>),
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemRelation {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemRelation) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<TaskDelegateParamsMessagingRulesItemRelationVariant1Item>>
+    for TaskDelegateParamsMessagingRulesItemRelation
+{
+    fn from(
+        value: ::std::vec::Vec<TaskDelegateParamsMessagingRulesItemRelationVariant1Item>,
+    ) -> Self {
+        Self::Variant1(value)
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemRelationVariant1Item`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "self",
+///    "parent",
+///    "child",
+///    "sibling",
+///    "descendant",
+///    "ancestor",
+///    "top_peer",
+///    "same_tree",
+///    "none"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
+    #[serde(rename = "self")]
+    Self_,
+    #[serde(rename = "parent")]
+    Parent,
+    #[serde(rename = "child")]
+    Child,
+    #[serde(rename = "sibling")]
+    Sibling,
+    #[serde(rename = "descendant")]
+    Descendant,
+    #[serde(rename = "ancestor")]
+    Ancestor,
+    #[serde(rename = "top_peer")]
+    TopPeer,
+    #[serde(rename = "same_tree")]
+    SameTree,
+    #[serde(rename = "none")]
+    None,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemRelationVariant1Item) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Self_ => f.write_str("self"),
+            Self::Parent => f.write_str("parent"),
+            Self::Child => f.write_str("child"),
+            Self::Sibling => f.write_str("sibling"),
+            Self::Descendant => f.write_str("descendant"),
+            Self::Ancestor => f.write_str("ancestor"),
+            Self::TopPeer => f.write_str("top_peer"),
+            Self::SameTree => f.write_str("same_tree"),
+            Self::None => f.write_str("none"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "self" => Ok(Self::Self_),
+            "parent" => Ok(Self::Parent),
+            "child" => Ok(Self::Child),
+            "sibling" => Ok(Self::Sibling),
+            "descendant" => Ok(Self::Descendant),
+            "ancestor" => Ok(Self::Ancestor),
+            "top_peer" => Ok(Self::TopPeer),
+            "same_tree" => Ok(Self::SameTree),
+            "none" => Ok(Self::None),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemRelationVariant1Item {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskDelegateParamsMessagingRulesItemRepo(::std::string::String);
+impl ::std::ops::Deref for TaskDelegateParamsMessagingRulesItemRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskDelegateParamsMessagingRulesItemRepo> for ::std::string::String {
+    fn from(value: TaskDelegateParamsMessagingRulesItemRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsMessagingRulesItemRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskDelegateParamsMessagingRulesItemToKind`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "human",
+///    "external",
+///    "launched",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsMessagingRulesItemToKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "external")]
+    External,
+    #[serde(rename = "launched")]
+    Launched,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsMessagingRulesItemToKind {
+    fn from(value: &TaskDelegateParamsMessagingRulesItemToKind) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemToKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Human => f.write_str("human"),
+            Self::External => f.write_str("external"),
+            Self::Launched => f.write_str("launched"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemToKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "human" => Ok(Self::Human),
+            "external" => Ok(Self::External),
+            "launched" => Ok(Self::Launched),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemToKind {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()

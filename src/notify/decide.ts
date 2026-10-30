@@ -6,7 +6,7 @@ import { withLock } from "../core/lock";
 import { getLevel, type NotificationLevel } from "../core/notify";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { OutboxEvent } from "../link/envelope";
-import { publish } from "../link/publish";
+import { publish, type PublishReport } from "../link/publish";
 import type { Ctx } from "../types";
 import { pluginRegistry } from "../plugins";
 import { appendPluginLog } from "../plugins/host";
@@ -37,7 +37,7 @@ export function toNotify(items: AttentionItem[], level: NotificationLevel, ledge
   });
 }
 export interface DispatchDeps {
-  publish?: typeof publish;
+  publish?: (ctx: Ctx, events: OutboxEvent[]) => Promise<PublishReport>;
   /** Enabled notifier ids; always tried in id order. */
   notifiers?: string[];
   deliver?: (pluginId: string, data: NotifyData) => Promise<boolean>;

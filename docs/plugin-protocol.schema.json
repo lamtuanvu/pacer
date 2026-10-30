@@ -89,6 +89,7 @@
             "activity",
             "job",
             "notify",
+            "message",
             "machine",
             "assistant",
             "discovery.found"
@@ -6225,6 +6226,7 @@
               "activity",
               "job",
               "notify",
+              "message",
               "machine",
               "assistant",
               "discovery.found"

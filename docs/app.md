@@ -167,7 +167,9 @@ Failed checks and incomplete results expose recovery actions. Ordinary completed
 runs keep verdict recording optional. Mixed attention has no bulk accept action.
 
 Acceptance records a verdict only; integrate branches separately. Send back needs
-a note and creates a linked retry on the same executor. Retry on another executor
+a note. A local task with a resumable session continues in that session with the
+note, after the same project policy admission as a new attempt; otherwise it creates
+a linked retry on the same executor. Retry on another executor
 also creates a linked attempt. Concurrent mutations report a conflict and refresh
 the result rather than overwriting another client's decision.
 

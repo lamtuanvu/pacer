@@ -88,6 +88,16 @@ test("new destinations and legacy bookmarks preserve task IDs and repository sco
  expect(resolveRoute("#/sessions")).toEqual({redirect:"#/tasks"});
 });
 
+test("the native tray's answer route opens the task with its answer box", () => {
+ expect(resolveRoute("#/sessions/t-0412/answer")).toEqual({redirect:"#/tasks/t-0412?tab=answer"});
+ expect(resolveRoute("#/sessions/t-0412/answer?repo=acme&scope=all")).toEqual({redirect:"#/tasks/t-0412?tab=answer&repo=acme&scope=all"});
+ // Redirects before setup state is known, so the destination is not lost to Loading.
+ expect(resolveRoute("#/sessions/t-0412/answer", null)).toEqual({redirect:"#/tasks/t-0412?tab=answer"});
+ expect(resolveRoute("#/tasks/t-0412?tab=answer")).toMatchObject({name:"sessions",id:"t-0412"});
+ expect(resolveRoute("#/sessions/t-0412/other")).toMatchObject({name:"dispatch"});
+ expect(resolveRoute("#/sessions/%E0/answer")).toMatchObject({name:"dispatch"});
+});
+
 test("canonical route targets generate URLs that round-trip with metadata", () => {
  const cases = [
   [routes.dispatch(), "#/", "Dispatch", "dispatch", null],

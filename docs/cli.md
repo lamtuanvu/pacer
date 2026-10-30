@@ -111,7 +111,11 @@ already has a queued or running retry.
 Executors that cannot continue run `pacer ask "<one question>"` once and stop.
 This requires an executor session with `PACER_TASK_ID`; the task settles as
 `needs_input` and raises a question under Needs you. Use
-`pacer answer <task-id> "<text>"` to retry on the same executor. The retry brief
+`pacer answer <task-id> "<text>"` to answer. A local direct-backend task with a
+resumable session continues: the asking executor resumes its own session in the same
+worktree, after the same project policy admission as a new attempt (another admitted
+executor replays the thread if policy now excludes it). Otherwise, or when policy holds
+the continuation, the answer retries on the same executor; the retry brief
 includes cumulative `qa: [{ q, a }]`, rendered as `## Question / Answer`.
 Answers contain 1–2000 characters. Answering twice or answering a task that is
 not waiting for input returns a conflict. `pacer stop <id>` closes a waiting question.

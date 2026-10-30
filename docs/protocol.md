@@ -149,13 +149,15 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
-Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
+Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }` and records answer/answeredAt on the original question. When the task ran locally through the direct backend with a resumable native session (not managed work and not a conversation), the answer continues the original task: it is delivered as an `answer` message, the asking executor resumes its session in the same worktree, and `task` and `retry` both name the original task. That continuation passes the same project policy admission as a new attempt (delegate, then route). If policy now excludes the asking executor, an admitted executor replays the thread in a fresh session; if policy vetoes it or admits no executor, the answer falls back to a retry, which policy admits or refuses (`not_allowed`, hint `plugin <id>`) as it does a new delegation. Otherwise the answer creates a retry on the same executor. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry or one continuation. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify`, `machine` and `discovery.found`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`, `discovery`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify`, `message`, `machine` and `discovery.found`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`, `discovery`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
 
 The `discovery.found` event carries `{ discoveryId, name, version }` once for each machine on the LAN that a prompt was taken for (at most three an hour). `name` and `version` are sanitized but unverified; show them as such and never build URLs or commands from them. A `discovery` attention item (Pair, Later) and, while the current network is unanswered, a `discovery-network` item (Allow, Not on this network) accompany it in the snapshot. `discovery.*` operations, this event, the `discovery` config area and these attention items are not sent to v2 clients.
+
+The `message` entity event (`id` is the message id) carries the stored message `{ id, taskId, rootId, from, to, kind, body, replyTo, requestId, status, createdAt, deliveredAt, readAt, turnId }` when it is sent, claimed by a turn, read, confirmed or closed. A message to or from the human also republishes its task, whose `messages` summary raises the message attention item. Policy plugins can observe it. Messaging is v3-only: message events, like the `msg.*` operations, are not sent to v2 clients.
 
 The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
@@ -4668,6 +4670,263 @@ Params JSON Schema:
 }
 ```
 
+### `msg.close`
+
+Close a task for further messages and release its worktree when it is otherwise cleanable. Records no review verdict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.confirm`
+
+Release a message that a guardrail held for human confirmation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.inbox`
+
+Messages addressed to the caller.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "unread_only": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `msg.log`
+
+A task's message thread.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    },
+    "after": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.policy`
+
+The effective messaging guardrail, or which rule decides a hypothetical send.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "question",
+            "answer",
+            "report",
+            "nudge",
+            "close"
+          ]
+        },
+        "grant": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `msg.read`
+
+Mark the caller's messages read.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ids": {
+      "minItems": 1,
+      "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      }
+    }
+  },
+  "required": [
+    "ids"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.send`
+
+Send a message to another participant. A message to a settled task starts a turn that resumes its native session once project policy admits it (delegate, then route); another admitted executor replays the thread when policy excludes the prior one. A veto or no admitted executor returns delivery held with hold { reason, plugin? }, and the message stays pending.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "to": {
+      "type": "string",
+      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1048576
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "question",
+        "answer",
+        "report",
+        "nudge",
+        "close"
+      ]
+    },
+    "reply_to": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "to",
+    "body"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.wait`
+
+Block until a message for the caller arrives, or a reply to reply_to, or timeout_s passes (max 3000).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "reply_to": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "timeout_s": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3000
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `notifications.get`
 
 Current notification level.
@@ -6582,7 +6841,7 @@ Params JSON Schema:
 
 ### `task.answer`
 
-Answer an executor question and retry on the same executor. Conflicts unless awaiting input.
+Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.
 
 Params JSON Schema:
 
@@ -6792,6 +7051,138 @@ Params JSON Schema:
     "group": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+    },
+    "messaging": {
+      "type": "object",
+      "properties": {
+        "rules": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "effect": {
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "deny"
+                ]
+              },
+              "from_kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "external",
+                  "launched",
+                  "any"
+                ]
+              },
+              "to_kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "external",
+                  "launched",
+                  "any"
+                ]
+              },
+              "from_position": {
+                "type": "string",
+                "enum": [
+                  "top",
+                  "child",
+                  "any"
+                ]
+              },
+              "relation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "any"
+                  },
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "self",
+                        "parent",
+                        "child",
+                        "sibling",
+                        "descendant",
+                        "ancestor",
+                        "top_peer",
+                        "same_tree",
+                        "none"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "kinds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "message",
+                    "question",
+                    "answer",
+                    "report",
+                    "nudge",
+                    "close"
+                  ]
+                }
+              },
+              "repo": {
+                "type": "string",
+                "minLength": 1
+              },
+              "executor": {
+                "type": "string",
+                "minLength": 1
+              },
+              "grant": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "not_required"
+                ]
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "per_minute": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "max_bytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1048576
+                  },
+                  "confirm": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "effect"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "max_turns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 10000
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [
@@ -7469,6 +7860,29 @@ Params JSON Schema:
     "id",
     "title",
     "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `tree.status`
+
+Turn state of every node in a task's tree.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    }
+  },
+  "required": [
+    "task"
   ],
   "additionalProperties": false
 }

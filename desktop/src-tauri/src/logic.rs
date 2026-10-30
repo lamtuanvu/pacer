@@ -1256,7 +1256,10 @@ pub fn route(raw: &str) -> Option<String> {
     if !matches!(parts[0], "review" | "sessions" | "settings" | "needs-you" | "tasks")
         || (parts[0] == "needs-you" && parts.len() != 1)
         || parts.len() > 3
-        || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
+        // Three segments: a remote host's settings, or a task opened at its answer box.
+        || (parts.len() == 3
+            && !(parts[0] == "settings" && parts[1] == "hosts")
+            && !(parts[0] == "sessions" && parts[2] == "answer"))
         || parts.iter().any(|p| {
             p.is_empty()
                 || !p
@@ -2113,9 +2116,25 @@ mod tests {
             "#/review/t-123",
             "/sessions/t-123",
             "/settings/hosts/workstation",
+            "/sessions/t-123/answer",
         ] {
             let normalized = route(raw).expect("supported tray destination");
             assert_eq!(route(&normalized), Some(normalized));
+        }
+        assert_eq!(
+            route("/sessions/t-20261029-190507-4d5a/answer"),
+            Some("#/sessions/t-20261029-190507-4d5a/answer".into())
+        );
+        for raw in [
+            "/sessions/t-123/other",
+            "/review/t-123/answer",
+            "/settings/t-123/answer",
+            "/sessions/t-123/answer/x",
+            "/sessions//answer",
+            "/tasks/t-123?tab=answer",
+            "/sessions/t-123/answer?x=1",
+        ] {
+            assert!(route(raw).is_none(), "{raw}");
         }
         for retired in [
             "executors",

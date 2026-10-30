@@ -1,11 +1,23 @@
 import { closeSync, openSync, writeSync } from "node:fs";
 /**
+ * The planner session's own variables. An executor or a turn runner that inherits them is treated as part of the
+ * planner's session (Claude Code then neither persists nor resumes the executor's own conversation).
+ * Configuration such as CLAUDE_CODE_USE_BEDROCK or CODEX_API_KEY is not a session variable and stays.
+ */
+const PLANNER_SESSION_KEY = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_EXECPATH|CLAUDE_CODE_\w*(SESSION|MESSAGING)\w*|CODEX_THREAD_ID|CODEX_SANDBOX\w*|PACER_PLANNER_SESSION)$/;
+export function withoutPlannerSession<T extends Record<string, string | undefined>>(env: T): T {
+  const out = {...env};
+  for (const k of Object.keys(out)) if (PLANNER_SESSION_KEY.test(k)) delete out[k];
+  return out;
+}
+
+/**
  * Executor accounts must not inherit the planner's selected account: the service's CLAUDE_CONFIG_DIR/CODEX_HOME
  * are removed. A value the user's login profile set (`profileKeys`) stays, as in a terminal, unless the account
  * (a named account folder) overrides it.
  */
 export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>, taskId?: string, profileKeys: readonly string[] = []): Record<string, string | undefined> {
-  const env = {...base};
+  const env = withoutPlannerSession(base);
   if (!profileKeys.includes("CLAUDE_CONFIG_DIR")) delete env.CLAUDE_CONFIG_DIR;
   if (!profileKeys.includes("CODEX_HOME")) delete env.CODEX_HOME;
   delete env.PACER_RUN_DIR;

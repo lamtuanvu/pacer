@@ -4,6 +4,7 @@
     "/needs-you",
     "/sessions",
     "/sessions/task-1",
+    "/sessions/task-1/answer",
     "/tasks",
     "/tasks/task-1",
     "/review/task-1",
@@ -51,6 +52,9 @@
     "/needs-you?answer=t-20261029-153500-a0f9/",
     "/needs-you?answer=t-20261029-153500-a0f9%00",
     "/tasks?answer=t-20261029-153500-a0f9",
-    "pacer://needs-you?answer=t-20261029-153500-a0f9"
+    "pacer://needs-you?answer=t-20261029-153500-a0f9",
+    "/sessions/task-1/answer/x",
+    "/tasks/task-1/answer",
+    "/sessions/task-1/other"
   ]
 }

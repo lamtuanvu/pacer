@@ -35,7 +35,9 @@ export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Ac
     const screen: ScreenId | undefined = view === "review" ? "review" : view === "task" || view === "session" ? "sessions" : view === "settings" ? "settings" : undefined;
     if (!screen) return undefined;
     const section = typeof action.params.section === "string" ? SECTION_IDS[action.params.section] : undefined;
-    return { label: action.label, effect: { type: "navigate", screen, ...(id ? { id } : {}), ...(section ? { section } : {}) } };
+    // The terminal has no message composer: say where the action goes, not what the app does there.
+    const label = action.params.tab === "answer" ? "Open task" : action.label;
+    return { label, effect: { type: "navigate", screen, ...(id ? { id } : {}), ...(section ? { section } : {}) } };
   }
   if (action.op === "task.answer" && ctx.supports(action.op)) {
     return {label:action.label,effect:{type:"prompt",prompt:{title:"Answer the agent",label:subject??"Your answer",required:"Add an answer.",submit:text=>({type:"action",action:{...action,params:{...action.params,text}}})}}};

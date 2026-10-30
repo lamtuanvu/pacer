@@ -46,6 +46,7 @@ import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
+import { msgOps } from "./ops-msg";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -82,11 +83,14 @@ import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
+import { callerParticipant } from "../messaging/participants";
 
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
   appAuthenticated?: boolean;
+  /** In-process callers only (CLI, MCP): the messaging participant when no planner session is detected. Never set from a request. */
+  participant?: string;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
@@ -224,7 +228,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -391,7 +395,7 @@ export const OPS: Record<string, OpDef> = {
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
-      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source}, deps.spawnRunner ?? spawnRunner);
+      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: callerParticipant(ctx, deps).id}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
@@ -401,11 +405,11 @@ export const OPS: Record<string, OpDef> = {
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
   "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(getWork(ctx,p.id)?stopWork(ctx,p.id,p.expect_rev):core.tasks.stop(ctx, p.id))) }),
   "task.answer": op({
-    description: "Answer an executor question and retry on the same executor. Conflicts unless awaiting input.",
+    description: "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
-      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
+      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner),spawnRunner:deps.spawnRunner,appAuthenticated:deps.appAuthenticated,participant:deps.participant});
     },
   }),
   "task.send": op({
@@ -466,7 +470,7 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),

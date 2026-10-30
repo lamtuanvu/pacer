@@ -36,6 +36,7 @@ export const POLICY_EVENT_TYPES = [
   "activity",
   "job",
   "notify",
+  "message",
   "machine",
   "assistant",
   "discovery.found",

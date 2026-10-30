@@ -22,7 +22,7 @@ test("brief-file and stdin preserve text and command flags override file fields"
  writeFileSync(path,JSON.stringify(brief));
  const fromFile=await main(["delegate","--brief-file",path,"--kind","docs","--timeout-min","3","--worktree","new","--json"],ctx);
  expect(fromFile.code).toBe(0);const t=JSON.parse(fromFile.out);
- expect(Object.keys(t).sort()).toEqual(["title","id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source"].sort());
+ expect(Object.keys(t).sort()).toEqual(["title","id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source","origin"].sort());
  expect(t).toMatchObject({source:"cli",brief:{goal,repo:realpathSync(ctx.home),scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
  const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--title","  Queue fix  ","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");expect(JSON.parse(r.out).title).toBe("Queue fix");}finally{io.readBriefStdin=original;}
 });

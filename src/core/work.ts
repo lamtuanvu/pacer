@@ -266,6 +266,7 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
  }
  if(name==="dispatch.enforcement.denied")throw new CoreError("not_allowed","An enforcement identity is required");
  const token=ctx.env.PACER_WORK_GRANT;if(!token){if(ctx.env.PACER_ROLE==="executor"&&name.startsWith("dispatch."))throw new CoreError("not_allowed","A scoped work grant is required");return;}
+ if(["msg.send","msg.inbox","msg.wait","msg.log","msg.read","msg.close","msg.policy","tree.status"].includes(name)){authorizeWorkGrant(ctx,token);return;}
  const caller=authorizeWorkGrant(ctx,token);
  const allowed=["dispatch.child","dispatch.tree","dispatch.events","dispatch.wait","dispatch.review","dispatch.retry","dispatch.answer","dispatch.stop","task.get","task.wait","task.log","task.diff"];
  if(!allowed.includes(name))throw new CoreError("not_allowed","Operation is not allowed by this work grant");

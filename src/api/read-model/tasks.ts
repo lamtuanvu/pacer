@@ -4,17 +4,21 @@ import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
+import { unreadCounts } from "../../messaging/store";
 import type { ApiTask } from "./types";
 
-export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>): ApiTask {
+type UnreadCounts = ReturnType<typeof unreadCounts>;
+export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts): ApiTask {
+ const unread=(counts??unreadCounts(ctx,"human",[t.id])).get(t.id);
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
- return {...taskData(t),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null};
+ return {...taskData(t),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  const repos=records.map(t=>t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const});
  const labels=labelsFor([...listRepos({...ctx,readOnly:true},repos),...repos]);
- return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels));
+ const counts=unreadCounts(ctx,"human",records.map(t=>t.id));
+ return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts));
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));

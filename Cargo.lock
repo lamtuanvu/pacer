@@ -921,6 +921,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-desktop-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-discovery-protocol"
 version = "0.0.0"
 dependencies = [
@@ -972,6 +981,15 @@ name = "pacer-mdns"
 version = "0.0.0"
 dependencies = [
  "socket2",
+]
+
+[[package]]
+name = "pacer-messaging-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
