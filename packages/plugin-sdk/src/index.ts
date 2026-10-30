@@ -27,6 +27,13 @@ export interface HostClient extends ObservationClient {
   invalidate(id?: string): void;
 }
 export type Handler = (params: unknown, host: HostClient, signal: AbortSignal) => unknown | Promise<unknown>;
+/** `pairing.start` params (host >= 1.5.0). Values come from the LAN: untrusted, sanitized by the host; never build URLs or commands from them. */
+export interface PairingStart { discoveryId: string; name: string; hints: string }
+export interface PairingStartResult { accepted: boolean }
+/** The `pairing.start` handler, typed. Spread it into `handlers`; the manifest contributes `pairing` and declares `net.p2p`. */
+export function pairingStart(handler: (params: PairingStart, host: HostClient, signal: AbortSignal) => PairingStartResult | Promise<PairingStartResult>): Record<"pairing.start", Handler> {
+  return { "pairing.start": (params, host, signal) => handler(params as PairingStart, host, signal) };
+}
 export interface ServeOptions {
   manifest: PluginManifest;
   /** Future API notifications begin after the first owned diagnostic/policy call subscribes. */
@@ -53,7 +60,7 @@ export class PluginError extends Error {
   }
 }
 
-export const PROTOCOL = "1.5.0";
+export const PROTOCOL = "1.6.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
@@ -182,7 +189,7 @@ export async function serve(o: ServeOptions): Promise<void> {
             || feature === "httpBodyChunks" && minor >= 2
             || feature === "fileWriteChunks" && minor >= 4
             || feature === "plannerInstallTransactions" && minor >= 4
-            || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 5) : [];
+            || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 6) : [];
         negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;

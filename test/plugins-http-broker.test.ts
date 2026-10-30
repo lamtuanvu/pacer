@@ -5,7 +5,7 @@ import { prepareCredentialBindings } from '../src/plugins/credential-bindings';
 import { fakeCtx } from './helpers';
 import { answerCapability } from '../src/plugins/host';
 import { manifestSchema } from '../src/plugins/protocol';
-const manifest = manifestSchema.parse({ id: 'http-fixture', version: '1.0.0', publisher: 'fixture', host: '^1.5', capabilities: [{ name: 'net.http', scopes: ['127.0.0.1'] }] });
+const manifest = manifestSchema.parse({ id: 'http-fixture', version: '1.0.0', publisher: 'fixture', host: '^1.6', capabilities: [{ name: 'net.http', scopes: ['127.0.0.1'] }] });
 function answerHttp(a: CallAuthority, method: string, params: unknown, transport: any) {
   return answerCapability(a.ctx, { id: manifest.id, manifest }, method, params, a, undefined, transport);
 }

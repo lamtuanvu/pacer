@@ -5,7 +5,7 @@ reaches `N` (default **3**). It permits route and review decisions. It declares
 only `tasks.read`, `events.subscribe`, `config.get` and `log`; it cannot create,
 patch or stop tasks, launch processes, or read credentials.
 
-Use Pacer protocol 1.5 with negotiated observation support and Bun on `PATH`.
+Use Pacer protocol 1.6 with negotiated observation support and Bun on `PATH`.
 From this repository after installing its dependencies:
 
 ```sh

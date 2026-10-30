@@ -2,7 +2,7 @@
   "id": "pacer-policy-budget",
   "version": "0.1.0",
   "publisher": "pacer",
-  "host": "^1.5",
+  "host": "^1.6",
   "entry": "dist/main.js",
   "contributes": { "policy": {} },
   "capabilities": [

@@ -21,7 +21,7 @@ async function peer() {
     onRequest: async () => { throw Error("result chunks must be handled as transport, not capabilities"); }, onStderr: line => logs.push(line), onExit: () => {},
   });
   const hello = await processPeer.request<any>("plugin.hello", { protocol: "1.1.0", features: ["chunkedResults"], pacer: "fixture",
-    manifest: { id: "large-result-fixture", version: "0.2.0", publisher: "test", host: "^1.5", contributes: { usage: {} }, capabilities: [] }, config: {}, grants: [] }, 1000);
+    manifest: { id: "large-result-fixture", version: "0.2.0", publisher: "test", host: "^1.6", contributes: { usage: {} }, capabilities: [] }, config: {}, grants: [] }, 1000);
   return { ctx, processPeer, hello, logs };
 }
 

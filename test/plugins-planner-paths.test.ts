@@ -16,7 +16,7 @@ test("actual peer reads exact selected account under PACER_HOME but cannot read 
     id: "sp06-read",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     capabilities: [
       { name: "fs.read", scopes: ["${HOME}/**", "${PACER_HOME}/**"] },
@@ -127,7 +127,7 @@ test("selected enclosing PACER_HOME cannot expose its secrets tree through direc
     id: "sp06-read",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     tier: "free",
     reentrant: false,

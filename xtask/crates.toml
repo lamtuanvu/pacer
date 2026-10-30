@@ -21,6 +21,9 @@ generated = true
 [crates.pacer-limits-protocol]
 layer = 0
 generated = true
+[crates.pacer-discovery-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-ops-protocol]
 layer = 0
 generated = true
@@ -53,6 +56,8 @@ layer = 0
 generated = true
 [crates.pacer-foundation]
 layer = 1
+[crates.pacer-mdns]
+layer = 2
 [crates.pacer-server]
 layer = 8
 heavy = ["axum", "hyper"]

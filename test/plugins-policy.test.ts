@@ -19,7 +19,7 @@ function fixture(mode="open") {
   configure();
   const install=(verdict:unknown={verdict:"allow"},delay=0)=>{
     const dir=join(ctx.pacerHome,"plugins","fx-policy");mkdirSync(dir,{recursive:true});
-    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1.5",entry:"main.ts",capabilities:[],contributes:{policy:{}}}));
+    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1.6",entry:"main.ts",capabilities:[],contributes:{policy:{}}}));
     writeFileSync(join(dir,"settings.json"),JSON.stringify({verdict,delay}));
     writeFileSync(join(dir,"main.ts"),`#!${process.execPath}\nimport {readFileSync,appendFileSync} from "node:fs";\nfor await(const line of console) {const r=JSON.parse(line); if(!r.id)continue;let result;if(r.method==="plugin.hello")result={protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]};else if(r.method==="policy.before"){appendFileSync("calls.jsonl",JSON.stringify(r.params)+"\\n");const s=JSON.parse(readFileSync("settings.json","utf8"));await Bun.sleep(s.delay);result=s.verdict;}else result={ok:true};console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));}\n`);
     chmodSync(join(dir,"main.ts"),0o755);return dir;

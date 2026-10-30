@@ -18,7 +18,7 @@ function fixture(platform: unknown = 'darwin', spawn: (params: any) => Promise<S
   return { host, calls, logs, controller, deliver: (params: unknown = note) => handlers['notifier.deliver'](params, host, controller.signal) };
 }
 test('manifest names precise notifier contribution and only required tool scopes', () => {
-  expect(manifest.host).toBe('^1.5');
+  expect(manifest.host).toBe('^1.6');
   expect(manifest.contributes.notifier.kinds).toEqual(['os']);
   expect(manifest.capabilities).toEqual([{ name: 'process.spawn', scopes: ['osascript', 'notify-send'] }, { name: 'config.get' }, { name: 'log' }]);
 });

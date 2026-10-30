@@ -7,7 +7,7 @@ import {createTask,updateTask} from '../src/tasks/store';
 import {taskDetail} from '../src/core/task-detail';
 import type {PluginManifest} from '../src/plugins/protocol';
 const fits={resultFits:()=>true};
-const manifest:PluginManifest={id:'policy-test',publisher:'pacer',version:'1.0.0',host:'^1.5',capabilities:[{name:'tasks.read'},{name:'events.subscribe'}],contributes:{policy:{}},reentrant:true,tier:'free'};
+const manifest:PluginManifest={id:'policy-test',publisher:'pacer',version:'1.0.0',host:'^1.6',capabilities:[{name:'tasks.read'},{name:'events.subscribe'}],contributes:{policy:{}},reentrant:true,tier:'free'};
 function setup(){const ctx=fakeCtx({home:realpathSync(tmpDir())});let current=true;const owner=new ReadOwner(ctx,manifest,['tasks.read','events.subscribe'],()=>current);return {ctx,owner,retire:()=>{current=false;}};}
 test('read owners are generation-bound, explicitly read-only and revocable',()=>{
  const {owner,retire}=setup();expect(owner.token).toBeString();owner.assertGranted('tasks.read');

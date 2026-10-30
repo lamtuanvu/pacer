@@ -21,10 +21,10 @@ test('notifier input limits refuse malformed and oversized fields without narrow
 
 import { EXTENSION_METHODS, EXTENSION_POINTS, PLUGIN_PROTOCOL_VERSION, manifestSchema } from '../src/plugins/protocol';
 test('canonical protocol negotiates notifier delivery and accepts notifier manifests', () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe('1.5.0');
+  expect(PLUGIN_PROTOCOL_VERSION).toBe('1.6.0');
   expect(EXTENSION_POINTS).toContain('notifier');
   expect(EXTENSION_METHODS['notifier.deliver']).toBe(NOTIFIER_METHODS['notifier.deliver']);
-  expect(manifestSchema.safeParse({id:'pacer-notify',version:'0.1.0',publisher:'pacer',host:'^1.5',contributes:{notifier:{kinds:['os']}}}).success).toBe(true);
+  expect(manifestSchema.safeParse({id:'pacer-notify',version:'0.1.0',publisher:'pacer',host:'^1.6',contributes:{notifier:{kinds:['os']}}}).success).toBe(true);
 });
 
 import { BUNDLED } from '../plugins/bundled';

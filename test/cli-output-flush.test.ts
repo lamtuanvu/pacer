@@ -8,7 +8,7 @@ test("actual CLI preserves complete large JSON when stdout is piped", async()=>{
  try {
   const directory=join(home,"plugins/flush-fixture");mkdirSync(directory,{recursive:true});
   const scope="marker-"+"界".repeat(256*1024);
-  writeFileSync(join(directory,"pacer-plugin.json"),JSON.stringify({id:"flush-fixture",version:"1.0.0",publisher:"fixture",host:"^1.5",entry:"unused.ts",contributes:{diagnostic:{}},capabilities:[{name:"fs.read",scopes:[scope]}]}));
+  writeFileSync(join(directory,"pacer-plugin.json"),JSON.stringify({id:"flush-fixture",version:"1.0.0",publisher:"fixture",host:"^1.6",entry:"unused.ts",contributes:{diagnostic:{}},capabilities:[{name:"fs.read",scopes:[scope]}]}));
   const child=Bun.spawn([process.execPath,source,"plugin","list","--json"],{env:{HOME:home,PACER_HOME:home,PATH:"/usr/bin:/bin",PACER_NO_UPDATE_CHECK:"1"},stdin:"ignore",stdout:"pipe",stderr:"pipe"});
   const [stdout,stderr,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
   expect(code).toBe(0);expect(stderr).toBe("");expect(Buffer.byteLength(stdout)).toBeGreaterThan(700_000);

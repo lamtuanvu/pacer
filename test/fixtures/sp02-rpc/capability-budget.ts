@@ -8,7 +8,7 @@ CAPABILITY_METHODS["capability.process.spawn"]!.deadlineMs = 25;
 const ctx = fakeCtx(), executable = join(ctx.home, "owned-provider"), marker = join(ctx.home, "owned-pid");
 writeFileSync(executable, `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)},String(process.pid)); setInterval(()=>{},10);\n`, { mode: 0o700 });
 ctx.which = () => executable;
-const manifest = { id: "budget-fixture", version: "0.2.0", publisher: "test", host: "^1.5", contributes: { usage: {} },
+const manifest = { id: "budget-fixture", version: "0.2.0", publisher: "test", host: "^1.6", contributes: { usage: {} },
   capabilities: [{ name: "process.spawn" as const, scopes: ["opencode"] }], reentrant: false, tier: "free" as const };
 const registry = new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
   spawnBundled: c => ({ argv: [process.execPath, join(import.meta.dir, "peer.ts")], cwd: c.home, env: {} }) });

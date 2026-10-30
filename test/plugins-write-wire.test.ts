@@ -14,7 +14,7 @@ async function fixture(protocol:string){
  const root=mkdtempSync(join(tmpdir(),'pacer-write-wire-')),home=join(root,'home');mkdirSync(home);
  const ctx=makeCtx({home:root,pacerHome:home}),dir=join(home,'opencode'),path=join(dir,'opencode.json');
  const owner=createCallAuthority(ctx,{reads:[],commands:[],stores:[],writes:[{path:dir,kind:'directory',operations:['mkdir']},{path,kind:'file',operations:['write']}]},{deadlineMs:Date.now()+5000,grants:['fs.write']});
- const manifest=manifestSchema.parse({id:'fx-writer',version:'1.0.0',publisher:'fixture',host:'^1.5',contributes:{},capabilities:[{name:'fs.write',scopes:['${PACER_HOME}/opencode','${PACER_HOME}/opencode/**']}]});
+ const manifest=manifestSchema.parse({id:'fx-writer',version:'1.0.0',publisher:'fixture',host:'^1.6',contributes:{},capabilities:[{name:'fs.write',scopes:['${PACER_HOME}/opencode','${PACER_HOME}/opencode/**']}]});
  const input=channel(),frames:string[]=[],jobs:Promise<void>[]=[];
  let result!:(value:any)=>void;const response=new Promise<any>(resolve=>{result=resolve;});
  const text='\ufeff'+'界'.repeat(400000);
@@ -49,7 +49,7 @@ test('older negotiated protocol refuses oversized writes before any filesystem r
 test('broker rejects request or acknowledgement overflow before filesystem effects',async()=>{
  const root=mkdtempSync(join(tmpdir(),'pacer-write-envelope-')),ctx=makeCtx({home:root,pacerHome:root}),dir=join(root,'opencode');
  const owner=createCallAuthority(ctx,{reads:[],commands:[],stores:[],writes:[{path:dir,kind:'directory',operations:['mkdir']}]},{deadlineMs:Date.now()+5000,grants:['fs.write']});
- const manifest=manifestSchema.parse({id:'fx-writer',version:'1.0.0',publisher:'fixture',host:'^1.5',capabilities:[{name:'fs.write',scopes:['${PACER_HOME}/opencode']}]});
+ const manifest=manifestSchema.parse({id:'fx-writer',version:'1.0.0',publisher:'fixture',host:'^1.6',capabilities:[{name:'fs.write',scopes:['${PACER_HOME}/opencode']}]});
  try{await prepareWriteAuthority(owner);for(const [request,result] of [[false,true],[true,false]]){
  await expect(answerCapability(ctx,{id:manifest.id,manifest},'capability.fs.mkdir',{path:dir},owner,undefined,{features:['fileWriteChunks'],requestFits:()=>request!,resultFits:()=>result!})).rejects.toMatchObject({code:'too_large'});
  expect(existsSync(dir)).toBe(false);

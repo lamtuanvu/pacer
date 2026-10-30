@@ -5,7 +5,7 @@ import {EventSubscription} from '../src/plugins/event-subscription';
 import {eventsSince} from '../src/api/events';
 import {publish} from '../src/link/publish';
 import type {PluginManifest} from '../src/plugins/protocol';
-const manifest:PluginManifest={id:'event-test',publisher:'pacer',version:'1.0.0',host:'^1.5',capabilities:[{name:'events.subscribe'},{name:'tasks.read'}],contributes:{policy:{}},reentrant:true,tier:'free'};
+const manifest:PluginManifest={id:'event-test',publisher:'pacer',version:'1.0.0',host:'^1.6',capabilities:[{name:'events.subscribe'},{name:'tasks.read'}],contributes:{policy:{}},reentrant:true,tier:'free'};
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 test('subscriptions begin at current canonical v3 cursor and filter only future events',async()=>{
  const ctx=fakeCtx();await publish(ctx,[{type:'task',data:{id:'before',state:'queued',goal:'before',executor:null,backend:null,worktree:null,updatedAt:ctx.now}}]);

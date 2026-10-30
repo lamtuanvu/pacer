@@ -12,7 +12,7 @@ JSON.stringify=function(value:any,...rest:any[]){
 } as typeof JSON.stringify;
 const root=mkdtempSync(join(tmpdir(),"pacer-method-serialization-")),path=join(root,"telemetry.json");writeFileSync(path,"public fixture");
 const ctx={home:root,pacerHome:join(root,".pacer"),now:100,env:{},which:()=>null,run:async()=>({code:127,stdout:"",stderr:""})};
-const manifest={id:"review",publisher:"fixture",version:"0.2.0",host:"^1.5",contributes:{usage:{}},capabilities:[{name:"fs.read" as const,scopes:["$HOME/telemetry.json"]}],reentrant:false,tier:"free" as const};
+const manifest={id:"review",publisher:"fixture",version:"0.2.0",host:"^1.6",contributes:{usage:{}},capabilities:[{name:"fs.read" as const,scopes:["$HOME/telemetry.json"]}],reentrant:false,tier:"free" as const};
 const registry=new PluginRegistry({bundled:[{manifest,main:async()=>({handlers:{}})}],spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,"budget-peer.ts")],cwd:root,env:{}})});
 const started=Date.now();let output:unknown;
 try{

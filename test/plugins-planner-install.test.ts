@@ -27,7 +27,7 @@ test("actual child prepared plan is settled through parent SDK journal preservin
     id: "sp06-install",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     capabilities: [
       { name: "fs.read", scopes: [folder + "/**"] },
@@ -85,7 +85,7 @@ test("same-byte replacement of an observed selected ancestor is refused before j
     id: "sp06-install",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     capabilities: [
       { name: "fs.read", scopes: [root + "/**"] },
@@ -161,7 +161,7 @@ test("actual child consumes oversized immutable prior projection and returns a m
     id: "sp06-install",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     capabilities: [
       { name: "fs.read", scopes: [folder + "/**"] },
@@ -218,7 +218,7 @@ for (const stage of ["apply", "manifest"])
       id: "sp06-install",
       version: "1.0.0",
       publisher: "pacer",
-      host: "^1.5",
+      host: "^1.6",
       contributes: { planner: {} },
       capabilities: [
         { name: "fs.read", scopes: [folder + "/**"] },

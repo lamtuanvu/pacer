@@ -11,7 +11,7 @@ See the [wire protocol](../../docs/plugin-protocol.md) for canonical method sche
 
 The TypeScript runtime supports `tasks.read(id)`, `tasks.list({ states, limit })`,
 `events.subscribe(types)` and `serve({ manifest, handlers, onEvent })` when both
-peers negotiate protocol 1.5 `policyObservations`. Declare and obtain grants for
+peers negotiate protocol 1.6 `policyObservations`. Declare and obtain grants for
 `tasks.read` and `events.subscribe`; callback `log` and `config` also retain their
 existing declaration/grant checks. Task results use the public API projections,
 with list default 100 and maximum 500, state filtering before the limit, and the
@@ -174,7 +174,7 @@ and persistence behavior.
 ### Writing a notifier
 
 A notifier contributes `notifier: { kinds: ["os"] }` and handles
-`notifier.deliver` (plugin protocol 1.5.0). Its input is `{ key, title, body, url }`;
+`notifier.deliver` (plugin protocol 1.6.0). Its input is `{ key, title, body, url }`;
 title and body are limited to 256 and 2048 characters. Return
 `{ delivered: true }` only after successful delivery, otherwise
 `{ delivered: false }`. The host tries enabled notifiers in ID order with a
@@ -199,7 +199,7 @@ references; returned launch settings separate plain `env` from `secretEnv`.
 Rendering with a null selected account updates all managed providers without
 requesting a credential, including an empty provider set after the last removal.
 
-Protocol 1.5.0 adds `host.fs.write(path, text, 0o600)`, `mkdir(path)` and
+Protocol 1.6.0 adds `host.fs.write(path, text, 0o600)`, `mkdir(path)` and
 `remove(path, recursive?)`. Declare `fs.write` scopes. Each operation also needs
 an exact resource issued by the host for the current call; a manifest scope alone
 is insufficient. Writes preserve unchanged contents and use private modes.

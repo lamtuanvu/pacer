@@ -1,4 +1,4 @@
-/** Protocol 1.5 contracts used by the negotiated TypeScript observation runtime. */
+/** Protocol 1.6 contracts used by the negotiated TypeScript observation runtime. */
 export const POLICY_OBSERVATIONS_FEATURE = "policyObservations";
 export type PolicyDecision = "delegate" | "route" | "review";
 export type PolicyVerdict =

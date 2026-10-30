@@ -6,7 +6,7 @@ import {PluginRegistry} from '../src/plugins/registry';
 import {pluginLogPath} from '../src/plugins/host';
 import {publish} from '../src/link/publish';
 import type {PluginManifest} from '../src/plugins/protocol';
-function setup(kind:'normal'|'eof'|'blocked'='normal',peer?:'old'|'no-feature'){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\n');const manifest:PluginManifest={id:'raw-observer',version:'1.0.0',publisher:'pacer',host:'^1.5',contributes:{policy:{},usage:{providers:['synthetic']}},capabilities:[{name:'tasks.read'},{name:'events.subscribe'},{name:'fs.read',scopes:['*']},{name:'fs.write',scopes:['*']},{name:'process.spawn',scopes:['*']}],reentrant:true,tier:'free'};const registry=new PluginRegistry({bundled:[{manifest,main:async()=>({handlers:{}})}],spawnBundled:()=>({argv:kind!=='normal'?['/bin/sh',join(import.meta.dir,'fixtures/policy-observations/eof.sh'),process.execPath,kind]:[process.execPath,join(import.meta.dir,'fixtures/policy-observations/raw.ts'),peer??'negotiated'],cwd:ctx.home,env:{}}),eventPumpMs:0});return {ctx,registry};}
+function setup(kind:'normal'|'eof'|'blocked'='normal',peer?:'old'|'no-feature'){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\n');const manifest:PluginManifest={id:'raw-observer',version:'1.0.0',publisher:'pacer',host:'^1.6',contributes:{policy:{},usage:{providers:['synthetic']}},capabilities:[{name:'tasks.read'},{name:'events.subscribe'},{name:'fs.read',scopes:['*']},{name:'fs.write',scopes:['*']},{name:'process.spawn',scopes:['*']}],reentrant:true,tier:'free'};const registry=new PluginRegistry({bundled:[{manifest,main:async()=>({handlers:{}})}],spawnBundled:()=>({argv:kind!=='normal'?['/bin/sh',join(import.meta.dir,'fixtures/policy-observations/eof.sh'),process.execPath,kind]:[process.execPath,join(import.meta.dir,'fixtures/policy-observations/raw.ts'),peer??'negotiated'],cwd:ctx.home,env:{}}),eventPumpMs:0});return {ctx,registry};}
 async function until(check:()=>boolean){const end=Date.now()+3500;while(!check()){if(Date.now()>end)throw Error('retirement deadline');await Bun.sleep(5);}}
 test('actual all-grants peer cannot substitute readOwner for effects, mixed or foreign authority',async()=>{
  const {ctx,registry}=setup();writeFileSync(join(ctx.home,'sentinel'),'unchanged');try{
@@ -64,7 +64,7 @@ for(const peer of ['old','no-feature'] as const)test(`actual ${peer} peer cannot
  const {ctx,registry}=setup('normal',peer);try{
   const result=await registry.call<any>(ctx,'raw-observer','diagnostic.ping',{mode:'reads'});
   const entry=(registry as any).entries.get('raw-observer');
-  expect(entry.pluginProtocol).toBe(peer==='old'?'1.4.0':'1.5.0');expect(entry.process.supports('policyObservations')).toBe(false);
+  expect(entry.pluginProtocol).toBe(peer==='old'?'1.4.0':'1.6.0');expect(entry.process.supports('policyObservations')).toBe(false);
   expect(result.codes).toEqual(['capability_denied','capability_denied']);
   expect(entry.readOwner).toBeUndefined();
  }finally{await registry.shutdown();}

@@ -4,7 +4,7 @@ import { fakeCtx } from './helpers';
 import type { BundledPlugin } from '../src/plugins/types';
 
 test('all notifier providers are selected by id rather than bundle priority', async () => {
-  const bundles = ['zz-notify','aa-notify'].map(id => ({manifest:{id,version:'0.1.0',publisher:'test',host:'^1.5',contributes:{notifier:{kinds:['os']}},capabilities:[],reentrant:false,tier:'free'},main:async()=>({handlers:{}})})) as BundledPlugin[];
+  const bundles = ['zz-notify','aa-notify'].map(id => ({manifest:{id,version:'0.1.0',publisher:'test',host:'^1.6',contributes:{notifier:{kinds:['os']}},capabilities:[],reentrant:false,tier:'free'},main:async()=>({handlers:{}})})) as BundledPlugin[];
   const registry = new PluginRegistry({bundled:bundles,spawnBundled:()=>{throw new Error('selection must not spawn');}});
   try {
     expect(registry.findAll(fakeCtx(), 'notifier')).toEqual(['aa-notify','zz-notify']);

@@ -31,7 +31,7 @@ if (mode === "recover") {
     id: "sp06-install",
     version: "1.0.0",
     publisher: "pacer",
-    host: "^1.5",
+    host: "^1.6",
     contributes: { planner: {} },
     capabilities: [
       { name: "fs.read", scopes: [folder + "/**"] },

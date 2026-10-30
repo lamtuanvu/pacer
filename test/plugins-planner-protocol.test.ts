@@ -37,7 +37,7 @@ test("planner extension schema declares prepare-only final data and rejects spoo
       id: "pacer-planners",
       version: "1.0.0",
       publisher: "pacer",
-      host: "^1.5",
+      host: "^1.6",
       contributes: { planner: {} },
     }).success,
   ).toBe(true);

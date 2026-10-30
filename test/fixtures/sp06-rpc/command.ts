@@ -3,7 +3,7 @@ const manifest = {
   id: "sp06-rpc",
   version: "1.0.0",
   publisher: "pacer",
-  host: "^1.5",
+  host: "^1.6",
   contributes: { planner: {} },
   capabilities: [{ name: "process.spawn", scopes: ["sp06-tool"] }],
 };

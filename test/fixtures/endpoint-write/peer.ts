@@ -1,6 +1,6 @@
 import {serve,PluginError,type Handler} from '../../../packages/plugin-sdk/src/index';
 import {join} from 'node:path';
-export const manifest={id:'fx-endpoint-write',version:'1.0.0',publisher:'fixture',host:'^1.5',contributes:{endpoint:{apis:['openai-compatible']}},capabilities:[{name:'fs.write' as const,scopes:['${PACER_HOME}/opencode','${PACER_HOME}/opencode/**']}]};
+export const manifest={id:'fx-endpoint-write',version:'1.0.0',publisher:'fixture',host:'^1.6',contributes:{endpoint:{apis:['openai-compatible']}},capabilities:[{name:'fs.write' as const,scopes:['${PACER_HOME}/opencode','${PACER_HOME}/opencode/**']}]};
 let previousHandle:string|undefined;
 export const handlers:Record<string,Handler>={'endpoint.launchEnv':async(raw,host)=>{
  const params=raw as {pacerHome:string;account:{name:string}},dir=join(params.pacerHome,'opencode'),path=join(dir,'opencode.json');

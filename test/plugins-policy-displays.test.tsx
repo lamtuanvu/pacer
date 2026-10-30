@@ -89,7 +89,7 @@ test('polled snapshot keeps enabled policy count current without starting the in
  const ctx=fakeCtx();homes.push(ctx);let starts=0;
  pluginRegistry(ctx,{bundled:[],spawnBundled:()=>{starts++;throw Error('must not start');},spawn:(()=>{starts++;throw Error('must not start');}) as never});
  const dir=join(ctx.pacerHome,'plugins','fx-policy');mkdirSync(dir,{recursive:true});
- writeFileSync(join(dir,'pacer-plugin.json'),JSON.stringify({id:'fx-policy',version:'1.0.0',publisher:'test',host:'^1.5',entry:'main.ts',capabilities:[],contributes:{policy:{}}}));
+ writeFileSync(join(dir,'pacer-plugin.json'),JSON.stringify({id:'fx-policy',version:'1.0.0',publisher:'test',host:'^1.6',entry:'main.ts',capabilities:[],contributes:{policy:{}}}));
  const config=(mode:string)=>writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify({planner:'claude-code',providers:{'claude-code':{}},plugins:{policy:{mode},installed:{'fx-policy':{version:'1.0.0',capabilities:[]}}}}));
  const {st,s}=capacityFixture(),setup={checkedAt:ctx.now,complete:true,ready:true,items:[],policy:{mode:'open' as const,plugins:0}};
  config('open');const first=buildReadModel(ctx,{status:st,strategy:s,tasks:[],hosts:[],setup});expect(first.policy).toEqual({mode:'open',plugins:1});

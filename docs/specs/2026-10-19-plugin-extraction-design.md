@@ -14,7 +14,7 @@ section below is one sub-project with its own implementation plan and PR. Nothin
 | Order | Usage, classifier, notifier, endpoint vendor, planner integration, policy, host runner, direct executor, Orca executor, surfaces, distribution. |
 | Orca | Not redesigned. The Orca executor is extracted as it is; the Orca panel stays a client. |
 
-## Protocol additions (additive under P14; landed together as plugin protocol 1.5.0)
+## Protocol additions (additive under P14; landed together as plugin protocol 1.6.0)
 
 ### Streaming calls
 

@@ -1,7 +1,7 @@
 import {expect,test,spyOn} from 'bun:test';
 import {serve,PROTOCOL,type ObservationClient} from '@pacer/plugin';
 function channel(){const lines:string[]=[];let wake=()=>{};let closed=false;return {input:{async *[Symbol.asyncIterator](){for(;;){while(lines.length)yield lines.shift()!;if(closed)return;await new Promise<void>(resolve=>{wake=resolve;});}}},send:(value:unknown)=>{lines.push(JSON.stringify(value));wake();},close:()=>{closed=true;wake();}};}
-const manifest={id:'event-sdk',publisher:'pacer',version:'1.0.0',host:'^1.5',capabilities:[{name:'tasks.read'},{name:'events.subscribe'}],contributes:{policy:{}}};
+const manifest={id:'event-sdk',publisher:'pacer',version:'1.0.0',host:'^1.6',capabilities:[{name:'tasks.read'},{name:'events.subscribe'}],contributes:{policy:{}}};
 async function until(check:()=>boolean){const end=Date.now()+2000;while(!check()){if(Date.now()>end)throw Error('event deadline');await Bun.sleep(1);}}
 test('events bootstrap only during a real owned method and callbacks use independent readOwner',async()=>{
  const ch=channel(),writes:any[]=[];let callback:ObservationClient|undefined;let task:any;

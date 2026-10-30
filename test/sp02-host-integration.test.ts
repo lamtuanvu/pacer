@@ -12,7 +12,7 @@ test("mixed bundle scopes allow Claude without an account home and never broaden
   mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true }); writeFileSync(path, "{}");
   const authority = createCallAuthority(ctx, { reads: [{ path, kind: "file" }], commands: [], stores: [] }, { deadlineMs: Date.now() + 10000, grants: ["fs.read"] });
   await prepareFilesystemAuthority(authority);
-  const manifest: PluginManifest = { id: "fixture", publisher: "test", version: "0.2.0", host: "^1.5", contributes: { usage: {} }, tier: "free", reentrant: true,
+  const manifest: PluginManifest = { id: "fixture", publisher: "test", version: "0.2.0", host: "^1.6", contributes: { usage: {} }, tier: "free", reentrant: true,
     capabilities: [{ name: "fs.read", scopes: ["${PACER_HOME}/cache/claude-rate-limits*.json", "${ACCOUNT_HOME}/sessions/**"] }] };
   try {
     expect(await answerCapability(ctx, { id: manifest.id, manifest }, "capability.fs.read", { path }, authority)).toHaveProperty("text", "{}");
@@ -32,7 +32,7 @@ test("host dispatch shares one capability window across provider work and filesy
   const authority = createCallAuthority(ctx, { reads: [{ path, kind: "file" }], commands: [{ argv, timeoutMs: 1000 }], stores: [] },
     { deadlineMs: Date.now() + 10000, grants: ["fs.read", "process.spawn"] });
   await prepareFilesystemAuthority(authority); prepareSpawnAuthority(authority);
-  const manifest: PluginManifest = { id: "fixture", publisher: "test", version: "0.2.0", host: "^1.5", contributes: { usage: {} }, tier: "free", reentrant: true,
+  const manifest: PluginManifest = { id: "fixture", publisher: "test", version: "0.2.0", host: "^1.6", contributes: { usage: {} }, tier: "free", reentrant: true,
     capabilities: [{ name: "fs.read", scopes: ["${HOME}/telemetry.json"] }, { name: "process.spawn", scopes: ["opencode"] }] };
   const provider = { id: manifest.id, manifest };
   try {

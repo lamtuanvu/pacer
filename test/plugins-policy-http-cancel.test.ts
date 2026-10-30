@@ -40,7 +40,7 @@ test('HTTP lifetime composition preserves an upstream trusted abort instead of r
 
 test('retained read owners do not inherit the original request operation lifetime', () => {
   const f = policyGateFixture({ verdict: 'allow' }), controller = new AbortController();
-  const manifest: PluginManifest = { id: 'fx-read', version: '1.0.0', publisher: 'test', host: '^1.5', capabilities: [{ name: 'tasks.read' }], contributes: { policy: {} }, reentrant: false, tier: 'free' };
+  const manifest: PluginManifest = { id: 'fx-read', version: '1.0.0', publisher: 'test', host: '^1.6', capabilities: [{ name: 'tasks.read' }], contributes: { policy: {} }, reentrant: false, tier: 'free' };
   const owner = new ReadOwner({ ...f.ctx, operation: { signal: controller.signal } }, manifest, ['tasks.read'], () => true);
   controller.abort();
   expect(owner.ctx.operation).toBeUndefined();

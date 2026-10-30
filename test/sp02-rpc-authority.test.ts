@@ -9,7 +9,7 @@ class Input implements AsyncIterable<string> {
   async *[Symbol.asyncIterator]() { for (;;) { const next = this.queue.length ? this.queue.shift()! : await new Promise<string | null>(resolve => { this.reader = resolve; }); if (next === null) return; yield next; } }
 }
 async function until(check: () => boolean) { const end = Date.now() + 2000; while (!check()) { if (Date.now() > end) throw Error("fixture wait timed out"); await Bun.sleep(1); } }
-const manifest = { id: "public-fixture", version: "1.0.0", publisher: "test", host: "^1.5", contributes: { usage: {} } };
+const manifest = { id: "public-fixture", version: "1.0.0", publisher: "test", host: "^1.6", contributes: { usage: {} } };
 
 test("SDK capability requests keep each overlapping handler's own call metadata", async () => {
   const input = new Input(), out: any[] = [];

@@ -18,7 +18,7 @@ export const manifest: PluginManifest = {
   id: "pacer-planners",
   version: "0.1.0",
   publisher: "pacer",
-  host: "^1.5",
+  host: "^1.6",
   contributes: {
     planner: { agents: ["claude-code", "codex", "cursor", "opencode"] },
   },

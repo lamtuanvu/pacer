@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PluginRegistry } from "../src/plugins/registry";
 import { fakeCtx } from "./helpers";
-const manifest = { id: "usage-fixture", version: "1.0.0", publisher: "test", host: "^1.5", contributes: { usage: {} }, capabilities: [], reentrant: false, tier: "free" as const };
+const manifest = { id: "usage-fixture", version: "1.0.0", publisher: "test", host: "^1.6", contributes: { usage: {} }, capabilities: [], reentrant: false, tier: "free" as const };
 const params = (provider: string) => ({ provider, usage: "quota", account: null, accountHome: null, model: null, weeklyTokens: null, weeklyUsd: null,
   quotaSource: null, now: 100, readOnly: true, refresh: false });
 const make = () => new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],

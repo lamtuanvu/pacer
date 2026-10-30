@@ -22,15 +22,15 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.5.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.6.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "fs.write", "usage.state"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "usage.state"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
-/** Extension points and capabilities added in 1.5.0; a manifest that uses one gates on that host. */
+/** Extension points and capabilities added in 1.6.0; a manifest that uses one gates on that host. */
 export const M0_EXTENSION_POINTS = ["usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const satisfies readonly ExtensionPoint[];
 export const M0_CAPABILITIES = ["fs.write", "usage.state"] as const satisfies readonly Capability[];
 
@@ -52,8 +52,12 @@ export const manifestSchema = z.object({
 }).superRefine((m, ctx) => {
   const extraction = M0_EXTENSION_POINTS.filter(point => m.contributes[point] !== undefined);
   const effects = m.capabilities.filter(c => (M0_CAPABILITIES as readonly string[]).includes(c.name)).map(c => c.name);
-  if ((extraction.length || effects.length) && !hostFloorAtLeast(m.host, "1.5.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...extraction, ...effects].join(", ")} sets host to >=1.5.0` });
+  if ((extraction.length || effects.length) && !hostFloorAtLeast(m.host, "1.6.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...extraction, ...effects].join(", ")} sets host to >=1.6.0` });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
+  if (Object.hasOwn(m.contributes, "pairing")) {
+    if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });
+    if (!hostFloorAtLeast(m.host, "1.5.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.pairing sets host to >=1.5.0" });
+  }
   m.capabilities.forEach((c, i) => {
     if (c.name === "identity.sign") (c.scopes ?? []).forEach((scope, j) => {
       if (!PLUGIN_ID.test(scope)) ctx.addIssue({ code: "custom", path: ["capabilities", i, "scopes", j], message: "identity.sign scopes are signing purposes: 2-64 lowercase letters, digits and hyphens" });
@@ -128,6 +132,8 @@ export const assistantRespondResult = z.object({
 /** The host caps an `assistant.respond` call at this long, whatever `limits.deadlineMs` asks for. */
 export const ASSISTANT_MAX_DEADLINE_MS = 120_000;
 
+export const pairingStartResult = z.object({ accepted: z.boolean() });
+
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "observation.observe": method({description:"Return normalized, scoped observations without credentials or raw provider payloads.",params:z.object({scope:observationScopeSchema,method:observationMethodSchema}),result:z.array(observationSchema).max(64),deadlineMs:5000}),
@@ -150,6 +156,12 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
   "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
   "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),
+  "pairing.start": method({
+    description: "The user chose Pair for a machine found on the LAN. Start the plugin's pairing flow and say whether it took the request. The values come from the network: they are untrusted and already sanitized by the host. Never build URLs or commands from them. The host validates the result; an invalid result or an error counts as not accepted.",
+    params: z.object({ discoveryId: z.string().regex(/^[a-z2-7]{26}$/), name: z.string().max(64), hints: z.string().max(200) }),
+    result: pairingStartResult,
+    deadlineMs: 5000,
+  }),
   "diagnostic.ping": method({ description: "Liveness check used by plugin.doctor.", params: z.object({}), result: z.object({ ok: z.literal(true), uptimeS: z.number().nonnegative() }), deadlineMs: 5000 }),
 };
 

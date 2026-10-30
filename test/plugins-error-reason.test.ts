@@ -23,7 +23,7 @@ test('real host-to-SDK stdio preserves the fixed classification and drops arbitr
   const peer=new PluginProcess({argv:[process.execPath,join(import.meta.dir,'fixtures/plugin-error-reason/peer.ts')],cwd:import.meta.dir,env:{}},{
     onRequest:async()=>{throw new CoreError(code,'safe refusal',undefined,{reason,secret:'must-not-cross-wire'});},onStderr:()=>{},onExit:()=>{},
   });
-  const manifest=manifestSchema.parse({id:'fx-error-reason',version:'1.0.0',publisher:'fixture',host:'^1.5',contributes:{},capabilities:[{name:'config.get'}]});
+  const manifest=manifestSchema.parse({id:'fx-error-reason',version:'1.0.0',publisher:'fixture',host:'^1.6',contributes:{},capabilities:[{name:'config.get'}]});
   try {
     await peer.request('plugin.hello',{protocol:'1.3.0',pacer:'fixture',manifest,config:{},grants:['config.get']},2000);
     const first=await peer.request('diagnostic.ping',{},2000);

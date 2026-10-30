@@ -1,8 +1,8 @@
 // Shared fixture plugin. Behavior comes from fixture.json in the working directory (the plugin folder).
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { PluginError, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
+import { PluginError, pairingStart, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[] }
+interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
@@ -20,6 +20,10 @@ function receipt(ping: number, phase: "enter" | "exit" | "abort"): void {
 await serve({
   manifest, contributes: fixture.claimContributes, input: stdinLines(),
   handlers: {
+    ...pairingStart(params => {
+      if (fixture.pairingFile) writeFileSync(fixture.pairingFile, JSON.stringify(params), { mode: 0o600 });
+      return (fixture.pairingResult ?? { accepted: true }) as { accepted: boolean };
+    }),
     "ui.render": async (_params, host) => {
       renders++;
       if (fixture.renderCrash) setTimeout(() => process.exit(9), 10);

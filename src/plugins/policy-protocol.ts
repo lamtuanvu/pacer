@@ -38,6 +38,7 @@ export const POLICY_EVENT_TYPES = [
   "notify",
   "machine",
   "assistant",
+  "discovery.found",
 ] as const;
 export const POLICY_TASK_STATES = [
   "queued",

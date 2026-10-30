@@ -11,7 +11,7 @@ import { createCallAuthority } from "../src/plugins/authority";
 import type { PluginManifest } from "../src/plugins/protocol";
 import { fakeCtx } from "./helpers";
 
-const provider = { id: "sp02-security", manifest: { id: "sp02-security", version: "0.2.0", publisher: "test", host: "^1.5",
+const provider = { id: "sp02-security", manifest: { id: "sp02-security", version: "0.2.0", publisher: "test", host: "^1.6",
   contributes: { usage: {} }, capabilities: [{ name: "fs.read", scopes: ["$ACCOUNT_HOME/sessions/**"] }],
   reentrant: true, tier: "free" } satisfies PluginManifest };
 async function resources() {

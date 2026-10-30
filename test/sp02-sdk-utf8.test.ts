@@ -8,7 +8,7 @@ test("actual SDK stdio preserves a split UTF8 scalar and inline BOM in capabilit
   const root = mkdtempSync(join(tmpdir(), "pacer-sdk-utf8-"));
   const sdk = new URL("../packages/plugin-sdk/src/index.ts", import.meta.url).href;
   const script = `import {serve} from ${JSON.stringify(sdk)};
-await serve({manifest:{id:"utf8-fixture",version:"0.2.0",publisher:"fixture",host:"^1.5",contributes:{diagnostic:{}}},
+await serve({manifest:{id:"utf8-fixture",version:"0.2.0",publisher:"fixture",host:"^1.6",contributes:{diagnostic:{}}},
   handlers:{"fixture.echo":async(_params,host)=>host.call("capability.fs.read",{path:"/public-fixture"})}});`;
   const child = Bun.spawn([process.execPath, "-e", script], {
     stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { HOME: root, PACER_HOME: root },
