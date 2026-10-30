@@ -50,7 +50,6 @@ export function Icon({ name }: { name: IconName }) {
     "repo": "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
     "refresh": "M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5",
     "close": "M6 6l12 12M18 6L6 18",
-    "chevron-up": "M6 15l6-6 6 6",
     "chevron-down": "M6 9l6 6 6-6",
     "stack": "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5",
     "bolt": "M13 2 4 14h7l-1 8 9-12h-7l1-8z",
