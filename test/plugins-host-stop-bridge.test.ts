@@ -6,7 +6,7 @@ import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostStop } from "../src/plugins/host-stop-issuer";
 import { createTask, updateTask } from "../src/tasks/store";
 import { releaseReservation, reserveIdle } from "../src/update/desktop/admission";
-import { fakeCtx, realRun } from "./helpers";
+import { fakeCtx, realRun, folderPlugins } from "./helpers";
 
 test("host-issued STOP is one-use and leaves ambiguous completion unsettled", async () => {
   const home = mkdtempSync(join(tmpdir(), "pacer-host-stop-bridge-"));
@@ -19,7 +19,7 @@ test("host-issued STOP is one-use and leaves ambiguous completion unsettled", as
   chmodSync(join(providerDir, "index.ts"), 0o755);
   const success = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nnonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')\nprintf '__PACER_BEGIN__\\ncode=137\\nkilled=1\\n\\n__PACER_DONE__=%s\\n' "$nonce"\n`;
   writeFileSync(ssh, success); chmodSync(ssh, 0o755);
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled caller"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerDir]));
   try {
     writeFileSync(join(pacerHome, "strategy.yaml"),
       "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: ssh-fixture\n");

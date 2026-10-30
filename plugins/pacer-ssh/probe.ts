@@ -312,7 +312,8 @@ sort -rn | head -n 15 | while read -r mtime file; do
   done || true
 done`;
 
-const shq = (value: string) => /^[A-Za-z0-9_\\/.:=@%+-]+$/.test(value)
+// Identical to the host's shq (src/install/fsx.ts) so the plugin argv matches the host pin byte for byte.
+const shq = (value: string) => /^[A-Za-z0-9_\/.:=@%+-]+$/.test(value)
   ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
 /** Exact argv issued separately by the host's process capability. */

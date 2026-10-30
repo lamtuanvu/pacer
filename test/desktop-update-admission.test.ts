@@ -291,16 +291,6 @@ test("malformed Orca state and worker rows cannot establish idle", async () => {
   }
 });
 
-import { runRemote } from "../src/remote/ssh";
-import { SCRIPTS } from "../src/remote/scripts";
-test("lost synchronous remote mutation response retains an operation blocker", async () => {
-  const ctx = context();
-  ctx.run = async () => ({ code: 255, stdout: "__PACER_BEGIN__\n", stderr: "transport lost" });
-  const host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
-  await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, ["/repo", "name", "unused"]);
-  expect((await reserveIdle(ctx, "tx-a")).blockers).toContainEqual(expect.objectContaining({ kind: "operation" }));
-});
-
 test("queued launch resumes exactly once after reservation release", async () => {
   const ctx = context(); await reserveIdle(ctx, "tx-a");
   const record = task(ctx);
@@ -312,21 +302,6 @@ test("queued launch resumes exactly once after reservation release", async () =>
   expect(await drainQueue(ctx, spawn, queueDeps())).toEqual([record.id]);
   expect(await drainQueue(ctx, spawn, queueDeps())).toEqual([]);
   expect(launches).toBe(1);
-});
-
-test("only an exact remote mutation completion releases admission and private receipt is stripped", async () => {
-  const ctx = context(), host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
-  ctx.run = async argv => {
-    const nonce = argv.at(-1)!.match(/__PACER_DONE__=([a-f0-9-]{36})/)?.[1];
-    expect(nonce).toBeTruthy();
-    return { code: 0, stdout: `__PACER_BEGIN__\nresult\n\n__PACER_DONE__=${nonce}\n`, stderr: "" };
-  };
-  const result = await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, ["/repo", "name", "unused"]);
-  expect(result.stdout).toBe("result\n");
-  expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(true);
-  ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\nread-only", stderr: "" });
-  expect((await runRemote(ctx, host, SCRIPTS.PROBE, [])).stdout).toBe("read-only");
-  await expect(runRemote(ctx, host, SCRIPTS.CLEAN, [])).rejects.toThrow("maintenance");
 });
 
 test("an unsupported queued-work reason requires recovery rather than proving idle", async () => {

@@ -27,7 +27,7 @@ import { prepareStateAuthority } from "./usage-state";
 import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
-import { CallAdmission, SerialCalls } from "./admission";
+import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
@@ -143,6 +143,8 @@ export class PluginRegistry {
   private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
   private readonly admission = new CallAdmission();
+  // Full-session viewer streams have no deadline; they run in their own pool so they can never hold the shared call slots.
+  private readonly streamAdmission = new CallAdmission(SESSION_STREAM_SLOTS, 0, "session viewer stream");
   private readonly refusedShadows = new Set<string>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
@@ -1639,6 +1641,8 @@ export class PluginRegistry {
       else if (!PLUGIN_ID.test(folder)) refusal = `invalid folder name ${folder}`;
       else if (!m.entry || isAbsolute(m.entry) || normalize(m.entry).startsWith("..")) refusal = "entry must be a relative path inside the plugin folder";
       else if (Object.hasOwn(m.contributes, "assistant")) refusal = "only bundled plugins may serve the assistant extension point until installed plugins are sandboxed";
+      else if (Object.hasOwn(m.contributes, "hostRunner") || Object.hasOwn(m.contributes, "remoteCaller"))
+        refusal = "only the bundled pacer-ssh and pacer-remote-caller plugins may serve the hostRunner and remoteCaller extension points";
       else if (!hostRangeAccepts(m.host, PLUGIN_PROTOCOL_VERSION)) refusal = `needs host ${m.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
       apply(this.entry(folder, refusal ? null : m, false, dir), refusal, cfg.installed[folder] ?? null);
     }
@@ -2059,7 +2063,7 @@ export class PluginRegistry {
       // The canonical classifier may resolve only the key reference of its selected configuration.
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
-    return this.admission.run(deadlineAt, async signal => {
+    return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
         if(e.plannerRetirement)await e.plannerRetirement;
         if(e.plannerGenerationFailure)throw e.plannerGenerationFailure;

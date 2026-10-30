@@ -10,7 +10,7 @@ import { prepareClaimedBundle, publishPreparedBundle } from "../src/plugins/clai
 import { manifestSchema } from "../src/plugins/protocol";
 import { createTask, updateTask } from "../src/tasks/store";
 import type { CallAuthority } from "../src/plugins/authority";
-import { fakeCtx, realRun } from "./helpers";
+import { fakeCtx, folderPlugins, realRun } from "./helpers";
 
 function fixture(sshBody = "printf '__PACER_BEGIN__\\nabc'",
   preflightOutput = `ancestor=1\\ndirty=0\\ncommits=1\\nhead=${"b".repeat(40)}\\n`) {
@@ -34,9 +34,9 @@ esac\n`);
     now: Date.now() / 1000 });
   const manifest = manifestSchema.parse({ id: "host-broker-caller", version: "1.0.0", publisher: "pacer",
     host: "^1.7", contributes: {}, capabilities: [{ name: "hosts" }], reentrant: true });
-  const registry = new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
+  const registry = new PluginRegistry(folderPlugins([providerDir], { bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")],
-      cwd: home, env: {} }), eventPumpMs: 0 });
+      cwd: home, env: {} }) }));
   const task = createTask(ctx, { brief: { goal: "fetch", repo: home }, kind: null,
     requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, task.id, record => { record.run = { dir: join(pacerHome, "runs", task.id),

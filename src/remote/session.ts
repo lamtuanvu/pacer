@@ -6,6 +6,10 @@ import type { HostCfg } from "../config/hosts";
 import { socketPath } from "../session/host";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostSessionStream } from "../plugins/host-session-stream-issuer";
+import { CoreError } from "../core/errors";
+
+/** Concurrent local viewers per remote session; each one holds a bundled SSH stream. */
+export const MAX_SESSION_VIEWERS = 2;
 
 /** Byte-transparent local viewer socket over one host-issued bundled SSH stream. */
 export class RemoteSession {
@@ -50,6 +54,12 @@ export class RemoteSession {
 
   accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
+    // The session socket protocol has no error frame, so the refusal is the socket error and an immediate close.
+    if (this.peers.size >= MAX_SESSION_VIEWERS) {
+      socket.on("error", () => {});
+      socket.destroy(new CoreError("plugin_unavailable", `remote session already has ${MAX_SESSION_VIEWERS} viewers; close one and try again`));
+      return;
+    }
     const owner = new AbortController();
     this.peers.set(socket, owner);
     socket.pause();

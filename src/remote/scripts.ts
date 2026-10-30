@@ -40,8 +40,6 @@ esac`,
   SET_IDENTITY: `path="$1"
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3"`,
-  // Used only by tests and host check to verify the stdin channel.
-  ECHO_STDIN: "cat",
   PREPARE: `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"; attempt="\${6:-1}"
 case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
 cd "$checkout" || exit 1
@@ -77,10 +75,6 @@ printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
 cat "$file"`,
-  // Preserve the fixed script ID for protocol compatibility, but never unlink
-  // a question after acceptance: another writer may have replaced the file.
-  QUESTION_CLEAR: `echo 'question clear is retired' >&2
-exit 1`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
@@ -268,12 +262,6 @@ if [ "\${5:-}" = "hex" ]; then
 else
   tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
 fi`,
-  FOLLOW: `D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-p="$(cat "$D/pid" 2>/dev/null)"; me=$$
-# Portable stand-in for tail --pid: a watcher with no inherited output ends the tail after the run exits.
-[ -n "$p" ] && ( while kill -0 "$p" 2>/dev/null; do sleep 1; done; sleep 1; kill "$me" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
-exec tail -c +"$(($2 + 1))" -f "$D/session.raw"`,
   STOP: `D="$1"; grace="$2"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi

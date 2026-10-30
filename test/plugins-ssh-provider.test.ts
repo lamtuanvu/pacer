@@ -7,7 +7,7 @@ import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkR
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
 import { controlDir, sshArgv } from "../src/remote/ssh";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, tmpDir, folderPlugins } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
 import { handlers } from "../plugins/pacer-ssh/index";
@@ -292,6 +292,18 @@ test("SSH reference provider builds only the fixed persisted-run PREFLIGHT argv"
   expect(() => preflightArgv(configured.ssh, controlPath, [...args, "unissued"])).toThrow();
 });
 
+test("plugin shell quoting matches the host for backslashes and other metacharacters", () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C"), nonce = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+  for (const value of ["Jane\\Doe", "trailing\\", "O'Brien", "two words", "-leading", "$HOME", "a;b|c&d", "`id`", "*?[]", "\"quoted\"", "plain@example.com"]) {
+    const args = ["~/repo", value, value];
+    expect(setIdentityArgv(host.ssh, controlPath, args, nonce))
+      .toEqual(sshArgv(ctx, host, SCRIPTS.SET_IDENTITY, args, nonce));
+  }
+});
+
 test("SSH reference provider runs only the exact issued SET_IDENTITY command", async () => {
   const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -382,7 +394,7 @@ test("installed SSH provider stages BUNDLE_OUT bytes for the live host owner", a
     "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: ssh-fixture\n");
   const ctx = fakeCtx({ home, pacerHome, env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
     which: name => name === "ssh" ? fakeSsh : null, now: Date.now() / 1000 });
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerDir]));
   try {
     await registry.enable(ctx, "pacer-ssh", true);
     const task = createTask(ctx, { brief: { goal: "fetch", repo: home }, kind: null, requestedExecutor: null, timeoutS: 60 });
@@ -522,8 +534,8 @@ test("installed SSH reference provider uses only an issued probe through a fake 
     which: name => name === "ssh" ? fakeSsh : null, now: Date.now() / 1000 });
   const callerManifest = manifestSchema.parse({ id: "host-broker-caller", version: "1.0.0", publisher: "pacer", host: "^1.7",
     contributes: {}, capabilities: [{ name: "hosts" }], reentrant: true });
-  const registry = new PluginRegistry({ bundled: [{ manifest: callerManifest, main: async () => ({ handlers: {} }) }],
-    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }), eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerDir], { bundled: [{ manifest: callerManifest, main: async () => ({ handlers: {} }) }],
+    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }) }));
   try {
     await registry.enable(ctx, "pacer-ssh", true);
     const result = await registry.call<{ output: string }>(ctx, "host-broker-caller", "diagnostic.ping", {});
@@ -562,7 +574,7 @@ test("host issues one exact check command to the installed provider", async () =
     "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: ssh-fixture\n    repos: {example.test/acme/repo: ~/repo}\n");
   const ctx = fakeCtx({ home, pacerHome, env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
     which: name => name === "ssh" ? fakeSsh : null, now: Date.now() / 1000 });
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled caller"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerDir]));
   try {
     await registry.enable(ctx, "pacer-ssh", true);
     await expect(registry.checkConfiguredHost(ctx, "box", "~/other"))

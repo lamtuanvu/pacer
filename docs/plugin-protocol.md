@@ -14,11 +14,11 @@ Protocol 1.6.0 also adds policy/task/event contracts and mutually negotiated `po
 
 The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
 
-Protocol 1.7.0 adds the `hostRunner` point. It names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Every fixed-script SSH operation pacer runs on an SSH host goes through these grants and the bundled `pacer-ssh` provider; there is no direct-SSH fallback. A manifest that contributes `hostRunner`, `remoteCaller` or `executor`, or declares `hosts`, sets `host` to `>=1.7.0`.
+Protocol 1.7.0 adds the `hostRunner` point. It names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Every fixed-script SSH operation pacer runs on an SSH host goes through these grants and the bundled `pacer-ssh` provider; there is no direct-SSH fallback. A manifest that contributes `hostRunner`, `remoteCaller` or `executor`, or declares `hosts`, sets `host` to `>=1.7.0`. Only the bundled `pacer-ssh` and `pacer-remote-caller` plugins may contribute `hostRunner` or `remoteCaller`; the host refuses an installed plugin that contributes either.
 
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
-Only a host-issued `hostRunner.stream` call may keep its request open without a whole-call deadline. Its owner signal and exact provider generation revoke it; each directional frame has a five-second acknowledgement deadline. The plugin emits one `$/progress` event with the original numeric request id and a bounded stream frame, then calls `$/streamAck` with the original call metadata. The host acknowledges only after consuming the frame. For viewer input, the host sends one `$/streamInput` notification, then waits for the plugin's `$/streamInputAck` after the brokered SSH write. Each direction has its own sequence starting at zero and one unacknowledged 64 KiB frame. Other progress callbacks keep their fire-and-forget behavior; other hostRunner methods retain finite deadlines.
+Only a host-issued `hostRunner.stream` call may keep its request open without a whole-call deadline. Its owner signal and exact provider generation revoke it; each directional frame has a five-second acknowledgement deadline. The plugin emits one `$/progress` event with the original numeric request id and a bounded stream frame, then calls `$/streamAck` with the original call metadata. The host acknowledges only after consuming the frame. For viewer input, the host sends one `$/streamInput` notification, then waits for the plugin's `$/streamInputAck` after the brokered SSH write. Each direction has its own sequence starting at zero and one unacknowledged 64 KiB frame. Other progress callbacks keep their fire-and-forget behavior; other hostRunner methods retain finite deadlines. Open streams run in their own small pool and never hold the registry's shared call slots; when that pool is full the host refuses a new stream with `plugin_unavailable`.
 
 SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 
@@ -5241,10 +5241,8 @@ Params:
         "PROBE",
         "CHECK_REPO",
         "SET_IDENTITY",
-        "ECHO_STDIN",
         "PREPARE",
         "QUESTION",
-        "QUESTION_CLEAR",
         "PREFLIGHT",
         "BUNDLE_OUT",
         "CLEAN",
@@ -5255,7 +5253,6 @@ Params:
         "START",
         "REPORT",
         "READ_FROM",
-        "FOLLOW",
         "STOP"
       ]
     },
@@ -5448,10 +5445,8 @@ Params:
         "PROBE",
         "CHECK_REPO",
         "SET_IDENTITY",
-        "ECHO_STDIN",
         "PREPARE",
         "QUESTION",
-        "QUESTION_CLEAR",
         "PREFLIGHT",
         "BUNDLE_OUT",
         "CLEAN",
@@ -5462,7 +5457,6 @@ Params:
         "START",
         "REPORT",
         "READ_FROM",
-        "FOLLOW",
         "STOP"
       ]
     },
@@ -5550,10 +5544,8 @@ Params:
         "PROBE",
         "CHECK_REPO",
         "SET_IDENTITY",
-        "ECHO_STDIN",
         "PREPARE",
         "QUESTION",
-        "QUESTION_CLEAR",
         "PREFLIGHT",
         "BUNDLE_OUT",
         "CLEAN",
@@ -5564,7 +5556,6 @@ Params:
         "START",
         "REPORT",
         "READ_FROM",
-        "FOLLOW",
         "STOP"
       ]
     },
@@ -8871,10 +8862,8 @@ Params:
         "PROBE",
         "CHECK_REPO",
         "SET_IDENTITY",
-        "ECHO_STDIN",
         "PREPARE",
         "QUESTION",
-        "QUESTION_CLEAR",
         "PREFLIGHT",
         "BUNDLE_OUT",
         "CLEAN",
@@ -8885,7 +8874,6 @@ Params:
         "START",
         "REPORT",
         "READ_FROM",
-        "FOLLOW",
         "STOP"
       ]
     },

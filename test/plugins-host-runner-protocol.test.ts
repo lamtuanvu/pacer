@@ -3,14 +3,14 @@ import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFi
 import {tmpdir} from "node:os";
 import {dirname,join} from "node:path";
 import {installFixture} from "../conformance/install";
-import {fakeCtx} from "./helpers";
+import {fakeCtx,folderPlugins} from "./helpers";
 import {PluginRegistry} from "../src/plugins/registry";
 import {EXTENSION_METHODS,hostRunnerContribution,manifestSchema} from "../src/plugins/protocol";
 import {HOST_RUNNER_SCRIPTS} from "../src/plugins/host-runner-protocol";
 import {SCRIPTS} from "../src/remote/scripts";
 
 const methods=["hostRunner.check","hostRunner.open","hostRunner.run","hostRunner.upload","hostRunner.stream","hostRunner.fetch","hostRunner.close"];
-const request={session:"s".repeat(32),script:"ECHO_STDIN",args:[],timeoutMs:1000};
+const request={session:"s".repeat(32),script:"QUESTION",args:[],timeoutMs:1000};
 test("fixed host-runner scripts and seven bounded method contracts",()=>{
   expect(Object.keys(SCRIPTS).sort()).toEqual([...HOST_RUNNER_SCRIPTS].sort());
   expect(hostRunnerContribution.safeParse({kinds:["ssh"]}).success).toBe(true);
@@ -47,25 +47,13 @@ test("fixed host-runner scripts and seven bounded method contracts",()=>{
   expect(EXTENSION_METHODS["hostRunner.fetch"].result.safeParse({name:"/tmp/out.bundle",bytes:1,sha256:"a".repeat(64)}).success).toBe(false);
 });
 
-test("retired question clear script refuses without removing a replacement",()=>{
-  const dir=mkdtempSync(join(tmpdir(),"pacer-question-clear-"));
-  const path=join(dir,".pacer-question");
-  try{
-    writeFileSync(path,"new question");
-    const result=Bun.spawnSync(["sh","-c",SCRIPTS.QUESTION_CLEAR,"pacer",dir]);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("question clear is retired");
-    expect(readFileSync(path,"utf8")).toBe("new question");
-  }finally{rmSync(dir,{recursive:true,force:true});}
-});
-
-test("installed fake runner validates input and every result without SSH",async()=>{
+test("fake runner validates input and every result without SSH",async()=>{
   const home=mkdtempSync(join(tmpdir(),"pacer-host-runner-"));
   symlinkSync(join(import.meta.dir,"..","node_modules"),join(home,"node_modules"),"dir");
   const ctx=fakeCtx({home,pacerHome:join(home,".pacer"),env:{PATH:`${dirname(process.execPath)}:/usr/bin:/bin`},now:Date.now()/1000});
   mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}}\n");
   const folder=installFixture("host-runner",join(ctx.pacerHome,"plugins"));
-  const registry=new PluginRegistry({bundled:[],spawnBundled:()=>{throw Error("no bundle");},eventPumpMs:0});
+  const registry=new PluginRegistry(folderPlugins([folder]));
   try{
     await registry.enable(ctx,"fx-host-runner",true);
     expect(registry.list(ctx)[0]?.pid).toBeNull();
@@ -104,11 +92,11 @@ test("installed fake runner validates input and every result without SSH",async(
     writeFileSync(join(folder,"fixture.json"),JSON.stringify({malformedMethod:"hostRunner.fetch"}));
     // A new process observes the fixture setting, without an SSH side effect.
     await registry.shutdown();
-    const fresh=new PluginRegistry({bundled:[],spawnBundled:()=>{throw Error("no bundle");},eventPumpMs:0});
+    const fresh=new PluginRegistry(folderPlugins([folder]));
     try{await expect(fresh.call(ctx,"fx-host-runner","hostRunner.fetch",args["hostRunner.fetch"])).rejects.toMatchObject({code:"capability_denied"});}
     finally{await fresh.shutdown();}
     writeFileSync(join(folder,"fixture.json"),JSON.stringify({delayMs:3000}));
-    const timed=new PluginRegistry({bundled:[],spawnBundled:()=>{throw Error("no bundle");},eventPumpMs:0});
+    const timed=new PluginRegistry(folderPlugins([folder]));
     try{
       expect((await timed.doctor(ctx,"fx-host-runner"))[0]?.ok).toBe(true);
       await expect(timed.call(ctx,"fx-host-runner","hostRunner.run",args["hostRunner.run"],{deadlineMs:1000})).rejects.toMatchObject({code:"plugin_timeout"});
@@ -118,5 +106,26 @@ test("installed fake runner validates input and every result without SSH",async(
       expect(receipts).toEqual([{method:"hostRunner.run",phase:"enter"},{method:"hostRunner.run",phase:"cancelled"}]);
       await expect(timed.call(ctx,"fx-host-runner","hostRunner.run",args["hostRunner.run"],{deadlineMs:1000})).resolves.toMatchObject({code:0,stdout:""});
     }finally{await timed.shutdown();}
+  }finally{await registry.shutdown();rmSync(home,{recursive:true,force:true});}
+});
+
+test("installed plugins may not contribute hostRunner or remoteCaller",async()=>{
+  const home=mkdtempSync(join(tmpdir(),"pacer-host-runner-installed-"));
+  const ctx=fakeCtx({home,pacerHome:join(home,".pacer"),env:{PATH:`${dirname(process.execPath)}:/usr/bin:/bin`},now:Date.now()/1000});
+  mkdirSync(ctx.pacerHome,{recursive:true});writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}}\n");
+  installFixture("host-runner",join(ctx.pacerHome,"plugins"));
+  const callerDir=join(ctx.pacerHome,"plugins","fx-remote-caller");mkdirSync(callerDir,{recursive:true});
+  writeFileSync(join(callerDir,"pacer-plugin.json"),JSON.stringify({id:"fx-remote-caller",version:"1.0.0",publisher:"test",host:"^1.7",entry:"index.ts",contributes:{remoteCaller:{}}}));
+  const registry=new PluginRegistry({bundled:[],spawnBundled:()=>{throw Error("no bundle");},eventPumpMs:0});
+  try{
+    for(const id of ["fx-host-runner","fx-remote-caller"]){
+      const info=registry.list(ctx).find(plugin=>plugin.id===id);
+      expect(info?.state).toBe("refused");
+      expect(info?.error).toContain("only the bundled pacer-ssh and pacer-remote-caller plugins may serve the hostRunner and remoteCaller extension points");
+      await expect(registry.enable(ctx,id,true)).rejects.toMatchObject({code:"plugin_refused"});
+      await expect(registry.call(ctx,id,"diagnostic.ping",{})).rejects.toMatchObject({code:"plugin_unavailable"});
+    }
+    expect(registry.findAll(ctx,"hostRunner",()=>true)).toEqual([]);
+    expect(registry.findAll(ctx,"remoteCaller",()=>true)).toEqual([]);
   }finally{await registry.shutdown();rmSync(home,{recursive:true,force:true});}
 });

@@ -6,7 +6,7 @@ import { installFixture } from "../conformance/install";
 import { PluginRegistry } from "../src/plugins/registry";
 import { issuePersistedFetch } from "../src/plugins/fetch-issuer";
 import { createTask, updateTask } from "../src/tasks/store";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, folderPlugins } from "./helpers";
 
 function fixture() {
   const ctx = fakeCtx();
@@ -61,13 +61,13 @@ test("registry host claim runs before provider authority is revoked", async () =
   const f = fixture();
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(f.ctx.home, "node_modules"), "dir");
   const handle = randomUUID();
-  installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
+  const providerFolder = installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
     manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] },
     fixture: { fetchStageHandle: handle },
   });
   f.ctx.which = name => name === "ssh" ? "/bin/sh" : null;
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerFolder]));
   try {
     await registry.enable(f.ctx, "fx-host-runner", true);
     const badGrant = issuePersistedFetch(f.ctx, f.taskId, 1);
@@ -95,12 +95,12 @@ test("registry host claim runs before provider authority is revoked", async () =
 test("registry refuses a provider's public filename as an unclaimed staged result", async () => {
   const f = fixture();
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(f.ctx.home, "node_modules"), "dir");
-  installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
+  const providerFolder = installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
     manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] },
   });
   f.ctx.which = name => name === "ssh" ? "/bin/sh" : null;
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerFolder]));
   try {
     await registry.enable(f.ctx, "fx-host-runner", true);
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);
@@ -121,7 +121,7 @@ test("task revision retirement during provider fetch prevents the host claim", a
   });
   f.ctx.which = name => name === "ssh" ? "/bin/sh" : null;
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([folder]));
   try {
     await registry.enable(f.ctx, "fx-host-runner", true);
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);
@@ -145,13 +145,13 @@ test("task revision retirement during provider fetch prevents the host claim", a
 test("provider configuration retirement during an async claim prevents success", async () => {
   const f = fixture();
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(f.ctx.home, "node_modules"), "dir");
-  installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
+  const providerFolder = installFixture("host-runner", join(f.ctx.pacerHome, "plugins"), {
     manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] },
     fixture: { fetchStageHandle: randomUUID() },
   });
   f.ctx.which = name => name === "ssh" ? "/bin/sh" : null;
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerFolder]));
   try {
     await registry.enable(f.ctx, "fx-host-runner", true);
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);

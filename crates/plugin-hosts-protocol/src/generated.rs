@@ -410,10 +410,8 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsOpenResultSession {
 ///        "PROBE",
 ///        "CHECK_REPO",
 ///        "SET_IDENTITY",
-///        "ECHO_STDIN",
 ///        "PREPARE",
 ///        "QUESTION",
-///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
 ///        "BUNDLE_OUT",
 ///        "CLEAN",
@@ -424,7 +422,6 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsOpenResultSession {
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
-///        "FOLLOW",
 ///        "STOP"
 ///      ]
 ///    },
@@ -516,10 +513,8 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsRunParamsArgsItem {
 ///    "PROBE",
 ///    "CHECK_REPO",
 ///    "SET_IDENTITY",
-///    "ECHO_STDIN",
 ///    "PREPARE",
 ///    "QUESTION",
-///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
 ///    "BUNDLE_OUT",
 ///    "CLEAN",
@@ -530,7 +525,6 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsRunParamsArgsItem {
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
-///    "FOLLOW",
 ///    "STOP"
 ///  ]
 ///}
@@ -557,14 +551,10 @@ pub enum CapabilityHostsRunParamsScript {
     CheckRepo,
     #[serde(rename = "SET_IDENTITY")]
     SetIdentity,
-    #[serde(rename = "ECHO_STDIN")]
-    EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
     #[serde(rename = "QUESTION")]
     Question,
-    #[serde(rename = "QUESTION_CLEAR")]
-    QuestionClear,
     #[serde(rename = "PREFLIGHT")]
     Preflight,
     #[serde(rename = "BUNDLE_OUT")]
@@ -585,8 +575,6 @@ pub enum CapabilityHostsRunParamsScript {
     Report,
     #[serde(rename = "READ_FROM")]
     ReadFrom,
-    #[serde(rename = "FOLLOW")]
-    Follow,
     #[serde(rename = "STOP")]
     Stop,
 }
@@ -602,10 +590,8 @@ impl ::std::fmt::Display for CapabilityHostsRunParamsScript {
             Self::Probe => f.write_str("PROBE"),
             Self::CheckRepo => f.write_str("CHECK_REPO"),
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
-            Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
             Self::Question => f.write_str("QUESTION"),
-            Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
             Self::BundleOut => f.write_str("BUNDLE_OUT"),
             Self::Clean => f.write_str("CLEAN"),
@@ -616,7 +602,6 @@ impl ::std::fmt::Display for CapabilityHostsRunParamsScript {
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
-            Self::Follow => f.write_str("FOLLOW"),
             Self::Stop => f.write_str("STOP"),
         }
     }
@@ -629,10 +614,8 @@ impl ::std::str::FromStr for CapabilityHostsRunParamsScript {
             "PROBE" => Ok(Self::Probe),
             "CHECK_REPO" => Ok(Self::CheckRepo),
             "SET_IDENTITY" => Ok(Self::SetIdentity),
-            "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
             "QUESTION" => Ok(Self::Question),
-            "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
             "BUNDLE_OUT" => Ok(Self::BundleOut),
             "CLEAN" => Ok(Self::Clean),
@@ -643,7 +626,6 @@ impl ::std::str::FromStr for CapabilityHostsRunParamsScript {
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
-            "FOLLOW" => Ok(Self::Follow),
             "STOP" => Ok(Self::Stop),
             _ => Err("invalid value".into()),
         }
@@ -1581,10 +1563,8 @@ pub struct HostRunnerCloseResult {
 ///        "PROBE",
 ///        "CHECK_REPO",
 ///        "SET_IDENTITY",
-///        "ECHO_STDIN",
 ///        "PREPARE",
 ///        "QUESTION",
-///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
 ///        "BUNDLE_OUT",
 ///        "CLEAN",
@@ -1595,7 +1575,6 @@ pub struct HostRunnerCloseResult {
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
-///        "FOLLOW",
 ///        "STOP"
 ///      ]
 ///    },
@@ -1681,10 +1660,8 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerFetchParamsArgsItem {
 ///    "PROBE",
 ///    "CHECK_REPO",
 ///    "SET_IDENTITY",
-///    "ECHO_STDIN",
 ///    "PREPARE",
 ///    "QUESTION",
-///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
 ///    "BUNDLE_OUT",
 ///    "CLEAN",
@@ -1695,7 +1672,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerFetchParamsArgsItem {
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
-///    "FOLLOW",
 ///    "STOP"
 ///  ]
 ///}
@@ -1722,14 +1698,10 @@ pub enum HostRunnerFetchParamsScript {
     CheckRepo,
     #[serde(rename = "SET_IDENTITY")]
     SetIdentity,
-    #[serde(rename = "ECHO_STDIN")]
-    EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
     #[serde(rename = "QUESTION")]
     Question,
-    #[serde(rename = "QUESTION_CLEAR")]
-    QuestionClear,
     #[serde(rename = "PREFLIGHT")]
     Preflight,
     #[serde(rename = "BUNDLE_OUT")]
@@ -1750,8 +1722,6 @@ pub enum HostRunnerFetchParamsScript {
     Report,
     #[serde(rename = "READ_FROM")]
     ReadFrom,
-    #[serde(rename = "FOLLOW")]
-    Follow,
     #[serde(rename = "STOP")]
     Stop,
 }
@@ -1767,10 +1737,8 @@ impl ::std::fmt::Display for HostRunnerFetchParamsScript {
             Self::Probe => f.write_str("PROBE"),
             Self::CheckRepo => f.write_str("CHECK_REPO"),
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
-            Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
             Self::Question => f.write_str("QUESTION"),
-            Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
             Self::BundleOut => f.write_str("BUNDLE_OUT"),
             Self::Clean => f.write_str("CLEAN"),
@@ -1781,7 +1749,6 @@ impl ::std::fmt::Display for HostRunnerFetchParamsScript {
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
-            Self::Follow => f.write_str("FOLLOW"),
             Self::Stop => f.write_str("STOP"),
         }
     }
@@ -1794,10 +1761,8 @@ impl ::std::str::FromStr for HostRunnerFetchParamsScript {
             "PROBE" => Ok(Self::Probe),
             "CHECK_REPO" => Ok(Self::CheckRepo),
             "SET_IDENTITY" => Ok(Self::SetIdentity),
-            "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
             "QUESTION" => Ok(Self::Question),
-            "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
             "BUNDLE_OUT" => Ok(Self::BundleOut),
             "CLEAN" => Ok(Self::Clean),
@@ -1808,7 +1773,6 @@ impl ::std::str::FromStr for HostRunnerFetchParamsScript {
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
-            "FOLLOW" => Ok(Self::Follow),
             "STOP" => Ok(Self::Stop),
             _ => Err("invalid value".into()),
         }
@@ -2294,10 +2258,8 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerOpenResultSession {
 ///        "PROBE",
 ///        "CHECK_REPO",
 ///        "SET_IDENTITY",
-///        "ECHO_STDIN",
 ///        "PREPARE",
 ///        "QUESTION",
-///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
 ///        "BUNDLE_OUT",
 ///        "CLEAN",
@@ -2308,7 +2270,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerOpenResultSession {
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
-///        "FOLLOW",
 ///        "STOP"
 ///      ]
 ///    },
@@ -2406,10 +2367,8 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunParamsArgsItem {
 ///    "PROBE",
 ///    "CHECK_REPO",
 ///    "SET_IDENTITY",
-///    "ECHO_STDIN",
 ///    "PREPARE",
 ///    "QUESTION",
-///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
 ///    "BUNDLE_OUT",
 ///    "CLEAN",
@@ -2420,7 +2379,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunParamsArgsItem {
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
-///    "FOLLOW",
 ///    "STOP"
 ///  ]
 ///}
@@ -2447,14 +2405,10 @@ pub enum HostRunnerRunParamsScript {
     CheckRepo,
     #[serde(rename = "SET_IDENTITY")]
     SetIdentity,
-    #[serde(rename = "ECHO_STDIN")]
-    EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
     #[serde(rename = "QUESTION")]
     Question,
-    #[serde(rename = "QUESTION_CLEAR")]
-    QuestionClear,
     #[serde(rename = "PREFLIGHT")]
     Preflight,
     #[serde(rename = "BUNDLE_OUT")]
@@ -2475,8 +2429,6 @@ pub enum HostRunnerRunParamsScript {
     Report,
     #[serde(rename = "READ_FROM")]
     ReadFrom,
-    #[serde(rename = "FOLLOW")]
-    Follow,
     #[serde(rename = "STOP")]
     Stop,
 }
@@ -2492,10 +2444,8 @@ impl ::std::fmt::Display for HostRunnerRunParamsScript {
             Self::Probe => f.write_str("PROBE"),
             Self::CheckRepo => f.write_str("CHECK_REPO"),
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
-            Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
             Self::Question => f.write_str("QUESTION"),
-            Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
             Self::BundleOut => f.write_str("BUNDLE_OUT"),
             Self::Clean => f.write_str("CLEAN"),
@@ -2506,7 +2456,6 @@ impl ::std::fmt::Display for HostRunnerRunParamsScript {
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
-            Self::Follow => f.write_str("FOLLOW"),
             Self::Stop => f.write_str("STOP"),
         }
     }
@@ -2519,10 +2468,8 @@ impl ::std::str::FromStr for HostRunnerRunParamsScript {
             "PROBE" => Ok(Self::Probe),
             "CHECK_REPO" => Ok(Self::CheckRepo),
             "SET_IDENTITY" => Ok(Self::SetIdentity),
-            "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
             "QUESTION" => Ok(Self::Question),
-            "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
             "BUNDLE_OUT" => Ok(Self::BundleOut),
             "CLEAN" => Ok(Self::Clean),
@@ -2533,7 +2480,6 @@ impl ::std::str::FromStr for HostRunnerRunParamsScript {
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
-            "FOLLOW" => Ok(Self::Follow),
             "STOP" => Ok(Self::Stop),
             _ => Err("invalid value".into()),
         }
@@ -2804,10 +2750,8 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunResultStdout {
 ///        "PROBE",
 ///        "CHECK_REPO",
 ///        "SET_IDENTITY",
-///        "ECHO_STDIN",
 ///        "PREPARE",
 ///        "QUESTION",
-///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
 ///        "BUNDLE_OUT",
 ///        "CLEAN",
@@ -2818,7 +2762,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunResultStdout {
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
-///        "FOLLOW",
 ///        "STOP"
 ///      ]
 ///    },
@@ -2914,10 +2857,8 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsArgsItem {
 ///    "PROBE",
 ///    "CHECK_REPO",
 ///    "SET_IDENTITY",
-///    "ECHO_STDIN",
 ///    "PREPARE",
 ///    "QUESTION",
-///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
 ///    "BUNDLE_OUT",
 ///    "CLEAN",
@@ -2928,7 +2869,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsArgsItem {
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
-///    "FOLLOW",
 ///    "STOP"
 ///  ]
 ///}
@@ -2955,14 +2895,10 @@ pub enum HostRunnerStreamParamsScript {
     CheckRepo,
     #[serde(rename = "SET_IDENTITY")]
     SetIdentity,
-    #[serde(rename = "ECHO_STDIN")]
-    EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
     #[serde(rename = "QUESTION")]
     Question,
-    #[serde(rename = "QUESTION_CLEAR")]
-    QuestionClear,
     #[serde(rename = "PREFLIGHT")]
     Preflight,
     #[serde(rename = "BUNDLE_OUT")]
@@ -2983,8 +2919,6 @@ pub enum HostRunnerStreamParamsScript {
     Report,
     #[serde(rename = "READ_FROM")]
     ReadFrom,
-    #[serde(rename = "FOLLOW")]
-    Follow,
     #[serde(rename = "STOP")]
     Stop,
 }
@@ -3000,10 +2934,8 @@ impl ::std::fmt::Display for HostRunnerStreamParamsScript {
             Self::Probe => f.write_str("PROBE"),
             Self::CheckRepo => f.write_str("CHECK_REPO"),
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
-            Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
             Self::Question => f.write_str("QUESTION"),
-            Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
             Self::BundleOut => f.write_str("BUNDLE_OUT"),
             Self::Clean => f.write_str("CLEAN"),
@@ -3014,7 +2946,6 @@ impl ::std::fmt::Display for HostRunnerStreamParamsScript {
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
-            Self::Follow => f.write_str("FOLLOW"),
             Self::Stop => f.write_str("STOP"),
         }
     }
@@ -3027,10 +2958,8 @@ impl ::std::str::FromStr for HostRunnerStreamParamsScript {
             "PROBE" => Ok(Self::Probe),
             "CHECK_REPO" => Ok(Self::CheckRepo),
             "SET_IDENTITY" => Ok(Self::SetIdentity),
-            "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
             "QUESTION" => Ok(Self::Question),
-            "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
             "BUNDLE_OUT" => Ok(Self::BundleOut),
             "CLEAN" => Ok(Self::Clean),
@@ -3041,7 +2970,6 @@ impl ::std::str::FromStr for HostRunnerStreamParamsScript {
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
-            "FOLLOW" => Ok(Self::Follow),
             "STOP" => Ok(Self::Stop),
             _ => Err("invalid value".into()),
         }

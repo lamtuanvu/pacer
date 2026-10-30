@@ -4041,10 +4041,8 @@
             "PROBE",
             "CHECK_REPO",
             "SET_IDENTITY",
-            "ECHO_STDIN",
             "PREPARE",
             "QUESTION",
-            "QUESTION_CLEAR",
             "PREFLIGHT",
             "BUNDLE_OUT",
             "CLEAN",
@@ -4055,7 +4053,6 @@
             "START",
             "REPORT",
             "READ_FROM",
-            "FOLLOW",
             "STOP"
           ]
         },
@@ -4212,10 +4209,8 @@
             "PROBE",
             "CHECK_REPO",
             "SET_IDENTITY",
-            "ECHO_STDIN",
             "PREPARE",
             "QUESTION",
-            "QUESTION_CLEAR",
             "PREFLIGHT",
             "BUNDLE_OUT",
             "CLEAN",
@@ -4226,7 +4221,6 @@
             "START",
             "REPORT",
             "READ_FROM",
-            "FOLLOW",
             "STOP"
           ]
         },
@@ -4296,10 +4290,8 @@
             "PROBE",
             "CHECK_REPO",
             "SET_IDENTITY",
-            "ECHO_STDIN",
             "PREPARE",
             "QUESTION",
-            "QUESTION_CLEAR",
             "PREFLIGHT",
             "BUNDLE_OUT",
             "CLEAN",
@@ -4310,7 +4302,6 @@
             "START",
             "REPORT",
             "READ_FROM",
-            "FOLLOW",
             "STOP"
           ]
         },
@@ -7145,10 +7136,8 @@
             "PROBE",
             "CHECK_REPO",
             "SET_IDENTITY",
-            "ECHO_STDIN",
             "PREPARE",
             "QUESTION",
-            "QUESTION_CLEAR",
             "PREFLIGHT",
             "BUNDLE_OUT",
             "CLEAN",
@@ -7159,7 +7148,6 @@
             "START",
             "REPORT",
             "READ_FROM",
-            "FOLLOW",
             "STOP"
           ]
         },

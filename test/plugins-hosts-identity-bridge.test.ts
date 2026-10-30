@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostIdentity } from "../src/plugins/host-identity-issuer";
 import { manifestSchema } from "../src/plugins/protocol";
-import { fakeCtx, realRun } from "./helpers";
+import { fakeCtx, folderPlugins, realRun } from "./helpers";
 import { releaseReservation, reserveIdle } from "../src/update/desktop/admission";
 
 test("host-owned identity grant pins one SSH effect and hides its completion receipt", async () => {
@@ -22,9 +22,9 @@ test("host-owned identity grant pins one SSH effect and hides its completion rec
   chmodSync(ssh, 0o755);
   const manifest = manifestSchema.parse({ id: "host-broker-caller", version: "1.0.0", publisher: "pacer",
     host: "^1.7", contributes: {}, capabilities: [{ name: "hosts" }], reentrant: true });
-  const registry = new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
+  const registry = new PluginRegistry(folderPlugins([providerDir], { bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")],
-      cwd: home, env: {} }), eventPumpMs: 0 });
+      cwd: home, env: {} }) }));
   try {
     const git = async (...args: string[]) => {
       const result = await realRun(["git", ...args], 10_000);

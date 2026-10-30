@@ -6,7 +6,7 @@ import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostClone } from "../src/plugins/host-clone-issuer";
 import { loadStrategy } from "../src/config/strategy";
 import { controlDir } from "../src/remote/ssh";
-import { fakeCtx, realRun } from "./helpers";
+import { fakeCtx, realRun, folderPlugins } from "./helpers";
 import { releaseReservation, reserveIdle } from "../src/update/desktop/admission";
 
 test("host clone grant pins one fixed SSH effect and preserves uncertain completion", async () => {
@@ -20,7 +20,7 @@ test("host clone grant pins one fixed SSH effect and preserves uncertain complet
   chmodSync(join(providerDir, "index.ts"), 0o755);
   const successfulSsh = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nnonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')\nprintf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"\n`;
   writeFileSync(ssh, successfulSsh); chmodSync(ssh, 0o755);
-  const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled caller"); }, eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerDir]));
   try {
     const git = async (...args: string[]) => {
       const result = await realRun(["git", ...args], 10_000);

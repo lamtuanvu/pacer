@@ -85,3 +85,14 @@ test("serial queue removes repeated canceled waiters instead of retaining promis
   release(); await first;
   expect(ran).toBe(0);
 });
+
+test("a pool with no queue refuses at once when full and names itself", async () => {
+  const admission = new CallAdmission(2, 0, "session viewer stream");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const held = [admission.run(Infinity, () => gate), admission.run(Infinity, () => gate)];
+  await expect(admission.run(Infinity, async () => 1))
+    .rejects.toMatchObject({ code: "plugin_unavailable", message: "session viewer stream capacity exhausted" });
+  release(); await Promise.all(held);
+  expect(await admission.run(Infinity, async () => 1)).toBe(1);
+});

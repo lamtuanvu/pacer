@@ -128,7 +128,10 @@ grant for the persisted run; output and input move in bounded acknowledged
 chunks. Detaching or losing the provider closes that viewer connection, and
 reconnecting opens a fresh stream. An idle viewer stays connected through
 short empty polls. No direct SSH forwarding or exec fallback follows a plugin
-refusal.
+refusal. A run accepts at most two attached viewers, and at most four viewers
+stream at once across all runs; pacer closes an extra viewer's connection
+immediately. Viewer streams never use the plugin call slots that reachability,
+usage and run polling need.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 After a nonzero agent exit, pacer checks for committed work through the bundled
 SSH host runner before attempting a result transfer. A refused or timed-out

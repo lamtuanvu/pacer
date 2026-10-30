@@ -228,6 +228,40 @@ test("disabled SSH provider refuses SESSION_SOCKET without a direct fallback", a
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
 });
 
+test("a remote session refuses viewers beyond its cap and admits one after another leaves", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  const { RemoteSession, MAX_SESSION_VIEWERS } = await import("../src/remote/session");
+  const { Duplex } = await import("node:stream");
+  const registry = pluginRegistry(ctx), original = registry.streamConfiguredHost.bind(registry);
+  let opened = 0;
+  registry.streamConfiguredHost = async (_ctx, _grant, _onBytes, signal) => {
+    opened++;
+    const done = new Promise<{ code: number; bytes: number }>((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(Error("viewer ended")), { once: true }));
+    return { sendInput: async () => {}, done };
+  };
+  const bridge = new RemoteSession(ctx, host, remote, local);
+  const viewer = () => new Duplex({ read() {}, write(_data, _encoding, done) { done(); } });
+  try {
+    const held = Array.from({ length: MAX_SESSION_VIEWERS }, viewer);
+    for (const socket of held) bridge.accept(socket as unknown as import("node:net").Socket);
+    for (let i = 0; i < 100 && opened < MAX_SESSION_VIEWERS; i++) await Bun.sleep(10);
+    expect(opened).toBe(MAX_SESSION_VIEWERS);
+    const extra = viewer();
+    const refused = new Promise<Error>(resolve => extra.once("error", resolve));
+    bridge.accept(extra as unknown as import("node:net").Socket);
+    expect((await refused).message).toContain(`already has ${MAX_SESSION_VIEWERS} viewers`);
+    expect(extra.destroyed).toBe(true);
+    expect(opened).toBe(MAX_SESSION_VIEWERS);
+    const left = new Promise<void>(resolve => held[0]!.once("close", resolve));
+    held[0]!.destroy(); await left;
+    bridge.accept(viewer() as unknown as import("node:net").Socket);
+    for (let i = 0; i < 100 && opened <= MAX_SESSION_VIEWERS; i++) await Bun.sleep(10);
+    expect(opened).toBe(MAX_SESSION_VIEWERS + 1);
+  } finally { await bridge.close(); registry.streamConfiguredHost = original; }
+});
+
 test("BINARY check is issued only for one persisted run and exact content hash", async () => {
   const { ctx, home, remote, local } = setup();
   const hash = "a".repeat(64);
@@ -801,18 +835,6 @@ test.skipIf(!await canListen())("viewer removes stale sockets and retries a fail
   finally {socket.destroy();writeFileSync(join(remote,"exit"),"0");await io.read();}
 });
 
-test("FOLLOW ends when the recorded run pid exits", async()=>{
-  const {ctx,remote}=setup();const {SCRIPTS}=await import("../src/remote/scripts");
-  const {runRemote}=await import("../src/remote/ssh");
-  const tail=Bun.spawnSync([Bun.which("gtail") ?? "tail","--version"]);
-  if(!tail.stdout.toString().includes("GNU coreutils")) return;
-  mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.raw"),"first\n");
-  const child=Bun.spawn(["sleep","1"],{stdout:"ignore",stderr:"ignore"});
-  writeFileSync(join(remote,"pid"),String(child.pid));
-  const result=await runRemote(ctx,host,SCRIPTS.FOLLOW,[remote,"0"],{timeoutMs:4000});
-  expect([0,143]).toContain(result.code);expect(result.stdout).toBe("first\n");
-},6000);
-
 test("restart preserves a partial line and rereads withheld secret bytes",async()=>{
   const {ctx,local}=setup();
   const {RemoteRecording}=await import("../src/remote/recording");
@@ -1129,10 +1151,10 @@ test("native recording observation failures are retried as unreachable",async()=
 });
 
 test("socket discovery waits for an actual remote socket",async()=>{
-  const {ctx,remote}=setup();const {runRemote}=await import("../src/remote/ssh");
-  const {SCRIPTS}=await import("../src/remote/scripts");
+  const {ctx,remote,local}=setup();
   mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.sock.path"),join(remote,"missing.sock"));
-  expect((await runRemote(ctx,host,SCRIPTS.SESSION_SOCKET,[remote])).code).not.toBe(0);
+  const result=await pluginRegistry(ctx).sessionSocketConfiguredHost(ctx,issueConfiguredHostSessionSocket(ctx,"box",remote,local));
+  expect(result.code).not.toBe(0);
 });
 
 test("native mirrors transfer only appended log bytes and changed retained files",async()=>{

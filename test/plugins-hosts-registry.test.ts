@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { installFixture } from "../conformance/install";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, folderPlugins } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import type { PluginProcess } from "../src/plugins/process";
 import { manifestSchema } from "../src/plugins/protocol";
@@ -18,8 +18,8 @@ test("host broker forwards a fixed script through one selected provider and reti
   const providerFolder = installFixture("host-runner", join(ctx.pacerHome, "plugins"));
   const manifest = manifestSchema.parse({ id: "host-broker-caller", version: "1.0.0", publisher: "pacer", host: "^1.7",
     contributes: {}, capabilities: [{ name: "hosts" }], reentrant: true });
-  const registry = new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
-    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }), eventPumpMs: 0 });
+  const registry = new PluginRegistry(folderPlugins([providerFolder], { bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
+    spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }) }));
   try {
     await registry.enable(ctx, "fx-host-runner", true);
     const result = await registry.call<{ output: string; session: string }>(ctx, "host-broker-caller", "diagnostic.ping", {});
