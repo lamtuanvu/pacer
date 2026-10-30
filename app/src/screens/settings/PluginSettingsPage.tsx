@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { SettingsField, SettingsSchema } from "../../../../src/plugins/ui-schema";
 import type { PluginInfo, SurfaceInfo } from "../../../../src/plugins/registry";
-import { Page, LoadingState, SegmentedControl } from "../../ds/Patterns";
+import { Page, Skeleton, SegmentedControl } from "../../ds/Patterns";
 import { PluginContext } from "../../plugins/catalog";
 import { AppLink } from "../../navigation";
 import { routes } from "../../router";
@@ -124,7 +124,7 @@ export function PluginSettingsPage({ section = "", plugin: pluginProp, initialDa
     <header className="pc-settings-board__header"><h1>{data?.title ?? surfaces.find(s => s.plugin === plugin && s.surface === "settings")?.title ?? "Plugin settings"}</h1></header>
     {info && <div className="pc-plugin-provenance"><span className="pc-plugin-provenance__icon" aria-hidden="true"><Icon name={pluginIcon(plugin,surfaces ?? [])}/></span><span className="pc-plugin-grow">Added by the plugin <b>{pluginPresentation(info).name} {info.version}</b> from {info.publisher}{info.capabilities.length > 0 && ` · may ${joinWords(capabilityWords(info).map(word => word[0]!.toLowerCase()+word.slice(1)))}`}</span><AppLink to={routes.settings("plugins")}>Manage plugin</AppLink>{info.state !== "refused" && <Button size="sm" aria-disabled={toggle.busy} onClick={() => void turn()}>{info.enabled ? "Turn off" : "Turn on"}</Button>}</div>}
     {off ? <p role="status">This plugin is off.</p> : missing ? <p>This plugin has no settings page.</p> : unavailable ? <p>This plugin is turned off or needs attention. <AppLink to={routes.settings("plugins")}>Open Plugins settings</AppLink></p> : <>
-      {!data && !error && <LoadingState label="Loading plugin settings…"/>}
+      {!data && !error && <Skeleton layout="settings" label="Loading plugin settings…"/>}
       {data && <section aria-label={`${data.title} settings`}>{Object.entries(data.schema.fields).map(([name,field]) => <SettingRow key={name} variant="board" headingLevel={3} label={field.title} description={field.description}><div className="pc-plugin-field"><SchemaField name={name} field={field} value={values[name]} onChange={value => update(name,value)} disabled={busy} error={errors[name]} repos={state.snapshot?.repos ?? []}/>{errors[name] && <span id={`plugin-field-${name}-error`} className="pc-plugin-field__error" role="alert">{errors[name]}</span>}</div></SettingRow>)}
         {other.length > 0 && <SettingRow variant="board" headingLevel={3} label="Where it shows" description={`This plugin offers ${other.length} ${other.length === 1 ? "view" : "views"}. These switches save at once.`}><div className="pc-plugin-field pc-plugin-field--visibility">{other.map(surface => <Switch key={`${surface.surface}:${surface.id}`} size="sm" label={surface.surface === "panelTabs" ? `${surface.title} tab in the right panel` : surface.surface === "activity" ? `${surface.title} in the activity bar` : `${surface.title} in the status bar`} checked={surface.visible} aria-disabled={busy} onChange={() => void visibility(surface)}/>)}</div></SettingRow>}
       </section>}

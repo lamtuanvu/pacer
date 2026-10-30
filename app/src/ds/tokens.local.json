@@ -413,5 +413,15 @@
         "provisional": "Answer board 21 value; not yet in the design system."
       }
     ]
+  },
+  "motion": {
+    "tokens": [
+      {
+        "name": "motion-skeleton",
+        "value": "1400ms",
+        "usage": "Soft opacity pulse for page skeletons.",
+        "provisional": "Loading board 27 motion."
+      }
+    ]
   }
 }

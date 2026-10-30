@@ -1,6 +1,6 @@
 import { useContext, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceInfo, DoctorReport } from "../../../../src/plugins/registry";
-import { Page, LoadingState } from "../../ds/Patterns";
+import { Page, Skeleton } from "../../ds/Patterns";
 import { DensityContext } from "../../ds/Density";
 import { Switch } from "../../ds/Controls";
 import { Pill } from "../../ds/Pill";
@@ -32,7 +32,7 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
     <header className="pc-settings-board__header"><h1>Plugins</h1><p>Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</p></header>
     <span id="plugins-installed-label" className="pc-settings-board__label">Installed · {resource.data?.plugins.length ?? "…"}</span>
     <section aria-labelledby="plugins-installed-label" className="pc-plugin-installed">
-      {!resource.data && !resource.error && <LoadingState label="Loading plugins…"/>}<ErrorMessage error={resource.error}/>
+      {!resource.data && !resource.error && <Skeleton layout="settings" label="Loading plugins…"/>}<ErrorMessage error={resource.error}/>
       {resource.data?.plugins.length === 0 && <p>No plugins installed.</p>}
       {resource.data?.plugins.map(plugin => {
         const presentation = pluginPresentation(plugin), adds = pluginAdditions(plugin), may = capabilityWords(plugin), page = plugin.enabled && surfaces.some(s => s.plugin === plugin.id && s.surface === "settings" && s.visible);

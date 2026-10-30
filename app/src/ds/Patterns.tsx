@@ -1,5 +1,5 @@
 import { classNames as classes } from "./classNames";
-// Beautiful UI TextRow, SegmentedControl, TaskRows, ApprovalCard and LoadingState adaptations.
+// Beautiful UI TextRow, SegmentedControl, TaskRows, ApprovalCard adaptations.
 // Pinned source map: docs/design-system.md. Domain state and actions stay with consumers.
 import type { ComponentChildren, JSX } from 'preact';
 import { Button, type ButtonProps } from "./Button";
@@ -69,14 +69,7 @@ export function ApprovalCard({ title, children, actions, className, ...props }: 
     {actions && <footer className="pc-list-row__actions">{actions}</footer>}
   </section>;
 }
-/** Upstream's pixel grid and adjacent label; no elapsed timer, video or demo state. */
-export function LoadingState({ label = 'Loading…', updating = false }: { label?: string; updating?: boolean }) {
-  return <div className={classes('pc-loading', updating && 'pc-loading--updating')} role="status" aria-live="polite">
-    <span className="pc-loading__indicator" aria-hidden="true">
-      {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
-    </span>{label}
-  </div>;
-}
+export { Skeleton } from './Skeleton';
 export function EmptyState({ title, description, children, bodyTitle = false }: {
   title: string; description?: ComponentChildren; children?: ComponentChildren; bodyTitle?: boolean;
 }) {

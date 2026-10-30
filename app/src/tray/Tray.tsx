@@ -1,5 +1,5 @@
 import { DensityProvider } from "../ds/Density";
-import { ListRow, ListRowLink, LoadingState } from "../ds/Patterns";
+import { ListRow, ListRowLink, Skeleton } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import { Button, ButtonLink, IconButton, TextAction } from "../ds/Button";
 import type { ActivityEntry } from "../../../src/activity/log";
@@ -193,7 +193,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${resetCaption(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
     </section>
     {snapshot?.pause && <div className="tray-paused" role="status"><Icon name="pause" /><span className="tray-grow"><strong>Delegation paused</strong><span className="tray-reason">New work waits {snapshot.pause.until === null ? "until you resume" : `until ${timeOnly(snapshot.pause.until)}`}{!!model?.waiting && ` · ${model.waiting} ${model.waiting === 1 ? "task" : "tasks"} waiting`}</span></span><Button size="sm" busy={busy} disabled={sessionEnded} onClick={() => act(() => api.call("delegation.resume", {}))}>Resume</Button></div>}
-    {sessionEnded ? <p className="tray-notice" role="alert">Session ended. Run pacer open.</p> : !snapshot ? <LoadingState label="Connecting to pacer…" /> : !connected && <p className="tray-notice" role="status">Reconnecting…</p>}
+    {sessionEnded ? <p className="tray-notice" role="alert">Session ended. Run pacer open.</p> : !snapshot ? <Skeleton layout="rows" label="Connecting to pacer…" /> : !connected && <p className="tray-notice" role="status">Reconnecting…</p>}
     {model && <>
       <nav className="tray-counts" aria-label="Task counts">{[
         { n: model.needsCount, label: "needs you", route: "/needs-you", warn: true },

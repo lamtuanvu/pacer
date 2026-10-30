@@ -99,7 +99,7 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
   expect(loaded).toContain('1 root task this week · 0 subtasks');
   for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
   expect(loaded).toContain('Showing 1 of 1 root tasks');
-  expect(html(undefined)).toContain('Loading tasks…');
+  expect(html(undefined)).not.toContain('Loading tasks…');
   expect(html([])).toContain('No tasks yet.');
 });
 

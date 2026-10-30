@@ -7,7 +7,7 @@ import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
-import { EmptyState, LoadingState } from "../ds/Patterns";
+import { EmptyState, Skeleton } from "../ds/Patterns";
 import { markAgent } from "../../../src/view-model/agents";
 import { FrameContext, FrameSlot, useFrame, useFrameHeading } from "../shell/slots";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -118,7 +118,7 @@ function TaskResultLoaded({ task, reload, compact = false }: { task: TaskDetail;
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : undefined;
-  return <><TaskResultView embedded compact={compact} task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
+  return <><TaskResultView embedded compact={compact} task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges && !changes ? <Skeleton layout="rows" label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
 export function legacyQuestionPending(task: TaskDetail): boolean {
   return !task.work && task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
@@ -143,7 +143,7 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const slots = useMemo(() => frame?.inline ? { ...frame, right: below } : frame, [frame, below]);
   const title = task.data && (task.data.title?.trim() || task.data.fullTitle?.trim() || task.data.goal);
   useFrameHeading(null);
-  if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
+  if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <Skeleton layout="task" label="Loading task…"/>;
   const selected={...task.data,parentId:task.data.work?.parentId??null};
   const extra=[...workTasks(work.data?.tasks??[]),...(history.data?.tasks??[]),selected];
   const now=Date.now()/1000;

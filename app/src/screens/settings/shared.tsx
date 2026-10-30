@@ -4,7 +4,7 @@ import { useNotifications } from "../../data/notification-context";
 import { Alert } from "../../ds/Alert";
 import { createContext } from 'preact';
 import { jobKindCopy, jobStateCopy } from "../../../../src/view-model/copy";
-import { SegmentedControl, LoadingState, EmptyState, TextRow } from "../../ds/Patterns";
+import { SegmentedControl, Skeleton, EmptyState, TextRow } from "../../ds/Patterns";
 export { Field } from "../../ds/Controls";
 import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
@@ -62,7 +62,7 @@ export function useResource<T>(op:string,params:unknown={},initial?:T) {
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;
- if(resource.data===undefined)return resource.loading?<LoadingState/>:<EmptyState title="No data available."/>;
+ if(resource.data===undefined)return resource.loading?<Skeleton layout="settings"/>:<EmptyState title="No data available."/>;
  if(Array.isArray(resource.data)&&resource.data.length===0)return <EmptyState title={empty??'Nothing here yet.'}/>;
  return <>{children}</>;
 }

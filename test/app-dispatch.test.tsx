@@ -75,7 +75,7 @@ test("kpi_strip_shows_the_week_from_insights with the board's icon tiles and no 
 test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const states: [InsightsState | undefined, string][] = [
     [undefined, "These figures need a newer pacer service with task insights."],
-    [{ supported: true, loading: true }, "Loading figures…"],
+    [{ supported: true, loading: true }, ""],
     [{ supported: true, loading: false, error: new Error("boom") }, "Could not load these figures. They are checked again on the next update."],
   ];
   for (const [insights, words] of states) {
@@ -140,7 +140,7 @@ test("Live dispatch is a six-row decision ledger with seven columns and session 
 test("Live dispatch waits for parent links and offers retry when the work read fails", () => {
   const loading = section(view(null, snap, { workLoading: true }), "live-dispatch");
   expect(loading).not.toContain("pc-dispatch-decision__task");
-  expect(strip(loading)).toContain("Loading dispatch");
+  expect(strip(loading)).not.toContain("Loading dispatch");
   const failed = section(view(null, snap, { workError: new Error("Work read unavailable") }), "live-dispatch");
   expect(failed).not.toContain("pc-dispatch-decision__task");
   expect(strip(failed)).toContain("Work read unavailable");
@@ -567,6 +567,6 @@ test("first run detection never invents installed agents", () => {
   expect(html).toContain("How to get it");
   expect(html).toContain("not installed");
   expect(html).not.toContain(">Found<");
-  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).toContain("Looking for agent CLIs");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).not.toContain("Looking for agent CLIs");
   expect(renderToString(<FirstRun query={{ repo: null, scope: null }} error={new Error("Detection failed")} retry={() => {}} />)).toContain("Check again");
 });

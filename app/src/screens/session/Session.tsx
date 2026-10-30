@@ -1,4 +1,4 @@
-import { Tabs, LoadingState, EmptyState } from '../../ds/Patterns';
+import { Tabs, Skeleton, EmptyState } from '../../ds/Patterns';
 import { Disclosure, Field } from '../../ds/Controls';
 import { ChoicePicker } from '../../ds/ChoicePicker';
 import { Dialog } from '../../ds/Dialog';
@@ -76,7 +76,8 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
     finally { setBusy(false); }
   };
   if (error) return <section className="pc-session" role="alert"><p>{error}</p>{onReload && <Button onClick={onReload}>Try again</Button>}</section>;
-  if (!data) return <section className="pc-session" role="status">{loading ? 'Loading session…' : 'Session not found.'}</section>;
+  if (!data && loading && !error) return <Skeleton layout="task" label="Loading the task" />;
+  if (!data) return <section className="pc-session" role="status">Session not found.</section>;
   const session = data.session, status = taskStatus(data);
   const canAttach = (target: 'orca' | 'terminal') => !!session?.targets.includes(target) && !!(onAttach || onAction) && !busy;
   const active = ['running', 'queued', 'needs_input'].includes(data.state);
@@ -97,7 +98,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
       <SectionHeading as="h3">Executor report</SectionHeading><Prose text={data.report}/>
     </section>}
     {data.sessionError ? <p role="alert">{data.sessionError}</p>
-      : data.sessionLoading ? <LoadingState label="Loading session…"/>
+      : data.sessionLoading && !session ? <Skeleton layout="rows" label="Loading session…"/>
       : !session ? <EmptyState title="Session unavailable."/>
       : session.host === 'orca' ? <div className="pc-session-empty"><p>This session runs in Orca</p><Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca</Button></div>
       : headless ? <div className="pc-session-log pc-stack pc-stack--normal">
@@ -127,7 +128,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
         <p className="pc-session-muted">Any terminal, tmux or SSH session works. Everyone sees the same stream.</p>
       </section>}
       <section className="pc-session-retry">
-        {data.retryLoading ? <LoadingState label="Loading retry options…"/>
+        {data.retryLoading && !retries.length ? <Skeleton layout="rows" label="Loading retry options…"/>
           : data.retryError ? <p role="alert">{data.retryError}</p>
           : retries.length ? <>
             <Button disabled={busy || !onAction} onClick={() => { setActionError(''); setRetryOpen(true); }}>{active ? 'Stop and retry…' : 'Retry session…'}</Button>
@@ -137,7 +138,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
 </>;
   return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
-    {loading && <LoadingState updating label="Updating session…"/>}
+
     {(!embedded || (!slots && active && data.stop)) && <header className="pc-session-header">
       {!embedded && <AgentMark agent={data.agent} size={28}/>}
       {!embedded && <div className="pc-session-heading">

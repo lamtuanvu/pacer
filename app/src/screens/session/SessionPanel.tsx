@@ -8,7 +8,7 @@ import type { Status } from "../../../../src/view-model/words";
 import { Button, IconButton } from "../../ds/Button";
 import { Tabs } from "../../ds/Patterns";
 import { DisclosurePanel } from "../../ds/Page";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StatusDot } from "../../ds/StatusDot";
 import { AgentMark } from "../../ds/AgentMark";
@@ -86,7 +86,7 @@ export function SessionTitle({ status, live, facts, repo, branch, actions, next 
 /** Every file the worktree changed, then the full patch behind a disclosure. */
 export function WorktreeChanges({ diff, loading, error }: { diff?: TaskDiff | null; loading?: boolean; error?: string }) {
   if (error) return <p role="alert">{error}</p>;
-  if (!diff) return loading ? <LoadingState label="Loading changes…" /> : <EmptyState title="No changes so far." />;
+  if (!diff) return loading ? <Skeleton layout="rows" label="Loading changes…" /> : <EmptyState title="No changes so far." />;
   const files: ChangedFile[] = [...(diff.files ?? parseDiff(diff.patch)), ...diff.untracked.map(path => ({ path, added: 0, removed: 0, status: "added" as const }))];
   const text = `${diff.patch}${diff.untracked.length ? `\nUntracked files:\n${diff.untracked.join("\n")}` : ""}${diff.truncated ? "\nDiff truncated." : ""}`;
   return <div className="pc-stack pc-stack--compact">
