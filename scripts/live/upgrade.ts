@@ -54,7 +54,8 @@ export function upgradePolicy(session: Session, nonce: string, uid: number): Nat
 export function fixturePlist(policy: NativeFixture, binary: string): string {
   if (policy.serviceLabel === LABEL || !policy.serviceLabel.startsWith("com.pacer.live.")) throw Error("Refusing a non-fixture service label");
   const ctx = makeCtx({ home: policy.home, pacerHome: policy.home, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_BIN: binary, PACER_PORT: String(policy.port) } });
-  return plist(ctx, [binary], policy.serviceLabel);
+  const feed = pathToFileURL(join(dirname(policy.root), "upgrade", "feed")).href;
+  return plist(ctx, [binary], policy.serviceLabel).replace("</dict>\n<key>RunAtLoad", `<key>PACER_RELEASE_BASE</key><string>${feed}</string></dict>\n<key>RunAtLoad`);
 }
 
 /** The single-binary release layout `pacer update` reads from PACER_RELEASE_BASE. */
@@ -66,6 +67,7 @@ export function writeFeed(feed: string, version: string, bytes: Uint8Array): voi
   writeFileSync(join(dir, file), bytes, { mode: 0o600 });
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version, assets: [{ os: target.os, arch: target.arch, file, size: bytes.length, sha256: sha256Hex(bytes) }] }), { mode: 0o600 });
   writeFileSync(join(dir, "SHA256SUMS"), `${sha256Hex(bytes)}  ${file}\n`, { mode: 0o600 });
+  writeFileSync(join(feed, "latest.json"), JSON.stringify({ version }), { mode: 0o600 });
 }
 
 /** Release 0.11.0 targets the real launchd label from its own service code, so it must never run those paths. */
@@ -80,6 +82,17 @@ export function guardPacerArgs(installed: UpgradeBuild, args: string[]): void {
   }
   if (["service", "uninstall", "install", "init", "setup", "open"].includes(cmd ?? "")) throw Error(`live upgrade refuses "${cmd}"; use live upgrade start, install, kickstart or cleanup`);
   if (cmd === "update" && !args.includes("--no-reinstall")) throw Error("live upgrade update needs --no-reinstall");
+}
+
+export function upgradeLoginArgs(installed: UpgradeBuild, screen?: string): string[] {
+  if (installed === "prefeature") throw Error("The pre-feature app cannot be opened by the upgrade fixture");
+  if (screen !== undefined && !/^[a-z][a-z0-9/-]*$/.test(screen)) throw Error("Invalid app screen");
+  return ["open", "--print", ...(screen ? [screen] : [])];
+}
+
+export function handoverFailureMarker(policy: NativeFixture): string {
+  if (policy.serviceLabel === LABEL || !policy.serviceLabel.startsWith("com.pacer.live.")) throw Error("Refusing a non-fixture service label");
+  return join(policy.root, "handover-fail-once");
 }
 
 const uid = () => process.getuid!();
@@ -193,6 +206,21 @@ export async function upgradePacer(session: Session, args: string[]) {
   if (!r.installed) throw Error("Start a fixture service first: live upgrade start --id <id> --from <build>");
   guardPacerArgs(installedBuild(root, r), args);
   return exec(session, [binary(root), ...args], join(session.root, "repo"), fixtureEnv(r, root), false);
+}
+
+export async function upgradeLogin(session: Session, screen?: string) {
+  const root = upgradeRoot(session), r = readRecord(root);
+  if (!r.installed) throw Error("Start a fixture service first");
+  return exec(session, [binary(root), ...upgradeLoginArgs(installedBuild(root, r), screen)], join(session.root, "repo"), fixtureEnv(r, root));
+}
+
+export function forceUpgradeHandoverFailure(session: Session): string {
+  const root = upgradeRoot(session), r = readRecord(root);
+  if (!r.installed || installedBuild(root, r) === "prefeature") throw Error("A feature fixture service must be installed");
+  const marker = handoverFailureMarker(r.policy);
+  writeFileSync(marker, "1\n", { flag: "wx", mode: 0o600 });
+  record(session, { kind: "note", text: `Armed one fixture handover failure at ${marker}` });
+  return marker;
 }
 
 /** Scenario upgrade-install: the installed feature build reinstalls its own service (bootout and bootstrap). */
