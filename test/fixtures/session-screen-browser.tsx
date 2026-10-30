@@ -1,3 +1,4 @@
+import { useEffect, useState } from "preact/hooks";
 import { render } from "preact";
 import fixture from "./ui/snapshot.json";
 import detail from "./ui/task-get.json";
@@ -37,14 +38,14 @@ const diff = { patch: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/e
   files: [{ path: "src/example.ts", status: "modified", added: 3, removed: 1 }, { path: "reports/a/very/long/path/that/keeps/going/demo-stages-frames.md", status: "modified", added: 64, removed: 0 }] };
 const api = { async call(op: string, params: unknown) {
   calls.push({ op, params });
-  if (op === "task.get") return task();
+  if (op === "task.get") { await new Promise(resolve => setTimeout(resolve, 150)); return { ...task(), id: (params as { id: string }).id }; }
   if (op === "task.session") return session;
   if (op === "task.diff") return diff;
   if (op === "task.list") return { tasks: [], next: null };
   // Snapshot rows have no parentId: dispatch.list supplies the tree edges separately.
   if (op === "dispatch.list") {
    await new Promise(resolve=>setTimeout(resolve,60));
-   return { tasks: navigator ? navigatorData.work : [], next: null }; }
+   return { tasks: navigator ? navigatorData.work.filter(row => tokenMode !== "deep-link" || row.id !== selectedId) : [], next: null }; }
   if (op === "session.context") return { draftId: "draft-1", attachments: [], rev: 1 };
   if (op === "task.takeover") return { state: "driving" };
   if (op === "task.retry") { state = "queued"; return { retry: { task_id: "t-retried" } }; }
@@ -52,13 +53,19 @@ const api = { async call(op: string, params: unknown) {
   if (op === "account.list") return [];
   return {};
 }, hello: async () => ({}), snapshot: async () => ({}) };
-const store = { ...initialState(), connected: true, snapshot: { ...fixture, ...(navigator ? {tasks:navigatorData.tasks,attention:[]} : {}), planner: { ...fixture.planner, agent: "claude" } } as any, features: { readModel: true, ops: new Set(["task.stop", "session.end", "task.review"]) } };
+const store = { ...initialState(), connected: true, snapshot: { ...fixture, ...(navigator ? {tasks:navigatorData.tasks.filter(row => tokenMode !== "deep-link" || row.id !== selectedId),attention:[]} : {}), planner: { ...fixture.planner, agent: "claude" } } as any, features: { readModel: true, ops: new Set(["task.stop", "session.end", "task.review"]) } };
 const runner = createActionRunner({ call: api.call as any, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 function App() {
-  const route = resolveRoute(`#/tasks/${selectedId}`) as Route;
+  const [hash, setHash] = useState(`#/tasks/${selectedId}`);
+  useEffect(() => {
+    const update = () => setHash(location.hash);
+    addEventListener("hashchange", update);
+    return () => removeEventListener("hashchange", update);
+  }, []);
+  const route = resolveRoute(hash) as Route & { id: string };
   keys.setScope("sessions");
   return <TaskContext.Provider value={{ api: api as any, state: store }}><ActionContext.Provider value={runner}><NavigationProvider route={route}>
-    <Layout route={route} state={store} title="Task"><TaskRoute id={selectedId} query={route.query} /></Layout>
+    <Layout route={route} state={store} title="Task"><TaskRoute key={route.id} id={route.id!} query={route.query} /></Layout>
   </NavigationProvider></ActionContext.Provider></TaskContext.Provider>;
 }
 attachKeyRegistry(keys, window);

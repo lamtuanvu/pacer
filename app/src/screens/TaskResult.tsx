@@ -1,20 +1,17 @@
 import type { ComponentChildren } from "preact";
 import { useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
-import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
-import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
 import { EmptyState, LoadingState } from "../ds/Patterns";
 import { markAgent } from "../../../src/view-model/agents";
-import { FrameContext, FrameSlot, useFrame, useFrameHeading } from "../shell/slots";
+import { FrameContext, useFrame, useFrameHeading } from "../shell/slots";
 import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
-import { withQuery, type RouteQuery } from "../router";
+import { type RouteQuery } from "../router";
 import { SessionRoute } from "./session/SessionRoute";
-import { TaskNavigator } from "./session/TaskNavigator";
 import { useQuery, useTaskContext } from "./task-shared";
 import { VerdictPanel } from "./review/VerdictPanel";
 import { parseDiff } from "../model/diff";
@@ -136,24 +133,17 @@ export function TaskHeading({ task }: { task: TaskDetail }) {
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const { state } = useTaskContext(), frame = useFrame();
   const task = useQuery<TaskDetail>("task.get", {id});
-  const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
-  const work = useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
   // Narrow layouts have no side panels, so the details follow the session in the page.
   const [below, setBelow] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => frame?.inline ? { ...frame, right: below } : frame, [frame, below]);
   const title = task.data && (task.data.title?.trim() || task.data.fullTitle?.trim() || task.data.goal);
   useFrameHeading(null);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  const selected={...task.data,parentId:task.data.work?.parentId??null};
-  const extra=[...workTasks(work.data?.tasks??[]),...(history.data?.tasks??[]),selected];
-  const now=Date.now()/1000;
-  const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.
   const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab") ?? (location.hash.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
   const panelTab = ({ changes: "changes", brief: "details", work: "work" } as const)[requested as "changes"];
   const active = ["queued", "running"].includes(task.data.state);
   return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
-    <FrameSlot name="left"><TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/></FrameSlot>
     <div className="pc-task-workspace__main"><SessionRoute id={id} tab={panelTab} result={!active && <TaskResultLoaded key={id} task={task.data} reload={task.reload} compact/>}
       work={task.data.work && <LazyWork id={id}/>}/></div>
     {frame?.inline && <section ref={setBelow} className="pc-task-workspace__details" aria-label="Session details"/>}

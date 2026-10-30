@@ -39,6 +39,13 @@ function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | 
   return View ? <View {...props} /> : null;
 }
 
+/** Loaded once per shell lifetime; selecting a task only changes the highlight. */
+function SessionNavigatorLoader(props: { id: string; query: Route["query"] }) {
+  const [View, setView] = useState<typeof import("./SessionNavigator").default>();
+  useEffect(() => { void import("./SessionNavigator").then(module => setView(() => module.default)); }, []);
+  return View ? <View {...props} /> : null;
+}
+
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
 function Skeleton() {
@@ -172,7 +179,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" bar={false} open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
-  const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
+  const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div className="pc-frame-slot"><SessionNavigatorLoader id={route.id!} query={route.query} /></div></SidePanel>;
   const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}

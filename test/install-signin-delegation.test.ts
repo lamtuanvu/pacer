@@ -31,7 +31,8 @@ async function sandbox() {
   for (const name of Object.keys(env)) if (name.startsWith("PACER_")) delete env[name];
   Object.assign(env, {
     HOME: home, CODEX_HOME: codexHome, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
-    PACER_FAKE_COMPLETE: "1", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh",
+    // Preserve the fixture PATH rather than resolving a host executor through login startup files.
+    PACER_LOGIN_ENV: "off", PACER_FAKE_COMPLETE: "1", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh",
   });
   symlinkSync(join(root, "test/fixtures/bin/fake-agent"), join(bin, "codex"));
   // Never inspect a host Orca installation or use its budgets/service manager.
