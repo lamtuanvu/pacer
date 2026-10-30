@@ -57,7 +57,15 @@ command under Sign out; run it in a terminal.
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
 attach command appear only for live or recorded terminal sessions.
-Opening a running task in the app takes control of its live Pacer terminal when
+The task overview shows a bounded, read-only terminal preview for built-in
+interactive sessions, using the raw session stream and its authoritative size.
+Text stays at its normal font size in a scrollable viewport, including on narrow
+screens. Focus the output region to scroll with the keyboard. It never takes
+control or resizes the agent, and reconnects after interruptions.
+Headless runs keep a plain output tail; failed checks show their acceptance
+output. Orca sessions link through the workspace to Orca.
+
+Opening a running task in the Session view takes control of its live Pacer terminal when
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
@@ -251,3 +259,5 @@ uses the first sentence or line of the goal, strips Markdown formatting, and
 shortens it to about 80 characters at a word boundary. Unfinished trailing bracket
 groups are omitted. The full execution goal remains in the brief. Selecting a task
 keeps the Sessions navigator, its loaded history and scroll position in place.
+
+Terminal output uses the DS-owned `terminal-*` dark palette in both app themes, including the default foreground restored by SGR39. The frame, unused viewport and status strip share that palette; remote ANSI/truecolor backgrounds remain intact. This keeps Codex default text readable on its explicit dark panels while preserving full-size glyphs, bounded scrolling and read-only PTY authority.

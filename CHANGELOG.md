@@ -15,6 +15,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep terminal default foreground and ANSI palette independent of page appearance so Codex dark panels remain readable in light mode.
+
+- Render interactive task overview output as a bounded, read-only terminal from the raw PTY session instead of flattening terminal redraws into log lines; keep full-size text in a keyboard-scrollable viewport.
+
 - Preserve board-sized segmented items and subtask chips across device densities, restore usage-popover button padding, and align repository chips and current-task row styling.
 
 - Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.
