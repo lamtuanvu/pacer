@@ -3,14 +3,18 @@ import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { policyGateFixture } from "./fixtures/policy-host";
-import { tmpDir } from "./helpers";
+import { gitRepo, realRun, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { sendMessage } from "../src/messaging/send";
 import * as store from "../src/messaging/store";
+import { writeProjectStrategy } from "../src/config/project-strategies";
+import { loadStrategy } from "../src/config/strategy";
+import { resolveRepo } from "../src/core/repos";
+import { projectReferences } from "../src/engine/project-routing";
 
 /** A task that finished on codex with a resumable session, under a policy plugin that allows everything so far. */
-function settled() {
-  const f = policyGateFixture({ verdict: "allow" });
+function settled(repo = tmpDir()) {
+  const f = policyGateFixture({ verdict: "allow" }, 0, repo);
   writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ ...f.config, providers: { "claude-code": {}, codex: {}, cursor: {} } }));
   const t = createTask(f.ctx, { brief: { goal: "the original brief", repo: f.repo }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(f.ctx, t.id, x => {
@@ -84,6 +88,67 @@ test("no admitted executor holds the turn with the excluding plugin named", asyn
   expect(r.hold).toEqual({ reason: "No executor is admitted for this task's next turn (excluded by plugin fx-policy)", plugin: "fx-policy" });
   expect(readTask(f.ctx, f.id)!.state).toBe("done");
   expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
+});
+
+/** Restrict the task's repository (a Git repository, so its identity is verified) to these executors through its project strategy. */
+async function restrict(f: ReturnType<typeof settled>, ids: string[]) {
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
+  updateTask(f.ctx, f.id, x => { x.repo = repo; });
+  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ids), 0);
+}
+
+test("a project that allows only the excluded executor holds the turn and keeps the task's result", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex"]);
+  f.policy({ verdict: "allow" }, { verdict: "amend", amend: { exclude: ["codex"] } });
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("held");
+  expect(r.hold).toEqual({ reason: "No executor is admitted for this task's next turn (excluded by plugin fx-policy)", plugin: "fx-policy" });
+  // Project policy forbids cursor, so the route plugin never saw it.
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["codex"] });
+  expect(f.spawned).toEqual([]);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.state).toBe("done");
+  expect(t.pendingTurn).toBeUndefined();
+  expect(t.requestedExecutor).toBeNull();
+  expect(t.result?.report).toBe("first report");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["also handle X"]);
+  expect(store.inbox(f.ctx, "human").filter(m => m.from === `task:${f.id}`).map(m => m.body)).toEqual([expect.stringContaining("[held] Messages to task")]);
+});
+
+test("a project that forbids every turn executor holds the turn without asking the route plugin", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
+  // The only allowed executor is no longer configured, so nothing project policy allows can run the turn.
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ ...f.config, providers: { "claude-code": {}, codex: {} } }));
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("held");
+  expect(r.hold?.reason).toContain("project policy allows");
+  expect(f.decisions().map(c => c.decision)).toEqual(["delegate"]);
+  expect(readTask(f.ctx, f.id)!.result?.report).toBe("first report");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
+});
+
+test("a project that forbids the prior executor reroutes the turn to the allowed one", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("turn_started");
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["cursor"] });
+  expect(readTask(f.ctx, f.id)!.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+});
+
+test("a project that allows two executors reroutes an excluded one to the other, which replays", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex", "cursor"]);
+  f.policy({ verdict: "allow" }, { verdict: "amend", amend: { exclude: ["codex"] } });
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("turn_started");
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["codex", "cursor"] });
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+  expect(t.requestedExecutor).toBe("cursor");
+  expect(f.spawned).toEqual([f.id]);
 });
 
 test("task.answer under a veto falls back to the legacy retry, which policy refuses as it refuses a new delegation", async () => {
