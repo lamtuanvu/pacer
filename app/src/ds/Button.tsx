@@ -28,11 +28,11 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(functio
   const density = useDensity();
   return <a {...rest} ref={ref} className={buttonClasses(variant, size, density, className)}>{children}</a>;
 });
-export const TextAction = forwardRef<HTMLAnchorElement, JSX.AnchorHTMLAttributes<HTMLAnchorElement>>(function TextAction({ className, children, ...rest }, ref) {
-  return <a {...rest} ref={ref} className={classes('pc-text-action', className)}>{children}</a>;
+export const TextAction = forwardRef<HTMLAnchorElement, JSX.AnchorHTMLAttributes<HTMLAnchorElement> & {size?: "caption"}>(function TextAction({ className, children, size, ...rest }, ref) {
+  return <a {...rest} ref={ref} className={classes('pc-text-action', size && `pc-text-action--${size}`, className)}>{children}</a>;
 });
-export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string; icon?: IconName; tone?: 'bad' }>(function IconButton({ icon, tone, children, className, ...props }, ref) {
-  return <Button {...props} ref={ref} className={classes('pc-icon-button', tone && `pc-icon-button--${tone}`, className)}>
+export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string; icon?: IconName; tone?: 'bad'; geometry?: 'board' }>(function IconButton({ icon, tone, geometry, children, className, ...props }, ref) {
+  return <Button {...props} ref={ref} className={classes('pc-icon-button', geometry && `pc-icon-button--${geometry}`, tone && `pc-icon-button--${tone}`, className)}>
     {icon && <Icon name={icon} />}{children}
   </Button>;
 });

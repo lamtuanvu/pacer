@@ -38,15 +38,15 @@ export function connectControl(children: ComponentChildren, target: FieldNode, a
   });
 }
 /** Labels the first canonical control, including within layout elements; keeps sibling feedback intact. */
-export function Field({ label, help, error, children, className }: {
-  label: ComponentChildren; help?: ComponentChildren; error?: ComponentChildren;
+export function Field({ label, help, error, children, className, emphasis }: {
+  emphasis?: "strong"; label: ComponentChildren; help?: ComponentChildren; error?: ComponentChildren;
   children: ComponentChildren; className?: string;
 }) {
   const generated = useId();
   const control = findControl(children);
   const id = control?.props.id ?? `field-${generated}`;
   const describedBy = [control?.props['aria-describedby'], help && `${id}-help`, error && `${id}-error`].filter(Boolean).join(' ') || undefined;
-  return <div className={classes('pc-field', 'field', className)}>
+  return <div className={classes('pc-field', 'field', emphasis && 'pc-field--strong', className)}>
     <label htmlFor={control ? id : undefined}>{label}</label>
     {control ? connectControl(children, control, { id, 'aria-describedby': describedBy, 'aria-invalid': error ? true : control.props['aria-invalid'] }) : children}
     {help && <small id={`${id}-help`}>{help}</small>}

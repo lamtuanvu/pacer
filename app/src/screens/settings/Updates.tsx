@@ -5,7 +5,7 @@ import { Checkbox, Disclosure, Switch } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
 import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
 import { useActions } from "../../data/action-context";
-import { Button, ButtonLink } from "../../ds/Button";
+import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { StatusPill } from "../../ds/StatusPill";
 import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage, useTaskContext } from "../task-shared";
@@ -70,7 +70,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     {status.blockers.length > 0 && <ul aria-label="Work holding the update">{status.blockers.map(blocker => <li key={`${blocker.kind}:${blocker.id}`}>{blocker.label || ({ task: "Running task", session: "Interactive session", launch: "Starting work", operation: "Operation in progress" }[blocker.kind])}</li>)}</ul>}
     {status.error?.hint && <p>{status.error.hint}</p>}
     <p className="u3-muted">Last checked {time(status.checkedAt)}</p>
-    <a className="pc-inline-link" href={`https://github.com/lamtuanvu/pacer/releases/${status.target && /^\d+\.\d+\.\d+$/.test(status.target) ? `tag/v${status.target}` : "latest"}`}>Release notes</a>
+    <TextAction size="caption" href={`https://github.com/lamtuanvu/pacer/releases/${status.target && /^\d+\.\d+\.\d+$/.test(status.target) ? `tag/v${status.target}` : "latest"}`}>Release notes</TextAction>
     {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
     <div className="u3-actions">{view.action && <Button key={view.action} variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
     {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><ImmediateSetting value={status.autoDownload} operation={value => {const request=intent(available,"configure",{autoDownload:value}); return {op:request.op!,params:request.params};}}>{(value, change, saving) => <Checkbox className="pc-checkbox__input" checked={value} disabled={busy||saving||!state.connected} onChange={event => change(event.currentTarget.checked)}/>}</ImmediateSetting></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
@@ -160,7 +160,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
             void action.run('update.apply', {});
           }
         }}>Install {query.data.latest}</Button>}
-        <a className="pc-inline-link" href={`https://github.com/lamtuanvu/pacer/releases/${query.data.latest && /^\d+\.\d+\.\d+$/.test(query.data.latest) ? `tag/v${query.data.latest}` : "latest"}`}>Release notes</a>
+        <TextAction size="caption" href={`https://github.com/lamtuanvu/pacer/releases/${query.data.latest && /^\d+\.\d+\.\d+$/.test(query.data.latest) ? `tag/v${query.data.latest}` : "latest"}`}>Release notes</TextAction>
         <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>

@@ -98,7 +98,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       }))} />
       <section className="u3-wizard-panel" aria-labelledby="agent-step-heading">
         {step === 1 && <>
-          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading><p className="u3-muted">{installGuidance ? "Found on this Mac. Agents that aren’t installed show how to get them." : "pacer looks for each agent’s CLI on this Mac."}</p></div>
+          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading><p className="u3-muted">Found on this Mac. Agents that aren't installed show how to get them.</p></div>
           <div className="u3-agent-choices"><ResourceState resource={detected}>{agents.map(agent => {
             const found = detected.data?.find(a => a.agent === agent.id);
             return <ChoiceCard layout="agent" key={agent.id} id={`agent-choice-${agent.id}`} aria-pressed={draft.agent === agent.id}

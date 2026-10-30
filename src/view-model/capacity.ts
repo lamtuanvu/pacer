@@ -112,3 +112,10 @@ export function executorWeekUsage(executor: ExecutorRow, snapshot: ClientSnapsho
   const reset = account?.resetsAt == null ? "" : ` · resets ${new Date(account.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" })}`;
   return `${percentage(executor.usedPct)} of ${window}${reset}`;
 }
+
+/** Account pace is meaningful only while a measured budget window is current. */
+export function accountBudgetStatus(account: import("../api/read-model/types").AccountSummary, now = Date.now()/1000) {
+  if (account.usedPct == null && account.spendUsdWeek == null) return {...paceStatus("unknown"),label:"Usage unknown"};
+  if (account.stale || account.eligibility?.budget === "unknown" || (account.resetsAt != null && account.resetsAt <= now) || (account.capturedAt != null && now-account.capturedAt > 86400)) return {...paceStatus("unknown"),label:"Stale reading",tone:"warn" as const,glyph:"!"};
+  return paceStatus(account.verdict);
+}

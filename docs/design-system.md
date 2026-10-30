@@ -813,3 +813,22 @@ keyboard navigation, with no nested interactive controls. Production consumer:
 `app/src/screens/dispatch/Dispatch.tsx` Live dispatch ledger.
 
 **Terminal overview preview** (`app/src/term/LazyTerminal.tsx`, `term.tsx`). The specialized terminal renderer remains outside the DS and loads xterm only on demand. `preview` suppresses the session action row; the task overview passes `control={false}` and `resize={false}` and retains connection status, authoritative dimensions and the canonical Screen reader checkbox. Its screen-owned frame is bounded to the 320px size token, with full-size glyphs and a focusable viewport that scrolls on both axes rather than scaling the remote screen down. Watching never takes control, sends input or changes PTY geometry; the workspace link opens the full session. Headless and failed-check text stays in bounded, focusable output regions. No upstream components or provenance changed.
+
+### Settings board fidelity variants
+
+`IconButton` accepts `geometry="board"` for a 28×28 desktop control with 6px
+corners and an unshrinking 16px glyph. Coarse pointers and narrow screens retain
+44px targets. Agent details, executor pools and ActionMenu use this variant.
+`Tabs variant="pills"` retains tab roles, arrow-key navigation and panel ownership
+while drawing outlined 28px pills. Other tabs retain their underline treatment.
+`SortableList layout="executor"` adds the bordered, padded executor list and an
+end-of-list drag guide; only keyed executor rows participate in reorder geometry.
+The Move up/down and Remove buttons use SVG icons and preserve accessible names.
+
+`TextAction size="caption"` provides a 12/16 standalone action for release notes.
+`SettingRow layout="inline-help"` places number controls and capacity help on one
+line beneath the label. `Field emphasis="strong"` gives the remote-host name step
+a bold label. Agent choice cards and wizard steps own auto-height geometry and
+body typography independently of shared button density. The Agents column layout
+places the details aside beside the entire page, with no compounded gutter.
+These are original project variants; upstream provenance and licenses are unchanged.

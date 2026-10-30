@@ -168,7 +168,7 @@ test('Agents: Executors and Accounts have a planner card; Accounts has the factu
  expect(html).toContain('Change planner');
  expect(html).toContain('An account is where quota comes from.');
  expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
- expect(html).not.toContain('Endpoint keys stay in your keychain');
+ expect(html).toContain('Endpoint keys stay in your keychain and are used by reference.');
  expect(html).toContain('scope="col">Sign-in</th>');
  expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Codex’s own sign-in/);
  expect(html).toContain('data-label="Sign-in"><span>Unknown</span>');
@@ -247,8 +247,8 @@ test('Add agent has a breadcrumb, polite panel, found state, selection check and
   expect(html).toContain('--agent-size:28px');
   expect(html).toContain('Not installed · how to install');
   expect(html).toContain('Install: <code>install-cursor</code>');
-  expect(html).toContain('Agents that aren’t installed show how to get them.');
-  expect(render(<AddExecutor initialDetection={[]}/>)).not.toContain('show how to get them');
+  expect(html).toContain("Agents that aren't installed show how to get them.");
+  expect(render(<AddExecutor initialDetection={[]}/>)).toContain('show how to get them');
 });
 
 test('Add agent account and location options use radios and omit unavailable remote choices', () => {

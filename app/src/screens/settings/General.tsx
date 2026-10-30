@@ -1,3 +1,4 @@
+import { ago } from "../../../../src/view-model/time";
 import { ImmediateSave, ReleaseRange } from "../../ds/ImmediateSave";
 import { ImmediateSetting } from "./ImmediateSetting";
 import { applyDensity, savedDensity, DENSITY_KEY } from "../../density";
@@ -189,7 +190,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const readiness = (e: ExecutorRow) => executorReadiness(e, snapshot!);
   // Readiness follows execution evidence, independently of whether a task is running.
   const ready = executors?.filter(e => ["Ready", "Ahead of pace"].includes(readiness(e).label)) ?? [];
-  const needs = executors?.filter(e => ["Skipped", "Cannot take work"].includes(readiness(e).label) && readiness(e).tone !== "neutral") ?? [];
+  const needs = executors?.filter(e => ["down", "failing", "blocked"].includes(e.state)) ?? [];
   const active = snapshot?.strategies?.find(s => typeof s !== "string" && s.active);
   const setup = typeof active === "object" ? active : initialData.strategies?.find(s => s.active);
   const value = (key: string) => config.data?.keys[key]?.value;
@@ -211,7 +212,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (update) checks.push({ title: update.label, tone: update.tone === "bad" ? "bad" : "warn", page: "app", link: "App" });
   else if (initialData.updates?.available && initialData.updates.latest) checks.push({ title: `pacer ${initialData.updates.latest} is available`, detail: `You have ${initialData.updates.current}`, tone: "warn", page: "app", link: "App" });
   const tiles: { label: string; value: string; note?: string; page: string }[] = [];
-  if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
+  if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.filter(e => e.rank !== "planner").length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
   if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
@@ -222,7 +223,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
         {needs.length > 0 && <p>{needs.map(e => `${executorLabel(e.id)}: ${readiness(e).reason}`).join(" · ")}</p>}
       </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${executorLabel(e.id)} · ${readiness(e).label} · ${readiness(e).tooltip}`}><AgentMark agent={markAgent(e.id,e.account)} size={28}/><StatusDot tone={readiness(e).tone} label={`${executorLabel(e.id)}: ${readiness(e).label}`} paired="glyph"/></span>)}</div>
     </div></Card>}
-    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})}>{c.link}</Button> : <ButtonLink size="sm" href={href(c.page)}>{c.link}</ButtonLink>}</div>)}</div></section>}
+    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})}>{c.link}</Button> : <TextAction href={href(c.page)}>{c.link}</TextAction>}</div>)}</div></section>}
     <Feedback action={refreshUsage}/>
     {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
   </div>;
@@ -283,12 +284,13 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
   // account.list exposes every measured window; the snapshot supplies pace/verdict only for its binding window.
   const windows = (accounts.data ?? []).flatMap(account => {
     const binding = summary.find(row => row.name === account.name);
-    const readings = account.usageReading?.windows.length ? account.usageReading.windows : (binding?.window ? [{ name: binding.window, usedPct: binding.usedPct, resetsAt: binding.resetsAt }] : []);
+    const readings = ["reactive", "unmetered"].includes(account.usageReading?.source ?? "") ? [{name:"unknown",usedPct:null,resetsAt:null}] : account.usageReading?.windows.length ? account.usageReading.windows : (binding?.window ? [{ name: binding.window, usedPct: binding.usedPct, resetsAt: binding.resetsAt }] : [{name:"unknown",usedPct:null,resetsAt:null}]);
     return readings.map(window => {
       const matched = binding?.window === window.name ? binding : undefined;
-      const stale = window.stale ?? account.usageReading?.stale ?? matched?.stale;
+      const captured = account.usageReading?.capturedAt ?? binding?.capturedAt;
+      const stale = !!((window.stale ?? account.usageReading?.stale ?? binding?.stale) || binding?.stale || (captured != null && (state.snapshot?.at ?? Date.now()/1000) - captured > 86400) || (window.resetsAt != null && window.resetsAt <= (state.snapshot?.at ?? Date.now()/1000)));
       const capturedAt = account.usageReading?.capturedAt ?? matched?.capturedAt;
-      const note = [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null, stale ? "Stale reading" : null].filter(Boolean).join(" · ");
+      const note = window.usedPct == null ? "Usage unknown · No usage reported" : stale ? `Stale${capturedAt != null ? ` · ${ago(capturedAt,state.snapshot?.at ?? Date.now()/1000)}` : " reading"} · refresh to use` : [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null, stale ? "Stale reading" : null].filter(Boolean).join(" · ");
       return { account, window, binding: matched, stale, capturedAt, note };
     });
   });
@@ -312,7 +314,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
         <SettingRow controlId={reserveId} headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
           <ImmediateSetting value={value("pacing.planner_reserve")} operation={value => ({op:"config.set",params:{key:"pacing.planner_reserve",value:Number(value)}})} onSaved={query.reload}>{(value, change, busy) => <div className="pc-budget-reserve"><ReleaseRange id={reserveId} aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value} disabled={busy} onCommit={change}/><output>{percentage(Number(value))}</output><span className="pc-settings-board__caption">0–50%</span></div>}</ImmediateSetting>
         </SettingRow>
-        <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
+        <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until you release it or the planner window resets.">
           <ImmediateSetting value={actualMode} operation={next => ({op:next === "auto" ? "mode.release" : "mode.hold",params:next === "auto" ? {} : {mode:next}})}>{(value, change, busy) => <Segment variant="board" label="Mode" value={value} disabled={busy} options={[{value:"auto",label:"Automatic"},{value:"strict",label:"Hold strict"},{value:"relaxed",label:"Hold relaxed"}]} onChange={change}/>}</ImmediateSetting>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
@@ -339,8 +341,8 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     <section className="pc-settings-board__section" aria-labelledby="budget-windows-h"><h2 id="budget-windows-h" className="pc-settings-board__label">Budget windows</h2>
       <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, binding, stale, capturedAt, note }) => <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
         <span className="pc-budget-identity"><AgentMark agent={markAgent(account.runners?.[0] ?? binding?.agent ?? account.kind,account.name)} size={20}/><b>{accountLabel(account)}</b></span>
-        <span className="pc-settings-board__caption">{window.name === "weekly" || window.name === "week" ? "Weekly" : window.name === "5h" ? "5 hours" : words(window.name)}</span>
-        <span className="pc-budget-window__usage"><UsageMeter used={window.usedPct} pace={binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${accountLabel(account)} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
+        <span className="pc-settings-board__caption">{window.name === "weekly" || window.name === "week" ? "Weekly" : window.name === "5h" ? "5 hours" : window.name === "unknown" ? "No reading" : words(window.name)}</span>
+        <span className="pc-budget-window__usage"><UsageMeter used={stale ? null : window.usedPct} pace={stale ? null : binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${accountLabel(account)} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
         <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
       </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
     </section>
@@ -505,7 +507,7 @@ function WorkspacePreferences({ initialAssistant }: { initialAssistant?: Assista
       <div className="pc-assistant-preferences"><ImmediateSave value={preferences.showButton} save={value => setAssistantPreferences({ showButton: value }, true)}>{(value, change, busy) => <Switch size="sm" label="Show the button" aria-label="Show assistant button" checked={value} disabled={busy} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave>
       <ImmediateSave value={preferences.stillAurora} save={value => setAssistantPreferences({ stillAurora: value }, true)}>{(value, change, busy) => <Switch size="sm" label="Still aurora" aria-label="Reduce assistant motion" checked={value} disabled={busy} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave></div>
       <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
-      <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
+      <TextAction href="#/settings/assistant">Choose account and limits</TextAction>
     </SettingRow>
   </section>;
 }

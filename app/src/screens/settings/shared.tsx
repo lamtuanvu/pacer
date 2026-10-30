@@ -1,3 +1,4 @@
+import { PageColumns } from "../../ds/Page";
 import { budgetResourceRevision } from "../../data/budget-revision";
 import { displayPath, settingsText } from "./presentation";
 import { useNotifications } from "../../data/notification-context";
@@ -39,12 +40,13 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
 /** Board page heading and block rhythm shared by the Slice 6b editors. */
-export function SettingsBoard({id,title,caption,actions,children}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren}) {
+export function SettingsBoard({id,title,caption,actions,children,aside}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren;aside?:ComponentChildren}) {
  useSettingsStyles();
- return <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
+ const board = <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
   <header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header>
   {children}
  </section>;
+ return aside ? <PageColumns layout="agents" main={board} aside={aside}/> : board;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  const budget = budgetResourceRevision(op, invalidations);

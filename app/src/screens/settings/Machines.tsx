@@ -1,3 +1,4 @@
+import { markAgent } from "../../../../src/view-model/agents";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Job } from "../../../../src/api/read-model/types";
 import { hostCheckStepCopy } from "../../../../src/view-model/copy";
@@ -5,7 +6,7 @@ import { executorLabel } from "../../../../src/view-model/words";
 import { machineHardCap } from "../../../../src/view-model/capacity";
 import type { ClientMachine } from "../../../../src/view-model/snapshot";
 import type { ConfigData } from "../../model/strategy";
-import { TextInput } from "../../ds/Controls";
+import { TextInput, Disclosure } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { ChoiceCard } from "../../ds/Patterns";
 import { SettingRow } from "../../ds/SettingRow";
@@ -47,7 +48,7 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
         <div className="u3-machine-title"><SectionHeading variant="headline" id="this-machine">This Mac</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">{[snapshot.machine?.os, snapshot.machine?.arch, `pacer ${snapshot.service.version}`].filter(Boolean).join(" · ")}</span>}</div>
           {snapshot?.machine && <Pill tone={snapshot.machine.used ? "good" : "neutral"}>Running {snapshot.machine.used}{machineHardCap(snapshot.machine) !== null && <> of {machineHardCap(snapshot.machine)}</>}</Pill>}</div>
         <div className="u3-machine-body"><ThisMachine initialData={initialData} />
-        {!!local.length && <SettingRow variant="board" label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={executorLabel(e.id)}><AgentMark agent={e.agent} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
+        {!!local.length && <SettingRow variant="board" label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={executorLabel(e.id)}><AgentMark agent={markAgent(e.id,e.account)} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
       </div></section>
       <AddHost />
     </div>
@@ -175,22 +176,20 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const now = machineNow(state.snapshot?.machine && { ...state.snapshot.machine, ...query.data?.machine, ...live });
   const { options } = terminalPreference(query.data);
   return <ResourceState resource={query}>
-    {now && <p className="u3-muted" role="status">Now: {now}</p>}
-    <SettingRow variant="board" label="Parallel tasks" description="Shared by every executor on this Mac. Without a limit, new tasks start until the machine is under memory pressure or over the load limit. Tasks already running are never stopped.">
-      <div className="u3-actions">
-        <TextInput className="u3-parallel-input" type="number" min="1" step="1" aria-label="Parallel tasks" placeholder="No limit" aria-invalid={!!capError} value={draft.cap === "limit" ? draft.max : ""} onInput={e => edit({cap: e.currentTarget.value ? "limit" : "unlimited", max:e.currentTarget.value})}/>
-        {caps && <span className="u3-muted">{caps}</span>}
-      </div>
+    <SettingRow variant="board" layout="inline-help" label="Parallel tasks" description="Shared by every executor on this Mac.">
+      <TextInput className="u3-parallel-input" type="number" min="1" step="1" aria-label="Parallel tasks" placeholder="No limit" aria-invalid={!!capError} value={draft.cap === "limit" ? draft.max : ""} onInput={e => edit({cap: e.currentTarget.value ? "limit" : "unlimited", max:e.currentTarget.value})}/>
+      <span className="pc-control-help">{machineMax === null ? "No fixed machine limit." : `Up to ${machineMax} across all executors.`}</span>
       {capError && <small className="pc-field__error" role="alert">{capError}</small>}
     </SettingRow>
     <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes · only terminals found on this machine">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={draft.terminal} options={options} placeholder={draft.terminal.includes("{cmd}") ? "Custom terminal (CLI)" : "Saved terminal not found"} disabled={action.busy} onValueChange={terminal => edit({ terminal })} />
     </SettingRow>
-    <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent’s terminal UI and finish when the agent reports its result. Headless runs without an interactive terminal. An agent’s own session setting overrides this.">
+    <SettingRow variant="board" label="Worktrees" description="Each task gets one here"><code className="u3-worktrees-path">~/.pacer/worktrees</code></SettingRow>
+    <Disclosure className="pc-disclosure u3-machine-advanced" summary="More machine settings">{caps && <p className="u3-muted">{caps}</p>}{now && <p className="u3-muted" role="status">Now: {now}</p>}    <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent’s terminal UI and finish when the agent reports its result. Headless runs without an interactive terminal. An agent’s own session setting overrides this.">
       <ChoicePicker aria-label="Delegated task launch" value={draft.launch} options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]} disabled={action.busy} onValueChange={launch => edit({launch})}/>
     </SettingRow>
     <TaskBackendField value={draft.backend} source={keys?.[MACHINE_KEYS.backend]?.source} disabled={action.busy} run={(_op, params) => edit({backend:(params as {value:string}).value})}/>
-    <SettingRow variant="board" label="Worktrees" description="Each task gets one here"><code className="u3-worktrees-path">~/.pacer/worktrees</code></SettingRow>
+</Disclosure>
     {conflict && <Alert tone="warning" title="Settings changed elsewhere">
       Your draft is preserved. Reload the saved settings before making further changes.{" "}
       <Button size="sm" onClick={async () => { if (await dialogs.confirm("Discard this draft and load the latest saved settings?", "Reload saved settings", "Reload")) reset(); }}>Reload saved settings</Button>
@@ -240,7 +239,7 @@ export function AddHost({ initialAliases }: { initialAliases?: (string | { name:
         {aliases.data?.length && !suggestions?.some(alias => `${alias.name} ${alias.host}`.toLowerCase().includes(filter.toLowerCase())) ? <p className="u3-muted" role="status">No SSH aliases match.</p> : null}
       </ResourceState>
     </fieldset>
-    <Field label="2 · Name it in pacer" help={!ssh ? "Pick a host from your SSH config first." : undefined}><div className="u3-actions">
+    <Field emphasis="strong" label="2 · Name it in pacer" help={!ssh ? "Pick a host from your SSH config first." : undefined}><div className="u3-actions">
       <TextInput className="u3-host-name" value={name} required pattern="[a-z0-9][a-z0-9-]*" disabled={!!added || !ssh} aria-invalid={!!ssh && !!problem} onInput={e => setName(e.currentTarget.value)} />
       <span className="u3-muted">Lower-case letters, digits, hyphens.</span></div></Field>
     <div className="u3-heading"><strong>3 · Check it</strong>
