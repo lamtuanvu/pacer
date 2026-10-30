@@ -3,9 +3,10 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, upgradeRuntimeDir, writeFeed } from "../scripts/live/upgrade";
+import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, upgradeRuntimeDir, upgradeLoginArgs, handoverFailureMarker, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
+import { consumeFixtureHandoverFailure, recoverFixtureHandover } from "../src/service/upgrade";
 import { hostTarget, assetFile, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
@@ -57,6 +58,7 @@ test("the fixture policy and plist use the fixture label, never the real one", (
   expect(policy).toMatchObject({ home: join(liveRoot, "upgrade-test", "home"), port: 49112, root: join(liveRoot, "upgrade-test", "ota") });
   const text = fixturePlist(policy, "/fixture/bin/pacer");
   expect(text).toContain(`<key>Label</key><string>${policy.serviceLabel}</string>`);
+  expect(text).toContain("<key>PACER_RELEASE_BASE</key>");
   expect(text).not.toContain(`<string>${LABEL}</string>`);
   expect(() => fixturePlist({ ...policy, serviceLabel: LABEL }, "/fixture/bin/pacer")).toThrow("non-fixture service label");
 });
@@ -67,6 +69,7 @@ test("the release feed matches the updater's manifest and checksum layout", () =
   const file = assetFile(hostTarget()!);
   expect(JSON.parse(readFileSync(join(feed, "0.13.1", "manifest.json"), "utf8"))).toMatchObject({ version: "0.13.1", assets: [{ file, size: bytes.length, sha256: sha256Hex(bytes) }] });
   expect(readFileSync(join(feed, "0.13.1", "SHA256SUMS"), "utf8")).toBe(`${sha256Hex(bytes)}  ${file}\n`);
+  expect(JSON.parse(readFileSync(join(feed, "latest.json"), "utf8"))).toEqual({ version: "0.13.1" });
 });
 
 test("the pre-feature build never reaches its own launchd code", () => {
@@ -79,4 +82,37 @@ test("the pre-feature build never reaches its own launchd code", () => {
   for (const args of [["api", "call", "update.apply"], ["dashboard"], ["login"], ["app"], ["update", "--no-restart", "--no-reinstall", "--to", "0.13.1", "--and-service"]])
     expect(() => guardPacerArgs("prefeature", args)).toThrow();
   expect(() => guardPacerArgs("prefeature", ["status"])).not.toThrow();
+});
+
+test("upgrade login opens only a feature fixture on the requested screen", () => {
+  expect(upgradeLoginArgs("baseline", "settings")).toEqual(["open", "--print", "settings"]);
+  expect(upgradeLoginArgs("candidate", undefined)).toEqual(["open", "--print"]);
+  expect(() => upgradeLoginArgs("prefeature", "settings")).toThrow("pre-feature");
+  expect(() => upgradeLoginArgs("baseline", "https://example.test/")).toThrow("screen");
+});
+
+test("forced handover failure marker is confined to the upgrade fixture lease", () => {
+  const policy = upgradePolicy(session(), nonce, 501);
+  expect(handoverFailureMarker(policy)).toBe(join(policy.root, "handover-fail-once"));
+  expect(() => handoverFailureMarker({ ...policy, serviceLabel: LABEL })).toThrow("fixture");
+  const root = tmpDir(), marker = join(root, "handover-fail-once");
+  writeFileSync(marker, "1\n");
+  expect(consumeFixtureHandoverFailure(root)).toBe(true);
+  expect(consumeFixtureHandoverFailure(root)).toBe(false);
+});
+
+test("restart recovery consumes the fixture failure once before handover", async () => {
+  const root = tmpDir(), marker = join(root, "handover-fail-once");
+  const fixture = { ...upgradePolicy(session(), nonce, 501), root };
+  let calls = 0;
+  writeFileSync(marker, "1\n");
+  await expect(recoverFixtureHandover(fixture.home, fixture, async () => { calls++; return "handed over"; })).rejects.toThrow("Forced fixture handover failure");
+  expect(calls).toBe(0);
+  expect(await recoverFixtureHandover(fixture.home, fixture, async () => { calls++; return "handed over"; })).toBe("handed over");
+  expect(calls).toBe(1);
+  writeFileSync(marker, "1\n");
+  expect(await recoverFixtureHandover("/other-home", fixture, async () => "untouched")).toBe("untouched");
+  expect(existsSync(marker)).toBe(true);
+  expect(await recoverFixtureHandover(fixture.home, null, async () => "release handover")).toBe("release handover");
+  expect(existsSync(marker)).toBe(true);
 });

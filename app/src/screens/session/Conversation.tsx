@@ -14,6 +14,8 @@ import { changeConversation } from "../../model/conversation";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { SessionAttachments } from "./Attachments";
 import { SessionView } from "./SessionView";
+import { useNavigation } from "../../navigation";
+import { routes } from "../../router";
 import { machineWaitWords } from "../../../../src/view-model/capacity";
 
 export function TerminalOpenFallback({ command }: { command: string }) {
@@ -51,6 +53,7 @@ export function Conversation({
       rev: number;
     }>("session.context", { id: task.id });
   const dialogs = useDialogs();
+  const navigation = useNavigation();
   const [footer, setFooter] = useState<HTMLElement | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(),
@@ -153,6 +156,7 @@ export function Conversation({
               slots?.showChanges();
             }}
             onReadFile={request => api.call("session.file.read", request)}
+            onReopen={() => navigation.navigate(routes.newTask())}
           />
         </div>
       </div>

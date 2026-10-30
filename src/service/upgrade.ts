@@ -1,15 +1,30 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_PORT } from "../serve/constants";
 import { runningWork, workCounts, type RunningWorkCounts } from "./running-work";
 import { upgradeSummary } from "../tasks/handover-service";
 import { currentVersion } from "../update/version";
 import type { Ctx } from "../types";
+import type { NativeFixture } from "../update/desktop/native-fixture";
 
 export const UPGRADE_CLI_REFUSAL = "upgrades are not allowed from a delegated task";
 export interface UpgradeDeps { fetch?: (url: string, init?: RequestInit) => Promise<Response>; sleep?: (ms: number) => Promise<void>; healthTimeoutMs?: number; handoverTimeoutMs?: number; expectedPid?: number | null }
 export interface RestartOutcome { restarted: boolean; summary: string | null; warning?: string }
 interface HandoverResult { pacer: string; tasks: number; sessions: number; handed_over: number; kept_on_previous_runner: number; summary: string }
+
+/** A one-shot failure marker used only when the caller has a compiled native upgrade fixture lease. */
+export function consumeFixtureHandoverFailure(root: string): boolean {
+  const marker = join(root, "handover-fail-once");
+  if (!existsSync(marker)) return false;
+  if (readFileSync(marker, "utf8") !== "1\n") throw Error("Invalid fixture handover failure marker");
+  rmSync(marker);
+  return true;
+}
+
+export async function recoverFixtureHandover<T>(home: string, fixture: NativeFixture | null, handover: () => Promise<T>): Promise<T> {
+  if (fixture?.home === home && consumeFixtureHandoverFailure(fixture.root)) throw Error("Forced fixture handover failure");
+  return handover();
+}
 
 async function call<T>(ctx: Ctx, deps: UpgradeDeps, op: string, params: unknown, timeoutMs: number): Promise<T> {
   const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim();
