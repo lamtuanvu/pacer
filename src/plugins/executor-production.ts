@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -12,6 +12,7 @@ import { planInteractive, requireCodexInteractive } from "../session/reports";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
+import { detectLimit } from "../exec/limits";
 import type { AttemptOutcome } from "../exec/direct";
 import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -187,6 +188,13 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
+  if (!interactive) {
+    if (launch.lastMessageFile && existsSync(launch.lastMessageFile)) {
+      const last = readFileSync(launch.lastMessageFile, "utf8").trim().slice(-4000);
+      if (last) out.report = last;
+    }
+    out.attempt.limitHit = detectLimit(cfg.id, out.exec);
+  }
   const durable = inspectOwnedExecutorRun(ctx, task.id, attempt), latest = readTask(ctx, task.id);
   const report = interactive ? readRun(durable.dir).report : null;
   const completion = latest?.executorReportReceipt;

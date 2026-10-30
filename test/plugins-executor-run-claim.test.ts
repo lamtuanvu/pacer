@@ -24,7 +24,7 @@ function fixture() {
     current.executorProvider = "pacer-exec-direct";
   });
   const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0",
-    publisher: "pacer", host: "^1.6", contributes: { executor: { backends: ["direct"] } },
+    publisher: "pacer", host: ">=1.8.0", contributes: { executor: { backends: ["direct"] } },
     capabilities: [{ name: "process.spawn", scopes: ["bun", "codex"] }] });
   const executable = realpathSync(process.execPath);
   const binary = statSync(executable), cwd = realpathSync(home);
@@ -297,7 +297,7 @@ test("isolated run claim requires the issued worktree effect and binds its exact
   const worktree = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
   const executable = realpathSync(process.execPath), binary = statSync(executable);
   const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0",
-    publisher: "pacer", host: "^1.6", contributes: { executor: { backends: ["direct"] } },
+    publisher: "pacer", host: ">=1.8.0", contributes: { executor: { backends: ["direct"] } },
     capabilities: [{ name: "worktree", scopes: ["task-owned"] },
       { name: "process.spawn", scopes: ["bun", "codex"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree,

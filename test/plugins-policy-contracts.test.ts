@@ -39,7 +39,7 @@ test("policy contracts expose bounded decision-specific amendments and policy ac
       id: "fx-policy",
       version: "1.0.0",
       publisher: "test",
-      host: "^1",
+      host: ">=1.6.0",
       contributes: { policy: {} },
     }).success,
   ).toBe(true);
@@ -243,7 +243,7 @@ test("full metadata envelope remains exclusive for chunks and negotiates impleme
       id: 1,
       method: "plugin.hello",
       params: {
-        protocol: "1.5.0",
+        protocol: "1.6.0",
         features: ["policyObservations", "chunkedResults"],
         config: {},
         grants: [],

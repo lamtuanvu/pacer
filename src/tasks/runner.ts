@@ -803,8 +803,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         lastLimitReport = out.report;
         markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
-        if (owned) return finish(ctx, id, { status: "limit", executor: pick,
-          model: cfg.model, files: "", report: out.report, backend: attemptedBackend });
+        if (owned) task = updateTask(ctx, id, current => {
+          delete current.run; delete current.executorProvider; delete current.executor;
+          delete current.attemptStartedAt;
+        });
         continue;
       }
       if (!out.partial) task = updateTask(ctx, id, t => {

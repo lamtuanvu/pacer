@@ -91,7 +91,7 @@ test("remote E2E fixture cleanup reaps its bundled SSH provider", async () => {
   }
 });
 
-async function setup(wait = false) {
+async function setup(wait = false, autoClean = true) {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git");
   const checkout = join(hostHome, "src/r"), bin = join(hostHome, "bin");
   mkdirSync(bin, { recursive: true });
@@ -122,11 +122,10 @@ async function setup(wait = false) {
       name === "git" ? "/usr/bin/git" : Bun.which(name) });
   registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: {auto_clean: autoClean}, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
     loadStrategy,
-    // These cases characterize the compatibility route; provider-owned routing has
-    // separate production tests in plugins-remote-prepare-recover.test.ts.
+    // These cases characterize the compatibility route; provider-owned routing has separate tests.
     runAttempt,
     computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
       providers: [{ id: "codex@box", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }], executors: { ranked: [], excluded: [] } }),
@@ -201,9 +200,6 @@ test("clean removes the remote worktree and run dir after review", async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
   expectTaskState(t, "done", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: true });
-  expect((await tasks.clean(f.ctx, { dryRun: true })).removed).toContain(t.id);
-  expect(existsSync(t.run!.remoteWorktree!)).toBe(true);
-  expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(existsSync(t.result!.worktree!)).toBe(false);
@@ -217,7 +213,6 @@ test("clean keeps the remote branch when transfer was refused", async () => {
   const t = await runTask(f.ctx, f.task.id, f.deps);
   expectTaskState(t, "partial", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: false });
-  expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(await f.git("-C", f.checkout, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
@@ -225,7 +220,7 @@ test("clean keeps the remote branch when transfer was refused", async () => {
 }, 60000);
 
 for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} preserves a remote branch when the local head differs`, async () => {
-  const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
+  const f = await setup(false, false), t = await runTask(f.ctx, f.task.id, f.deps);
   expectTaskState(t, "done", f.sshLog);
   const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
   expect(t.run).toHaveProperty("transferredHead", head);

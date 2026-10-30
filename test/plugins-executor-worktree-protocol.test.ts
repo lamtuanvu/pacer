@@ -43,7 +43,7 @@ test("host-issued placement is journaled before one Git effect and reuses only t
   updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -84,7 +84,7 @@ test("base drift and provider swap refuse before worktree effect", async () => {
   updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const use = async () => {
     const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
@@ -112,7 +112,7 @@ test("repository source symlink replacement refuses a previously issued placemen
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
   unlinkSync(source); symlinkSync(foreign, source);
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -131,7 +131,7 @@ test("later attempts cannot overwrite an uncertain placement and may inspect aft
   updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -184,7 +184,7 @@ test("legacy owner-owned 0755 parents and symlinked PACER_HOME migrate without c
   mkdirSync(join(link, "worktrees", grant.path.split("/").at(-2)!), { mode: 0o755 });
   chmodSync(join(link, "worktrees"), 0o755);
   chmodSync(join(link, "worktrees", grant.path.split("/").at(-2)!), 0o755);
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -202,7 +202,7 @@ test("a retry task reuses its settled parent's worktree at the committed HEAD", 
   updateTask(ctx, parent.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const first = await issueOwnedWorktreeGrant(ctx, parent.id, "pacer-exec-direct", 1, "HEAD");
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const firstOwner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: first },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -245,7 +245,7 @@ test("a refused run publication keeps the exact placement journal for recovery",
   updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
-  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.6",
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
     { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
@@ -277,7 +277,7 @@ test("worktree methods refuse missing consent and an unissued placement", async 
   const ctx = fakeCtx();
   const method = "capability.worktree.createOrReuse";
   const params = { taskId: "t-fixture", attempt: 1, baseSha: "a".repeat(40) };
-  const declared = manifestSchema.parse({ id: "fx-worktree", version: "0.1.0", publisher: "fixture", host: "^1.6",
+  const declared = manifestSchema.parse({ id: "fx-worktree", version: "0.1.0", publisher: "fixture", host: ">=1.8.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const absent = { ...declared, capabilities: [] };
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [] },

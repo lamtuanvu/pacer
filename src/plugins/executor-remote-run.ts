@@ -53,7 +53,7 @@ export async function answerOwnedRemoteStart(authority: CallAuthority,
   if (!cfg || !runner || !runner.host || runner.host !== before.intent.alias || cfg.session === "interactive") return deny();
   const launch = remoteLaunch(cfg, before.run.workdir, before.run.remoteDir!);
   let built = buildPrompt({ ...before.task.brief, repo: before.run.workdir }, request.taskId);
-  const askRule = 'run pacer ask "<one question>" once, then stop';
+  const askRule = '- To ask your parent a blocking question, run `pacer ask "<one question>"` and end your turn; the answer resumes this same session. Ask only when you cannot continue; otherwise make a reasonable choice and say so in your report.';
   const askAt = built.lastIndexOf(askRule);
   if (askAt < 0) return deny();
   built = built.slice(0, askAt) +

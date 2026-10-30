@@ -628,6 +628,6 @@ export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {
       if (host && t.run.remoteDir) void new RemoteRunIO(ctx, host, t.run.remoteDir, t.run.dir)
         .stop({ graceMs: 5000, sleep: ms => Bun.sleep(ms) }).catch(() => { /* a live supervisor retries the stop */ });
     } catch { /* retain the stop flag for the supervisor when config is unavailable */ }
-  }
+  } else if (updated.childPid) killTree(updated.childPid, "SIGTERM");
   return updated;
 }

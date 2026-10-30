@@ -501,7 +501,4 @@ test("task runner selects provider-owned remote pipe without built-in SSH fallba
   expect(retry.startIntent).toMatchObject({ attempt: 2, providerId: "pacer-exec-direct" });
   expect(retry.remoteTransferIntent?.attempt).toBe(2);
   await tasks.review(f.ctx, retry.id, { accepted: true });
-  expect((await tasks.clean(f.ctx)).removed).toContain(retry.id);
-  expect(existsSync(retry.run!.remoteWorktree!)).toBe(false);
-  expect(existsSync(retry.run!.remoteDir!)).toBe(false);
 }, 90_000);
