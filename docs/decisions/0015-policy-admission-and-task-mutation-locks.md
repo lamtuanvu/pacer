@@ -1,6 +1,6 @@
 # Policy admission and task mutation locks
 
-Status: implementation design for SP07; implementation and validation are in progress.
+Status: accepted 2026-10-30 with the M0 SP02–SP07 integration (#494).
 
 ## Context
 
@@ -60,6 +60,15 @@ lifetime; admitted work runs independently. Detached runner and plugin process
 contexts and retained read owners discard it, while each pending plugin call
 keeps its own cancellation signal. The stdio EOF contract still drains pending
 requests; no new public cancellation notification is introduced here.
+
+## Policy outcomes and failure modes
+
+A policy may only restrict. The maintainer confirmed this rule on 2026-10-30:
+- **Veto** refuses the action. A veto on one queued task holds that task with a recorded reason and does not stop the queue drain.
+- **Amend** may change the task kind, may move placement only to a new worktree, and may never change the executor the dispatcher chose or lower isolation. Any other amendment is rejected and recorded.
+- **Allow** leaves the action unchanged.
+
+`plugins.policy.mode` sets the failure behavior. In `closed` mode, an unavailable, ungranted or failing policy plugin refuses or holds the action with a visible diagnostic. In `open` mode the action proceeds, and each ignored failure writes a `policy` warning with the plugin id and reason.
 
 ## Limits and validation
 
