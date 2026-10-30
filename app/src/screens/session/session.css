@@ -76,6 +76,7 @@
 .pc-conversation-body>.pc-alert,.pc-conversation-body>.pc-session-notice:not(:empty){flex:none;margin:var(--space-3) var(--space-4) 0}
 .pc-conversation-session{flex:1;min-height:0;min-width:0;display:flex}
 .pc-session-view{display:flex;flex:1;flex-direction:column;gap:var(--space-2);min-width:0;min-height:0}
+.pc-session-view__notice{flex:none;padding:var(--space-3) var(--space-4) 0}
 .pc-session-view>.pc-linked-terminal{flex:1;min-height:0}
 .pc-conversation-session>.pc-session-empty{flex:1;margin:var(--space-4)}
 .pc-terminal-view--fill{flex:1;min-width:0;min-height:0;gap:0}

@@ -29,8 +29,15 @@ test("a terminal reports its host version", async () => {
   expect((await getTerminal(ctx, created.id)).hostVersion).toEqual({ pacer: "0.7.0", older: true, supported: false });
 });
 
-test("Reopen to update appears only outside the support window", () => {
-  expect(renderToString(<ReopenToUpdate host={{ pacer: "0.7.0", supported: false }} />)).toContain("Reopen to update");
+test("older host notice describes the action and surface", () => {
+  const task = renderToString(<ReopenToUpdate host={{ pacer: "0.7.0", supported: false }} onReopen={() => {}} />);
+  expect(task).toContain("This session runs an older pacer");
+  expect(task).toContain("Create a new task");
+  const terminal = renderToString(<ReopenToUpdate host={{ pacer: "0.7.0", supported: false }} surface="terminal" onReopen={() => {}} actionLabel="Open a new terminal" busy />);
+  expect(terminal).toContain("This terminal runs an older pacer");
+  expect(terminal).toContain("This terminal started on pacer 0.7.0");
+  expect(terminal).toContain('aria-busy="true"');
+  expect(terminal).toContain("disabled");
   expect(renderToString(<ReopenToUpdate host={{ pacer: "0.13.0", supported: true }} />)).toBe("");
   expect(renderToString(<ReopenToUpdate host={null} />)).toBe("");
 });
@@ -51,7 +58,7 @@ test("an ended session does not claim it keeps running", () => {
   const html = renderToString(<SessionView task={{ id: "t-20261029-000000-aaaa", state: "done" } as never}
     session={{ host: "builtin", live: false, hostVersion: { pacer: "0.7.0", older: true, supported: false }, attach: { ws: "ws://localhost" }, capabilities: { control: false, resize: false }, cols: 80, rows: 24 } as never}
     active={false} footer={null} takeRequested={false} onTakeSent={() => {}} onFiles={() => {}} />);
-  expect(html).not.toContain("Reopen to update");
+  expect(html).not.toContain("This session runs an older pacer");
 });
 
 test("Settings lists tasks and sessions still on an older runner or host, by version only", () => {

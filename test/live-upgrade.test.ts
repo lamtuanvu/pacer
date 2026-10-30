@@ -113,4 +113,6 @@ test("restart recovery consumes the fixture failure once before handover", async
   writeFileSync(marker, "1\n");
   expect(await recoverFixtureHandover("/other-home", fixture, async () => "untouched")).toBe("untouched");
   expect(existsSync(marker)).toBe(true);
+  expect(await recoverFixtureHandover(fixture.home, null, async () => "release handover")).toBe("release handover");
+  expect(existsSync(marker)).toBe(true);
 });

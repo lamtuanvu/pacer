@@ -18,7 +18,7 @@ browserTest("an older standalone terminal exposes a compact action that opens a 
     await page.evaluate(()=>(globalThis as any).terminalTest.records.push({id:"00000000-0000-4000-8000-000000000099",kind:"shell",title:"Old shell",cwd:"/workspace/old",createdAt:1,rev:1,live:true,exit:null,cols:80,rows:24,attach:{ws:"/v3/terminals/old/session"},hostVersion:{pacer:"0.7.0",older:true,supported:false}}));
     const action=page.getByRole("button",{name:"Open a new terminal"});
     await action.waitFor({timeout:4000});
-    await expect(page.getByRole("status").filter({hasText:"Reopen to update"}).count()).resolves.toBe(1);
+    await expect(page.getByRole("status").filter({hasText:"This terminal runs an older pacer"}).count()).resolves.toBe(1);
     await expect(page.locator(".pc-alert--compact .pc-alert__actions").count()).resolves.toBe(1);
     await action.focus();
     await expect(action.evaluate(node=>document.activeElement===node)).resolves.toBe(true);

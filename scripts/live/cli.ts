@@ -111,7 +111,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   }
   if (command === "upgrade") {
     const action = positionals[0];
-    if (!id || positionals.length !== 1 || flags.size) throw Error("usage: live upgrade build|start|pacer|install|kickstart|identity|cleanup --id <id>");
+    if (!id || positionals.length !== 1 || flags.size) throw Error("usage: live upgrade build|start|pacer|login [--screen <screen>]|fail-handover|install|kickstart|identity|cleanup --id <id>");
     const allowed = action === "start" ? ["--id", "--from"] : action === "identity" ? ["--id", "--task", "--terminal"] : action === "login" ? ["--id", "--screen"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported upgrade option");
     if (action !== "pacer" && separator >= 0) throw Error("Forwarded arguments require live upgrade pacer");

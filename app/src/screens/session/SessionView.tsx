@@ -28,7 +28,7 @@ export function SessionView({
   if (session?.host === "builtin")
     return (
       <div className="pc-session-view">
-      {session.live && <ReopenToUpdate host={session.hostVersion} onReopen={onReopen} />}
+      {session.live && session.hostVersion && !session.hostVersion.supported && <div className="pc-session-view__notice"><ReopenToUpdate host={session.hostVersion} onReopen={onReopen} /></div>}
       <LinkedTerminal
         id={task.id}
         attempt={session.attempt ?? null}
