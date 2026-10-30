@@ -57,7 +57,7 @@ export function NavTabs({ label, items }: { label: string; items: readonly { hre
     options={items.map(item => ({ value: item.href, href: item.href, label: item.label }))} onChange={() => {}} />;
 }
 
-export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"|"sunken"}) {
+export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"|"warn"|"sunken"}) {
   return <section {...props} className={classes('pc-card', tone&&`pc-card--${tone}`, className)}>{children}</section>;
 }
 export function ApprovalCard({ title, children, actions, className, ...props }: JSX.HTMLAttributes<HTMLElement> & {
