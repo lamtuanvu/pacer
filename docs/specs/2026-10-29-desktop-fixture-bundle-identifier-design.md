@@ -6,7 +6,13 @@ Status: Proposed. This is part A of the [service upgrade with running work desig
 
 ## Problem
 
-Fixture desktop builds for live validation use the release bundle identifier `dev.pacer.desktop`. The desktop uses Tauri's single-instance plugin (`desktop/src-tauri/src/main.rs:1242`). So while the user's installed app is running, launching a fixture build hands off to the real app instead of starting. Today every native live run therefore requires quitting `/Applications/pacer.app`.
+Fixture desktop builds for live validation use the release bundle identifier `dev.pacer.desktop`. Tauri's single-instance plugin is compiled out of fixture builds (`desktop/src-tauri/src/main.rs`, `#[cfg(not(feature = "ota-fixture"))]`), so launches are not handed off. The conflict is everything else macOS keys by bundle identifier:
+- preferences;
+- WebKit storage and caches;
+- saved window state;
+- LaunchServices, which `open -b` uses.
+
+A fixture app would share all of these with the user's installed app. To prevent that, the live harness refuses to launch a fixture desktop while the real app runs (`scripts/live/ota-takeover.ts`). Today every native live run therefore requires quitting `/Applications/pacer.app`.
 
 ## Outcome
 

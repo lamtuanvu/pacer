@@ -378,7 +378,7 @@ mod tests {
         let mut calls = 0;
         let ok = retry_handshake(
             later,
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 if calls < 3 {
@@ -392,7 +392,7 @@ mod tests {
         calls = 0;
         let refused: Result<(), _> = retry_handshake(
             later,
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 Err(OtaError::Identity)
@@ -402,7 +402,7 @@ mod tests {
         calls = 0;
         let expired: Result<(), _> = retry_handshake(
             std::time::Instant::now(),
-            || {},
+            |_| {},
             || {
                 calls += 1;
                 Err(if calls == 1 {
@@ -412,7 +412,81 @@ mod tests {
                 })
             },
         );
-        assert_eq!((expired, calls), (Err(OtaError::Unavailable), 1));
+        assert_eq!((expired, calls), (Err(OtaError::Timeout), 0));
+        let late: Result<(), _> = retry_handshake(
+            std::time::Instant::now() + std::time::Duration::from_millis(1),
+            |_| {},
+            || { std::thread::sleep(std::time::Duration::from_millis(2)); Ok(()) },
+        );
+        assert_eq!(late, Err(OtaError::Timeout));
+    }
+    #[test]
+    fn helper_handshake_redials_after_a_stalled_peer() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(600);
+        let mut calls = 0;
+        let result = retry_helper_handshake(deadline, std::time::Duration::from_millis(80), |until| {
+            calls += 1;
+            let (mut client, mut peer) = UnixStream::pair().unwrap();
+            if calls == 2 {
+                peer.write_all(b"ok").unwrap();
+            }
+            let mut reply = [0; 2];
+            deadline::read_exact(&mut client, &mut reply, until)?;
+            Ok(reply)
+        });
+        assert_eq!(result, Ok(*b"ok"));
+        assert_eq!(calls, 2);
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+    #[test]
+    fn helper_handshake_stalled_peers_obey_the_total_deadline() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(220);
+        let result: Result<(), _> = retry_helper_handshake(deadline, std::time::Duration::from_millis(70), |until| {
+            let (mut client, _peer) = UnixStream::pair().unwrap();
+            deadline::read_exact(&mut client, &mut [0], until)
+        });
+        assert_eq!(result, Err(OtaError::Timeout));
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+    #[test]
+    fn helper_handshake_retries_attempt_timeout_between_reads() {
+        let mut calls = 0;
+        let result = retry_helper_handshake(std::time::Instant::now() + std::time::Duration::from_secs(2), std::time::Duration::from_millis(50), |_| {
+            calls += 1;
+            if calls == 1 { Err(OtaError::Timeout) } else { Ok(()) }
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 2);
+    }
+    #[test]
+    fn helper_handshake_retries_slow_peer_verification() {
+        let mut calls = 0;
+        let result = retry_helper_handshake(std::time::Instant::now() + std::time::Duration::from_secs(2), std::time::Duration::from_millis(40), |until| {
+            calls += 1;
+            if calls == 1 {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                deadline::remaining(until)?;
+            }
+            Ok(())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 2);
+    }
+    #[test]
+    fn helper_request_keeps_ten_second_timeout_after_handshake() {
+        let (mut client, mut peer) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
+        client.set_write_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
+        restore_helper_request_timeout(&client, None).unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            peer.write_all(b"ok").unwrap();
+        });
+        let mut reply = [0; 2];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(&reply, b"ok");
     }
     #[test]
     fn adoption_context_deadline_preserves_invalid_frame_refusal() {
@@ -836,31 +910,52 @@ fn authenticate_service(
     trust: &ReleaseTrust,
     role: &str,
     ticket: Option<&LaunchTicket>,
+    until: Option<std::time::Instant>,
 ) -> Result<(UnixStream, ControlSession), OtaError> {
     if role != "helper" {
-        return authenticate_service_adoption(endpoint, trust, role, ticket, None);
+        return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
     }
-    retry_handshake(
-        std::time::Instant::now() + HANDSHAKE_RETRY,
-        || std::thread::sleep(super::OBSERVATION_INTERVAL),
-        || authenticate_service_adoption(endpoint, trust, role, ticket, None),
-    )
+    let retry_until = until.unwrap_or_else(|| std::time::Instant::now() + HANDSHAKE_RETRY);
+    let (stream, session) = retry_helper_handshake(retry_until, HANDSHAKE_ATTEMPT, |attempt_until| {
+        authenticate_service_adoption_until(endpoint, trust, role, ticket, None, Some(attempt_until))
+    })?;
+    restore_helper_request_timeout(&stream, until)?;
+    Ok((stream, session))
+}
+fn restore_helper_request_timeout(stream: &UnixStream, until: Option<std::time::Instant>) -> Result<(), OtaError> {
+    let budget = match until { Some(until) => deadline::remaining(until)?, None => HANDSHAKE_RETRY };
+    stream.set_read_timeout(Some(budget)).map_err(|_| OtaError::Io)?;
+    stream.set_write_timeout(Some(budget)).map_err(|_| OtaError::Io)
 }
 const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
+const HANDSHAKE_ATTEMPT: std::time::Duration = std::time::Duration::from_secs(1);
+fn retry_helper_handshake<T>(
+    deadline: std::time::Instant,
+    attempt_budget: std::time::Duration,
+    mut attempt: impl FnMut(std::time::Instant) -> Result<T, OtaError>,
+) -> Result<T, OtaError> {
+    retry_handshake(deadline, |pause| std::thread::sleep(pause.min(std::time::Duration::from_millis(50))), || {
+        let remaining = deadline::remaining(deadline)?;
+        attempt(std::time::Instant::now() + remaining.min(attempt_budget)).map_err(|error| {
+            if error == OtaError::Timeout { OtaError::Io } else { error }
+        })
+    })
+}
 /// The service refuses a hello while it cannot account for every pacer process,
 /// such as the desktop's short-lived sign-in CLI. That refusal precedes any
 /// request frame, so a bounded retry never repeats an effect; a lasting refusal
 /// still fails once the deadline passes.
 fn retry_handshake<T>(
     deadline: std::time::Instant,
-    pause: impl Fn(),
+    pause: impl Fn(std::time::Duration),
     mut attempt: impl FnMut() -> Result<T, OtaError>,
 ) -> Result<T, OtaError> {
     loop {
-        match attempt() {
-            Err(OtaError::Io | OtaError::Unavailable) if std::time::Instant::now() < deadline => {
-                pause()
-            }
+        deadline::remaining(deadline)?;
+        let result = attempt();
+        deadline::remaining(deadline)?;
+        match result {
+            Err(OtaError::Io | OtaError::Unavailable) => pause(deadline::remaining(deadline)?.min(super::OBSERVATION_INTERVAL)),
             other => return other,
         }
     }
@@ -960,7 +1055,14 @@ pub fn authenticate_helper(
     endpoint: &ServiceEndpoint<'_>,
     trust: &ReleaseTrust,
 ) -> Result<UnixStream, OtaError> {
-    authenticate_service(endpoint, trust, "helper", None).map(|(stream, _)| stream)
+    authenticate_helper_until(endpoint, trust, None)
+}
+pub fn authenticate_helper_until(
+    endpoint: &ServiceEndpoint<'_>,
+    trust: &ReleaseTrust,
+    until: Option<std::time::Instant>,
+) -> Result<UnixStream, OtaError> {
+    authenticate_service(endpoint, trust, "helper", None, until).map(|(stream, _)| stream)
 }
 /// Whether the service still holds an authenticated channel open.
 pub fn channel_open(stream: &UnixStream) -> bool {
@@ -983,7 +1085,7 @@ pub fn helper_session(
     binding: &super::wire::Binding,
     trust: &ReleaseTrust,
 ) -> Result<HelperContext, OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"helper-context","sessionId":session.session_id,"sequence":1,"binding":binding}),
@@ -1006,7 +1108,7 @@ pub fn query_readiness(
     expected: &ExpectedReadiness,
     trust: &ReleaseTrust,
 ) -> Result<ReadinessObservation, OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     if expected.service != *endpoint.process {
         return Err(OtaError::Identity);
     }
@@ -1040,7 +1142,7 @@ fn request_effect(
     kind: &str,
     expected: Option<&ProcessIdentity>,
 ) -> Result<(), OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":kind,"sessionId":session.session_id,"sequence":1,"binding":binding,"expected":expected}),
@@ -1100,7 +1202,7 @@ pub fn observe_launch(
     if !valid_nonce(launch_id) {
         return Err(OtaError::Invalid);
     }
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"observe-launch","sessionId":session.session_id,"sequence":1,"binding":binding,"launchId":launch_id}),
@@ -1954,7 +2056,7 @@ pub fn request_fixture_cleanup(
     if endpoint.home != policy.home || endpoint.port != policy.port {
         return Err(OtaError::Identity);
     }
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     write_frame(
         &mut stream,
         &serde_json::json!({"schema":1,"kind":"fixture-cleanup","sessionId":session.session_id,"sequence":1}),

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { validatePairedFixtureCore, verifyPairedAdoptionProcesses } from "../scripts/live/ota-paired-proof";
 const root = { pid: 80, bootId: "boot", birth: "root-birth" }, core = { pid: 81, bootId: "boot", birth: "core-birth" };
 const app = "/fixture/ota/current.app", front = app + "/Contents/Resources/pacer", companion = front + "-core";
-const metadata = { schema: 1, bundleId: "dev.pacer.desktop", version: "0.2.4", arch: "aarch64", cliLayout: "paired", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true };
+const metadata = { schema: 1, bundleId: "dev.pacer.desktop.fixture", version: "0.2.4", arch: "aarch64", cliLayout: "paired", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true };
 const input = { appPath: app, ownerUid: 501, arch: "aarch64" as const, branch: "managed" as const, service: root, metadata };
 const processes = () => [{ process: root, uid: 501, parentPid: 1, name: "pacer", executable: front }, { process: core, uid: 501, parentPid: root.pid, name: "pacer-core", executable: companion }];
 test("paired proof binds real Root/Core inventory snapshots, not layout metadata alone", () => {
@@ -42,4 +42,8 @@ test("paired Core uses signed-source hash, native executable architecture and de
   expect(() => validatePairedFixtureCore({ ...metadata, cliLayout: "legacy" }, "aarch64", bytes, bytes)).toThrow();
   expect(() => validatePairedFixtureCore({ ...metadata, version: "0.2.3" }, "aarch64", bytes, bytes)).toThrow();
   expect(() => validatePairedFixtureCore(metadata, "aarch64", Buffer.alloc(32), Buffer.alloc(32))).toThrow();
+});
+
+test("paired proof refuses release-identified metadata", () => {
+  expect(() => verifyPairedAdoptionProcesses({ ...input, metadata: { ...metadata, bundleId: "dev.pacer.desktop" } }, processes(), processes())).toThrow("not proven");
 });

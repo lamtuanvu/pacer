@@ -1,6 +1,7 @@
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
 import { LinkedTerminal, type ReadSessionFile } from "./LinkedTerminal";
+import { ReopenToUpdate } from "./ReopenToUpdate";
 
 /** Picks the renderer for a live session. The built-in terminal is the only renderer today. */
 export function SessionView({
@@ -24,6 +25,8 @@ export function SessionView({
 }) {
   if (session?.host === "builtin")
     return (
+      <>
+      {session.live && <ReopenToUpdate host={session.hostVersion} />}
       <LinkedTerminal
         id={task.id}
         attempt={session.attempt ?? null}
@@ -42,6 +45,7 @@ export function SessionView({
         footer={footer}
         onFiles={onFiles}
       />
+      </>
     );
   return (
     <div className="pc-session-empty" role="status">

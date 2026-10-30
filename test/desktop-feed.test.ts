@@ -27,8 +27,8 @@ function fixture() {
   }
   const options: DesktopReleaseOptions = {
     mode: "fixture", publicKey: signing.publicKey, pins: { appleTeamId: "FIXTURE123" },
-    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
-    verifyDiskImage: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
+    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
+    verifyDiskImage: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
   };
   let promotions = 0;
   const assets = new Map<string, Uint8Array>();
@@ -185,4 +185,12 @@ test("interim archives are verified by certificate requirement, Developer ID arc
   const bridge = signedAppChecks("/a/pacer.app", { appleTeamId: "ABCDE12345", signingCertSha1: cert }).map(a => a.join(" "));
   expect(bridge.join("\n")).not.toMatch(/stapler|spctl/);
   expect(bridge.some(c => c.includes("or certificate leaf"))).toBe(true);
+});
+
+test("fixture-mode feeds carry and require the fixture desktop identifier", async () => {
+  const f = fixture();
+  const feed = JSON.parse(await buildDesktopFeed(f.dir, "1.2.3", f.options));
+  for (const arch of DESKTOP_ARCHES) expect(feed.platforms[`darwin-${arch}`].bundleId).toBe("dev.pacer.desktop.fixture");
+  const releaseIdentified: DesktopReleaseOptions = { ...f.options, verifyArchive: async (bytes, arch) => ({ ...(await f.options.verifyArchive!(bytes, arch)), bundleId: "dev.pacer.desktop" }) };
+  await expect(buildDesktopFeed(f.dir, "1.2.3", releaseIdentified)).rejects.toThrow("Signed desktop metadata/identity mismatch");
 });

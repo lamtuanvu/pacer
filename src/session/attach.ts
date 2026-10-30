@@ -1,3 +1,4 @@
+import { clientHello } from "./protocol";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -118,7 +119,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
         socket.on("data",data=>{try {for(const f of decoder.push(Buffer.from(data))) draw(f.type,f.data);}catch{detach();}});
         socket.on("close",detach);socket.on("error",detach);
         send=bytes=>{if(!socket.destroyed)socket.write(bytes);};
-        send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40}));
+        send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello()}));
         if(options.control)keys.take(options.force);
         await detached;return;
       } catch { /* a dead host still has an offline recording */ }

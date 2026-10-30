@@ -202,6 +202,35 @@ jobs:
       - name: Install, sign in and delegate
         run: bun run test:e2e
 
+  linux-service-survival:
+    name: Linux service restart keeps running work
+    needs: changes
+    if: ${{ needs.changes.outputs.bun == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merged && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build CLI
+        run: bun run build
+      # A user service manager needs lingering; without it the check records UNVERIFIED.
+      - name: Start the user service manager
+        run: |
+          sudo loginctl enable-linger "$USER" || echo 'User service manager unavailable; survival check will report UNVERIFIED'
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do test -S "/run/user/$(id -u)/bus" && break; sleep 1; done
+      - name: Check that a detached run and a session host survive a restart
+        run: bun scripts/ci/service-survival.ts
+
   secrets:
     name: Scan for secrets
     runs-on: ubuntu-latest

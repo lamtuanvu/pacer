@@ -8,6 +8,9 @@ import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { ViewerHub } from "./viewers";
+import { ownProcessIdentity } from "../update/desktop/process-identity";
+import { currentVersion } from "../update/version";
+import { SESSION_PROTOCOL, writeSessionVersion } from "./protocol";
 import { Recording } from "./recording";
 import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
@@ -68,6 +71,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   if(launch.cwd.startsWith("~/"))launch.cwd=join(process.env.HOME ?? "",launch.cwd.slice(2));
   const atomic=(name:string,value:string)=>{writeFileSync(join(dir,`${name}.tmp`),value,{mode:0o600});renameSync(join(dir,`${name}.tmp`),join(dir,name));};
   atomic("pid",String(process.pid)); atomic("started",String(Date.now()/1000));
+  try { writeSessionVersion(dir, ownProcessIdentity()); } catch { /* optional metadata */ }
   writeFileSync(join(dir,"stdout"),"",{mode:0o600}); writeFileSync(join(dir,"stderr"),"",{mode:0o600});
   const recording=new Recording(dir,{capBytes:launch.capBytes});
   const mask=new SecretMasker(sessionSecrets(process.env,launch.pacerHome ?? dirname(dirname(dirname(dir)))));
@@ -108,7 +112,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
         try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,cols,rows}));}catch{/* optional metadata */}
         send(wire(FrameType.resize,{cols,rows}));
       },
-    });
+    },{pacer:currentVersion(),versions:SESSION_PROTOCOL});
   try{atomic('session.state',JSON.stringify({viewers:0,controller:null,cols:120,rows:40}));}catch{/* optional live metadata */}
   const send=(bytes:Buffer)=>hub!.broadcast(bytes);
   let proc:Bun.Subprocess;

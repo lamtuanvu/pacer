@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpDir } from "./helpers";
-import { fixtureCompileCommand, fixtureBuildEnvironment, copyFixtureSource, fixtureFeed, assertFixtureBundlePlist } from "../scripts/live/ota-build";
+import { fixtureCompileCommand, fixtureBuildEnvironment, copyFixtureSource, fixtureFeed, assertFixtureBundlePlist, assertFixtureCompiledBundleId, rewritePublishedBridgeIdentifiers, PUBLISHED_BRIDGE_IDENTIFIER_REWRITES, PUBLISHED_BRIDGE_SOURCE } from "../scripts/live/ota-build";
 
 const policy = { schema: 1 as const, root: "/fixture/.work/live/test/ota", nonce: "a".repeat(32), home: "/fixture/.work/live/test/home", port: 49991, currentApp: "/fixture/.work/live/test/ota/current.app", serviceLabel: `com.pacer.live.${"a".repeat(32)}.service`, recoveryLabel: `com.pacer.live.${"a".repeat(32)}.recovery`, uid: process.getuid!() };
 test.skipIf(process.platform !== "darwin")("fixture CLI command embeds exact policy with no production trust define", () => {
@@ -41,6 +41,8 @@ test("source snapshot changes only isolated version inputs and excludes live dat
   expect(JSON.parse(readFileSync(join(destination, "package.json"), "utf8")).version).toBe("0.2.4");
   expect(JSON.parse(readFileSync(join(destination, "desktop/src-tauri/tauri.conf.json"), "utf8")).plugins["deep-link"]).toBeUndefined();
   expect(JSON.parse(readFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), "utf8")).plugins["deep-link"].desktop.schemes).toEqual(["pacer"]);
+  expect(JSON.parse(readFileSync(join(destination, "desktop/src-tauri/tauri.conf.json"), "utf8")).identifier).toBe("dev.pacer.desktop.fixture");
+  expect(JSON.parse(readFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), "utf8")).identifier).toBeUndefined();
   expect(readFileSync(join(destination, "desktop/src-tauri/Cargo.lock"), "utf8")).toContain('version = "0.2.4"');
   for (const path of ["plugins/bundled.ts", "packages/plugin-sdk/package.json", "bunfig.toml"]) expect(existsSync(join(destination, path))).toBe(true);
   expect(existsSync(join(destination, ".work"))).toBe(false);
@@ -96,13 +98,15 @@ test("host fixture feed preserves production URL and does not fabricate another 
   const feed = JSON.parse(fixtureFeed("aarch64", Buffer.from("archive"), "signature"));
   expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
   expect(feed.platforms["darwin-aarch64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v0.2.4/desktop-pacer-0.2.4-darwin-aarch64.app.tar.gz");
+  expect(feed.platforms["darwin-aarch64"].bundleId).toBe("dev.pacer.desktop.fixture");
   expect(feed.version).toBe("0.2.4");
 });
 
-test("fixture bundle plist cannot advertise production URL handling", () => {
-  const identity = "<key>CFBundleIdentifier</key><string>dev.pacer.desktop</string>";
+test("fixture bundle plist has the fixture identifier and cannot advertise production URL handling", () => {
+  const identity = "<key>CFBundleIdentifier</key><string>dev.pacer.desktop.fixture</string>";
   expect(() => assertFixtureBundlePlist(`<plist><dict>${identity}</dict></plist>`)).not.toThrow();
   expect(() => assertFixtureBundlePlist(`<plist><dict>${identity}<key>CFBundleURLTypes</key><array/></dict></plist>`)).toThrow();
+  expect(() => assertFixtureBundlePlist("<plist><dict><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string></dict></plist>")).toThrow();
 });
 
 test("fixture signing seals the native library before executable and app signatures", async () => {
@@ -111,10 +115,10 @@ test("fixture signing seals the native library before executable and app signatu
   const calls: string[][] = [];
   await (module as any).signFixtureBundle("/fixture/pacer.app", "/fixture/entitlements.plist", async (argv: string[]) => { calls.push(argv); return ""; });
   expect(calls.filter(argv => argv.includes("--sign")).map(argv => [argv[argv.indexOf("--identifier") + 1], argv.at(-1)])).toEqual([
-    ["dev.pacer.desktop.native-shim", "/fixture/pacer.app/Contents/Frameworks/libpacer-native.dylib"],
-    ["dev.pacer.cli", "/fixture/pacer.app/Contents/Resources/pacer"],
-    ["dev.pacer.desktop.update-helper", "/fixture/pacer.app/Contents/Resources/pacer-update-helper"],
-    ["dev.pacer.desktop", "/fixture/pacer.app"],
+    ["dev.pacer.desktop.fixture.native-shim", "/fixture/pacer.app/Contents/Frameworks/libpacer-native.dylib"],
+    ["dev.pacer.desktop.fixture.cli", "/fixture/pacer.app/Contents/Resources/pacer"],
+    ["dev.pacer.desktop.fixture.update-helper", "/fixture/pacer.app/Contents/Resources/pacer-update-helper"],
+    ["dev.pacer.desktop.fixture", "/fixture/pacer.app"],
   ]);
   expect(calls.at(-1)).toEqual(["/usr/bin/codesign", "--verify", "--deep", "--strict", "/fixture/pacer.app"]);
   const refused: string[][] = [];
@@ -146,4 +150,54 @@ test("fixture transport smoke requires actual verified ABI/version/architecture 
   const receipt = { schema: 1, role: "cli", version: "0.2.3", arch: "aarch64", nativeTransportAbi: 1, transport: "unix-audit-token", verified: true };
   expect(() => (module as any).assertFixtureTransport(receipt, "0.2.3", "aarch64")).not.toThrow();
   for (const changed of [{ verified: false }, { nativeTransportAbi: 2 }, { version: "0.2.4" }, { arch: "x86_64" }, { transport: "mock" }]) expect(() => (module as any).assertFixtureTransport({ ...receipt, ...changed }, "0.2.3", "aarch64")).toThrow();
+});
+
+test("source snapshot refuses a desktop identifier it does not know", () => {
+  const source = realpathSync(tmpDir()), destination = join(source, ".work/live/test/ota/build/candidate/source");
+  mkdirSync(join(source, "desktop/src-tauri"), { recursive: true }); mkdirSync(join(source, "src"));
+  writeFileSync(join(source, "package.json"), JSON.stringify({ version: "0.2.3" }));
+  writeFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), JSON.stringify({ version: "0.2.3", identifier: "dev.example.other" }));
+  writeFileSync(join(source, "desktop/src-tauri/Cargo.toml"), '[package]\nname = "pacer-desktop"\nversion = "0.2.3"\n');
+  writeFileSync(join(source, "desktop/src-tauri/Cargo.lock"), '[[package]]\nname = "pacer-desktop"\nversion = "0.2.3"\n');
+  expect(() => copyFixtureSource(source, destination, "0.2.4")).toThrow("Fixture source desktop identifier changed");
+});
+
+test("published bridge rewrite replaces exactly the counted release literals", () => {
+  const root = realpathSync(tmpDir());
+  for (const [path, count] of PUBLISHED_BRIDGE_IDENTIFIER_REWRITES) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    const literals = ['"dev.pacer.desktop"', '"dev.pacer.cli"', '"dev.pacer.desktop.native-shim"', '"dev.pacer.desktop.update-helper"'];
+    const body = Array.from({ length: count }, (_, index) => literals[index % literals.length]).join("\n");
+    writeFileSync(join(root, path), `${body}\n"dev.pacer.desktop.disk-image" \\"dev.pacer.cli\\"\n`);
+  }
+  rewritePublishedBridgeIdentifiers(root);
+  for (const [path] of PUBLISHED_BRIDGE_IDENTIFIER_REWRITES) {
+    const value = readFileSync(join(root, path), "utf8");
+    expect(value).not.toMatch(/"dev\.pacer\.(?:desktop(?:\.native-shim|\.update-helper)?|cli)"/);
+    expect(value).toContain('"dev.pacer.desktop.disk-image"');
+    expect(value).toContain('\\"dev.pacer.cli\\"');
+  }
+  expect(readFileSync(join(root, "desktop/src-tauri/src/ota/trust.rs"), "utf8")).toContain('"dev.pacer.desktop.fixture.cli"');
+  expect(() => rewritePublishedBridgeIdentifiers(root)).toThrow("Published bridge identifiers changed in desktop/src-tauri/src/bin/pacer-update-helper.rs");
+});
+
+const publishedTree = Bun.spawnSync(["git", "cat-file", "-e", `${PUBLISHED_BRIDGE_SOURCE}^{commit}`], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+test.skipIf(!publishedTree)("published bridge rewrite table matches the fixed published tree", () => {
+  const root = realpathSync(tmpDir());
+  for (const [path] of PUBLISHED_BRIDGE_IDENTIFIER_REWRITES) {
+    const show = Bun.spawnSync(["git", "show", `${PUBLISHED_BRIDGE_SOURCE}:${path}`], { stdout: "pipe", stderr: "pipe" });
+    expect(show.exitCode, path).toBe(0);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), show.stdout);
+  }
+  expect(() => rewritePublishedBridgeIdentifiers(root)).not.toThrow();
+});
+
+test("compiled fixture identities must report fixture bundle identifiers", () => {
+  expect(() => assertFixtureCompiledBundleId({ role: "cli", bundleId: "dev.pacer.desktop.fixture.cli" })).not.toThrow();
+  expect(() => assertFixtureCompiledBundleId({ role: "desktop", bundleId: "dev.pacer.desktop.fixture" })).not.toThrow();
+  expect(() => assertFixtureCompiledBundleId({ role: "update-helper", bundleId: "dev.pacer.desktop.fixture" })).not.toThrow();
+  for (const identity of [{ role: "cli", bundleId: "dev.pacer.cli" }, { role: "desktop", bundleId: "dev.pacer.desktop" }, { role: "update-helper", bundleId: "dev.pacer.desktop" }, { role: "other", bundleId: "dev.pacer.desktop.fixture" }, {}]) {
+    expect(() => assertFixtureCompiledBundleId(identity)).toThrow("release bundle identifier");
+  }
 });

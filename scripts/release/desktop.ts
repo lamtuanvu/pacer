@@ -4,6 +4,10 @@ import { join, resolve } from "node:path";
 import { parsePlistDictionary } from "../../src/service";
 import { assetFile, parseManifest, parseSha256Sums, sha256Hex } from "../../src/update/manifest";
 import { isVersion } from "../../src/update/version";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+
+/** Release staging keeps the release identifier; only the live fixture builder passes the fixture one. */
+export type StageBundleId = "dev.pacer.desktop" | "dev.pacer.desktop.fixture";
 
 type Arch = "aarch64" | "x86_64";
 type Run = (argv: string[]) => Promise<string>;
@@ -60,8 +64,10 @@ export async function buildNativeShim(root: string, output: string, arch: Arch, 
  * Output: a fresh private directory containing the complete unsigned pacer.app.
  * Every input is checked before any executable runs. Sign only the returned app.
  */
-export async function stageDesktopPackage(root: string, releaseDir: string, arch: Arch, options: { run?: Run } = {}): Promise<string> {
+export async function stageDesktopPackage(root: string, releaseDir: string, arch: Arch, options: { run?: Run; bundleId?: StageBundleId } = {}): Promise<string> {
   if (arch !== "aarch64" && arch !== "x86_64") throw new Error("Unsupported desktop architecture");
+  const bundleId = options.bundleId ?? "dev.pacer.desktop";
+  if (bundleId !== "dev.pacer.desktop" && bundleId !== FIXTURE_IDENTIFIERS.desktop) throw new Error("Unsupported desktop bundle identifier");
   const dir = realpathSync(releaseDir);
   const version: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
   if (typeof version !== "string" || !isVersion(version)) throw new Error("Invalid package version");
@@ -90,7 +96,7 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
   if (existsSync(permissionHelper)) verifyDesktopExecutable(regular(permissionHelper), arch);
   const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
-  if (info.CFBundleIdentifier !== "dev.pacer.desktop" || info.CFBundleExecutable !== "pacer" || info.CFBundleVersion !== version || info.CFBundleShortVersionString !== version) {
+  if (info.CFBundleIdentifier !== bundleId || info.CFBundleExecutable !== "pacer" || info.CFBundleVersion !== version || info.CFBundleShortVersionString !== version) {
     throw new Error("Desktop bundle identity/version mismatch");
   }
   const run = options.run ?? runBinary;
@@ -128,7 +134,7 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     mkdirSync(frameworks, { recursive: true });
     if (readdirSync(frameworks).length) throw new Error("Unsupported nested signing payload");
     await buildNativeShim(root, join(frameworks, "libpacer-native.dylib"), arch, run);
-    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId: "dev.pacer.desktop", version, arch, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, ...(core ? { cliLayout: "paired" } : {}) }, null, 2) + "\n");
+    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, bundleId, version, arch, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, ...(core ? { cliLayout: "paired" } : {}) }, null, 2) + "\n");
     return stage;
   } catch (error) { rmSync(stage, { recursive: true, force: true }); throw error; }
 }

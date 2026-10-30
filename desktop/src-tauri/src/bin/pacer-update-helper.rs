@@ -5,7 +5,7 @@ fn main() {
             let mut identity = pacer_desktop::ota::trust::build_identity();
             identity.as_object_mut().unwrap().extend(
                 serde_json::json!({
-                    "schema": 1, "role": "update-helper", "bundleId": "dev.pacer.desktop",
+                    "schema": 1, "role": "update-helper", "bundleId": pacer_desktop::ota::trust::APP_ID,
                     "version": env!("CARGO_PKG_VERSION"), "arch": std::env::consts::ARCH,
                 })
                 .as_object()
@@ -39,9 +39,9 @@ fn main() {
                             mode.as_deref() == Some("--ota-fixture-attach-standard"),
                         ))
                     }
-                    Some("--ota-fixture-refresh-takeover") => runtime.block_on(
-                        pacer_desktop::ota::helper::fixture_refresh_takeover(),
-                    ),
+                    Some("--ota-fixture-refresh-takeover") => {
+                        runtime.block_on(pacer_desktop::ota::helper::fixture_refresh_takeover())
+                    }
                     mode => runtime.block_on(pacer_desktop::ota::helper::fixture_jobs(
                         mode == Some("--ota-fixture-retire"),
                     )),
@@ -93,7 +93,11 @@ const BUSY_EXIT: i32 = 75;
 fn native_exit_code(mode: &NativeMode, result: &Result<(), pacer_desktop::ota::OtaError>) -> i32 {
     match result {
         Ok(()) => 0,
-        Err(pacer_desktop::ota::OtaError::Busy) if matches!(mode, NativeMode::TakeoverRecovery(_)) => BUSY_EXIT,
+        Err(pacer_desktop::ota::OtaError::Busy)
+            if matches!(mode, NativeMode::TakeoverRecovery(_)) =>
+        {
+            BUSY_EXIT
+        }
         Err(_) => 1,
     }
 }
@@ -127,7 +131,10 @@ mod tests {
         assert_eq!(native_exit_code(&recovery, &Ok(())), 0);
         assert_eq!(native_exit_code(&recovery, &Err(OtaError::Busy)), BUSY_EXIT);
         assert_eq!(native_exit_code(&recovery, &Err(OtaError::Identity)), 1);
-        assert_eq!(native_exit_code(&NativeMode::Takeover, &Err(OtaError::Busy)), 1);
+        assert_eq!(
+            native_exit_code(&NativeMode::Takeover, &Err(OtaError::Busy)),
+            1
+        );
     }
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| (*v).into()).collect()

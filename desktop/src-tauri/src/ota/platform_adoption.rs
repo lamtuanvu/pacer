@@ -472,7 +472,7 @@ impl NativeAdoptionPlatform {
             .map_err(|_| OtaError::Invalid)?;
         ensure(
             metadata["schema"] == 1
-                && metadata["bundleId"] == "dev.pacer.desktop"
+                && metadata["bundleId"] == ota::trust::APP_ID
                 && metadata["version"] == self.source.target.version
                 && metadata["admissionProtocol"] == 1
                 && metadata["rollbackCompatible"] == true
@@ -487,7 +487,7 @@ impl NativeAdoptionPlatform {
         .map_err(|_| OtaError::Invalid)?;
         let info = info.as_dictionary().ok_or(OtaError::Invalid)?;
         for (key, expected) in [
-            ("CFBundleIdentifier", "dev.pacer.desktop"),
+            ("CFBundleIdentifier", ota::trust::APP_ID),
             ("CFBundleExecutable", "pacer"),
             ("CFBundleVersion", self.source.target.version.as_str()),
             (

@@ -8,11 +8,13 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { processIdentitySync } from "./control/lease";
 import { nativeCommand } from "./control/desktop";
 import { healthy, loadSession, record } from "./core";
-import { exactFixtureExternal, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { exactFixtureExternal, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { TAKEOVER_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { captureProblem } from "./capture-content";
 import { attachFixtureTakeover, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+import { assertRealAppUnchanged, realAppNote, snapshotRealApp } from "./ota-real-app";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const sleep = (ms: number) => Bun.sleep(ms);
@@ -30,6 +32,15 @@ type ControlElement = { ref: string; role: string; name: string; value?: string;
 export function readyControl(elements: ControlElement[], name: string): ControlElement | null {
   return elements.find(element => element.name === name && element.actions.includes("click") && !element.disabled && !["heading", "static text"].includes(element.role.toLowerCase())) ?? null;
 }
+export async function retryForeground(action: () => Promise<void>, pause: () => Promise<void> = () => sleep(300)): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { await action(); return; }
+    catch (error) {
+      if (!String(error).includes("foreground_changed") || attempt === 2) throw error;
+      await pause();
+    }
+  }
+}
 
 async function desktopControls(pid: number) {
   const identity = processIdentitySync(pid);
@@ -45,10 +56,25 @@ async function desktopControls(pid: number) {
     const result = await nativeCommand({ command: "inspect", pid, start_identity: identity!.start_identity, window_id });
     return { window_id, elements: result.elements as ControlElement[] };
   }
+  async function activate() {
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    });
+  }
   async function key(key: string) {
-    const window_id = await window();
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
+    });
+  }
+  async function scroll(delta_y: number) {
+    await retryForeground(async () => {
+      const window_id = await window();
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "scroll", delta_y } });
+    });
   }
   async function texts() {
     const { elements } = await controls();
@@ -70,21 +96,29 @@ async function desktopControls(pid: number) {
     writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
   }
   async function click(name: string) {
-    const window_id = await window();
-    // Activating the window can start the page's confirm hold, so wait until
-    // the control is enabled again after activation before clicking it.
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
-    await sleep(300);
-    let last: ControlElement[] = [];
-    const item = await waitFor(async () => {
-      last = (await controls()).elements;
-      return readyControl(last, name);
-    }, 5000, `Desktop control ${name} absent or disabled`).catch(() => {
-      throw Error(`Desktop control ${name} absent or disabled: ${last.map(e => `${e.name}${e.disabled ? " (disabled)" : ""}`).filter(Boolean).slice(0, 30).join(", ")}`);
-    });
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const window_id = await window();
+      // Activating the window can start the page's confirm hold, so wait until
+      // the control is enabled again after activation before clicking it.
+      await activate();
+      await sleep(300);
+      let last: ControlElement[] = [];
+      const item = await waitFor(async () => {
+        last = (await controls()).elements;
+        return readyControl(last, name);
+      }, 5000, `Desktop control ${name} absent or disabled`).catch(() => {
+        throw Error(`Desktop control ${name} absent or disabled: ${last.map(e => `${e.name}${e.disabled ? " (disabled)" : ""}`).filter(Boolean).slice(0, 30).join(", ")}`);
+      });
+      try {
+        await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
+        return;
+      } catch (error) {
+        // The native driver checks foreground before delivering a click.
+        if (!String(error).includes("foreground_changed") || attempt === 2) throw error;
+      }
+    }
   }
-  return { controls, click, key, texts, frame, capture };
+  return { activate, controls, click, key, scroll, texts, frame, capture };
 }
 
 type Controls = Awaited<ReturnType<typeof desktopControls>>;
@@ -92,6 +126,11 @@ type Controls = Awaited<ReturnType<typeof desktopControls>>;
 const INTERNAL = /\b(prepared|stopping|switched|verifying|committed|recovery-failed)\b|[a-z-]+:(identity|unavailable|invalid|io|timeout|busy)\b|redetect|interrupted:/;
 
 function hasText(texts: string[], text: string) { return texts.some(value => value.includes(text)); }
+export function settingsReady(texts: string[], takeover: boolean): boolean {
+  return takeover
+    ? hasText(texts, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(texts, "Review service replacement")
+    : texts.some(value => value.toLowerCase() === "updates") && !hasText(texts, "Use the app's service");
+}
 
 async function waitFor<T>(read: () => Promise<T | null>, timeout: number, message: string): Promise<T> {
   const end = Date.now() + timeout;
@@ -122,8 +161,9 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
   if (process.platform !== "darwin" || !driver || state.phase !== "prepared" || !state.nativeFixture?.signingCertSha1 || state.runtime || state.exercise || !exactFixtureExternal(state) || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh certificate-pinned takeover fixture required");
-  if (enumerateNativeProcesses().some(item => item.executable === "/Applications/pacer.app/Contents/MacOS/pacer")) throw Error("UNVERIFIED: real desktop is running; fixture launch refused");
-  const baseline = state.nativeFixture!.baselineVersion;
+  // The separate fixture bundle can run while the installed app stays open.
+  const realApp = snapshotRealApp(enumerateNativeProcesses());
+  const baseline = initialFixtureVersion(state);
   await verifyFixtureBundle(state, baseline);
   const before = await inspectFixtureJobs(state);
   if (before.desktops.length || before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture job already active");
@@ -142,13 +182,15 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
   const installationId = fixtureInstallation(state, attached, state.nativeFixture!.candidateVersion, "attached").id;
   const originalRegistration = service.registrationSha256!;
   const originalProcess = service.process;
-  const config = join(state.pacerHome, "Library/Application Support/dev.pacer.desktop");
+  const config = join(state.pacerHome, "Library/Application Support", FIXTURE_IDENTIFIERS.desktop);
   mkdirSync(config, { recursive: true, mode: 0o700 });
   writeFileSync(join(config, "consent.json"), JSON.stringify({ at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), path: false, keep: false }), { flag: "wx", mode: 0o600 });
   const preserved = ["strategy.yaml", "token"].map(name => ({ name, hash: digest(privateFixtureBytes(join(state.pacerHome, name), 1048576)) }));
   // Each scenario fixes its theme, so light and dark captures are both covered.
   const theme = (["takeover", "takeover-dismiss", "takeover-crash"] as string[]).includes(scenario) ? "light" : "dark";
   const evidence = (name: string) => join(session.root, "evidence", name);
+  writeFileSync(evidence("real-app-before.json"), JSON.stringify(realApp, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  try {
   const observed: Record<string, unknown> = { scenario, theme, originalPid: null, originalRegistration: null };
   const themeOf = (name: string) => name.includes("dark") ? "dark" as const : "light" as const;
   async function capture(ui: Controls, name: string, text: string) {
@@ -172,12 +214,16 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     } finally { closeSync(log); }
   }
   async function offerShown(ui: Controls) {
+    await ui.activate();
+    let last: ControlElement[] = [];
     return waitFor(async () => {
       const seen = await ui.controls();
+      last = seen.elements;
       return seen.elements.some(e => e.name === "Use the app's service" && e.role === "button") && seen.elements.some(e => e.name === "Not now" && e.role === "button") ? seen : null;
-    }, 60000, "Takeover page did not precede the version gate");
+    }, 60000, "Takeover page did not precede the version gate").catch(error => { throw Error(`${String(error)}: ${JSON.stringify(last.map(e => [e.role, e.name]).slice(0, 50))}`); });
   }
   async function tabOrder(ui: Controls, name: string) {
+    await ui.activate();
     // Default macOS keyboard settings: Full Keyboard Access is not required.
     const order: string[] = [];
     for (let step = 0; step < 6; step++) {
@@ -195,13 +241,22 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     if (!passed) throw Error(`Takeover offer controls are not reachable in order by Tab: ${order.join(", ")}`);
   }
   async function settings(ui: Controls, name: string, takeover: boolean) {
+    if (!takeover) {
+      await ui.click("Settings");
+      await ui.click("App preferences");
+    }
+    let last: string[] = [];
+    let scrolls = 0;
     const texts = await waitFor(async () => {
       const seen = await ui.texts();
-      const ready = takeover
-        ? hasText(seen, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(seen, "Review service replacement")
-        : hasText(seen, "Updates") && !hasText(seen, "Use the app's service");
+      last = seen;
+      const ready = settingsReady(seen, takeover);
+      if (!ready && !takeover && hasText(seen, "App preferences") && scrolls++ < 12) await ui.scroll(400);
       return ready ? seen : null;
-    }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`);
+    }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`).catch(async error => {
+      try { writeFileSync(evidence("settings-timeout.png"), await ui.frame(), { flag: "wx", mode: 0o600 }); } catch {}
+      throw Error(`${String(error)} (${last.length} accessibility strings): ${JSON.stringify(last.slice(-80))}`);
+    });
     // The service page can report its text before WebKit paints it; wait for a
     // rendered frame in the expected theme and fail rather than record a blank one.
     await ui.capture(evidence(name), themeOf(name), 30000).catch(error => { throw Error(`Settings capture ${name}: ${String(error)}`); });
@@ -268,6 +323,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     await capture(secondUi, "takeover-offer-dark.png", "re-offer for a changed executable (dark)");
     observed.dismissal = { sha256: dismissal.sha256, cdhash: dismissal.cdhash, reofferedAfterChange: true };
   } else {
+    await ui.activate();
     if (scenario === "takeover-relink") await ui.click("Also point the terminal command at the app");
     await ui.click("Use the app's service");
     const expected = scenario === "takeover" || scenario === "takeover-relink" ? "committed" : "restored";
@@ -286,6 +342,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
       const tx = takeoverJournal(state.pacerHome);
       return tx?.journal.state === expected ? tx : null;
     }, 180000, `Takeover did not reach ${expected}`);
+    writeFileSync(evidence("takeover-journal.json"), JSON.stringify(result.journal, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     state = readOtaRecord(id, options);
     if (result.manifest.candidate.registrationSha256 !== originalRegistration || result.manifest.candidate.process.pid !== originalProcess.pid) throw Error("Takeover authorization differs from original service");
     if (state.exercise?.faults.some(f => !f.consumed)) throw Error("Compiled takeover checkpoint was not consumed");
@@ -339,9 +396,20 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     await waitFor(async () => incarnationExited(current) ? true : null, 10000, "Fixture desktop did not exit");
   }
   for (const item of preserved) if (digest(privateFixtureBytes(join(state.pacerHome, item.name), 1048576)) !== item.hash) throw Error(`User data changed: ${item.name}`);
+  const realAppAfter = snapshotRealApp(enumerateNativeProcesses());
+  writeFileSync(evidence("real-app-after.json"), JSON.stringify(realAppAfter, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  assertRealAppUnchanged(realApp, realAppAfter);
+  const appNote = realAppNote(realApp, realAppAfter);
+  observed.realApp = appNote;
+  if (realApp.processes.length && !realAppAfter.processes.length) record(session, { kind: "note", behavior: `OTA ${scenario} installed app exited`, surface: "native desktop", verdict: "UNVERIFIED", text: appNote });
   state = readOtaRecord(id, options);
   updateOtaDriverRecord(id, state, { exercise: { ...state.exercise!, state: "complete" }, runtime: { ...state.runtime!, request: null } }, options);
   observed.preserved = preserved.map(item => item.name);
   writeFileSync(evidence("takeover-observed.json"), JSON.stringify(observed, null, 2) + "\n", { flag: "wx", mode: 0o600 });
   record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `Observed: ${JSON.stringify(observed)}. VoiceOver WAIVED (VO-TEMP-2026-10), not tested.` });
+  } finally {
+    if (!existsSync(evidence("real-app-after.json"))) {
+      writeFileSync(evidence("real-app-after.json"), JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    }
+  }
 }

@@ -16,6 +16,7 @@ import { routes } from "../../router";
 import { LazyTerminal } from "../../term/LazyTerminal";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { pendingAfterFailure, terminalRequest, type TerminalRequest } from "./request";
+import { ReopenToUpdate } from "../session/ReopenToUpdate";
 
 /** `embedded` renders inside the terminal dock: no page gutters, and tab choice stays local instead of changing the route. */
 export function TerminalScreen({ id: routeId, query, embedded = false, folder, closePanel, maximize, maximized = false }: { id?: string; query: RouteQuery; embedded?: boolean; folder?: string; closePanel?: () => void; maximize?: () => void; maximized?: boolean }) {
@@ -129,6 +130,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   }, [menu]);
   const closeMenu = () => { setMenu(null); menuTrigger.current?.focus(); };
   const pane = (tab: TerminalRecord, first = false) => <div key={tab.id} className="pc-workspace-terminal__pane" style={{ flexGrow: first && secondary ? ratio : 1 }} role="region" aria-label={`Terminal: ${tab.title}`}>
+    {tab.live && <ReopenToUpdate host={tab.hostVersion} />}
     <LazyTerminal key={tab.id} id={tab.id} url={tab.attach.ws} label="pacer terminal" cols={tab.cols} rows={tab.rows} control resize live={tab.live} shell
       onActions={controls => { if (controls) actions.current.set(tab.id, controls); else actions.current.delete(tab.id); setReady(previous => previous[tab.id] === !!controls ? previous : { ...previous, [tab.id]: !!controls }); }}
       onInputLocked={value => setLocked(previous => previous[tab.id] === value ? previous : { ...previous, [tab.id]: value })} />

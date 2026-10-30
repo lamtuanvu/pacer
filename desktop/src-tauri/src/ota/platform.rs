@@ -82,23 +82,41 @@ pub(crate) enum ProgramCheck {
 #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
 fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
     use std::os::unix::fs::MetadataExt;
-    let Some(policy) = trust.fixture_policy() else { return Ok(false) };
-    if path != policy.takeover_cli() { return Ok(false) }
+    let Some(policy) = trust.fixture_policy() else {
+        return Ok(false);
+    };
+    if path != policy.takeover_cli() {
+        return Ok(false);
+    }
     policy.validate_live().map_err(|_| OtaError::Identity)?;
     ensure(policy.signing_cert_sha1.is_some())?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
-    ensure(metadata.is_file() && metadata.nlink() == 1 && path.canonicalize().map_err(|_| OtaError::Identity)? == path)?;
+    ensure(
+        metadata.is_file()
+            && metadata.nlink() == 1
+            && path.canonicalize().map_err(|_| OtaError::Identity)? == path,
+    )?;
     ensure(trust.verify_static(path, CodeRole::Cli) == Err(OtaError::Identity))?;
     Ok(true)
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, _executable: &Path, role: CodeRole) -> Result<(), OtaError> {
+pub(crate) fn verify_fixture_or_release_process(
+    trust: &ReleaseTrust,
+    process: &ProcessIdentity,
+    _executable: &Path,
+    role: CodeRole,
+) -> Result<(), OtaError> {
     trust.verify_process(process, role).map(|_| ())
 }
 #[cfg(target_os = "macos")]
 #[cfg_attr(not(feature = "ota-fixture"), allow(unused_variables))]
-pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, executable: &Path, role: CodeRole) -> Result<(), OtaError> {
+pub(crate) fn verify_fixture_or_release_process(
+    trust: &ReleaseTrust,
+    process: &ProcessIdentity,
+    executable: &Path,
+    role: CodeRole,
+) -> Result<(), OtaError> {
     #[cfg(feature = "ota-fixture")]
     if matches!(role, CodeRole::Cli) && fixture_takeover_program(trust, executable)? {
         super::bootstrap_identity::inspect_legacy_executable(executable, process)?;
@@ -139,7 +157,9 @@ impl OwnedJob {
         match program {
             ProgramCheck::Role(role) => {
                 #[cfg(feature = "ota-fixture")]
-                if fixture_takeover_program(trust, Path::new(executable))? { return Ok(()); }
+                if fixture_takeover_program(trust, Path::new(executable))? {
+                    return Ok(());
+                }
                 trust.verify_static(Path::new(executable), *role)
             }
             ProgramCheck::Pinned(expected) => {
@@ -275,7 +295,12 @@ impl OwnedJob {
                 ensure(details.executable == Path::new(&self.definition.arguments[0]))?;
                 match program {
                     ProgramCheck::Role(role) => {
-                        verify_fixture_or_release_process(trust, &details.identity, &details.executable, *role)?;
+                        verify_fixture_or_release_process(
+                            trust,
+                            &details.identity,
+                            &details.executable,
+                            *role,
+                        )?;
                     }
                     ProgramCheck::Pinned(file) => {
                         if super::bootstrap_identity::inspect_legacy_executable(
@@ -324,7 +349,9 @@ impl OwnedJob {
             )?;
             match program {
                 ProgramCheck::Role(role) => {
-                    let details = native::process_details(process.pid).map_err(|_| OtaError::Identity)?.ok_or(OtaError::Identity)?;
+                    let details = native::process_details(process.pid)
+                        .map_err(|_| OtaError::Identity)?
+                        .ok_or(OtaError::Identity)?;
                     verify_fixture_or_release_process(trust, process, &details.executable, *role)?;
                 }
                 ProgramCheck::Pinned(file) => {
@@ -780,7 +807,12 @@ impl OwnedJob {
         let Some(policy) = trust.fixture_policy() else {
             return Ok(());
         };
-        fixture_retire_step!(next == "retired", self.role, LedgerPolicy, policy.validate_live().map_err(|_| OtaError::Identity))?;
+        fixture_retire_step!(
+            next == "retired",
+            self.role,
+            LedgerPolicy,
+            policy.validate_live().map_err(|_| OtaError::Identity)
+        )?;
         ensure([&policy.service_label, &policy.recovery_label].contains(&&self.definition.label))?;
         let expected = policy
             .root
@@ -818,7 +850,12 @@ impl OwnedJob {
             {
                 // Adoption replaces the service registration in place. Only a
                 // stopped job whose recorded incarnations all exited may switch.
-                fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
+                fixture_retire_step!(
+                    next == "retired",
+                    self.role,
+                    ManagerAbsent,
+                    copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none()))
+                )?;
                 let prior: Vec<ProcessIdentity> = serde_json::from_value(row["processes"].clone())
                     .map_err(|_| OtaError::Invalid)?;
                 let mut gone = Vec::new();
@@ -848,13 +885,28 @@ impl OwnedJob {
                     details.uid == policy.uid
                         && details.executable == Path::new(&self.definition.arguments[0]),
                 )?;
-                verify_fixture_or_release_process(trust, &details.identity, &details.executable, self.role)?;
+                verify_fixture_or_release_process(
+                    trust,
+                    &details.identity,
+                    &details.executable,
+                    self.role,
+                )?;
                 processes.push(details.identity);
             }
         }
         if next == "retired" {
-            fixture_retire_step!(next == "retired", self.role, ManagerAbsent, copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none())))?;
-            let inventory = fixture_retire_step!(true, self.role, GlobalInventory, super::control::native_process_inventory())?;
+            fixture_retire_step!(
+                next == "retired",
+                self.role,
+                ManagerAbsent,
+                copy_user_job(&self.definition.label).and_then(|job| ensure(job.is_none()))
+            )?;
+            let inventory = fixture_retire_step!(
+                true,
+                self.role,
+                GlobalInventory,
+                super::control::native_process_inventory()
+            )?;
             processes = inventory
                 .into_iter()
                 .filter(|details| details.executable == Path::new(&self.definition.arguments[0]))
@@ -869,25 +921,43 @@ impl OwnedJob {
             let prior: Vec<ProcessIdentity> =
                 serde_json::from_value(row["processes"].clone()).map_err(|_| OtaError::Invalid)?;
             for process in prior {
-                if fixture_retire_step!(true, self.role, PriorIdentity, original_process_gone(&process))? {
+                if fixture_retire_step!(
+                    true,
+                    self.role,
+                    PriorIdentity,
+                    original_process_gone(&process)
+                )? {
                     exited.push(process);
                 } else {
                     #[cfg(feature = "ota-fixture")]
-                    { prior_still_live = true; }
+                    {
+                        prior_still_live = true;
+                    }
                 }
             }
         }
-        fixture_retire_transition!(next == "retired", self.role, !processes.is_empty(), prior_still_live, registration_transition(
-            &mut record,
-            &self.definition.label,
-            &self.plist_path,
-            &digest(bytes),
-            next,
-            &processes,
-            &exited,
-        ))?;
+        fixture_retire_transition!(
+            next == "retired",
+            self.role,
+            !processes.is_empty(),
+            prior_still_live,
+            registration_transition(
+                &mut record,
+                &self.definition.label,
+                &self.plist_path,
+                &digest(bytes),
+                next,
+                &processes,
+                &exited,
+            )
+        )?;
         let after = serde_json::to_vec_pretty(&record).map_err(|_| OtaError::Invalid)?;
-        fixture_retire_step!(next == "retired", self.role, LedgerReplace, root.replace_exact("record.json", &before, &after))
+        fixture_retire_step!(
+            next == "retired",
+            self.role,
+            LedgerReplace,
+            root.replace_exact("record.json", &before, &after)
+        )
     }
 }
 
@@ -1670,16 +1740,19 @@ impl NativePlatform {
                 65536,
             )?)
             .map_err(|_| OtaError::Invalid)?;
-        let layout = metadata.get("cliLayout")
+        let layout = metadata
+            .get("cliLayout")
             .map(|value| serde_json::from_value::<crate::packaging::CliLayout>(value.clone()))
-            .transpose().map_err(|_| OtaError::Invalid)?;
+            .transpose()
+            .map_err(|_| OtaError::Invalid)?;
         if matches!(layout, Some(crate::packaging::CliLayout::Paired)) {
-            self.trust.verify_static(&path.join("Contents/Resources/pacer-core"), CodeRole::Cli)?;
+            self.trust
+                .verify_static(&path.join("Contents/Resources/pacer-core"), CodeRole::Cli)?;
         }
         ensure(
             metadata["schema"] == 1
                 && metadata["version"] == version
-                && metadata["bundleId"] == "dev.pacer.desktop"
+                && metadata["bundleId"] == super::trust::APP_ID
                 && metadata["admissionProtocol"] == 1
                 && metadata["rollbackCompatible"] == true
                 && metadata["arch"] == super::updater::arch_name(self.context.target.arch),
@@ -1695,7 +1768,7 @@ impl NativePlatform {
         .map_err(|_| OtaError::Invalid)?;
         let info = info.as_dictionary().ok_or(OtaError::Invalid)?;
         for (key, value) in [
-            ("CFBundleIdentifier", "dev.pacer.desktop"),
+            ("CFBundleIdentifier", super::trust::APP_ID),
             ("CFBundleExecutable", "pacer"),
             ("CFBundleVersion", version),
             ("CFBundleShortVersionString", version),

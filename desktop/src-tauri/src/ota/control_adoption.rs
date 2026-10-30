@@ -134,7 +134,7 @@ fn request<T: serde::de::DeserializeOwned>(
     kind: &str,
     extra: serde_json::Value,
 ) -> Result<T, OtaError> {
-    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None)?;
+    let (mut stream, session) = authenticate_service(endpoint, trust, "helper", None, None)?;
     let mut value = serde_json::json!({"schema":1,"kind":kind,"transactionKind":"adoption","sessionId":session.session_id,"sequence":1,"binding":binding});
     value
         .as_object_mut()

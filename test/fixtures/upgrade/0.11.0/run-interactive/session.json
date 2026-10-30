@@ -1,0 +1,1 @@
+{"interactive":true,"argv":["sh","-c","printf 'fixture-ready\\n'; sleep 1"],"cwd":"$SCRATCH/repo","pacerHome":"$HOME/.pacer","capBytes":8388608}

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { CoreError } from "../../core/errors";
 import type { Installation } from "./types";
 import { isVersion } from "../version";
+import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
   integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -21,7 +22,7 @@ const target = z
   .object({
     id,
     appPath: path,
-    bundleId: z.literal("dev.pacer.desktop"),
+    bundleId: z.literal(DESKTOP_IDENTIFIERS.desktop),
     ownerUid: integer,
     arch: z.enum(["aarch64", "x86_64"]),
     pacerHome: path,

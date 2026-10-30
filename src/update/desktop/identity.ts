@@ -8,6 +8,7 @@ import { DEFAULT_PORT } from "../../serve/constants";
 import type { Ctx } from "../../types";
 import { isVersion } from "../version";
 import type { Installation } from "./types";
+import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
 
 /** Stable identity fingerprint; callers must independently verify every input's provenance. */
 export function installationFingerprint(identity: Omit<Installation, "id" | "version">, binary: string, registrationText: string): string {
@@ -15,7 +16,7 @@ export function installationFingerprint(identity: Omit<Installation, "id" | "ver
   return createHash("sha256").update(JSON.stringify({appPath,bundleId,ownerUid,arch,pacerHome,port,serviceLabel,ownership,binary,registrationText})).digest("hex");
 }
 
-export const BUNDLE_ID = "dev.pacer.desktop";
+export const BUNDLE_ID = DESKTOP_IDENTIFIERS.desktop;
 export const BUNDLE_RELEASE_PATH = "Contents/Resources/pacer-release.json";
 export const BUNDLED_CLI_PATH = "Contents/Resources/pacer";
 export const BUNDLED_CORE_PATH = "Contents/Resources/pacer-core";

@@ -10,7 +10,7 @@ use std::io::{ErrorKind, Read, Write};
 
 pub const MAX_FRAME_BYTES: usize = 262_144;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
-const BUNDLE_ID: &str = "dev.pacer.desktop";
+use super::trust::APP_ID as BUNDLE_ID;
 
 /// Sanitized errors: never include private payloads or underlying I/O diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,7 +106,7 @@ pub enum StatusAction {
     Retry,
     Adopt,
     Configure,
-    #[serde(rename="adoptCancel")]
+    #[serde(rename = "adoptCancel")]
     AdoptCancel,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -691,9 +691,14 @@ impl WireMessage for AdapterCommand {
             Self::Download { candidate, .. } => {
                 require(binding.transaction_id.is_none() && candidate_valid(candidate, true))
             }
-            Self::Recover { .. } | Self::RecoverAdoption { .. } => require(binding.transaction_id.is_some()),
-            Self::Adopt { target, .. } => require(binding.transaction_id.is_some()
-                && target.ownership == Ownership::Attached && target_valid(binding, target)),
+            Self::Recover { .. } | Self::RecoverAdoption { .. } => {
+                require(binding.transaction_id.is_some())
+            }
+            Self::Adopt { target, .. } => require(
+                binding.transaction_id.is_some()
+                    && target.ownership == Ownership::Attached
+                    && target_valid(binding, target),
+            ),
             Self::Install {
                 candidate, target, ..
             } => require(
@@ -986,18 +991,32 @@ mod tests {
     #[test]
     fn service_adoption_has_separate_candidate_free_commands() {
         let fixture = adapter();
-        let mut command = fixture["commands"].as_array().unwrap().iter().find(|c| c["command"] == "install").unwrap().clone();
+        let mut command = fixture["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["command"] == "install")
+            .unwrap()
+            .clone();
         command["command"] = json!("adopt");
         command["target"]["ownership"] = json!("attached");
-        let candidate = command.as_object_mut().unwrap().remove("candidate").unwrap();
+        let candidate = command
+            .as_object_mut()
+            .unwrap()
+            .remove("candidate")
+            .unwrap();
         assert!(parse_command(&bytes(&command)).is_ok());
-        let mut bad = command.clone(); bad["candidate"] = candidate;
+        let mut bad = command.clone();
+        bad["candidate"] = candidate;
         assert!(parse_command(&bytes(&bad)).is_err());
-        let mut bad = command.clone(); bad["target"]["ownership"] = json!("managed");
+        let mut bad = command.clone();
+        bad["target"]["ownership"] = json!("managed");
         assert!(parse_command(&bytes(&bad)).is_err());
-        let mut bad = command.clone(); bad["transactionId"] = Value::Null;
+        let mut bad = command.clone();
+        bad["transactionId"] = Value::Null;
         assert!(parse_command(&bytes(&bad)).is_err());
-        let mut bad = command.clone(); bad["target"]["id"] = json!("another-installation");
+        let mut bad = command.clone();
+        bad["target"]["id"] = json!("another-installation");
         assert!(parse_command(&bytes(&bad)).is_err());
         command["command"] = json!("recover-adoption");
         assert!(parse_command(&bytes(&command)).is_err());
@@ -1275,5 +1294,21 @@ mod tests {
                 .extend(extra.as_object().unwrap().clone());
             assert!(parse_frame(&bytes(&value)).is_err());
         }
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    #[test]
+    fn release_wire_refuses_fixture_targets_and_hello_frames() {
+        let fixture_app = crate::ota::trust::FIXTURE_IDENTIFIERS.app;
+        let fixture = adapter();
+        let command = fixture["commands"][2].clone();
+        assert!(parse_command(&bytes(&command)).is_ok());
+        let mut changed = command.clone();
+        changed["target"]["bundleId"] = json!(fixture_app);
+        assert!(parse_command(&bytes(&changed)).is_err());
+        let hello = fixture["frames"][0].clone();
+        assert!(parse_frame(&bytes(&hello)).is_ok());
+        let mut changed = hello.clone();
+        changed["bundleId"] = json!(fixture_app);
+        assert!(parse_frame(&bytes(&changed)).is_err());
     }
 }

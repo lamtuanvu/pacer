@@ -5,6 +5,7 @@ import { z } from "zod";
 import { compareVersions } from "../../src/update/version";
 import { verifyProductionArchive, verifyProductionDiskImage } from "./desktop-verify";
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
+import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 
 export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
 export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
@@ -79,7 +80,7 @@ async function validate(releaseDir: string, version: string, options: DesktopRel
     if (signature.length > 8192) throw Error("Desktop signature exceeds native wire limit");
     verifyUpdateSignature(bytes, signature, options.publicKey, version);
     const metadata = options.mode === "fixture" ? await options.verifyArchive?.(bytes, arch) : await verifyProductionArchive(bytes, arch, options.pins);
-    if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== "dev.pacer.desktop" ||
+    if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== (options.mode === "fixture" ? FIXTURE_IDENTIFIERS.desktop : "dev.pacer.desktop") ||
         metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
     platforms[`darwin-${arch}`] = { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(bytes), bundleId: metadata.bundleId, protocolMajors: metadata.protocolMajors, admissionProtocol: 1, rollbackCompatible: true };
     const imageName = desktopDiskImageName(version, arch), image = input(join(releaseDir, imageName));

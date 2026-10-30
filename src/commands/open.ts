@@ -2,6 +2,7 @@ import type { Ctx } from "../types";
 import type { Command, Result } from "./types";
 import { clearSessions, createCode } from "../serve/app-auth";
 import { DEFAULT_PORT } from "../serve/constants";
+import { DESKTOP_IDENTIFIERS } from "../update/desktop/bundle-identity";
 
 export const OPEN_USAGE = "open [--print] [--logout] [--browser] [<screen>]  open the pacer app (requires pacer serve)";
 export type OpenDeps = { opener: (url: string) => Promise<void> };
@@ -22,7 +23,7 @@ export function screenRoute(screen = "overview"): string {
 export async function openDesktop(ctx: Ctx, screen = "overview", platform = process.platform): Promise<boolean> {
   const route = screenRoute(screen);
   const url = `pacer://${route === "/" ? "overview" : route.slice(1)}`;
-  const argv = platform === "darwin" ? ["open", "-b", "dev.pacer.desktop", url]
+  const argv = platform === "darwin" ? ["open", "-b", DESKTOP_IDENTIFIERS.desktop, url]
     : platform === "linux" ? ["xdg-open", url] : null;
   if (!argv) return false;
   const result = await ctx.run(argv, 5000).catch(() => null);

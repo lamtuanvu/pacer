@@ -100,3 +100,11 @@ fn detached_redirected_or_translocated_front_doors_are_not_paired_apps() {
     owner.uid += 1;
     assert!(paired_layout(&owner, "1.2.3", &metadata).is_err());
 }
+
+#[test]
+fn release_front_door_refuses_fixture_bundle_metadata() {
+    let (owner, mut metadata) = proof();
+    assert!(paired_layout(&owner, "1.2.3", &metadata).is_ok());
+    metadata["bundleId"] = serde_json::json!(crate::serve::native_trust::FIXTURE_IDENTIFIERS.app);
+    assert!(paired_layout(&owner, "1.2.3", &metadata).is_err());
+}

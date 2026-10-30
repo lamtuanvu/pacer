@@ -2,6 +2,7 @@ import type { RepoRef } from "../api/read-model/types";
 import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
+import type { ProcessIdentity } from "../update/desktop/process-identity";
 
 export type InteractionMode = "delegated" | "conversation";
 export type ConversationActivity = "starting" | "working" | "waiting" | "idle" | "ended";
@@ -147,6 +148,17 @@ export function progressBase(t: Pick<TaskRecord, "run" | "baseSha" | "baseBranch
   return t.run?.mode === "new" ? t.baseSha ?? t.baseBranch ?? null : t.run?.mode === "current" ? t.startSha ?? null : null;
 }
 
+export interface RunnerHandover {
+  protocol: number;
+  pacer: string;
+  identity: ProcessIdentity;
+  state?: "handed-over";
+  committedAt?: number;
+  signalledAt?: number;
+  declinedAt?: number;
+  replacementAt?: number;
+}
+
 export interface RunRef {
   interactionMode?: InteractionMode;
   takeover?: boolean;
@@ -165,6 +177,8 @@ export interface RunRef {
   workdir: string;
   logFile: string;
   lastMessageFile?: string;
+  waitKey?: string;
+  idleAlertedAt?: number;
 }
 
 export interface ReviewRequest { note: string; at: number }
@@ -239,6 +253,9 @@ export interface TaskRecord {
   state: TaskState;
   queue?: { nextAt?: number; reason: QueueReason; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number}; machine?: MachineWait };
   runnerPid?: number;
+  handover?: RunnerHandover;
+  runnerPacer?: string;
+  childIdentity?: ProcessIdentity;
   executor?: string;
   backend?: string;
   attemptStartedAt?: number;

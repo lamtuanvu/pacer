@@ -1,9 +1,10 @@
 import type { Socket } from 'node:net';
 import { FrameType, WireDecoder, wire } from './framing';
+import { negotiate, parseVersions } from './protocol';
 const CAP=1024*1024, SLICE=64*1024;
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
- snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void;
+ snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
 }
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
 export interface ControlHandlers { release?:(label:string)=>void; input:(bytes:Buffer)=>void; resize:(cols:number,rows:number)=>void }
@@ -17,8 +18,12 @@ export class ViewerHub {
  get size(){return this.viewers.size;}
  constructor(private snapshot:()=>Buffer,private since:(from:number)=>Buffer[]|null,
   private enqueue:(fn:()=>void)=>void,private marker:(kind:string,label:string)=>void=()=>{},private changed:(viewers:number,controller:string|null)=>void=()=>{},
-  private control?:ControlHandlers){}
- private state(v:Viewer,reason?:string){return wire(FrameType.control,{controller:this.controller,you:this.holder===v,...(reason?{reason}:{})});}
+  private control?:ControlHandlers,private protocol?:{pacer:string;versions:readonly [number,number]}){}
+ private state(v:Viewer,reason?:string){
+  const reply=v.negotiate&&this.protocol?{versions:[...this.protocol.versions],pacer:this.protocol.pacer}:{};
+  v.negotiate=false;
+  return wire(FrameType.control,{controller:this.controller,you:this.holder===v,...(reason?{reason}:{}),...reply});
+ }
  private setController(v:Viewer|null,reason:string){
   const old=this.holder;if(old===v)return;
   this.holder=v;this.cachedSnapshot=undefined;
@@ -69,12 +74,14 @@ export class ViewerHub {
   socket.on('data',data=>{try{for(const f of decoder.push(Buffer.from(data))){
    if(f.type===FrameType.hello&&!v.joined){
     const h=JSON.parse(f.data.toString());
-    if(h.v!==1||(h.from!==undefined&&(!Number.isSafeInteger(h.from)||h.from<0))){socket.destroy();return;}
+    const versions=h.versions===undefined?null:parseVersions(h.versions);
+    if(h.v!==1||(h.from!==undefined&&(!Number.isSafeInteger(h.from)||h.from<0))||(h.versions!==undefined&&!versions)){socket.destroy();return;}
     clearTimeout(helloTimer);
     this.enqueue(()=>{
      if(socket.destroyed||v.joined||this.closing)return;
+     if(versions&&negotiate(versions,this.protocol?.versions??[1,1])===null){socket.end(wire(FrameType.exit,{code:1,reason:'This session runs on an older pacer. Reopen to update.'}));return;}
      if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
-     this.pending.delete(v);this.viewers.add(v);v.joined=true;
+     this.pending.delete(v);this.viewers.add(v);v.joined=true;v.negotiate=!!versions&&!!this.protocol;
      v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
      this.cachedSnapshot=undefined;this.changed(this.size,this.controller);
      const missing=h.from===undefined?null:this.since(h.from);

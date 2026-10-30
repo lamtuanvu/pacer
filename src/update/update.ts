@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { isBundledExecutable } from "./desktop/identity";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartAfterUpdate } from "../service";
+import { restartAroundWork } from "../service/upgrade";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { ReleaseError } from "./errors";
@@ -26,7 +27,7 @@ export interface UpdateDeps {
   smoke?: SmokeFn;
   refreshIntegrations?: (path: string) => Promise<string[]>;
   migrateStrategy?: () => string[];
-  restartService?: (path: string) => Promise<boolean | { restarted: boolean; warning?: string }>;
+  restartService?: (path: string, target?: string) => Promise<boolean | { restarted: boolean; warning?: string; summary?: string }>;
 }
 
 export function parseUpdateArgs(args: string[]): UpdateOptions | string {
@@ -67,11 +68,11 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     platform: hostPlatform(),
     refreshIntegrations: path => refreshIntegrations(ctx, path),
     migrateStrategy: () => refreshStrategy(ctx),
-    restartService: async path => {
-      let restarted = false, warning: string | undefined;
-      try { restarted = await restartAfterUpdate(ctx, path); } catch (e) { warning = `could not restart pacer serve: ${(e as Error).message}`; }
-      const warnings = warning ? [warning] : [];
-      return { restarted, warning: warnings.length ? warnings.join("; ") : undefined };
+    restartService: async (path, target) => {
+      try {
+        const r = await restartAroundWork(ctx, () => restartAfterUpdate(ctx, path), { expectedVersion: target, prefix: version => `Updated to v${version}.` });
+        return { restarted: r.restarted, ...(r.summary ? { summary: r.summary } : {}), ...(r.warning ? { warning: r.warning } : {}) };
+      } catch (e) { return { restarted: false, warning: `could not restart pacer serve: ${(e as Error).message}` }; }
     },
   };
 }
@@ -169,11 +170,12 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     let serviceNote = "";
     d.progress?.("Restart",o.noRestart || !d.restartService ? "skipped" : "running",target);
     if (!o.noRestart && d.restartService) {
-      try { const result = await d.restartService(r.path);
+      try { const result = await d.restartService(r.path, target);
         if(!(typeof result === "boolean" ? result : result.restarted)) d.progress?.("Restart","skipped","Service was not restarted");
         if (typeof result === "boolean") { if (result) serviceNote = "\nrestarted pacer serve"; }
-        else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + (result.warning ? `\nWARNING: ${result.warning}` : "");
+        else serviceNote = (result.restarted ? "\nrestarted pacer serve" : "") + (result.summary ? `\n${result.summary}` : "") + (result.warning ? `\nWARNING: ${result.warning}` : "");
       }
+
       catch (e) { d.progress?.("Restart","skipped",String(e)); serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
     }
     return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + refreshNote + serviceNote);

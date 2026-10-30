@@ -397,9 +397,11 @@ signed with the same Team before the CLI, helper and app; library validation
 remains enabled. Complete staging precedes all signing;
 Apple notarization and stapling precede the final updater archive/signature.
 Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
-the production feed. The release-only fixture driver exercises real Tauri artifact
-signatures and local Git promotion using data-only packages; it does not exercise
-native installation or notarization.
+the production feed. `ota-fixture` builds use the bundle identifier
+`dev.pacer.desktop.fixture`, so they run beside an installed pacer app. The
+release-only fixture driver exercises real Tauri artifact signatures and local Git
+promotion using data-only packages under the fixture identifier; it does not
+exercise native installation or notarization.
 
 ## Owned-window diagnostics
 

@@ -27,7 +27,7 @@ test('opening an active task claims an unheld session once without taking anothe
  held.client.dispose();
 });
 test('snapshot precedes output, byte offsets resume after a drop and resync replaces screen',()=>{const f=fixture(false),s=f.sockets[0]!;
- expect(s.json()[0]).toEqual({type:'hello',v:1,client:'app',label:'app',cols:120,rows:40});
+ expect(s.json()[0]).toEqual({type:'hello',v:1,versions:[1,1],client:'app',label:'app',cols:120,rows:40});
  s.frame({type:'snapshot',outputOffset:20,cols:80,rows:24,scrollbackAnsi:'old',screenAnsi:'screen',controller:null,viewers:1});s.output('é');
  expect(f.writes).toEqual(['old','screen','é']);s.onclose?.();f.timers[0]!();f.sockets[1]!.onopen?.();expect(f.sockets[1]!.json()[0].from).toBe(22);
  f.sockets[1]!.frame({type:'resync'});f.sockets[1]!.frame({type:'snapshot',outputOffset:50,cols:80,rows:24,scrollbackAnsi:'fresh',screenAnsi:'screen',controller:null,viewers:1});expect(f.resets()).toBe(2);f.client.dispose();});

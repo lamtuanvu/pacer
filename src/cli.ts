@@ -2,6 +2,7 @@
 import { apiCommand } from "./commands/api";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
+import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
@@ -26,6 +27,7 @@ import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
+import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
@@ -211,7 +213,8 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
+    const work = await runningWork(ctx).then(runningWorkLines, () => ["running work: unavailable"]);
+    return { code: 0, out: [renderText(st), ...work, updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return lineResult(null);
@@ -406,7 +409,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
       const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();
-      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:"dev.pacer.cli",version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
+      return {code:0,err:"",out:JSON.stringify({schema:1,role:"cli",bundleId:DESKTOP_IDENTIFIERS.cli,version:currentVersion(),arch:process.arch==="arm64"?"aarch64":process.arch==="x64"?"x86_64":process.arch,fixture:!!compiledNativeFixture(),otaMode:compiledNativeFixture()?"fixture":pins?"production":"disabled",appleTeamId,signingCertSha1,signer:pins?signerKind(pins):null,fixturePolicySha256:compiledNativeFixtureSha256()})};
     }
     case "pause":
     case "resume": {
