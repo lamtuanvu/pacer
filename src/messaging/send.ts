@@ -32,27 +32,29 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
     requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   void notifyMessage(ctx, r.message);
-  const undo = kind === "answer" && !verdict.hold ? recordAnswer(ctx, caller.id, input.to, input.replyTo!, body) : undefined;
+  const answered = kind === "answer" && !verdict.hold ? recordAnswer(ctx, caller.id, input.to, input.replyTo!, body) : undefined;
   // A turn the guardrail allowed still passes project policy; a policy hold says why (ADR 0015).
   const { delivery, hold } = verdict.hold ? { delivery: "held" as const, hold: undefined } : await deliver(ctx, input.to, deps.spawnRunner);
-  // As pacer answer does: an answer that reaches no turn leaves the question open for the legacy retry.
-  if (undo && delivery !== "turn_started" && delivery !== "queued") undo();
+  // As pacer answer does: an answer that reaches no turn leaves the task's question open for the legacy retry.
+  // The question message is read only once the answer reaches its task, as the app's composer does; a held answer leaves it unread.
+  if (answered && delivery !== "turn_started" && delivery !== "queued") answered.undo?.();
+  if (answered && (delivery === "turn_started" || delivery === "queued" || delivery === "pull")) readMessages(ctx, answered.question.to, [answered.question.id]);
   return { ...r, delivery, ...(hold ? { hold } : {}) };
 }
 
 /**
- * An answer to a task's question, as pacer answer records it: the question is read and the task's question answered.
- * Returns how to reopen the question, or undefined when the reply is not to that task's open question.
+ * An answer to a task's question, as pacer answer records it: the task's question is answered before the turn starts,
+ * and the caller marks the question read once the answer reaches a turn. Returns the question and how to reopen the
+ * task's question (absent when it was not open), or undefined when the reply is not to a question from that task.
  */
-function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, body: string): (() => void) | undefined {
+function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, body: string): { question: Message; undo?: () => void } | undefined {
   const question = store.getMessage(ctx, replyTo);
   const id = taskOf(to);
   if (!question || question.kind !== "question" || !id || question.from !== to || (question.to !== caller && caller !== "human")) return undefined;
-  readMessages(ctx, question.to, [question.id]);
   const task = readTask(ctx, id);
-  if (!task?.question || task.question.answer !== undefined) return undefined;
+  if (!task?.question || task.question.answer !== undefined) return { question };
   updateTask(ctx, id, t => { if (t.question && t.question.answer === undefined) { t.question.answer = body; t.question.answeredAt = ctx.now; } });
-  return () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } });
+  return { question, undo: () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } }) };
 }
 
 async function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null }, fingerprint: string, deps: SendDeps): Promise<SendResult> {

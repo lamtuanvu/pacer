@@ -177,3 +177,20 @@ test("message events stay v3-only, and the app names a policy hold's reason", as
   expect(answerDeliveryWords("held", { reason: "repository frozen" })).toBe("Answer held, not delivered yet: project policy holds this task (repository frozen). The question stays open.");
   expect(answerDeliveryWords("held")).toContain("a messaging rule needs your confirmation first");
 });
+
+test("an answer that policy holds leaves the question unread and the task's question open", async () => {
+  const f = settled();
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  const r = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  expect(r.delivery).toBe("held");
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBeUndefined();
+  // Admitted again, the next answer reaches the turn and reads the question.
+  f.policy({ verdict: "allow" });
+  const again = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  expect(again.delivery).toBe("turn_started");
+  expect(store.getMessage(f.ctx, question.id)?.readAt).not.toBeNull();
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
+});
