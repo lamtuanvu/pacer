@@ -134,7 +134,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
         : running && node.state.tone === "info" ? { ...node.state, label: "Working" } : node.state;
       const why = task?.queue?.detail ?? task?.brokenReason ?? (task?.retryOf ? "Retried on executor" : null);
       const lead = node.agents.length > 1 ? `${node.agents.length} agents` : task?.executor ? executorLabel(task.executor) : "Not assigned";
-      return <li key={node.id}><ListRowLink className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)}>
+      return <li key={node.id}><ListRowLink layout="dispatch" className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)}>
         <span className="pc-dispatch-caption">{node.updatedAt ? clock(node.updatedAt, now) : ""}</span>
         <span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption pc-dispatch-decision__repo pc-ellipsis">{node.repo}{node.children.length > 0 ? ` · ${node.children.length} subtasks` : ""}</span></span>
         <span><Pill tone="neutral">{task?.kind ?? "Unclassified"}</Pill></span>
@@ -502,7 +502,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const work = useDispatchWork(scope.repo);
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <><LazyWorkPanels query={query} /><DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
+  return <><LazyWorkPanels query={query} selected={null} /><DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
     sampleTask={state.features.ops.has("onboarding.try") && checklist?.complete && state.snapshot.executors?.some(e => e.rank !== "planner" && e.enabled && e.state === "ready") ? <SampleTask query={query} /> : undefined}
     firstRun={isFirstRun(state.snapshot, checklist) ? <FirstRunData snapshot={state.snapshot} query={query} /> : undefined}
     contentRepo={work.repo} period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workUpdating={work.updating} workError={work.error} onWorkReload={work.reload}

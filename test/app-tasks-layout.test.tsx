@@ -159,12 +159,8 @@ test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and st
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
    if(width<560){expect(contentEdge).toBeGreaterThanOrEqual(16);expect(contentEdge).toBeLessThan(width);}
-   else expect(contentEdge).toBe(52+(width>=768?248:0)+32);
-   if(width>=768){
-    // Removing Scope restores the shared 32px content gutter beside the rail.
-    await page.locator('aside[aria-label="Scope"]').evaluate(n=>n.remove());
-    expect(await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+32);
-   }
+   else expect(contentEdge).toBe(52+32);
+   expect(await page.locator('aside[aria-label="Scope"]').count()).toBe(0);
    if(width<560){
     expect(await page.locator('.pc-dispatch h1').count()).toBe(0);
     expect(await page.locator('.pc-topbar h1').textContent()).toBe('Dispatch');

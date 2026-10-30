@@ -802,3 +802,12 @@ Machines and other explicit Save forms retain their draft and SaveBar behavior.
 inside a render callback (where static child discovery cannot inspect it). The
 caller assigns that ID to the actual control. Automatic discovery remains the
 default for direct children; Automatic update check uses the explicit link.
+
+### Dispatch ledger row spacing
+
+`ListRowLink layout="dispatch"` retains the specialized Dispatch ledger padding
+(9px block, 20px inline) in normal and compact control density. DS owns this
+spacing; Dispatch owns its seven-column responsive grid and 12px column gap.
+The variant retains native link semantics, focus and hover states, and whole-row
+keyboard navigation, with no nested interactive controls. Production consumer:
+`app/src/screens/dispatch/Dispatch.tsx` Live dispatch ledger.

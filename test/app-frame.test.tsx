@@ -23,16 +23,16 @@ const outline = (html: string) => [...html.matchAll(/<(div|header|nav|main|foote
 
 test("layout_renders_same_landmarks", () => {
   const html = withService("#/");
-  // Dispatch mounts its Scope and Inspector around the work area; the dock stays closed.
+  // Dispatch starts with Scope, Inspector and the dock closed.
   expect(outline(html).filter(item => !item.startsWith("section") && !item.startsWith("nav.pc-") || item.startsWith("nav.pc-rail"))).toEqual([
     "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-live-region", "div.pc-body", "nav.pc-rail",
-    "aside.pc-side-panel pc-side-panel--left pc-scope-panel", "div.pc-work-wrap", "div.pc-work", "main.pc-main pc-main--canvas#main-content", "aside.pc-side-panel pc-side-panel--right", "footer.pc-statusbar",
+    "div.pc-work-wrap", "div.pc-work", "main.pc-main pc-main--canvas#main-content", "footer.pc-statusbar",
   ]);
   expect(html).toContain('<header');
   expect(html.indexOf('class="pc-live-region"')).toBeLessThan(html.indexOf('class="pc-body"'));
   expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><fieldset class="pc-offline-controls">');
-  expect(html).toContain('aria-label="Scope"');
-  expect(html).toContain('aria-label="Inspector"');
+  expect(html).not.toContain('aria-label="Scope"');
+  expect(html).not.toContain('aria-label="Inspector"');
   expect(html).not.toContain("pc-dock");
   expect(html).not.toContain("pc-app--with-dock");
   // The only frame addition is the status-bar dock control, closed by default.

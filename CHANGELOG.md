@@ -21,6 +21,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Derive readable task labels from Markdown briefs, preserving explicit titles and complete bracket groups; keep the Sessions navigator mounted with its scroll and data when selecting another task.
 
+- Start Dispatch with Scope and Inspector closed, remember their toggles per window, offer the latest running task from an empty inspector, and preserve the ledger’s 9px by 20px row padding in both densities.
+
 - Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
 
 

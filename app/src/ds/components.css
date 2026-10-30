@@ -1053,8 +1053,8 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 :root[data-density="compact"]{--button-control:var(--control-compact)}
 @media(min-width:561px) and (pointer:fine){
  :root[data-density] :is(.pc-input:not(.pc-textarea):not(.pc-control--touch),.pc-choice-picker:not(.pc-choice-picker--touch) .pc-choice-picker__trigger,.pc-range:not(.pc-control--touch)):not(.tray *){min-height:var(--button-control)}
- :root[data-density="normal"] .pc-list-row:not(.pc-list-row--touch):not(.tray *){min-height:var(--control-normal);padding:var(--space-2) var(--space-3)}
- :root[data-density="compact"] .pc-list-row:not(.pc-list-row--touch):not(.tray *){min-height:var(--control-compact);padding:var(--space-1\.5) var(--space-2)}
+ :root[data-density="normal"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.tray *){min-height:var(--control-normal);padding:var(--space-2) var(--space-3)}
+ :root[data-density="compact"] .pc-list-row:not(.pc-list-row--touch):not(.pc-list-row--dispatch):not(.tray *){min-height:var(--control-compact);padding:var(--space-1\.5) var(--space-2)}
 }
 
 /* Refresh feedback changes paint only; no transition, including reduced motion. */
@@ -1175,3 +1175,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-skeleton__trace{flex:999 1 var(--size-520)}
 .pc-skeleton__aside{flex:1 1 var(--size-340);min-width:0}
 @media(max-width:767px){.pc-skeleton--task .pc-skeleton__columns{flex-direction:column;align-items:stretch}.pc-skeleton__trace,.pc-skeleton__aside{flex:auto}}
+
+
+/* The Dispatch ledger retains its board rhythm in either control density. */
+.pc-list-row--dispatch{padding:calc(var(--space-2\.5) - var(--size-1)) var(--space-5)}
