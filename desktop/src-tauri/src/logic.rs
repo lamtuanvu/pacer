@@ -1226,6 +1226,23 @@ pub fn route(raw: &str) -> Option<String> {
             && bytes[18..].iter().all(|c| matches!(*c, b'0'..=b'9' | b'a'..=b'f'));
         return valid.then(|| format!("#/needs-you?answer={id}"));
     }
+    if value == "/workspace" {
+        return Some("#/workspace".into());
+    }
+    if let Some(query) = value.strip_prefix("/workspace?") {
+        let mut task = false;
+        let mut panel = false;
+        for part in query.split('&') {
+            let (key, val) = part.split_once('=')?;
+            match key {
+                "task" if !task && !val.is_empty() && val.len() <= 128
+                    && val.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c)) => task = true,
+                "panel" if !panel && matches!(val, "session" | "changes" | "notes") => panel = true,
+                _ => return None,
+            }
+        }
+        return task.then(|| format!("#{value}"));
+    }
     if value.contains(['%', '\\', '#', '?']) || value.contains("..") {
         return None;
     }

@@ -118,6 +118,9 @@
   --type-failure-output-size: 12px;
   --type-failure-output-line: 17px;
   --type-failure-output-weight: 400;
+  --type-task-child-size: 13px;
+  --type-task-child-line: 19px;
+  --type-task-child-weight: 500;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;
@@ -246,6 +249,7 @@
   --button-control: 32px;
   --switch-track-width: 40px;
   --switch-track-height: 24px;
+  --size-17: 17px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --shadow-tray-menu: 0 8px 24px var(--shadow-tray-menu-tint);
@@ -260,6 +264,9 @@
   --motion-meter: 300ms;
   --motion-loading: 1200ms;
   --motion-ease: ease-out;
+  --motion-selection: 160ms;
+  --motion-panel: 120ms;
+  --motion-skeleton: 1400ms;
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-color-scheme: dark) {

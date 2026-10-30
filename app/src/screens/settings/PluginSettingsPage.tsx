@@ -1,7 +1,8 @@
+import { ImmediateSave } from "../../ds/ImmediateSave";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { SettingsField, SettingsSchema } from "../../../../src/plugins/ui-schema";
 import type { PluginInfo, SurfaceInfo } from "../../../../src/plugins/registry";
-import { Page, LoadingState, SegmentedControl } from "../../ds/Patterns";
+import { Page, Skeleton, SegmentedControl } from "../../ds/Patterns";
 import { PluginContext } from "../../plugins/catalog";
 import { AppLink } from "../../navigation";
 import { routes } from "../../router";
@@ -96,37 +97,40 @@ export function PluginSettingsPage({ section = "", plugin: pluginProp, initialDa
       else setError(error);
     } finally { pending.current = false; if(active.current) setBusy(false); }
   }
-  async function visibility(surface: SurfaceInfo) {
-    if (pending.current || !data) return;
+  async function visibility(surface: SurfaceInfo, visible: boolean) {
+    if (pending.current || !data) throw new Error("Wait for the current save to finish.");
     pending.current = true; setBusy(true);
     try {
-      const result = await api.call<{rev:number}>("plugin.ui.visibility",{plugin,surface:surface.surface === "panelTabs" ? "panelTab" : surface.surface,id:surface.id,visible:!surface.visible,expect_rev:data.rev});
-      if (!active.current) return;
-      setData(old => old ? {...old,rev:result.rev} : old); catalog.reload(); setMessage(count ? "" : "Saved.");
-    } catch(error) {
-      if (!active.current) return;
+      const result = await api.call<{rev:number}>("plugin.ui.visibility",{plugin,surface:surface.surface === "panelTabs" ? "panelTab" : surface.surface,id:surface.id,visible,expect_rev:data.rev});
+      if (active.current) { setData(old => old ? {...old,rev:result.rev} : old); catalog.reload(); }
+    } catch (error) {
       if (errorCode(error) === "conflict") {
-        // Refresh the shared revision without discarding an unsaved field draft.
-        try { const latest = await api.call<PluginSettingsData>("plugin.settings.get",{plugin}); if(active.current) { if (JSON.stringify(latest.values) !== JSON.stringify(data.values) && count) setConflict(true); else {setData(latest);if(!count) {const defaults=settingsDefaults(latest);setValues(defaults);setBaseline(defaults);}} catalog.reload(); setMessage("Changed elsewhere; showing the latest."); } } catch(error) { setError(error); }
-      } else setError(error);
+        const latest = await api.call<PluginSettingsData>("plugin.settings.get",{plugin}).catch(() => undefined);
+        if (active.current && latest) {
+          if (!sameValues(latest.values,data.values) && count) setConflict(true);
+          else {setData(latest);if(!count){const defaults=settingsDefaults(latest);setValues(defaults);setBaseline(defaults);}}
+          catalog.reload();
+        }
+      }
+      throw error;
     } finally { pending.current = false; if(active.current) setBusy(false); }
   }
   async function turn() {
-    if(!info || pending.current) return;
-    if(info.enabled && count && !await toggle.dialogs.confirm(`Discard ${count} unsaved ${count === 1 ? "change" : "changes"} and turn off ${plugin}?`, "Unsaved plugin settings", "Discard and turn off")) return;
+    if(!info || pending.current) return false;
+    if(info.enabled && count && !await toggle.dialogs.confirm(`Discard ${count} unsaved ${count === 1 ? "change" : "changes"} and turn off ${plugin}?`, "Unsaved plugin settings", "Discard and turn off")) return false;
     if(info.enabled && count) { setValues(baseline); setErrors({}); setConflict(false); setMessage(""); }
-    await toggle.toggle(info);
+    return await toggle.toggle(info);
   }
   const other = surfaces.filter(s => s.plugin === plugin && s.surface !== "settings") ?? [];
   const unavailable = errorCode(error) === "plugin_unavailable", missing = ["unknown_plugin","not_found"].includes(errorCode(error) ?? "");
   const off = info?.state === "disabled";
   return <DensityContext.Provider value="settings"><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings pc-plugin-settings--editor">
     <header className="pc-settings-board__header"><h1>{data?.title ?? surfaces.find(s => s.plugin === plugin && s.surface === "settings")?.title ?? "Plugin settings"}</h1></header>
-    {info && <div className="pc-plugin-provenance"><span className="pc-plugin-provenance__icon" aria-hidden="true"><Icon name={pluginIcon(plugin,surfaces ?? [])}/></span><span className="pc-plugin-grow">Added by the plugin <b>{pluginPresentation(info).name} {info.version}</b> from {info.publisher}{info.capabilities.length > 0 && ` · may ${joinWords(capabilityWords(info).map(word => word[0]!.toLowerCase()+word.slice(1)))}`}</span><AppLink to={routes.settings("plugins")}>Manage plugin</AppLink>{info.state !== "refused" && <Button size="sm" aria-disabled={toggle.busy} onClick={() => void turn()}>{info.enabled ? "Turn off" : "Turn on"}</Button>}</div>}
+    {info && <div className="pc-plugin-provenance"><span className="pc-plugin-provenance__icon" aria-hidden="true"><Icon name={pluginIcon(plugin,surfaces ?? [])}/></span><span className="pc-plugin-grow">Added by the plugin <b>{pluginPresentation(info).name} {info.version}</b> from {info.publisher}{info.capabilities.length > 0 && ` · may ${joinWords(capabilityWords(info).map(word => word[0]!.toLowerCase()+word.slice(1)))}`}</span><AppLink to={routes.settings("plugins")}>Manage plugin</AppLink>{info.state !== "refused" && <ImmediateSave value={info.enabled} save={() => turn()}>{(value, change, saving) => <Button size="sm" disabled={toggle.busy||saving} onClick={() => change(!value)}>{value ? "Turn off" : "Turn on"}</Button>}</ImmediateSave>}</div>}
     {off ? <p role="status">This plugin is off.</p> : missing ? <p>This plugin has no settings page.</p> : unavailable ? <p>This plugin is turned off or needs attention. <AppLink to={routes.settings("plugins")}>Open Plugins settings</AppLink></p> : <>
-      {!data && !error && <LoadingState label="Loading plugin settings…"/>}
+      {!data && !error && <Skeleton layout="settings" label="Loading plugin settings…"/>}
       {data && <section aria-label={`${data.title} settings`}>{Object.entries(data.schema.fields).map(([name,field]) => <SettingRow key={name} variant="board" headingLevel={3} label={field.title} description={field.description}><div className="pc-plugin-field"><SchemaField name={name} field={field} value={values[name]} onChange={value => update(name,value)} disabled={busy} error={errors[name]} repos={state.snapshot?.repos ?? []}/>{errors[name] && <span id={`plugin-field-${name}-error`} className="pc-plugin-field__error" role="alert">{errors[name]}</span>}</div></SettingRow>)}
-        {other.length > 0 && <SettingRow variant="board" headingLevel={3} label="Where it shows" description={`This plugin offers ${other.length} ${other.length === 1 ? "view" : "views"}. These switches save at once.`}><div className="pc-plugin-field pc-plugin-field--visibility">{other.map(surface => <Switch key={`${surface.surface}:${surface.id}`} size="sm" label={surface.surface === "panelTabs" ? `${surface.title} tab in the right panel` : surface.surface === "activity" ? `${surface.title} in the activity bar` : `${surface.title} in the status bar`} checked={surface.visible} aria-disabled={busy} onChange={() => void visibility(surface)}/>)}</div></SettingRow>}
+        {other.length > 0 && <SettingRow variant="board" headingLevel={3} label="Where it shows" description={`This plugin offers ${other.length} ${other.length === 1 ? "view" : "views"}. These switches save at once.`}><div className="pc-plugin-field pc-plugin-field--visibility">{other.map(surface => <ImmediateSave key={`${surface.surface}:${surface.id}`} value={surface.visible} save={visible => visibility(surface,visible)}>{(value, change, saving) => <Switch size="sm" label={surface.surface === "panelTabs" ? `${surface.title} tab in the right panel` : surface.surface === "activity" ? `${surface.title} in the activity bar` : `${surface.title} in the status bar`} checked={value} disabled={busy||saving} onChange={event => change(event.currentTarget.checked)}/>}</ImmediateSave>)}</div></SettingRow>}
       </section>}
       {conflict && <Alert tone="warning" title="These settings changed elsewhere."><Button size="sm" onClick={() => void load()}>Load latest</Button></Alert>}
       {count > 0 && <div className="pc-plugin-save"><span className="pc-plugin-save__dot" aria-hidden="true"/><span className="pc-plugin-grow"><b>{count} unsaved {count === 1 ? "change" : "changes"}</b> <span className="pc-settings-board__caption">· saved to the plugin's own settings</span></span><Button variant="ghost" size="sm" onClick={() => {setValues(baseline);setErrors({});setMessage("");}}>Discard</Button><Button variant="primary" size="sm" aria-disabled={busy || conflict} onClick={() => {if(!busy && !conflict) void save();}}>Save</Button></div>}

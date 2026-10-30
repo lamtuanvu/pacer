@@ -1,6 +1,7 @@
+import { applyDensity, savedDensity, DENSITY_KEY } from "../density";
 import { counts as snapshotCounts } from "../../../src/view-model/selectors";
 import { DensityContext, DensityProvider } from '../ds/Density';
-import { LoadingState } from "../ds/Patterns";
+import { Skeleton } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -40,27 +41,20 @@ function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | 
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
-function Skeleton() {
-  const [slow, setSlow] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
-  if (slow) return <LoadingState label="Connecting to pacer…"/>;
-  return <div className="pc-skeleton" aria-hidden="true">{[0, 1, 2].map(i => <div key={i} className="pc-skeleton__section"><span /><span /><span /></div>)}</div>;
-}
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
-export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
+export function Layout({ route, loadingRoute = route, state, title, onDelegate = () => {}, children }: { route: Route; loadingRoute?: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
   useAgentDeepLink(route);
-  const [density, setDensity] = useState<"normal" | "compact">(() => {
-    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
-    catch { return "normal"; }
-  });
+  const [density, setDensity] = useState(savedDensity);
   useEffect(() => {
-    const sync = (event: Event) => {
-      let value: unknown;
-      try { value = event instanceof CustomEvent ? event.detail : localStorage.getItem("pacer.density"); }
-      catch { return; }
-      setDensity(value === "compact" ? "compact" : "normal");
+    const sync = (event?: Event) => {
+      if (event instanceof StorageEvent && event.key !== null && event.key !== DENSITY_KEY) return;
+      const value = event instanceof CustomEvent && event.detail === "compact" ? "compact"
+        : event instanceof CustomEvent ? "normal" : savedDensity();
+      applyDensity(value);
+      setDensity(value);
     };
+    sync();
     window.addEventListener("pacer:density", sync);
     window.addEventListener("storage", sync);
     return () => { window.removeEventListener("pacer:density", sync); window.removeEventListener("storage", sync); };
@@ -96,10 +90,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
   const workPanels = !narrow && wide && !!context && !state.sessionEnded && (route.name === "dispatch" || (route.name === "sessions" && !route.id));
-  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, true);
-  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, true);
+  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, route.name !== "dispatch", route.name === "dispatch");
+  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, route.name !== "dispatch", route.name === "dispatch");
   const newTaskPanels = !narrow && wide && route.name === "new-task";
-  const taskPanels = !narrow && wide && route.name === "sessions" && route.view !== "trace" && !!route.id && !!context && !state.sessionEnded;
+  const taskPanels = !narrow && wide && route.name === "terminal" && !!context && !state.sessionEnded;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.
   const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
   const [tasksOpen, setTasksOpen] = usePanelState("tasks", roomy);
@@ -141,8 +135,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     const fail = (error: unknown) => notifications?.notify({ key: "dispatch-command", tone: "error", title: "Could not change dispatching", message: error instanceof Error ? error.message : undefined });
     const offs = [
       ...(state.connected && ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
-        ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
-        : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
+        ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "play", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
+        : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "command-pause", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
       ...(state.connected && ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
       commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
     ];
@@ -172,16 +166,16 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" bar={false} open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
-  const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
-  const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
+  const tasks = taskPanels && <SidePanel side="left" label="Workspace" resize={{key:"pacer.workspace.left-width",initial:272,min:200,max:480}} wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
+  const details = taskPanels && <SidePanel side="right" label="Task" resize={{key:"pacer.workspace.right-width",initial:320,min:260,max:560}} open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-scope-panel" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
     right={details || (workPanels && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
     live={!state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
-    mainClass={`pc-main${!loading && !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
-    main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
+    mainClass={`pc-main${loading || !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
+    main={loading ? <Skeleton layout={SETTINGS.has(loadingRoute.name) ? "settings" : ["task-review", "task-failure"].includes(loadingRoute.name) ? "task" : loadingRoute.name === "sessions" ? (loadingRoute.id ? "task" : "list") : loadingRoute.name === "review" ? "list" : "dashboard"} label={loadingRoute.name === "sessions" && loadingRoute.id ? "Loading the task" : `Loading ${loadingRoute.name === "sessions" ? "tasks" : loadingRoute.name === "review" ? "Needs you" : SETTINGS.has(loadingRoute.name) ? "settings" : "Dispatch"}`} /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} folder={(route.name === "sessions" && route.id ? state.snapshot?.tasks.find(task => task.id === route.id)?.worktree : undefined) ?? state.snapshot?.repos?.find(item => item.key === repo)?.path} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}

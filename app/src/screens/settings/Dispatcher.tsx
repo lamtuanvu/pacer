@@ -274,25 +274,16 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
   </div>;
 }
 
-function RepositoryChoices() {
+export function RepositoryChoices() {
   const query=useResource<ProjectStrategyView[]>("project.strategy.list");
   const count=query.data?.filter(item=>!!item.executors).length;
   return <>
     {query.error&&(query.data?<DispatcherReadError error={query.error} reload={query.reload} subject="repository choices"/>:<div><p role="alert">Repository choices could not be loaded.</p><Button onClick={query.reload}>Try again</Button></div>)}
-    {count!==undefined&&<div className="pc-current-setup__cell"><div><span className="pc-current-setup__label">Repository choices</span><strong>{count?`${count} ${count===1?"repository":"repositories"}`:"No repository lists"}</strong></div><span className="u3-muted">Kept when setup changes</span></div>}
+    {count!==undefined&&<p className="u3-muted">Repository choices · <strong>{count?`${count} ${count===1?"repository":"repositories"}`:"No repository lists"}</strong> · Kept when setup changes</p>}
   </>;
 }
 export function DispatcherOverview({view,repositoryChoices=false}:{view:DispatcherConfigView;repositoryChoices?:boolean}) {
-  return <Section id="dispatcher" title="Dispatcher" detail="Pacer asks a planner to organize work, then chooses an eligible executor and model for each delegated task.">
-    <section aria-label="Current setup" className="pc-current-setup">
-      <div className="pc-current-setup__cell"><AgentMark agent={view.planner} size={28} labelled={false}/><div><span className="pc-current-setup__label">Planner</span><strong>{executorLabel(view.planner)}</strong></div><TextAction href="#/settings/planner">Planner &amp; pacing</TextAction></div>
-      <div className="pc-current-setup__cell"><span className="pc-setup-icon"><Identicon seed={view.strategy}/></span><div><span className="pc-current-setup__label">Active saved setup</span><strong>{view.strategy}</strong></div><TextAction href="#saved-profiles" onClick={event=>{
-        const target=document.getElementById("saved-profiles");
-        if(target){event.preventDefault();target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}
-      }}>Switch setup</TextAction></div>
-      {repositoryChoices&&<RepositoryChoices/>}
-    </section>
-  </Section>;
+  return <Section id="dispatcher" title="Dispatcher" detail="Pacer asks a planner to organize work, then chooses an eligible executor and model for each delegated task.">{null}</Section>;
 }
 
 /** Same saved-profile operations as the guided setup, composed as the board's bordered list. */
@@ -300,7 +291,7 @@ export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;ini
   const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
   const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
   return <Section id="saved-profiles" title="Saved setups" detail="Describe the outcome in a planning session. Each saved setup keeps your planner, pacing and executor choices; repository choices stay when you switch."
-    actions={<Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>Create setup from a brief</Button>}>
+    actions={<><TextAction href="#saved-profiles" onClick={event => {event.preventDefault();const target=document.getElementById("saved-profiles");if(target){target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}}}>Switch setup</TextAction><Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>Create setup from a brief</Button></>}>
     <ResourceState resource={query} empty="No saved setups yet.">
       <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
         <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>

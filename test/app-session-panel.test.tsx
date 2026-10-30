@@ -85,14 +85,14 @@ test("live token section distinguishes unreported and partial usage", () => {
   const html = renderToString(<SessionInsights task={task as never}/>);
   expect(html).toContain("Why Codex"); expect(html).toContain("Ladder step 1 · Spare capacity");
   expect(html).toContain("Tokens, live"); expect(html).toContain("≥ 1.2k"); expect(html).toContain("partial usage");
-  expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1/trace");
+  expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1");
 });
 
 test("session header retains title, caption and working end action", () => {
   const task = {...taskDetail,id:"t-1",title:"Session title",branch:"topic"} as never;
   const html = renderToString(<SessionHeader task={task} onEnd={noop}/>);
   expect(html).toContain('<h1 title="Session title">Session title</h1>');
-  expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1/trace");
+  expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1");
   expect(html).toContain("End session (asks to confirm)");
   expect(renderToString(<SessionHeader task={task}/>)).not.toContain("End session");
 });

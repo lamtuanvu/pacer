@@ -301,6 +301,12 @@
         "value": "24px",
         "usage": "Touch switch visible track inside its larger target.",
         "provisional": "Shared switch geometry retained on touch screens."
+      },
+      {
+        "name": "size-17",
+        "value": "17px",
+        "usage": "Settings navigation icon geometry.",
+        "provisional": "SettingsNav design canvas icon size; not yet in the design system."
       }
     ]
   },
@@ -379,6 +385,14 @@
         "lineHeight": "17px",
         "fontWeight": 400,
         "provisional": "TaskFailed board acceptance output typography."
+      },
+      {
+        "name": "task-child",
+        "fontSize": "13px",
+        "lineHeight": "19px",
+        "fontWeight": 500,
+        "usage": "Unselected subtask titles in task cards and the session navigator.",
+        "provisional": "Session board subtask title weight; selected rows retain session-title weight."
       }
     ]
   },
@@ -405,6 +419,16 @@
         "value": "-12px 0 32px rgba(9,9,11,.12)",
         "usage": "Answer side panel elevation.",
         "provisional": "Answer board 21 value; not yet in the design system."
+      }
+    ]
+  },
+  "motion": {
+    "tokens": [
+      {
+        "name": "motion-skeleton",
+        "value": "1400ms",
+        "usage": "Soft opacity pulse for page skeletons.",
+        "provisional": "Loading board 27 motion."
       }
     ]
   }

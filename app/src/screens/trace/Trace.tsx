@@ -1,14 +1,16 @@
+import { NowCard, CostTiles, Acceptance } from "./Overview";
+import { TaskActions } from "./TaskActions";
 import { useEffect } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { clock, durationWords } from "../../../../src/view-model/time";
 import { kindCopy } from "../../../../src/view-model/copy";
 import { agentSlot } from "../insights/model";
-import { taskStatus } from "../../../../src/view-model/words";
+import { taskPageStatus as taskStatus } from "../../../../src/view-model/words";
 import { ButtonLink, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { hrefFor, routes, withQuery, type RouteQuery } from "../../router";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
@@ -27,7 +29,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     const timer=setInterval(()=>{task.reload();tree.reload();},5000);
     return ()=>clearInterval(timer);
   },[id,task.data?.state]);
-  if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <LoadingState label="Loading dispatch trace…"/>;
+  if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
   const t=task.data, root=tree.data?.nodes.find(n=>n.taskId===id), nodes=tree.data?.nodes ?? [];
   const steps=traceSteps(t,tree.data), totals=tree.data?.totals.tokens ?? (t.work?undefined:t.tokens);
   const children=nodes.filter(n=>n.taskId!==id);
@@ -55,23 +57,18 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const measuredTotal=tokenRows.reduce((sum,r)=>sum+r.total,0);
   let offset=0;
   return <div className="pc-trace">
-    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><span aria-hidden="true">/</span><span className="pc-trace__mono">{id}</span></nav>
+    <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span title="Task ID is available from the task menu">{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span></nav>
     <header className="pc-trace__header">
       <div className="pc-trace__identity"><h1>{t.title?.trim()||t.fullTitle?.trim()||t.goal}</h1>
-        <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill><Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap pc-trace__mono">{t.repo.label} · {t.branch??"Not recorded"}</span><span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
+        <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill>{status.label!=="Checks failed"&&<Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>}{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap pc-trace__mono">{t.repo.label} · {t.branch??"Not recorded"}</span><span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
       </div>
       <div className="pc-trace__actions">
-        {t.derived?.files!=="unavailable" && !!t.files.length && <ButtonLink href={withQuery(`#/tasks/${encodeURIComponent(id)}?tab=changes`,query)}>Open diff</ButtonLink>}
-        {reviewable && <><ButtonLink href={reviewHref}>Reject</ButtonLink><ButtonLink variant="primary" href={reviewHref}>Accept result</ButtonLink></>}
+        <TaskActions task={t} query={query} reload={task.reload}/>
       </div>
     </header>
     {task.error && <ErrorMessage error={task.error}/>}
-    <section aria-label="Cost summary" className="pc-trace__cost">
-      <div><span className="pc-trace__label">Total tokens</span><strong>{tokenValue(totals)}</strong><span className="pc-trace__cap">Repository average: Not recorded{totals?.lowerBound?" · incomplete usage":""}</span></div>
-      <div><span className="pc-trace__label">Outside planner</span><strong className="pc-trace__good">Not recorded</strong></div>
-      <div><span className="pc-trace__label">Agents used</span><strong>{t.work && !tree.data?"Not recorded":agents.length}</strong><span className="pc-trace__cap">{t.work && !tree.data ? null : `${children.length} subtasks · ${attempts} attempts · ${retries} retries`}</span></div>
-      <div><span className="pc-trace__label">Changed</span><strong>{t.derived?.files==="unavailable"?"Not recorded":`${t.files.length} ${t.files.length===1?"file":"files"}`}</strong><span className="pc-trace__cap">{t.derived?.files==="unavailable"?null:<><span className="pc-trace__good">+{t.files.reduce((sum,f)=>sum+f.added,0)}</span> <span className="pc-trace__state--bad">−{t.files.reduce((sum,f)=>sum+f.removed,0)}</span></>}</span></div>
-    </section>
+    <NowCard task={t}/>
+    <CostTiles task={t} tokens={totals} agentsUsed={agents.length} attempts={attempts} subtasks={children.length} retries={retries}/>
     <div className="pc-trace__columns">
       <section aria-labelledby="trace-h" className="pc-trace__timeline">
         <div className="pc-trace__band"><h2 id="trace-h">Dispatch trace</h2><span className="pc-trace__cap">Every decision pacer made, in order</span></div>
@@ -80,7 +77,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
           const stepState=traceStepState(t,index,steps.length);
           return <li key={`${step.at}:${index}`}>
           <span className="pc-trace__track"><span aria-hidden="true" className={`pc-trace__circle pc-trace__circle--${stepState.tone}`}>{stepState.glyph}</span>{stepState.rail && <span className="pc-trace__line"/>}</span>
-          <div className="pc-trace__step-body"><div className="pc-trace__step-title"><b>{step.title}</b>{step.agents.map(agent=><Agent key={agent} agent={agent} chip/>)}</div><span className="pc-trace__cap pc-trace__detail">{step.detail}</span>
+          <div className="pc-trace__step-body"><div className="pc-trace__step-title"><b>{step.title}</b>{step.agents.map(agent=><Agent key={agent} agent={agent} chip/>)}</div><span className="pc-trace__cap pc-trace__detail">{step.detail}</span>{/session|executor|started|attempt/i.test(step.title)&&<TextAction href={hrefFor(routes.workspace(id, "session"))}>Open session output</TextAction>}
             {step.children && <div className="pc-trace__subtasks">{step.children.map(child=>{
               const childStatus=childState(child), chosen=child.decisions.at(-1);
               return <div className="pc-trace__subtask" key={child.taskId}><span title={childStatus.label} className={`pc-trace__state pc-trace__state--${childStatus.tone}`}>{childStatus.glyph}</span><span className="pc-trace__child-title"><TextAction href={hrefFor(routes.trace(child.taskId,query))} title={child.title}>{child.title}</TextAction><span className="pc-trace__cap">{chosen?traceCandidates(chosen).find(c=>c.verdict==="Chosen")?.why??"Not recorded":"Not recorded"}</span></span><span>{child.executor?<Agent agent={child.executor}/>:"Not recorded"}</span><b className="pc-trace__right">{childTokens(child)}</b></div>;
@@ -94,13 +91,13 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
             const width=measuredTotal?row.total/measuredTotal*100:0,x=offset;offset+=width;
             return <rect key={row.agent} x={x} y="0" width={width} height="14" className={`pc-trace__color${agentSlot(row.agent)}`}/>;
           })}</svg>
-          {tokenRows.map((row,index)=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:"Not recorded"}</span></div>)}
+          {tokenRows.map((row,index)=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:""}</span></div>)}
           <span className="pc-trace__cap">{attempts} {attempts===1?"attempt":"attempts"} · Planning and review tokens: Not recorded</span>
         </section>
         <section aria-labelledby="cand-h" className="pc-trace__candidates"><div className="pc-trace__candidate-head"><h2 id="cand-h">Who was considered</h2>{(decision || candidates.length>0) && <span className="pc-trace__cap">{decisionCaption(decision,subtask,!!t.routing)}</span>}</div>
           {candidates.length?candidates.map((c,index)=><div className={`pc-trace__candidate${c.verdict==="Chosen"?" pc-trace__candidate--chosen":""}`} key={`${c.agent}:${index}`}><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${c.tone}`}>{c.verdict==="Skipped"?"◐":"✓"}</span><AgentMark agent={markAgent(candidateAgent(c.agent))} size={20} labelled={false}/><span className="pc-trace__candidate-copy"><b>{name(c.agent)}</b><span className="pc-trace__cap">{c.why}</span></span><Pill tone={c.tone}>{c.verdict}</Pill></div>):<p className="pc-trace__no-candidates pc-trace__cap">No alternatives were recorded for this step.</p>}
         </section>
-        <section aria-labelledby="acc-h" className="pc-trace__card pc-trace__acceptance"><h2 id="acc-h">Acceptance</h2>{t.acceptance.state !== "passed" && t.acceptance.state !== "failed" ? <span className="pc-trace__cap">Not recorded</span> : <>{t.acceptance.cmd && <code className="pc-trace__command pc-trace__mono">{t.acceptance.cmd}</code>}<span className="pc-trace__cap pc-trace__acceptance-result"><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${t.acceptance.state === "passed" ? "good" : "bad"}`}>{t.acceptance.state === "passed" ? "✓" : "✕"}</span>{[t.acceptance.state === "passed" ? "Passed" : "Failed", t.acceptance.durationS == null ? null : durationWords(t.acceptance.durationS), t.acceptance.summary, acceptanceAt == null ? null : clock(acceptanceAt,now)].filter(Boolean).join(" · ")}</span></>}</section>
+        <Acceptance task={t}/>
       </aside>
     </div>
   </div>;

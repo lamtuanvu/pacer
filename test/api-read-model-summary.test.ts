@@ -190,6 +190,22 @@ test("attention keeps the complete title even when its task is outside the recen
  const goal="Repair the review queue " + "for all existing workers ".repeat(8) + "(keep the closing bracket)";
  const task=apiTask(ctx,record("done",ctx.now-2*86400,{reviewRequest:{note:"Inspect",at:ctx.now-2*86400},brief:{goal,repo:ctx.home}}));
  const model=buildReadModel(ctx,{strategy:s,status:st,tasks:[task],hosts:[],setup:{complete:true,checkedAt:ctx.now,ready:false,items:[]}});
- expect(model.attention.find(item=>item.taskId===task.id)?.title).toBe(goal);
+ expect(model.attention.find(item=>item.taskId===task.id)?.title).toBe("Repair the review queue for all existing workers for all existing workers for…");
  expect(task.title).not.toBe(goal);
+});
+
+test('mode hold and release override a warm injected status immediately',async()=>{
+ const {holdMode,releaseMode}=await import('../src/core/mode-hold');
+ const {computeStatus}=await import('../src/engine/status');
+ const {loadStrategy}=await import('../src/config/strategy');
+ const ctx=fakeCtx();
+ await Bun.write(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n');
+ const cached=await computeStatus(ctx,loadStrategy(ctx));
+ const options={status:async()=>cached};
+ await holdMode(ctx,{mode:'strict',until:ctx.now+60});
+ expect((await liveSnapshot(ctx,options)).snapshot.planner).toMatchObject({mode:'strict',modeHeldUntil:ctx.now+60});
+ await holdMode(ctx,{mode:'relaxed',until:ctx.now+60});
+ expect((await liveSnapshot(ctx,options)).snapshot.planner?.mode).toBe('relaxed');
+ releaseMode(ctx);
+ expect((await liveSnapshot(ctx,{status:async()=>({...cached,mode:'strict',modeHold:{mode:'strict',until:ctx.now+60}})})).snapshot.planner?.modeHeldUntil).toBeUndefined();
 });

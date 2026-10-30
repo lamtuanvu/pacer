@@ -6,7 +6,8 @@ import { resolveProjectSelection } from "../engine/project-routing";
 import { requireProjectExecutor } from "../core/project-policy";
 import { registeredRepo } from "../core/repos";
 import { CoreError } from "../core/errors";
-import { shortTitle, taskTitle } from "../core/short-title";
+import { goalTitle } from "../core/goal-title";
+import { taskTitle } from "../core/short-title";
 import type { RepoRef } from "../api/read-model/types";
 import { readPause } from "../core/pause";
 import { clip, LIMITS } from "../link/envelope";
@@ -168,7 +169,7 @@ export function delegate(
   if (repo) requirePolicyIdentity(ctx, repo);
   requireProjectExecutor(repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined, input.executor);
   const task = createTask(ctx, {
-    title: input.title?.trim() ?? shortTitle(input.brief.goal),
+    title: input.title?.trim() || goalTitle(input.brief.goal),
     brief: input.brief,
     kind: input.kind ?? null,
     requestedExecutor: input.executor ?? null,

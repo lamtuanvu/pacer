@@ -187,7 +187,7 @@ test('existing settings actions send the same operations', async () => {
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all' } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all' } }} /></TaskContext.Provider></ActionContext.Provider>);
   try {
     // Let each operation settle before the next control is used.
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -255,12 +255,12 @@ test('update, reserve and threshold controls send the same operations', async ()
     const props = node.props as any;
     if (props?.children === 'Check now' && props.onClick) handlers.check = props.onClick;
     if (props?.['aria-label'] === 'Check automatically' && 'checked' in props && props.onChange) handlers.autoCheck = props.onChange;
-    if (props?.['aria-label'] === 'Keep back for planning and review' && props.onChange) handlers.reserve = props.onChange;
+    if (props?.['aria-label'] === 'Keep back for planning and review' && props.onCommit) handlers.reserve = event => props.onCommit(event.currentTarget.value);
     if (props?.type === 'number' && props.max === '100' && props.onChange) handlers.threshold = props.onChange;
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
   const settle = () => new Promise(resolve => setTimeout(resolve, 0));
   const input = (value: string, checked = false) => ({ currentTarget: { validity: { valid: true }, value, checked } });
   try {
@@ -470,7 +470,7 @@ test('Budget mode choices preserve service operation parameters', async () => {
   const calls: unknown[] = [];
   const runner = { run: async (_: string, r: any) => { calls.push({ op: r.op, params: r.params }); return { status: 'done' }; }, result: () => ({}) } as any;
   try {
-    renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section="planner" initialData={settings} /></TaskContext.Provider></ActionContext.Provider>);
+    renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section="planner" initialData={settings} /></TaskContext.Provider></ActionContext.Provider>);
     for (const value of ['strict', 'relaxed', 'auto']) { change(value); await new Promise(resolve => setTimeout(resolve, 0)); }
   } finally { options.vnode = old; }
   expect(calls).toEqual([{ op: 'mode.hold', params: { mode: 'strict' } }, { op: 'mode.hold', params: { mode: 'relaxed' } }, { op: 'mode.release', params: {} }]);
@@ -520,7 +520,7 @@ test('Budget planner selection retains the configured choices and consent review
   try {
     const html = render(<SettingsGeneral section="planner" initialData={settings} />);
     expect(choice.value).toBe('codex#team');
-    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, label: executorLabel(value) })));
+    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, agent: value, label: executorLabel(value) })));
     expect(html).toContain('Review integration changes');
     expect(html).not.toContain('Planner integration changes');
   } finally { options.vnode = old; }

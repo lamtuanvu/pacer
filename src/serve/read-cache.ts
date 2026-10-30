@@ -30,6 +30,10 @@ export function createReadCache<T>(build: () => Promise<T>, maxAgeMs: number) {
       return Promise.resolve(value!);
     },
     refresh,
+    async refreshAfterPending() {
+      if (pending) await pending.catch(() => {});
+      return refresh();
+    },
     stop() { stopped = true; clearTimeout(timer); },
   };
 }

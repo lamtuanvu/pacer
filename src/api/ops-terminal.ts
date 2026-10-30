@@ -23,7 +23,7 @@ export const terminalOps: Record<string, OpDef> = {
     params: z.object({ request_id: requestId, kind: z.literal("shell"), cwd: z.string().min(1).max(4096).optional() }).strict(),
     handler: (ctx, p) => {
       requireHuman(ctx);
-      return createTerminal(ctx, { requestId: p.request_id, kind: "shell", title: "Shell", cwd: p.cwd });
+      return createTerminal(ctx, { requestId: p.request_id, kind: "shell", cwd: p.cwd });
     },
   }),
   "terminal.rename": op({

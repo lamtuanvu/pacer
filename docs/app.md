@@ -105,6 +105,8 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
+Dispatch starts with Scope and Inspector closed. Open either from the title-bar panel toggles; each window remembers its own choices across navigation and reloads. With no task selected, Inspector offers the most recently updated running task in the current repository scope as a link to its details.
+
 Dispatch follows the canvas board. Its header holds the page title with a live line
 (connected agents and the last update), the period switch (Today, 7 days or 30
 days; 7 days by default, shown only when the service has task insights), one
@@ -243,3 +245,9 @@ prints `pacer not running · pacer serve`.
 The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).
 
 Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
+
+Task labels use an explicit delegation `title` when provided. Otherwise, pacer
+uses the first sentence or line of the goal, strips Markdown formatting, and
+shortens it to about 80 characters at a word boundary. Unfinished trailing bracket
+groups are omitted. The full execution goal remains in the brief. Selecting a task
+keeps the Sessions navigator, its loaded history and scroll position in place.

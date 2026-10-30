@@ -1,6 +1,15 @@
-export type IconName = "pause" | "play" | "close" | "lock" | "laptop" | "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "send" | "spark" | "attach" | "image" | "issue" | "repo" | "chevron-down";
+export type IconName = "refresh" | "activity-dispatch" | "activity-insights" | "activity-terminal" | "command-nav" | "command-terminal" | "command-pause" | "needs-you" | "task-checklist" | "plugin-checklist" | "settings-release" | "add-plugin" | "status-terminal" | "topbar-search" | "topbar-left" | "topbar-bottom" | "topbar-right" | "pause" | "play" | "close" | "lock" | "laptop" | "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info" | "send" | "spark" | "attach" | "image" | "issue" | "repo" | "chevron-down";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    "needs-you": "M12 3a6 6 0 0 0-6 6c0 6-3 7-3 7h18s-3-1-3-7a6 6 0 0 0-6-6zM10 20a2 2 0 0 0 4 0",
+    "task-checklist": "M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2",
+    "settings-release": "M9 11l3 3 8-8M20 12v7H4V5h11",
+    "activity-dispatch": "M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10",
+    "activity-insights": "M4 20V10M10 20V4M16 20v-7M22 20H2",
+    "activity-terminal": "M3 4h18v16H3zM9 4v16M9 12h12",
+    "command-nav": "M5 12h14M13 6l6 6-6 6",
+    "command-terminal": "M3 4h18v16H3zM7 9l3 3-3 3M13 15h4",
+    "command-pause": "M8 5v14M16 5v14",
     pause: "M9 6v12 M15 6v12",
     play: "M8 5l11 7-11 7z",
     "send": "M12 19V5m-7 7 7-7 7 7",
@@ -36,6 +45,7 @@ export function Icon({ name }: { name: IconName }) {
     "image": "M3 4h18v16H3zM21 16l-5-5-9 9M9 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4",
     "issue": "M6 3h9l3 3v15H6zM9 12h6M9 16h4",
     "repo": "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
+    "refresh": "M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5",
     "close": "M6 6l12 12M18 6L6 18",
     "chevron-down": "M6 9l6 6 6-6",
     "stack": "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5",
@@ -63,6 +73,11 @@ export function Icon({ name }: { name: IconName }) {
     overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", review: "M5 12l4 4 10-10M5 20h14", sessions: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {name === "plugin-checklist" && <><path d="M9 11l3 3 8-8" /><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" /></>}
+    {name === "add-plugin" && <><path d="M12 5v14" /><path d="M5 12h14" /></>}
+    {name === "status-terminal" && <><path d="M7 9l3 3-3 3" /><path d="M13 15h4" /></>}
+    {name === "topbar-search" && <><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>}
+    {name.startsWith("topbar-") && name !== "topbar-search" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d={name === "topbar-left" ? "M9 4v16" : name === "topbar-bottom" ? "M3 14h18" : "M15 4v16"} /></>}
     {name === "more" && [5,12,19].map(cx => <circle key={cx} cx={cx} cy="12" r="1.6" fill="currentColor" stroke="none" />)}
     {paths[name] && <path d={paths[name]} />}
     {name === "executors" && <><rect x="4" y="4" width="16" height="6" rx="1" /><rect x="4" y="14" width="16" height="6" rx="1" /></>}

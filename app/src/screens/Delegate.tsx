@@ -86,8 +86,8 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     </div>
     <Field label={<> Kind (optional) </>}><ChoicePicker id="delegate-kind" value={draft.kind} options={[{ value: "", label: "Automatic" }, ...kinds.map(kind => ({ value: kind, label: kind }))]} onValueChange={value => field("kind", value)} /></Field>
     <Field label={<> Executor </>}><ChoicePicker id="delegate-executor" searchable value={draft.executor} options={[
-      { value: "", label: `Automatic${next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}` },
-      ...(routing.data?.ranked.map(r => ({ value: r.id, label: `${executorLabel(r.id, accounts.data ?? [])} · ${routingStatus(r).label}` })) ?? []),
+      { value: "", agent: next?.id ?? "opencode", label: `Automatic${next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}` },
+      ...(routing.data?.ranked.map(r => ({ value: r.id, agent: r.id, label: `${executorLabel(r.id, accounts.data ?? [])} · ${routingStatus(r).label}` })) ?? []),
     ]} onValueChange={value => field("executor", value)} /></Field>
     <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} repoLabel={choices.find(r=>r.key===draft.repo)?.label} />
     <div aria-live="polite"><ErrorMessage error={validation ?? action.error ?? routing.error} /></div>

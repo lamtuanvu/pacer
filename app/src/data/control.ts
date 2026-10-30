@@ -1,3 +1,4 @@
+import { startPolling, type SchedulePoll } from './poll';
 import type { ClientAction } from '../../../src/clients/control';
 import type { BrowserApi } from './api';
 import { applyTheme, savedTheme, THEME_KEY } from '../theme';
@@ -19,7 +20,7 @@ export async function applyClientAction(action: ClientAction, host: ControlHost)
 }
 
 /** One sequential poll per mounted page, credentials stay in this closure. */
-export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray', navigate: ControlHost['navigate']): () => void {
+export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray', navigate: ControlHost['navigate'], schedule?: SchedulePoll): () => void {
   const native = (globalThis as typeof globalThis & {__TAURI__?: {core?: {invoke(command:string,args:Record<string,unknown>):Promise<unknown>}}}).__TAURI__?.core?.invoke;
   const host: ControlHost = {
     getTheme: () => savedTheme(),
@@ -31,13 +32,13 @@ export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray'
     navigate,
     ...(native ? {native: (action: ClientAction) => native('client_control', {action})} : {}),
   };
-  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
   let enrollment: {client_id:string;worker_token:string} | undefined;
   const poll = async () => {
     try {
       if (!enrollment) {
         const hello = await api.hello();
-        if (!hello.ops.includes('client.control.enroll')) return;
+        if (!hello.ops.includes('client.control.enroll')) return false as const;
         enrollment = await api.call('client.control.enroll', {kind: native ? 'desktop' : 'app', window: windowLabel});
       }
       if (stopped) return;
@@ -51,8 +52,8 @@ export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray'
     } catch (error) {
       // Service restart invalidates ephemeral workers. Never retry a claimed action.
       if ((error as {code?:string}).code === 'not_allowed') enrollment = undefined;
-    } finally { if (!stopped) timer = setTimeout(poll, 1000); }
+    }
   };
-  void poll();
-  return () => { stopped = true; clearTimeout(timer); };
+  const stop = startPolling(poll, 5000, schedule);
+  return () => { stopped = true; stop(); };
 }

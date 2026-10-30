@@ -66,10 +66,10 @@ test("legacy titles are memoized by task id with bounded storage", () => {
   } finally { parsing.mockRestore(); }
 });
 
-test("layout titles preserve full goals and explicit titles while compact fallbacks stay bounded", () => {
+test("layout titles derive readable goals and preserve explicit titles", () => {
   const goal = "Repair the review queue and preserve the complete title (no code edits are omitted). Then verify `bun run test` in src/core/tasks.ts";
   for (const title of [undefined, shortTitle(goal)]) {
-    expect(fullTaskTitle({ title, brief: { goal } })).toBe(goal);
+    expect(fullTaskTitle({ title, brief: { goal } })).toBe("Repair the review queue and preserve the complete title…");
   }
   const title = "A custom title " + "with complete words ".repeat(8) + "(including this closing bracket)";
   expect(fullTaskTitle({ title, brief: { goal } })).toBe(title);

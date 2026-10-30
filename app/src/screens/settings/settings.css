@@ -182,7 +182,7 @@
 .u3-step-heading{display:flex;flex-direction:column;gap:var(--space-half)}
 
 /* NavTabs: page tabs as links; the current page gets the selected tab underline. */
-.pc-tabs--nav [aria-current=page]{color:var(--ink);border-bottom-color:var(--ink)}
+.pc-tabs--nav [aria-current=page]{color:var(--ink)}
 
 /* Stepper: wizard progress. The mark carries the step number or a check; the current step is shaded and named by aria-current. */
 .pc-stepper{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
@@ -324,3 +324,5 @@
 .pc-stepper .pc-stepper__step,.pc-stepper .pc-btn.pc-stepper__step{min-height:var(--size-56);height:var(--size-56)}
 .dispatcher-preview-row{grid-template-columns:var(--size-200) var(--size-140) minmax(0,1fr) auto}
 @media(max-width:900px){.dispatcher-preview-row{grid-template-columns:minmax(0,1fr)}}
+
+.pc-agents-tab-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}

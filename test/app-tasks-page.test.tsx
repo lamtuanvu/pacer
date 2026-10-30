@@ -54,10 +54,10 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     await page.locator('.pc-task-card__main').nth(1).click();
     expect(await aside.locator('b').textContent()).toBe('Document the budget store');
     const rootSelection = page.locator('.pc-task-card__main--selected');
-    expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
+    expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('650');
     await rootSelection.hover();
     expect(await rootSelection.evaluate(node => {
-      const sample = document.createElement('span'); sample.style.background = 'transparent'; node.append(sample);
+      const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
       const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
     })).toBe(true);
     await page.getByRole('button', { name: /^2 subtasks of/ }).click();
@@ -67,10 +67,10 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     await page.getByRole('link', { name: /Capture screenshots/ }).focus();
     await aside.getByText(/^Subtask 2 of 2 ·/).waitFor();
     const childSelection = page.locator('.pc-task-card__child--selected');
-    expect(await childSelection.locator('.pc-task-card__child-title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
+    expect(await childSelection.locator('.pc-task-card__child-title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('650');
     await childSelection.hover();
     expect(await childSelection.evaluate(node => {
-      const sample = document.createElement('span'); sample.style.background = 'var(--surface-lane)'; node.append(sample);
+      const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
       const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
     })).toBe(true);
     expect(await aside.getByRole('link', { name: 'Fix the retry bug' }).count()).toBe(1);
@@ -99,7 +99,7 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
   expect(loaded).toContain('1 root task this week · 0 subtasks');
   for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
   expect(loaded).toContain('Showing 1 of 1 root tasks');
-  expect(html(undefined)).toContain('Loading tasks…');
+  expect(html(undefined)).not.toContain('Loading tasks…');
   expect(html([])).toContain('No tasks yet.');
 });
 
@@ -155,7 +155,7 @@ browserTest('board_row_geometry_and_state_tokens_match_at_both_desktop_sizes_and
       await aside.getByText(/^Subtask 2 of 2 ·/).waitFor();
       const selected = page.locator('.pc-task-card__child--selected');
       expect(await selected.evaluate(node => {
-        const sample = document.createElement('span'); sample.style.background = 'var(--surface-lane)'; node.append(sample);
+        const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
         const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
       })).toBe(true);
       if (process.env.PACER_DESIGN_EVIDENCE) await page.screenshot({ path: `${process.env.PACER_DESIGN_EVIDENCE}/fixture-${width}-${theme}.png` });

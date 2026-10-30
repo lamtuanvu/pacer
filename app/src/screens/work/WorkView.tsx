@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "preact/hooks";
 import {Button} from "../../ds/Button";
 import {Disclosure,Field,TextArea} from "../../ds/Controls";
-import {EmptyState,LoadingState,TextRow} from "../../ds/Patterns";
+import {EmptyState,Skeleton,TextRow} from "../../ds/Patterns";
 import {Page,Section,Stack} from "../../ds/Page";
 import {ErrorMessage,TaskLink,useAction,useQuery,useTaskContext} from "../task-shared";
 import {executorLabel,taskStatus,percentage} from "../../../../src/view-model/words";
@@ -50,7 +50,7 @@ export function WorkView({id}:{id:string}){
  useEffect(()=>{let cancelled=false;setEventsLoading(true);setEventError(undefined);void(async()=>{try{let after=0;const all:Event[]=[];for(;;){const page=await api.call<{events:Event[];next:number;hasMore:boolean}>("dispatch.events",{id,after});if(cancelled)return;all.push(...page.events);if(!page.hasMore||page.next<=after)break;after=page.next;}if(!cancelled)setEvents(all);}catch(error){if(!cancelled)setEventError(error);}finally{if(!cancelled)setEventsLoading(false);}})();return()=>{cancelled=true;};},[api,id,eventVersion]);
  useEffect(()=>{const timer=setInterval(()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();},5000);return()=>clearInterval(timer);},[id]);
  const changed=()=>{tree.reload();reloadEvents(v=>v+1);analytics.reload();};
- if(!tree.data)return tree.error?<ErrorMessage error={tree.error}/>:<LoadingState label="Loading work tree…"/>;
+ if(!tree.data)return tree.error?<ErrorMessage error={tree.error}/>:<Skeleton layout="task" label="Loading work tree…"/>;
  const totals=tree.data.totals;
  const waits = [["Queued time", totals.queueWaitSeconds], ["Waiting on dependencies", totals.dependencyWaitSeconds], ["Waiting for children", totals.childWaitSeconds], ["Waiting for capacity", totals.capacityWaitSeconds]].filter(([, value]) => value != null).map(([label, value]) => `${label}: ${Math.round(Number(value))} s`);
  const pools = totals.usagePools.filter(pool => pool.account !== "unknown" && pool.observedDeltaPct !== null);
@@ -62,9 +62,9 @@ export function WorkView({id}:{id:string}){
   {root?<ol role="list" aria-label="Delegated work" className="pc-work-tree"><WorkNode node={root} nodes={tree.data.nodes} onChanged={changed}/></ol>:<EmptyState title="No work steps"/>}
  </Section><Section title="Timeline">
   {eventError&&<ErrorMessage error={eventError}/>}
-  {eventsLoading&&!events.length?<LoadingState label="Loading timeline…"/>:<ol role="list" aria-label="Work timeline" className="pc-work-timeline">{events.map(event=><li key={event.seq}><time dateTime={new Date(event.at*1000).toISOString()}>{clock(event.at,Date.now()/1000)}</time> · <TaskLink id={event.task_id}>{tree.data?.nodes.find(node => node.taskId === event.task_id)?.title ?? "Task"}</TaskLink> · {eventLabel(event.kind)}</li>)}</ol>}
+  {eventsLoading&&!events.length?<Skeleton layout="rows" label="Loading timeline…"/>:<ol role="list" aria-label="Work timeline" className="pc-work-timeline">{events.map(event=><li key={event.seq}><time dateTime={new Date(event.at*1000).toISOString()}>{clock(event.at,Date.now()/1000)}</time> · <TaskLink id={event.task_id}>{tree.data?.nodes.find(node => node.taskId === event.task_id)?.title ?? "Task"}</TaskLink> · {eventLabel(event.kind)}</li>)}</ol>}
  </Section><Section title="Reviewed outcomes" description={analytics.data?`${analytics.data.totalReviews} independent reviews · ranking requires ${analytics.data.minimumSamples} comparable reviews`:"Review evidence unavailable"}>
   {analytics.error&&<ErrorMessage error={analytics.error}/>}
-  {analytics.loading&&!analytics.data?<LoadingState label="Loading reviewed outcomes…"/>:analytics.data?.groups.length?<div className="pc-code-scroll"><table className="pc-work-analytics"><thead><tr><th scope="col">Task kind</th><th scope="col">Executor</th><th scope="col">Model</th><th scope="col">Settings</th><th scope="col">Reviews</th><th scope="col">Accepted</th><th scope="col">95% interval</th><th scope="col">Time</th><th scope="col">Usage</th></tr></thead><tbody>{analytics.data.groups.map((g,i)=><tr key={i}><th scope="row">{[g.kind,g.difficulty].filter(Boolean).join(" · ")}</th><td title={g.runner}>{executorLabel(g.runner)}</td><td>{g.model}</td><td><code title={g.settings}>{g.settings.slice(0,8)}</code></td><td>{g.sampleCount}</td><td>{Math.round(g.successRate*100)}%</td><td>{Math.round(g.confidenceLower*100)}–{Math.round(g.confidenceUpper*100)}%</td><td>{g.averageDurationS===null?null:`${Math.round(g.averageDurationS)} s`}</td><td>{g.averageUsagePct===null?null:percentage(g.averageUsagePct)}</td></tr>)}</tbody></table></div>:!analytics.error?<p className="muted">No independently reviewed outcomes are available yet.</p>:null}
+  {analytics.loading&&!analytics.data?<Skeleton layout="rows" label="Loading reviewed outcomes…"/>:analytics.data?.groups.length?<div className="pc-code-scroll"><table className="pc-work-analytics"><thead><tr><th scope="col">Task kind</th><th scope="col">Executor</th><th scope="col">Model</th><th scope="col">Settings</th><th scope="col">Reviews</th><th scope="col">Accepted</th><th scope="col">95% interval</th><th scope="col">Time</th><th scope="col">Usage</th></tr></thead><tbody>{analytics.data.groups.map((g,i)=><tr key={i}><th scope="row">{[g.kind,g.difficulty].filter(Boolean).join(" · ")}</th><td title={g.runner}>{executorLabel(g.runner)}</td><td>{g.model}</td><td><code title={g.settings}>{g.settings.slice(0,8)}</code></td><td>{g.sampleCount}</td><td>{Math.round(g.successRate*100)}%</td><td>{Math.round(g.confidenceLower*100)}–{Math.round(g.confidenceUpper*100)}%</td><td>{g.averageDurationS===null?null:`${Math.round(g.averageDurationS)} s`}</td><td>{g.averageUsagePct===null?null:percentage(g.averageUsagePct)}</td></tr>)}</tbody></table></div>:!analytics.error?<p className="muted">No independently reviewed outcomes are available yet.</p>:null}
  </Section></Stack></Page>;
 }

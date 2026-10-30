@@ -5,7 +5,7 @@ import { useTaskContext } from "../screens/task-shared";
 import { PluginContext } from "./catalog";
 import { ViewDocument, type ViewAction } from "./ViewDocument";
 import { useDialogs } from "../ds/useDialogs";
-import { Page, Stack, LoadingState, EmptyState } from "../ds/Patterns";
+import { Page, Stack, Skeleton, EmptyState } from "../ds/Patterns";
 import { Button } from "../ds/Button";
 import { AppLink } from "../navigation";
 import { routes } from "../router";
@@ -81,7 +81,7 @@ export function Activity({ plugin, id }: { plugin: string; id: string }) {
     {infoError && <p role="status">Plugin details could not be refreshed.</p>}
     {document && stale && <p role="status">This view is out of date. Retry to use its actions.</p>}{document && stale && !error && <Button onClick={() => reload(n => n + 1)}>Retry</Button>}
     {error && <PluginError error={error} retry={() => reload(n => n + 1)} />}
-    {document ? <ViewDocument document={document} onAction={(value,control) => void action(value,control)} busy={busy} busyControl={busyControl} disabled={stale || !!error} /> : !error && <LoadingState label="Loading plugin view…" />}
+    {document ? <ViewDocument document={document} onAction={(value,control) => void action(value,control)} busy={busy} busyControl={busyControl} disabled={stale || !!error} /> : !error && <Skeleton layout="settings" label="Loading plugin view…" />}
     {message && <p role="status">{message}</p>}{dialogs.dialog}
   </Stack></Page>;
 }

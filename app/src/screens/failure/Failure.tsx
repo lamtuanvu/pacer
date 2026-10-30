@@ -15,7 +15,7 @@ import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { ResultHeader, useResultAction, type WorkResult } from "../review/ResultPage";
 import { acceptanceRows, reviewAvailable, retryRequest } from "./model";
 
-export function Failure({task, query, reload, tree}: {task: TaskDetail; query: RouteQuery; reload: () => void; tree?: WorkResult}) {
+export function Failure({task, query, reload, tree, retryOnly = false}: {retryOnly?: boolean; task: TaskDetail; query: RouteQuery; reload: () => void; tree?: WorkResult}) {
   const {state} = useTaskContext(), action = useResultAction();
   const options = useQuery<RetryOption[]>("task.retry_options", {id:task.id}, String(task.rev));
   const recommended = options.data?.find(option => option.state === "ready");
@@ -46,16 +46,7 @@ export function Failure({task, query, reload, tree}: {task: TaskDetail; query: R
     });
   };
   const stop = state.snapshot?.attention?.filter(item => item.taskId === task.id).flatMap(item => item.actions).find(item => item.op === "task.stop" || item.op === "dispatch.stop");
-  return <><ResultHeader task={task} query={query} failure actions={<><ButtonLink href={hrefFor(routes.task(task.id, query))}>Open last session</ButtonLink>{stop && <Button busy={action.busy} onClick={() => void action.run(stop.op, {...stop.params,expect_rev:task.rev}, () => {setNotice("Task stopped."); reload();})}>Stop task</Button>}</>}/>
-    <ErrorMessage error={action.error}/><div className="pc-failure-columns"><div className="pc-failure-main">
-      <section className="pc-failure-checks" aria-labelledby="failed-heading"><div className="pc-failure-checks-header"><h2 id="failed-heading">What failed</h2><span className="pc-result-caption">{failed} of {checks.length} acceptance checks{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</span></div>
-        {checks.map(check => <div className="pc-failure-check" key={check.cmd}><span className={check.state === "failed" ? "pc-result-bad" : check.state === "passed" ? "pc-result-good" : "pc-result-caption"} aria-label={check.state}>{check.state === "failed" ? "✕" : check.state === "passed" ? "✓" : "–"}</span><div><code className="pc-result-mono pc-code-scroll">{check.cmd}</code>{check.output && <pre className="pc-failure-output pc-result-mono">{check.output}</pre>}</div><span className="pc-result-caption">{check.durationS == null ? "Time unknown" : `${check.durationS}s`}</span></div>)}
-        {!checks.length && <p className="pc-result-caption">No acceptance checks recorded.</p>}
-      </section>
-      <section className="pc-failure-attempts" aria-labelledby="attempts-heading"><h2 id="attempts-heading">Attempts</h2>{task.attempts.map((attempt, i) => <div className="pc-failure-attempt" key={i}><AgentMark agent={markAgent(attempt.executor)} size={20} labelled={false}/><div><b>Attempt {i+1} · {executorLabel(attempt.executor)}</b><span className="pc-result-caption">{attempt.brokenReason ?? (attempt.timedOut ? "Time limit reached" : attempt.limitHit ? "Usage limit reached" : attempt.exitCode === 0 ? "Executor finished" : `Executor exited with code ${attempt.exitCode}`)}</span></div><span className="pc-result-caption">{clock(attempt.endedAt, Date.now()/1000)}</span><span>{attempt.tokens?.total == null ? "Unknown" : Intl.NumberFormat("en",{notation:"compact"}).format(attempt.tokens.total)}</span></div>)}
-        <div className="pc-result-caption pc-result-report">Executor's own summary of attempt {task.attempts.length}: {task.summary ? `“${task.summary}”` : "No summary provided."} <TextAction href={hrefFor(routes.trace(task.id, query))}>Full dispatch trace</TextAction></div>
-      </section></div>
-      <aside className="pc-failure-next" aria-labelledby="next-heading"><h2 id="next-heading">What next</h2>
+  const next = <>       <aside className="pc-failure-next" aria-labelledby="next-heading"><h2 id="next-heading">What next</h2>
         {!available && <span className="pc-result-caption">{node?.retryEligibility?.reason ?? (task.work && !tree ? "Checking retry eligibility…" : task.review ? "This task has already been reviewed." : task.retriedBy ? "This task has been superseded by a retry." : task.dismissed ? "This task has been dismissed." : ["queued", "running"].includes(task.state) ? "Wait for this attempt to finish." : "Retry is not available from this service.")}</span>}
         <RadioGroup label="Retry choice">
           {task.work && available && <OptionRow variant="retry" checked={selected !== "edit"} onSelect={() => setChoice("automatic")} title="Retry task" leading={<span className="pc-failure-radio" aria-hidden="true"/>} sub="Retry uses the dispatcher’s current routing and keeps this task’s lineage and worktree. Executor selection is automatic."/>}
@@ -67,5 +58,16 @@ export function Failure({task, query, reload, tree}: {task: TaskDetail; query: R
         {canRetry || selected === "edit" ? <Button variant="primary" busy={action.busy} onClick={retry}>{selected === "edit" ? "Edit the brief, then retry" : task.work ? "Retry task" : `Retry on ${executorLabel(selected)}`}</Button> : <span className="pc-result-caption">{feedbackUnsupported ? "This service cannot pass feedback to a different executor. Edit the brief or choose the same executor." : "No executor is ready to retry."}</span>}
         <span className="pc-result-caption">Retrying keeps previous attempts in the trace. The task leaves Needs you and shows as Running in Tasks.</span>
         <ErrorMessage error={options.error}/>
-      </aside></div><div role="status" aria-live="polite">{notice}</div></>;
+      </aside><ErrorMessage error={action.error}/><div role="status">{notice}</div></>;
+  if (retryOnly) return next;
+  return <><ResultHeader task={task} query={query} failure actions={<><ButtonLink href={hrefFor(routes.task(task.id, query))}>Open last session</ButtonLink>{stop && <Button busy={action.busy} onClick={() => void action.run(stop.op, {...stop.params,expect_rev:task.rev}, () => {setNotice("Task stopped."); reload();})}>Stop task</Button>}</>}/>
+    <ErrorMessage error={action.error}/><div className="pc-failure-columns"><div className="pc-failure-main">
+      <section className="pc-failure-checks" aria-labelledby="failed-heading"><div className="pc-failure-checks-header"><h2 id="failed-heading">What failed</h2><span className="pc-result-caption">{failed} of {checks.length} acceptance checks{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</span></div>
+        {checks.map(check => <div className="pc-failure-check" key={check.cmd}><span className={check.state === "failed" ? "pc-result-bad" : check.state === "passed" ? "pc-result-good" : "pc-result-caption"} aria-label={check.state}>{check.state === "failed" ? "✕" : check.state === "passed" ? "✓" : "–"}</span><div><code className="pc-result-mono pc-code-scroll">{check.cmd}</code>{check.output && <pre className="pc-failure-output pc-result-mono">{check.output}</pre>}</div><span className="pc-result-caption">{check.durationS == null ? "Time unknown" : `${check.durationS}s`}</span></div>)}
+        {!checks.length && <p className="pc-result-caption">No acceptance checks recorded.</p>}
+      </section>
+      <section className="pc-failure-attempts" aria-labelledby="attempts-heading"><h2 id="attempts-heading">Attempts</h2>{task.attempts.map((attempt, i) => <div className="pc-failure-attempt" key={i}><AgentMark agent={markAgent(attempt.executor)} size={20} labelled={false}/><div><b>Attempt {i+1} · {executorLabel(attempt.executor)}</b><span className="pc-result-caption">{attempt.brokenReason ?? (attempt.timedOut ? "Time limit reached" : attempt.limitHit ? "Usage limit reached" : attempt.exitCode === 0 ? "Executor finished" : `Executor exited with code ${attempt.exitCode}`)}</span></div><span className="pc-result-caption">{clock(attempt.endedAt, Date.now()/1000)}</span><span>{attempt.tokens?.total == null ? "Unknown" : Intl.NumberFormat("en",{notation:"compact"}).format(attempt.tokens.total)}</span></div>)}
+        <div className="pc-result-caption pc-result-report">Executor's own summary of attempt {task.attempts.length}: {task.summary ? `“${task.summary}”` : "No summary provided."} <TextAction href={hrefFor(routes.trace(task.id, query))}>Full dispatch trace</TextAction></div>
+      </section></div>
+      {next}</div><div role="status" aria-live="polite">{notice}</div></>;
 }

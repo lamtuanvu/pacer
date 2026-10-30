@@ -144,3 +144,24 @@ test('work rows refresh when a node starts, settles or appears, so a running tre
  const progress={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,rev:(t.rev??0)+1,updatedAt:t.updatedAt+5}:t)}};
  expect(queryRevision(progress,'dispatch.list',params)).toBe(before);
 });
+
+test('filtered reads opt in to previous data across keys without publishing late answers or hiding errors', async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state), true);
+  query.update('insights.summary', '{"period":"7d"}', '1');
+  api.calls[0]!.resolve('last visible');
+  await settle();
+  query.update('insights.summary', '{"period":"today"}', '1');
+  expect(states.at(-1)).toEqual({data:'last visible',loading:true});
+  query.update('insights.summary', '{"period":"30d","repo":"two"}', '1');
+  api.calls[1]!.resolve('late today');
+  await settle();
+  expect(states.at(-1)?.data).toBe('last visible');
+  const error = new Error('offline');
+  api.calls[2]!.reject(error);
+  await settle();
+  expect(states.at(-1)).toEqual({data:'last visible',loading:false,error});
+  query.update('version.get', '{}', '1');
+  expect(states.at(-1)?.data).toBeUndefined();
+  query.dispose();
+});

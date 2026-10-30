@@ -83,6 +83,13 @@ export function taskStatus(task: TaskStatusInput): Status {
   if (task.state === "running" && phase) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;
 }
+/** Task destinations combine execution, checks and explicit review handoffs. */
+export function taskPageStatus(task: TaskStatusInput & {reviewRequest?: unknown; acceptance?: {state:string}}): Status {
+  if (task.acceptance?.state === "failed" || task.acceptanceState === "failed") return status("Checks failed", "bad", "✕");
+  if (task.review) return taskOutcome(task);
+  if (task.reviewRequest && !task.dismissed && !task.resolved && !task.retriedBy) return status("Waiting for review", "info", "◐");
+  return taskStatus(task);
+}
 export function taskOutcome(task: TaskStatusInput): Status {
   return task.review ? task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕")
     : status("Outcome not recorded", "neutral", "—");

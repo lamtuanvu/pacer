@@ -8,7 +8,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Strip inherited Orca terminal and session caller attestation from read-only terminal and worktree discovery commands.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
+- Consolidate task destinations into the task page and add Workspace for sessions, shells, files and diffs.
+
 ### Changed
+
+- Replace loading indicators with delayed, accessible page skeletons for tasks, lists, settings and Dispatch; keep loaded content visible during refresh.
 
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
@@ -16,6 +20,20 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Bind live accessibility inspection to an owned AX window, stop cyclic observations, and report uncertain native action effects honestly.
+- Preserve board-sized segmented items and subtask chips across device densities, restore usage-popover button padding, and align repository chips and current-task row styling.
+
+- Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.
+
+- Derive readable task labels from Markdown briefs, preserving explicit titles and complete bracket groups; keep the Sessions navigator mounted with its scroll and data when selecting another task.
+
+- Start Dispatch with Scope and Inspector closed, remember their toggles per window, offer the latest running task from an empty inspector, and preserve the ledger’s 9px by 20px row padding in both densities.
+
+- Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
+
+
+- Budget & pacing mode choices update immediately, release holds on Automatic, and restore the previous choice with an inline error when a write fails. Held state no longer inherits the routing-status cache lifetime.
+- Idle settings queries ignore unrelated configuration events; stale snapshots retry with backoff instead of replaying invalidations. Client control and setup polling use bounded intervals without overlapping requests.
+- Terminal scrollbar and truecolor cell styling comply with the existing strict CSP.
 - Align Tasks with its board: short task titles and accessible names with full-text tooltips, a sticky selected-task summary with duration, planner-attributed linked work, notes and a dispatch trace link, measured token totals, and the board’s row geometry and selection colours.
 - Match the 340px tray board: preserve eligible executor usage, omit the planner from a single-line executor strip, group off executors and link overflow, restore attention glyphs, board typography and the planner caption, soften shortcut chips, format upcoming resets by weekday, and wire the desktop Open at login switch to native login items. Review rows use the blue review dot, unmetered executors show a muted dash, off tooltips name the actual state, and tray actions retain 32px targets.
 - Keep command-menu scope tabs visible in recent and command views, match board row styling, prefill an empty New task draft from an unmatched query without reloading or replacing existing work, preserve matches across empty scopes, and show only available keyboard actions. Keep selected subtitles and scope counts readable and use the dark backdrop and shadow tokens.

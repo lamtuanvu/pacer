@@ -3,8 +3,8 @@ import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink } from "../../ds/Button";
 import { Pill } from "../../ds/Pill";
 import { SearchPicker } from "../../ds/SearchPicker";
-import { Card, EmptyState, LoadingState, Page, SegmentedControl, Stack } from "../../ds/Patterns";
-import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
+import { Card, EmptyState, Skeleton, Page, SegmentedControl, Stack } from "../../ds/Patterns";
+import { ErrorMessage, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
 import { markAgent, runnerAgent } from "../../../../src/view-model/agents";
 import type { Account } from "../../model/accounts";
@@ -41,10 +41,11 @@ export function Insights({ query }: { query: RouteQuery }) {
   const range = useMemo(() => periodRange(period, now), [period]);
   const chart = useMemo(() => chartRange(now), []);
   const repo = query.repo ? { repo: query.repo } : {};
-  const result = useQuery<Summary>("insights.summary", { ...range, ...repo });
-  const series = useQuery<Summary>("insights.summary", { ...chart, ...repo });
+  const result = useQuery<Summary>("insights.summary", { ...range, ...repo }, "", true);
+  const series = useQuery<Summary>("insights.summary", { ...chart, ...repo }, "", true);
   const accounts = useQuery<Account[]>("account.list", {});
   const { state } = useTaskContext();
+  const busy = useDelayedBusy(result.updating || series.updating);
   const s = result.data;
   const notMeasured = !!s && s.tokens.measuredAttempts === 0 && s.tokens.partialAttempts === 0;
   const label = (agent: string) => executorLabel(agent);
@@ -65,7 +66,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const days = series.data ? bars(series.data.daily, agents, chart.from, CHART_DAYS, max) : [];
   const todayAt = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
-  return <Page width="full" className="pc-page--insights"><Stack space="section">
+  return <Page width="full" aria-busy={busy || undefined} className={`pc-page--insights${busy ? " pc-query-refreshing" : ""}`}><Stack space="section">
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl variant="insights" label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
@@ -74,7 +75,7 @@ export function Insights({ query }: { query: RouteQuery }) {
       {csv && s ? <ButtonLink href={csv} download={`pacer-insights-${new Date(s.from * 1000).toISOString().slice(0, 10)}.csv`}>Export CSV</ButtonLink> : <Button disabled>Export CSV</Button>}
     </header>
     {result.error && <ErrorMessage error={result.error} />}
-    {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
+    {!s ? <Skeleton layout="dashboard" label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
       {notMeasured ? <Card tone="sunken" className="pc-insights__unmeasured"><strong>Token counts appear after each attempt finishes</strong><span>{s.tokens.unknownAttempts} {s.tokens.unknownAttempts === 1 ? "attempt is" : "attempts are"} still running or ended without a count. Task counts below are exact; token totals fill in as attempts finish.</span></Card> : <Card className="pc-insights__summary">
         <div className="pc-insights__headline"><strong>{compact(total)} tokens went to executors{s.tokens.lowerBound ? " (at least)" : ""}, and planner tokens are not measured yet.</strong>
           <span>{s.tokens.measuredAttempts} {s.tokens.measuredAttempts === 1 ? "attempt" : "attempts"} measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
@@ -98,7 +99,7 @@ export function Insights({ query }: { query: RouteQuery }) {
           <ol className="pc-insights__bars">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>
             <svg viewBox="0 0 10 100" preserveAspectRatio="none">{d.rects.map(r => <rect key={r.agent} className={slotClass(r.slot)} x={0} width={10} y={r.y} height={r.height} />)}</svg></li>)}</ol>
           <ol className="pc-insights__days">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>{dayLabel(d.at)}</li>)}</ol></div>
-          : <LoadingState label="Loading chart…" />}
+          : <Skeleton layout="rows" label="Loading chart…" />}
         {series.data && <div className="sr-only"><table><caption>Tokens per day for the last {CHART_DAYS} days, by agent</caption><thead><tr><th scope="col">Date</th>{agents.map(a => <th scope="col" key={a}>{label(a)}</th>)}</tr></thead>
           <tbody>{days.map(d => <tr key={d.at}><th scope="row">{fullDay(d.at)}</th>{agents.map(a => <td key={a}>{compact(series.data!.daily.find(x => x.at === d.at)?.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></div>}
       </section>

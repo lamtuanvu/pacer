@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useFrame } from "../../shell/slots";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
@@ -13,7 +14,7 @@ import { Dialog } from "../../ds/Dialog";
 import { Icon } from "../../ds/icons";
 import { Kbd } from "../../ds/Kbd";
 import { Page, PageTitle } from "../../ds/Page";
-import { Card, LoadingState } from "../../ds/Patterns";
+import { Card, Skeleton } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { IssuePicker } from "./IssuePicker";
@@ -255,10 +256,10 @@ function AgentChoices({ p }: { p: ViewProps }) {
   const options = agentOptions(p.routing, row => routingStatus(row as never), p.accounts);
   const plannerAgent = p.planner?.agent ?? "claude-code";
   return <RadioGroup label="Agent for this task" className="pc-new-task__agents">
-    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={20} labelled={false} />}
+    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={16} labelled={false} />}
       title="Let pacer decide" sub="Recommended · uses your dispatcher setup" pill={{ label: "Default", tone: "neutral" }} />
     {options.map(option => <OptionRow key={option.executor} checked={p.draft.executor === option.executor} disabled={!option.available}
-      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={option.agent} size={20} labelled={false} />}
+      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={agentKey(markAgent(option.executor)) ?? "opencode"} size={16} labelled={false} />}
       title={option.name} sub={option.sub} pill={option.pill} />)}
   </RadioGroup>;
 }
@@ -267,7 +268,7 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
   const { preview, card } = p;
   if (preview.empty) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Describe the task to see where it goes</span><span className="pc-caption">pacer picks the agent from the kind, each agent's budget, and your dispatcher setup.</span></div>;
   if (preview.unavailable) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Routing preview isn't available</span><span className="pc-caption">This pacer service can't explain routes yet. pacer still picks the agent from your dispatcher setup when you delegate.</span></div>;
-  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <LoadingState label="Checking where it goes…" />;
+  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <Skeleton layout="rows" label="Checking where it goes…" />;
   const reasons = <ul className={compact ? "pc-route-card__why pc-caption" : "pc-route-card__why"}>{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}>{!compact && <span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span>}<span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>;
   return <>
     {card.lead ? <div className="pc-route-card__lead">

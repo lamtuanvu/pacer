@@ -1,3 +1,6 @@
+import { ImmediateSave, ReleaseRange } from "../../ds/ImmediateSave";
+import { ImmediateSetting } from "./ImmediateSetting";
+import { applyDensity, savedDensity, DENSITY_KEY } from "../../density";
 import {SettingsPath} from "./PathText";
 import { useDiagnosticsStatus } from "../../data/diagnostics-status";
 import { displayPath } from "./presentation";
@@ -55,7 +58,7 @@ import {
 } from "../../../../src/view-model/capacity";
 import { desktopHost } from "../../data/desktop";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import type { ExecutorRow } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
@@ -259,16 +262,18 @@ function AppPreferences({ section, initialData }: { section: string; initialData
 export function PlannerPacing({ initialData, initialAccounts }: { initialData?: ConfigData; initialAccounts?: Account[] }) {
   const query = useResource("config.get", {}, initialData),
     accounts = useResource<Account[]>("account.list", {}, initialAccounts),
-    action = useOperation(query.reload),
-    { state } = useTaskContext();
+    { state, api } = useTaskContext();
   const [chosen, setChosen] = useState("");
+  const reserveId = useId();
+  const plannerSave = useRef<{resolve:(value:unknown)=>void;reject:(error:unknown)=>void}>();
+  const closePlanner = () => { plannerSave.current?.resolve(false); plannerSave.current=undefined; setChosen(""); };
   const paceClock = useResource<{ calendarPace: boolean }>("routing.status");
   const config = query.data, planner = state.snapshot?.planner,
     value = (key: string) => String(config?.keys[key]?.value ?? "");
-  const save = (key: string, value: string | number) => void action.run("config.set", { key, value });
   const agent = planner?.agent ?? plannerAgent(value("planner")), name = executorLabel(agent);
   const modes = ["emergency", "strict", "normal", "relaxed"];
   const mode = planner?.mode;
+  const actualMode = planner?.modeHeldUntil != null ? mode ?? "" : "auto";
   const delta = planner?.usedPct != null && planner.pacePct != null ? Math.round(planner.usedPct - planner.pacePct) : null;
   const modeCopy = mode === "relaxed" ? "so it may do small edits itself." : mode === "normal" ? "so it delegates substantial work." : mode === "strict" ? "so it delegates everything." : mode === "emergency" ? "so it reserves quota for planning and review." : "";
   const sentence = planner?.stale ? `${name} has a stale usage reading.` : delta !== null
@@ -304,17 +309,17 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     </div></Card>}
     <ResourceState resource={query}>{config && <>
       <section className="pc-preferences-section" aria-labelledby="budget-planner-h"><h2 id="budget-planner-h" className="pc-settings-board__label">Planner</h2>
-        <SettingRow headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
-          <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{percentage(Number(value("pacing.planner_reserve")))}</output><span className="pc-settings-board__caption">0–50%</span></div>
+        <SettingRow controlId={reserveId} headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
+          <ImmediateSetting value={value("pacing.planner_reserve")} operation={value => ({op:"config.set",params:{key:"pacing.planner_reserve",value:Number(value)}})} onSaved={query.reload}>{(value, change, busy) => <div className="pc-budget-reserve"><ReleaseRange id={reserveId} aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value} disabled={busy} onCommit={change}/><output>{percentage(Number(value))}</output><span className="pc-settings-board__caption">0–50%</span></div>}</ImmediateSetting>
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
-          <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
+          <ImmediateSetting value={actualMode} operation={next => ({op:next === "auto" ? "mode.release" : "mode.hold",params:next === "auto" ? {} : {mode:next}})}>{(value, change, busy) => <Segment variant="board" label="Mode" value={value} disabled={busy} options={[{value:"auto",label:"Automatic"},{value:"strict",label:"Hold strict"},{value:"relaxed",label:"Hold relaxed"}]} onChange={change}/>}</ImmediateSetting>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Planner" description="Who plans and reviews. Changing it rewires that agent's hooks and status line.">
           <div className="pc-budget-planner">
-            <ChoicePicker sizing="content" aria-label="Planner" value={value("planner")} placeholder="Choose a planner" disabled={action.busy} options={config.planners.map(planner => ({ value: planner, label: executorLabel(planner) }))} onValueChange={setChosen}/>
-            <Button size="sm" disabled={action.busy || !value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
+            <ImmediateSave value={value("planner")} save={next => new Promise((resolve,reject) => {plannerSave.current={resolve,reject};setChosen(next);})}>{(current, change, busy) => <ChoicePicker sizing="content" aria-label="Planner" value={current} placeholder="Choose a planner" disabled={busy} options={config.planners.map(planner => ({value:planner,agent:planner,label:executorLabel(planner)}))} onValueChange={change}/>}</ImmediateSave>
+            <Button size="sm" disabled={!value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
           </div>
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Pace clock" description="How pacer spreads a weekly budget over time. Set automatically.">
@@ -326,7 +331,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       </section>
       <section className="pc-preferences-section" aria-labelledby="budget-executors-h"><h2 id="budget-executors-h" className="pc-settings-board__label">Executors</h2>
         <SettingRow headingLevel={3} variant="budget" label="Pacing policy" description="How work spreads across executors that may take it.">
-          <Segment variant="board" label="Pacing policy" value={value("pacing.policy")} disabled={action.busy} onChange={v => save("pacing.policy", v)} options={[{ value: "priority", label: "Priority" }, { value: "even", label: "Even" }, { value: "burn-before-reset", label: "Burn before reset" }, { value: "cheapest-first", label: "Cheapest first" }]}/>
+          <ImmediateSetting value={value("pacing.policy")} operation={value => ({op:"config.set",params:{key:"pacing.policy",value}})} onSaved={query.reload}>{(current, change, busy) => <Segment variant="board" label="Pacing policy" value={current} disabled={busy} onChange={change} options={[{ value: "priority", label: "Priority" }, { value: "even", label: "Even" }, { value: "burn-before-reset", label: "Burn before reset" }, { value: "cheapest-first", label: "Cheapest first" }]}/>}</ImmediateSetting>
           <span className="pc-settings-board__caption">Priority uses the order on the Agents page and skips one only when it is out of quota or ahead of pace. Readings older than <b>24 hours</b> count as unknown.</span>
         </SettingRow>
       </section>
@@ -339,8 +344,11 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
         <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
       </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
     </section>
-    <Feedback action={action}/>
-    {chosen && <PlannerConsent planner={chosen} close={() => setChosen("")} done={query.reload}/>}
+    {chosen && <PlannerConsent planner={chosen} close={closePlanner} done={query.reload} immediate={plannerSave.current ? async request => {
+      try {await api.call(request.op,request.params); plannerSave.current?.resolve(true);}
+      catch(error) {plannerSave.current?.reject(error);}
+      finally {plannerSave.current=undefined;setChosen("");query.reload();}
+    } : undefined}/>}
   </div>;
 }
 
@@ -348,20 +356,24 @@ function PlannerConsent({
   planner,
   close,
   done,
+  immediate,
 }: {
   planner: string;
   close: () => void;
   done: () => void;
+  immediate?: (request: {op:string;params:unknown}) => Promise<void>;
 }) {
+  const [saving,setSaving] = useState(false);
   const agent = plannerAgent(planner),
     query = useResource<AgentPreview>("agent.preview", { agent }),
     action = useOperation(done);
   const save = (integrations: "install" | "skip") => {
     const op = consentAction(query.data, planner, integrations);
-    void action.run(op.op, op.params, close);
+    if (immediate) { setSaving(true); void immediate(op).finally(() => setSaving(false)); }
+    else void action.run(op.op, op.params, close);
   };
   return (
-    <Dialog title="Planner integration changes" close={close}>
+    <Dialog title="Planner integration changes" close={() => {if(!saving && !action.busy) close();}} showClose={!saving && !action.busy}>
       <div className="u3-settings">
         <p>
           Review the files pacer will change before connecting this planner.
@@ -384,14 +396,14 @@ function PlannerConsent({
                 Change only keeps its existing hooks.
               </p>
               <div className="u3-actions">
-                <Button disabled={action.busy} onClick={() => save("install")}>
+                <Button disabled={action.busy||saving} onClick={() => save("install")}>
                   Change and connect
                 </Button>
-                <Button disabled={action.busy} onClick={() => save("skip")}>
+                <Button disabled={action.busy||saving} onClick={() => save("skip")}>
                   Change only
                 </Button>
                 <Button
-                  disabled={action.busy}
+                  disabled={action.busy||saving}
                   onClick={() =>
                     void action.run(
                       "agent.connect",
@@ -416,36 +428,31 @@ function NotificationsSection({
 }: {
   initialData?: { level: string };
 }) {
-  const query = useResource("notifications.get", {}, initialData),
-    action = useOperation(query.reload);
+  const query = useResource("notifications.get", {}, initialData);
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
       <ResourceState resource={query}>
         <SettingRow variant="board" label="Notify me about" description="Important: failures, stuck tasks and results waiting for review.">
-          <Segment
+          <ImmediateSetting value={query.data?.level ?? ""} operation={level => ({op:"notifications.set",params:{level}})} onSaved={query.reload}>{(value, change, busy) => <Segment
             variant="board" label="Notify me about"
-            value={query.data?.level ?? ""}
-            disabled={action.busy}
+            value={value}
+            disabled={busy}
             options={[
               { value: "off", label: "Nothing" },
               { value: "important", label: "Important" },
               { value: "all", label: "Everything" },
             ]}
-            onChange={(level) => void action.run("notifications.set", { level })}
-          />
+            onChange={change}
+          />}</ImmediateSetting>
         </SettingRow>
 
       </ResourceState>
-      <Feedback action={action} />
     </section>
   );
 }
 function AppearanceSection() {
-  const [density, setDensity] = useState(() => {
-    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
-    catch { return "normal"; }
-  });
+  const [density, setDensity] = useState(savedDensity);
   const [theme, setTheme] = useState(() => {
       try {
         const saved = localStorage.getItem("pacer.theme");
@@ -455,14 +462,13 @@ function AppearanceSection() {
       } catch {
         return "system";
       }
-    }),
-    [message, setMessage] = useState("");
+    });
   useEffect(() => {
     if (theme === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   useEffect(() => {
-    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"); } catch { /* device storage unavailable */ } };
+    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(savedDensity()); } catch { /* device storage unavailable */ } };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
@@ -470,36 +476,19 @@ function AppearanceSection() {
     <section id="appearance" className="pc-preferences-section" aria-labelledby="look-h">
       <h2 id="look-h" className="pc-settings-board__label">Look</h2>
       <SettingRow variant="board" label="Theme" description="System follows macOS.">
-      <Segment
+      <ImmediateSave value={theme} save={value => { localStorage.setItem(THEME_KEY,value); setTheme(value); applyTheme(value as ThemeChoice); }}>{(value, change, busy) => <Segment
         variant="board" label="Theme"
-        value={theme}
+        value={value} disabled={busy}
         options={["system", "light", "dark"].map((value) => ({
           value,
           label: value[0]!.toUpperCase() + value.slice(1),
         }))}
-        onChange={(value) => {
-          setTheme(value);
-          applyTheme(value as ThemeChoice);
-          try {
-            localStorage.setItem(THEME_KEY, value);
-            setMessage("Saved on this device.");
-          } catch {
-            setMessage(
-              "Applied for this session. Device storage is unavailable.",
-            );
-          }
-        }}
-      />
+        onChange={change}
+      />}</ImmediateSave>
       </SettingRow>
       <SettingRow variant="board" label="Density" description="Comfortable uses 32px controls. Compact fits more rows on screen with 28px controls.">
-        <Segment variant="board" label="Density" value={density} options={[{ value: "compact", label: "Compact" }, { value: "normal", label: "Comfortable" }]} onChange={value => {
-          setDensity(value);
-          window.dispatchEvent(new CustomEvent("pacer:density", { detail: value }));
-          try { localStorage.setItem("pacer.density", value); setMessage("Saved on this device."); }
-          catch { setMessage("Applied for this session. Device storage is unavailable."); }
-        }}/>
+        <ImmediateSave value={density} save={choice => { localStorage.setItem(DENSITY_KEY,choice); setDensity(choice); applyDensity(choice); window.dispatchEvent(new CustomEvent("pacer:density", {detail:choice})); }}>{(value, change, busy) => <Segment variant="board" label="Density" value={value} disabled={busy} options={[{value:"compact",label:"Compact"},{value:"normal",label:"Comfortable"}]} onChange={value => change(value === "compact" ? "compact" : "normal")}/>}</ImmediateSave>
       </SettingRow>
-      {message && <p role="status">{message}</p>}
     </section>
   );
 }
@@ -513,8 +502,8 @@ function WorkspacePreferences({ initialAssistant }: { initialAssistant?: Assista
   return <section className="pc-preferences-section" aria-labelledby="workspace-h">
     <h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2>
     <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Runs on one endpoint account you choose; until then the button opens the setup.">
-      <div className="pc-assistant-preferences"><Switch size="sm" label="Show the button" aria-label="Show assistant button" checked={preferences.showButton} onChange={event => setAssistantPreferences({ showButton: event.currentTarget.checked })} />
-      <Switch size="sm" label="Still aurora" aria-label="Reduce assistant motion" checked={preferences.stillAurora} onChange={event => setAssistantPreferences({ stillAurora: event.currentTarget.checked })} /></div>
+      <div className="pc-assistant-preferences"><ImmediateSave value={preferences.showButton} save={value => setAssistantPreferences({ showButton: value }, true)}>{(value, change, busy) => <Switch size="sm" label="Show the button" aria-label="Show assistant button" checked={value} disabled={busy} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave>
+      <ImmediateSave value={preferences.stillAurora} save={value => setAssistantPreferences({ stillAurora: value }, true)}>{(value, change, busy) => <Switch size="sm" label="Still aurora" aria-label="Reduce assistant motion" checked={value} disabled={busy} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave></div>
       <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
       <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
     </SettingRow>

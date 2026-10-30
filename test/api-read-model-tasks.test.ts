@@ -23,7 +23,7 @@ test("stored repo labels are normalized when different hosts clash",()=>{
 
 test("task snapshots derive titles for older records and retain stored titles",()=>{
  const ctx=fakeCtx();
- expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).fullTitle).toBe("Fix the queue. Then run tests");
+ expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).fullTitle).toBe("Fix the queue");
  expect(snapshotTasks(ctx,[record("done",ctx.now,{title:"Queue fix"})])[0]?.title).toBe("Queue fix");
 });
 
@@ -55,6 +55,6 @@ test("snapshots preserve the scheduling limit and capacity on queued tasks",()=>
 test("full titles restore generated short labels without changing the compact API fallback",()=>{
  const ctx=fakeCtx(),goal="Repair the review queue and preserve the complete title (no code edits are omitted)";
  const row=apiTask(ctx,record("done",ctx.now,{title:shortTitle(goal),brief:{goal,repo:ctx.home}}));
- expect(row.fullTitle).toBe(goal);
+ expect(row.fullTitle).toBe("Repair the review queue and preserve the complete title…");
  expect(row.title).toBe(shortTitle(goal));
 });

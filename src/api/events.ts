@@ -2,6 +2,7 @@ import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Even
 import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
+import { plannerMode } from "../engine/mode";
 import { readHold } from "../core/mode-hold";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
 import { currentSnapshot, readOutboxSince } from "../link/store";
@@ -50,7 +51,12 @@ export async function liveSnapshot(
     try{const value=await status(ctx);statusAvailable=true;statusCache.set(ctx.pacerHome,{at:ctx.now,strategy:key,value});return value;}
     catch(e){warming=e instanceof Error&&e.message==="status is warming up";return {generatedAt:ctx.now,strategy:strategy.name,planner:snapshot.budget?.planner??Object.keys(strategy.runners).find(id=>strategy.runners[id].agent===strategy.planner.agent&&strategy.runners[id].account===strategy.planner.account)??"",mode:"normal",disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}};}
   };
-  const [st,context]=await Promise.all([refresh(),readModelContext(ctx)]);
+  const [cachedStatus,context]=await Promise.all([refresh(),readModelContext(ctx)]);
+  // Usage status may be cached for a minute by the service. Holds are current
+  // control state, including release and expiry, and must not inherit that TTL.
+  const modeHold = readHold(ctx);
+  const planner = cachedStatus.providers.find(provider => provider.id === cachedStatus.planner);
+  const st = { ...cachedStatus, modeHold, mode: modeHold?.mode ?? (planner ? plannerMode(planner.verdict) : "normal") };
   if (statusAvailable && (!snapshot.budget || ctx.now - snapshot.budget.generatedAt > (o.maxBudgetAgeS ?? 60))) snapshot.budget = toBudget(st);
   const fields=buildReadModel(ctx,{status:st,strategy,tasks,setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
   // While the first status is still being computed, say so instead of making clients wait for it.
