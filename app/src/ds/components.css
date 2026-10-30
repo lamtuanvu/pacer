@@ -1276,3 +1276,5 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-control-help{flex:1;min-width:0;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 
 .pc-text-action--caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+
+.pc-btn.pc-icon-button--board{border:0}

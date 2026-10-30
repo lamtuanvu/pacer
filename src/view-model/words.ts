@@ -80,7 +80,7 @@ export function taskStatus(task: TaskStatusInput): Status {
     if (task.conversation?.activity === "working") return status("Working", "info", "▶");
   }
   const phase = task.progress?.phase ?? task.phase;
-  if (task.state === "running" && phase) return sessionStatus(phase);
+  if (task.state === "running" && phase && Object.hasOwn(sessionStates, phase)) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;
 }
 /** Task destinations combine execution, checks and explicit review handoffs. */

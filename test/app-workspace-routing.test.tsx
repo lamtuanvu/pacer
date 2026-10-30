@@ -38,3 +38,28 @@ test('recorded verdicts do not keep presenting a result as ready for review',asy
   expect(html).not.toContain('Ready for your review');
  }
 });
+
+test('unrecognized progress phases retain the Tasks state vocabulary',async()=>{
+ const {taskStatus}=await import('../src/view-model/words');
+ expect(taskStatus({state:'running',progress:{phase:'executor-specific-phase'}}).label).toBe('Working');
+ expect(taskStatus({state:'running',progress:{phase:'testing'}}).label).toBe('Testing');
+});
+
+test('workspace roots use the Tasks child-attention rollup',async()=>{
+ const {workspaceTaskNodes}=await import('../app/src/screens/workspace/Workspace');
+ const tasks=[{id:'root',goal:'Root',state:'running',executor:null,updatedAt:100},{id:'child',goal:'Child',state:'failed',executor:'codex',updatedAt:100}] as ClientTask[];
+ const work:import('../src/view-model/task-tree').WorkRow[]=tasks.map((t,n)=>({id:t.id,parentId:n?'root':null,rootId:'root',depth:n,title:t.goal,state:t.state,executor:t.executor,rev:1}));
+ work[1]!.tokens={total:12000,measuredAttempts:1,partialAttempts:0,lowerBound:false};
+ const nodes=workspaceTaskNodes(tasks,work,undefined,100);
+ expect(nodes).toHaveLength(1);
+ expect(nodes[0]?.children.map(n=>n.id)).toEqual(['child']);
+ expect(nodes[0]?.attention).toBe('bad');
+ expect(nodes[0]?.attentionLabel).toBe('Subtask: Failed');
+ expect(nodes[0]?.tokens).toBe('12k tokens');
+});
+
+test('editor handoff preserves file locations and escapes URI delimiters',async()=>{
+ const {workspaceEditorHref}=await import('../app/src/screens/workspace/Workspace');
+ const file={path:'src/a #b.ts',line:4,column:2} as import('../src/session/files').SessionFileResult;
+ expect(workspaceEditorHref('/tmp/work tree',file)).toBe('vscode://file/tmp/work%20tree/src/a%20%23b.ts:4:2');
+});
