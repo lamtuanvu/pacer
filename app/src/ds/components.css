@@ -218,7 +218,12 @@ a.pc-btn{text-decoration:none}
 .pc-switch:checked::before{transform:translateX(var(--switch-travel))}
 .pc-dialog{width:min(var(--dialog-width),calc(100% - var(--space-8)));max-height:90vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-5);background:var(--surface-page);color:var(--ink)}
 .pc-dialog::backdrop{background:var(--backdrop)}
-.pc-dialog-popover{position:fixed;inset:auto auto calc(var(--size-28) + var(--space-2)) var(--space-3);margin:0;width:min(var(--size-560),calc(100vw - var(--space-6)));max-height:min(70vh,var(--size-560));overflow:auto;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);box-shadow:var(--shadow-popover);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-dialog-popover{position:fixed;inset:auto auto calc(var(--size-28) + var(--space-2)) var(--space-3);margin:0;width:min(var(--size-560),calc(100vw - var(--space-6)));max-height:min(70vh,var(--size-560));overflow:hidden;padding:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);box-shadow:var(--shadow-popover);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-dialog-popover[open]{display:flex;flex-direction:column}
+.pc-dialog-popover__head{display:flex;align-items:center;gap:var(--space-2);flex:none;box-sizing:border-box;height:var(--size-44);padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--line)}
+.pc-dialog-popover__body{min-height:0;overflow:auto;padding:0 var(--space-4) var(--space-3)}
+@media(prefers-reduced-motion:no-preference){.pc-dialog-popover__head .pc-icon-button[aria-busy=true] svg{animation:pc-icon-spin var(--motion-loading) linear infinite}}
+@keyframes pc-icon-spin{to{transform:rotate(360deg)}}
 .pc-dialog-popover::backdrop{background:transparent}
 .pc-dialog__head{display:flex;justify-content:space-between;align-items:center;gap:var(--space-4);margin-bottom:var(--space-5)}
 .pc-text-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);min-height:var(--control-normal);padding:var(--space-2) 0;min-width:0}
@@ -1102,3 +1107,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 @media(min-width:561px) and (pointer:fine){:root[data-density="compact"] .pc-segmented .pc-btn{height:var(--size-26);min-height:var(--size-26)}}
 
 .pc-task-card__chevron svg{width:100%;height:100%}
+
+
+/* Popover actions retain compact geometry inside the status bar and at narrow widths. */
+:root .pc-dialog-popover .pc-dialog-popover__head .pc-icon-button.pc-btn.pc-btn--sm{width:var(--size-28);min-width:var(--size-28);height:var(--size-28);min-height:var(--size-28);padding:0}
