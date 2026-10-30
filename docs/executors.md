@@ -109,7 +109,11 @@ Successful execution confirms availability only. Authentication/subscription fai
 
 Delegated tasks start in interactive mode by default. An interactive task opens in
 the agent's own terminal UI, which you can watch or take over. It finishes when the
-agent runs `pacer report`. A headless task runs the agent's non-interactive CLI
+agent runs `pacer report`. Run that command with the launch environment unchanged;
+do not override `PACER_HOME` or `HOME` for it. Agent reports resolve the launch
+store from the canonical `PACER_RUN_DIR` and require the current running local
+attempt and its `PACER_REPORT_TOKEN`. If `PACER_HOME` differs, pacer uses the launch
+store and prints a note to stderr. A headless task runs the agent's non-interactive CLI
 (for example `codex exec` or `claude -p`) and finishes when that process exits.
 
 Pacer picks the mode in this order:
