@@ -174,7 +174,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-dispatch__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-dispatch--narrow .pc-dispatch-split__half+.pc-dispatch-split__half{border-left:0;border-top:1px solid var(--line)}
 .pc-dispatch__controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
-.pc-dispatch__title{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 auto;min-width:0}
+/* The title column grows from a fixed basis, not its text width, so a long policy caption wraps inside it and the controls keep the row. */
+.pc-dispatch__title{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 var(--size-240);min-width:0}
 .pc-dispatch__title>h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight)}
 .pc-dispatch__live{display:inline-flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-dispatch__policy{font-size:var(--type-caption-size);line-height:var(--type-caption-line)}

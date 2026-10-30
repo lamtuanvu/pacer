@@ -216,10 +216,12 @@ function keyBar(input: FrameInput, item: Item | undefined, view: ScreenView, scr
     return n;
   };
   // Key hints outrank the policy token: it shows, shortened if need be, only where it costs no hint.
-  // To make room for it the version gives way first, then an update notice.
+  // To make room for it the version gives way first, then a muted update notice. A warn-toned notice
+  // ("update available", "update check failed") outranks the policy token and never gives way to it.
   const shown = kept(plain), notice: Line = known && input.update !== "current" ? [span(known[0], known[1])] : [];
+  const warns = known?.[1].fg === "warn";
   const options: Line[] = [[policy, separator, ...plain], [compactPolicy, separator, ...plain],
-    ...(notice.length ? [[policy, separator, ...notice], [compactPolicy, separator, ...notice]] : []), [policy], [compactPolicy]];
+    ...(notice.length ? [[policy, separator, ...notice], [compactPolicy, separator, ...notice]] : []), ...(warns ? [] : [[policy], [compactPolicy]])];
   const right = options.find(line => kept(line) >= shown) ?? plain;
   groups.splice(kept(right));
   return ends(join([...groups, help]), right, width, theme);

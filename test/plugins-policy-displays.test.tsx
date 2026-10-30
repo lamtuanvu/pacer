@@ -120,26 +120,38 @@ for(const width of [60,80,120]) for(const update of [undefined,'available','fail
  const frame=renderDashboard(snapshot,width,30,100,{noColor:true,update,ops:['runner.check']});
  const footer=frame.split('\n').at(-1)!;
  expect(footer).toContain('Run checks');expect(footer).toContain('? help');
- expect(footer).toMatch(/policy:\s?closed(?: \(0 plugins\)|\/0)/);
+ // A warn-toned update notice outranks the policy token, which then shows only if it still fits.
+ if(update==='available'||update==='failed')expect(footer).toContain(update==='available'?'update available':'update check failed');
+ else expect(footer).toMatch(/policy:\s?closed(?: \(0 plugins\)|\/0)/);
  expect(footer).not.toContain('…');expect(footer.length).toBeLessThanOrEqual(width);
 });
 
-for(const unicode of [true,false]) test(`minimum TUI footer keeps closed0 and complete help with unicode=${unicode}`,()=>{
+for(const unicode of [true,false]) for(const update of ['disabled','failed'] as const) test(`minimum TUI footer keeps complete help and ${update==='failed'?'the failed update check':'closed0'} with unicode=${unicode}`,()=>{
  const snapshot={...structuredClone(uiSnapshot),policy:{mode:'closed' as const,plugins:0}} as ClientSnapshot;
- const frame=renderDashboard(snapshot,60,30,100,{theme:{depth:'truecolor',appearance:'dark',unicode,motion:false,plain:false},update:'failed'});
+ const frame=renderDashboard(snapshot,60,30,100,{theme:{depth:'truecolor',appearance:'dark',unicode,motion:false,plain:false},update});
  const footer=frame.split('\n').at(-1)!.replace(/\x1b\[[0-9;]*m/g,'');
- expect(footer).toContain('Run checks');expect(footer).toContain('x dismiss');expect(footer).toContain('? help');expect(footer).toContain('policy:closed/0');
+ expect(footer).toContain('Run checks');expect(footer).toContain('x dismiss');expect(footer).toContain('? help');expect(footer).toContain(update==='failed'?'update check failed':'policy:closed/0');
  expect(footer).not.toContain('…');expect(footer.length).toBeLessThanOrEqual(60);
 });
 // PR #494 live run: the policy token displaced 'd delegate' at 120 and 'x dismiss' / '. actions' at 80.
 const KEY_HINTS:Record<number,string[]>={120:['Run checks','x dismiss','. actions (3)','f repo scope','d delegate','? help'],80:['Run checks','x dismiss','. actions (3)','? help'],60:['Run checks','x dismiss','? help']};
-for(const width of [120,80,60]) for(const update of [undefined,'available','disabled','current'] as const) for(const policy of [{mode:'open' as const,plugins:0},{mode:'closed' as const,plugins:2},{mode:'closed' as const,plugins:123456}]) test(`TUI footer keeps existing key hints ahead of ${policy.mode}/${policy.plugins} policy at ${width} columns with ${update??'no update'}`,()=>{
+for(const width of [120,80,60]) for(const update of [undefined,'available','failed','disabled','current'] as const) for(const policy of [{mode:'open' as const,plugins:0},{mode:'closed' as const,plugins:2},{mode:'closed' as const,plugins:123456}]) test(`TUI footer keeps existing key hints ahead of ${policy.mode}/${policy.plugins} policy at ${width} columns with ${update??'no update'}`,()=>{
  const snapshot={...structuredClone(uiSnapshot),policy} as ClientSnapshot;
  const footer=renderDashboard(snapshot,width,30,100,{noColor:true,update,version:'0.12.0'}).split('\n').at(-1)!;
  for(const hint of KEY_HINTS[width]!)expect(footer).toContain(hint);
  expect(footer).not.toContain('…');expect(footer.length).toBeLessThanOrEqual(width);
  // The policy token shows whole or shortened, never cut.
  if(footer.includes('policy'))expect(footer).toMatch(/policy: (open|closed \(\d+ plugins\))|policy:(open|closed)\/\d+/);
+});
+// Warn-toned update notices outrank the muted policy token: the policy shows beside them only if it still fits.
+const NOTICE={available:'update available',failed:'update check failed'} as const;
+for(const width of [160,120,80,60]) for(const update of ['available','failed'] as const) for(const policy of [{mode:'open' as const,plugins:0},{mode:'closed' as const,plugins:2},{mode:'closed' as const,plugins:123456}]) test(`TUI footer keeps "${NOTICE[update]}" ahead of ${policy.mode}/${policy.plugins} policy at ${width} columns`,()=>{
+ const snapshot={...structuredClone(uiSnapshot),policy} as ClientSnapshot;
+ const footer=renderDashboard(snapshot,width,30,100,{noColor:true,update,version:'0.12.0'}).split('\n').at(-1)!;
+ const base=renderDashboard({...structuredClone(uiSnapshot)} as ClientSnapshot,width,30,100,{noColor:true,update,version:'0.12.0'}).split('\n').at(-1)!;
+ expect(footer).toContain(NOTICE[update]);
+ if(base.includes(NOTICE[update]))expect(footer.endsWith(NOTICE[update])).toBe(true);
+ expect(footer.length).toBeLessThanOrEqual(width);
 });
 test('TUI footer shows the policy token wherever it fits beside the key hints',()=>{
  const snapshot={...structuredClone(uiSnapshot),policy:{mode:'closed' as const,plugins:2}} as ClientSnapshot;
