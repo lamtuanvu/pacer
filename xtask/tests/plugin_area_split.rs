@@ -17,7 +17,10 @@ fn plugin_decision_and_agent_session_methods_have_their_own_generated_areas() {
     let decision = area("plugin-decision-protocol");
     let session = area("plugin-agent-session-protocol");
     let install = area("plugin-install-protocol");
-    assert!(install.contains("pub struct PlannerInstallParams") || install.contains("pub enum PlannerInstallParams"));
+    assert!(
+        install.contains("pub struct PlannerInstallParams")
+            || install.contains("pub enum PlannerInstallParams")
+    );
     assert!(!core.contains("PlannerInstallParams"));
     assert!(core.contains("pub struct Manifest"));
     assert!(core.contains("pub struct UiRenderParams"));
@@ -43,6 +46,9 @@ fn plugin_decision_and_agent_session_methods_have_their_own_generated_areas() {
             .map(str::trim)
             .filter(|line| !line.is_empty() && !line.starts_with("//"))
             .count();
-        assert!(lines <= 10_000, "CRATE-3 generated budget: {lines} code lines");
+        assert!(
+            lines <= 10_000,
+            "CRATE-3 generated budget: {lines} code lines"
+        );
     }
 }
