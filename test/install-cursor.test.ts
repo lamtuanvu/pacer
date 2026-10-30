@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Status } from "../src/engine/status";
 import { installCursor } from "./install-plugin-adapter";
 import { getMember, setMember } from "../src/install/jsonc";
-import { policyText } from "../src/install/policy";
+import { policyText } from "../plugins/pacer-planners/policy";
 import { sessionStart } from "../src/install/session";
 import { runInstall } from "./install-plugin-adapter";
 import { uninstallPlanner } from "./install-plugin-adapter";

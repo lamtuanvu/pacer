@@ -92,6 +92,15 @@ test("outer deadline aborts an uncooperative call and never visits later policie
   expect(result.params).toEqual(delegate);
 });
 
+test("policy calls share one ten-second deadline",async()=>{
+  let clock=0;
+  const visited:string[]=[];
+  const source=freezePolicySnapshot({mode:"open",fingerprint:"aggregate",policies:["a","b","c","d"].map(id=>({id,generation:"1"}))});
+  const receipt=await evaluatePolicy(source,delegate,{now:()=>clock,call:async(policy)=>{visited.push(policy.id);clock+=4000;return {verdict:"allow"};}});
+  expect(visited).toEqual(["a","b","c"]);
+  expect(()=>receipt.revalidate("aggregate")).not.toThrow();
+});
+
 test("cancellation stops evaluation even in open mode",async()=>{
   const controller=new AbortController();
   await expect(evaluatePolicy(snapshot(),delegate,{signal:controller.signal,call:async()=>{controller.abort();return {verdict:"amend",amend:{kind:"tests"}};}})).rejects.toMatchObject({code:"not_allowed"});

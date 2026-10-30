@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers } from "../src/install/doctor-hooks";
-import { editClaudeSettings } from "../src/install/claude";
+import { editClaudeSettings } from "../plugins/pacer-planners/claude";
 
 function fixture() {
   const ctx = fakeCtx();

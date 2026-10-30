@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { CoreError } from "../../core/errors";
 
 export const CHUNK = 262144;
+export const USAGE_STATE_MAX_BYTES = 16 * 1024 * 1024;
 const RESERVE = 8 * 1024 * 1024;
 export function within(root: string, path: string) { const rel = relative(root, path); return rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel); }
 export async function reserve(path: string, bytes: number) {
@@ -17,8 +18,11 @@ export async function privateDirectory(storePath: string, readOnly: boolean): Pr
 }
 export async function writeParts(path: string, parts: AsyncIterable<string>, check: () => void) {
   const file = await open(path, "wx", 0o600);
+  let total = 0;
   try { for await (const part of parts) {
     const bytes = Buffer.from(part);
+    total += bytes.length;
+    if (total > USAGE_STATE_MAX_BYTES) throw new CoreError("too_large", "usage state exceeds 16 MiB limit");
     for (let offset = 0; offset < bytes.length; offset += CHUNK) {
       check(); const chunk = bytes.subarray(offset, offset + CHUNK); await reserve(dirname(path), chunk.length); await file.writeFile(chunk);
     }
@@ -75,5 +79,8 @@ export async function openStateFile(path: string) {
 }
 export async function readStateFile(path: string) {
   const file = await openStateFile(path);
-  try { return await file.readFile("utf8"); } finally { await file.close(); }
+  try {
+    if ((await file.stat()).size > USAGE_STATE_MAX_BYTES) throw new CoreError("too_large", "usage state exceeds 16 MiB limit");
+    return await file.readFile("utf8");
+  } finally { await file.close(); }
 }

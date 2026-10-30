@@ -2,6 +2,7 @@ import {CoreError} from "../core/errors";
 import {policyBeforeParams, policyDelegateAmend, policyRouteAmend, policyVerdict, type PolicyBeforeParams} from "./policy-protocol";
 
 const MAX_BYTES = 1024 * 1024;
+const POLICY_AGGREGATE_MS = 10_000;
 export interface PolicyIdentity { readonly id: string; readonly generation: string }
 export interface PolicySnapshot {
   readonly mode: "open" | "closed";
@@ -84,6 +85,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
   catch(error) {if(error instanceof CoreError) throw error;throw new CoreError("invalid_input","Invalid policy decision input");}
   const excludedBy:Record<string,string>=Object.create(null);
   const now=options.now??Date.now;
+  const aggregateDeadline=Math.min(options.deadline??Infinity,now()+POLICY_AGGREGATE_MS);
   const eligibleRunnerIds=options.eligibleRunnerIds ? [...options.eligibleRunnerIds] : undefined;
   const allowedPlacements=options.allowedPlacements ? [...options.allowedPlacements] : undefined;
   const veto=(policy:PolicyIdentity,reason:string):never=>{
@@ -103,7 +105,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     checkCancelled(options.signal);
     let explicitVeto:string|undefined;
     try {
-      const remaining=options.deadline===undefined?3000:Math.min(3000,options.deadline-now());
+      const remaining=Math.min(3000,aggregateDeadline-now());
       if(remaining<=0) throw new CoreError("plugin_timeout","Policy call timed out");
       const raw=await invoke(policy,params,options,remaining);
       checkCancelled(options.signal);

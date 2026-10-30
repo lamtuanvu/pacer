@@ -1280,6 +1280,16 @@ impl<'de> ::serde::Deserialize<'de> for PluginMetadataVariant1ReadOwner {
 ///              "type": "string",
 ///              "maxLength": 200000
 ///            },
+///            "goalHash": {
+///              "type": "string",
+///              "maxLength": 64,
+///              "minLength": 64
+///            },
+///            "goalLength": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
 ///            "kind": {
 ///              "anyOf": [
 ///                {
@@ -1304,6 +1314,11 @@ impl<'de> ::serde::Deserialize<'de> for PluginMetadataVariant1ReadOwner {
 ///              "type": "string",
 ///              "maxLength": 4096,
 ///              "minLength": 1
+///            },
+///            "repoKey": {
+///              "type": "string",
+///              "maxLength": 64,
+///              "minLength": 64
 ///            },
 ///            "requestedExecutor": {
 ///              "anyOf": [
@@ -1460,9 +1475,28 @@ pub enum PolicyBeforeParams {
     #[serde(rename = "delegate")]
     Delegate {
         goal: PolicyBeforeParamsInputGoal,
+        #[serde(
+            rename = "goalHash",
+            default,
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        goal_hash: ::std::option::Option<PolicyBeforeParamsInputGoalHash>,
+        #[serde(
+            rename = "goalLength",
+            default,
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        #[serde(deserialize_with = "deserialize_integer_1")]
+        goal_length: ::std::option::Option<i64>,
         kind: ::std::option::Option<PolicyBeforeParamsInputKind>,
         placement: PolicyBeforeParamsInputPlacement,
         repo: PolicyBeforeParamsInputRepo,
+        #[serde(
+            rename = "repoKey",
+            default,
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        repo_key: ::std::option::Option<PolicyBeforeParamsInputRepoKey>,
         #[serde(rename = "requestedExecutor")]
         requested_executor: ::std::option::Option<PolicyBeforeParamsInputRequestedExecutor>,
     },
@@ -1626,6 +1660,52 @@ impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputGoal {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputGoal {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`PolicyBeforeParamsInputGoalHash`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 64
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PolicyBeforeParamsInputGoalHash(::std::string::String);
+impl ::std::ops::Deref for PolicyBeforeParamsInputGoalHash {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PolicyBeforeParamsInputGoalHash> for ::std::string::String {
+    fn from(value: PolicyBeforeParamsInputGoalHash) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PolicyBeforeParamsInputGoalHash {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_2(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputGoalHash {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputGoalHash {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -1838,6 +1918,52 @@ impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputRepo {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`PolicyBeforeParamsInputRepoKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 64
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PolicyBeforeParamsInputRepoKey(::std::string::String);
+impl ::std::ops::Deref for PolicyBeforeParamsInputRepoKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PolicyBeforeParamsInputRepoKey> for ::std::string::String {
+    fn from(value: PolicyBeforeParamsInputRepoKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PolicyBeforeParamsInputRepoKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_2(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputRepoKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputRepoKey {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -3305,6 +3431,18 @@ fn validate_string_1<T>(
     }
     if value.chars().count() < 1usize {
         return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_2<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 64usize {
+        return Err("longer than 64 characters".into());
+    }
+    if value.chars().count() < 64usize {
+        return Err("shorter than 64 characters".into());
     }
     Ok(construct(value.to_string()))
 }

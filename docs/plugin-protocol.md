@@ -12,6 +12,8 @@ Protocol 1.6.0 adds optional top-level `_meta: { capabilityCall }` correlation o
 
 Protocol 1.6.0 also adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
+Issue #503 additive wire fields have release version PENDING; the merge planner assigns it. A delegate policy without declared and granted `tasks.read` receives an empty goal, an opaque repository key, the goal length and hashes. Secret references use `kind:name`; legacy `endpoint/name` remains accepted.
+
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
 SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
@@ -4276,6 +4278,21 @@ Params:
               "minLength": 1,
               "maxLength": 4096
             },
+            "goalLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "goalHash": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "repoKey": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
             "kind": {
               "anyOf": [
                 {
@@ -4923,7 +4940,7 @@ Params:
       "anyOf": [
         {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         },
         {
           "type": "null"
@@ -5050,7 +5067,7 @@ Params:
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                 },
                 {
                   "type": "null"
@@ -5122,7 +5139,7 @@ Params:
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               },
               {
                 "type": "null"
@@ -5210,7 +5227,7 @@ Result:
       },
       "additionalProperties": {
         "type": "string",
-        "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+        "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
       }
     }
   },
@@ -5250,7 +5267,7 @@ Params:
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
             },
             {
               "type": "null"
@@ -5317,7 +5334,7 @@ Params:
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               },
               {
                 "type": "null"
@@ -5406,7 +5423,7 @@ Params:
     },
     "configRef": {
       "type": "string",
-      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [
@@ -8267,7 +8284,7 @@ Params:
             "properties": {
               "secretRef": {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               }
             },
             "required": [
@@ -9077,7 +9094,7 @@ Params:
       "properties": {
         "secretRef": {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         },
         "scheme": {
           "default": "Bearer",
@@ -9169,7 +9186,7 @@ Params:
   "properties": {
     "ref": {
       "type": "string",
-      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [
@@ -9450,7 +9467,7 @@ Result:
 
 ### `capability.secrets.resolve`
 
-Resolve the key of the endpoint account the user chose for the assistant. Any other reference is refused.
+Resolve the key of the endpoint account the user chose for the assistant. endpoint/<id> remains accepted for compatibility.
 
 Params:
 
@@ -9461,7 +9478,7 @@ Params:
   "properties": {
     "ref": {
       "type": "string",
-      "pattern": "^endpoint\\/[a-z0-9][a-z0-9-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [

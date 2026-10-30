@@ -62,7 +62,13 @@ export async function applyPolicy<D extends Decision>(ctx:Ctx,decision:D,input:I
         contextConflict=true;
         throw new CoreError("conflict","Policy context changed");
       }
-      return initial.registry.call(ctx,policy.id,"policy.before",params,callOptions);
+      const entry=initial.policies.find(value=>value.id===policy.id);
+      const canReadDetail=!!entry?.manifest.capabilities.some(capability=>capability.name==="tasks.read") && (entry.bundled||entry.grant?.capabilities.includes("tasks.read"));
+      const wire=params.decision==="delegate"&&!canReadDetail ? {
+        ...params,
+        input:{...params.input,goal:"",repo:`repo:${fingerprint(params.input.repo)}`,goalLength:params.input.goal.length,goalHash:fingerprint(params.input.goal),repoKey:fingerprint(params.input.repo)},
+      } : params;
+      return initial.registry.call(ctx,policy.id,"policy.before",wire,callOptions);
     },
     onVeto:({pluginId,decision,reason})=>{
       if(contextConflict||changed()) {contextConflict=true;return;}

@@ -108,9 +108,11 @@ export class PluginRegistry {
     const healthy=(e:Entry|undefined)=>!!e?.manifest&&Object.hasOwn(e.manifest.contributes,"policy")&&["idle","starting","ready","failing"].includes(e.state);
     for(const e of this.entries.values()) {
       if(e.bundled||cfg.disabled.includes(e.id)||!cfg.installed[e.id]||healthy(e)) continue;
-      if(cfg.installed[e.id]!.policy===true||(e.manifest&&Object.hasOwn(e.manifest.contributes,"policy"))) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
+      // An unreadable old manifest may have been a policy plugin before grants
+      // carried the policy marker. Closed mode cannot prove otherwise.
+      if(cfg.installed[e.id]!.policy===true||!e.manifest||Object.hasOwn(e.manifest.contributes,"policy")) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
     }
-    for(const [id,grant] of Object.entries(cfg.installed)) if(grant.policy===true&&!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))) out.set(id,this.entries.has(id)?"no longer contributes policy":"plugin folder is missing");
+    for(const [id] of Object.entries(cfg.installed)) if(!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))&&!this.entries.get(id)?.manifest) out.set(id,this.entries.has(id)?"manifest is unreadable":"plugin folder is missing");
     return [...out].sort(([a],[b])=>a.localeCompare(b)).map(([id,reason])=>({id,reason}));
   }
   private eventTimerState():void {

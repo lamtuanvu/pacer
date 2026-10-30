@@ -32,6 +32,17 @@ test("owned context injects only exact captured environment and cwd into actual 
     expect(JSON.stringify(f.authority.resources)).not.toContain("owned-injected-credential");
   } finally { delete process.env.SPAWN_CONTEXT_AMBIENT; }
 });
+test("legacy pinned commands receive only the host's minimal environment", async () => {
+  const ctx=fakeCtx({env:{HOME:process.env.HOME,PATH:process.env.PATH,SPAWN_CONTEXT_AMBIENT:"private"}});
+  homes.push(ctx.home);
+  const script=join(ctx.home,"legacy-env.js");
+  writeFileSync(script,"console.log(JSON.stringify({home:process.env.HOME,ambient:process.env.SPAWN_CONTEXT_AMBIENT}))");
+  ctx.which=name=>name==="legacy-tool"?process.execPath:null;
+  const authority=createCallAuthority(ctx,{reads:[],commands:[{argv:["legacy-tool",script],timeoutMs:5000}],stores:[]},{deadlineMs:Date.now()+10000,grants:["process.spawn"]});
+  owners.push(authority);prepareSpawnAuthority(authority);
+  const result=await answerSpawn(authority,["legacy-tool"],{argv:["legacy-tool",script],timeoutMs:5000}) as {stdout:string};
+  expect(JSON.parse(result.stdout)).toEqual({home:process.env.HOME});
+});
 test("altered vector/context and undeclared scopes deny before credential lookup or child effects", async () => {
   const f = fixture();
   for (const params of [

@@ -17,9 +17,9 @@ function fixture(mode="open") {
   const registry=pluginRegistry(ctx,{bundled:[],spawnBundled:()=>{throw Error("no bundles");},sleep:async()=>{},spawn:((...args:Parameters<typeof spawn>)=>{starts++;return spawn(...args);}) as typeof spawn});
   const configure=(nextMode=mode,extra:Record<string,unknown>={})=>writeFileSync(join(ctx.pacerHome,"strategy.yaml"),JSON.stringify({planner:"claude-code",providers:{"claude-code":{}},plugins:{policy:{mode:nextMode},installed:{"fx-policy":{version:"1.0.0",capabilities:[]}},...extra}}));
   configure();
-  const install=(verdict:unknown={verdict:"allow"},delay=0)=>{
+  const install=(verdict:unknown={verdict:"allow"},delay=0,capabilities:string[]=[])=>{
     const dir=join(ctx.pacerHome,"plugins","fx-policy");mkdirSync(dir,{recursive:true});
-    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1.6",entry:"main.ts",capabilities:[],contributes:{policy:{}}}));
+    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1.6",entry:"main.ts",capabilities:capabilities.map(name=>({name})),contributes:{policy:{}}}));
     writeFileSync(join(dir,"settings.json"),JSON.stringify({verdict,delay}));
     writeFileSync(join(dir,"main.ts"),`#!${process.execPath}\nimport {readFileSync,appendFileSync} from "node:fs";\nfor await(const line of console) {const r=JSON.parse(line); if(!r.id)continue;let result;if(r.method==="plugin.hello")result={protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]};else if(r.method==="policy.before"){appendFileSync("calls.jsonl",JSON.stringify(r.params)+"\\n");const s=JSON.parse(readFileSync("settings.json","utf8"));await Bun.sleep(s.delay);result=s.verdict;}else result={ok:true};console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));}\n`);
     chmodSync(join(dir,"main.ts"),0o755);return dir;
@@ -27,11 +27,10 @@ function fixture(mode="open") {
   return {ctx,registry,configure,install,starts:()=>starts};
 }
 
-test("policy summary and zero-policy receipt remain metadata-only with explicit mode/count",async()=>{
+test("closed mode treats a missing unmarked grant as an unavailable policy",async()=>{
   const f=fixture("closed");
   expect(policySummary(f.ctx)).toEqual({mode:"closed",plugins:0});
-  const receipt=await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
-  expect(receipt.params).toEqual({decision:"delegate",input});receipt.revalidate();
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"})).rejects.toMatchObject({code:"not_allowed"});
   expect(f.starts()).toBe(0);
   f.install();expect(policySummary(f.ctx)).toEqual({mode:"closed",plugins:1});expect(f.starts()).toBe(0);
 });
@@ -39,8 +38,18 @@ test("policy summary and zero-policy receipt remain metadata-only with explicit 
 test("actual installed policy call starts once without invalidating stable metadata receipt",async()=>{
   const f=fixture();const dir=f.install();let context="before";
   const receipt=await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>context});
-  expect(f.starts()).toBe(1);expect(JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8"))).toEqual({decision:"delegate",input});
+  expect(f.starts()).toBe(1);
+  const wire=JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8"));
+  expect(wire.input.goal).toBe("");expect(wire.input.repo).not.toBe(input.repo);
+  expect(wire.input.goalLength).toBe(input.goal.length);expect(wire.input.goalHash).toHaveLength(64);
   receipt.revalidate();context="after";expect(()=>receipt.revalidate()).toThrow("changed");
+});
+test("only a declared and granted tasks.read policy receives goal and repo detail",async()=>{
+  const f=fixture();
+  f.configure("open",{installed:{"fx-policy":{version:"1.0.0",capabilities:["tasks.read"],policy:true}}});
+  const dir=f.install({verdict:"allow"},0,["tasks.read"]);
+  await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"detail"});
+  expect(JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8"))).toEqual({decision:"delegate",input});
 });
 
 test("mode config grant and full manifest edits invalidate receipts",async()=>{
@@ -152,6 +161,12 @@ test("closed mode refuses while a granted policy plugin cannot load, with a visi
     f.configure("closed",{...granted,disabled:["fx-policy"]});
     await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
   }
+});
+test("closed mode refuses an old unmarked grant with an unreadable manifest",async()=>{
+  const f=fixture("closed"),dir=f.install();
+  writeFileSync(join(dir,"pacer-plugin.json"),"{not json");
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"old-grant"})).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
+  expect(f.starts()).toBe(0);
 });
 
 test("closed mode refuses an updated policy manifest that needs a new grant even without a recorded marker (B2)",async()=>{

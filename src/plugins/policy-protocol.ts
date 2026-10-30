@@ -58,6 +58,10 @@ const delegateInput = z
   .object({
     goal: z.string().max(200000),
     repo: z.string().min(1).max(4096),
+    /** Opaque metadata when the policy lacks the tasks.read grant. */
+    goalLength: z.number().int().nonnegative().optional(),
+    goalHash: z.string().length(64).optional(),
+    repoKey: z.string().length(64).optional(),
     kind: z.string().min(1).max(128).nullable(),
     requestedExecutor: id.nullable(),
     placement,

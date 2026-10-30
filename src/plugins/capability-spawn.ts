@@ -35,6 +35,10 @@ interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; output: Map<str
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
+function minimalEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  return Object.fromEntries(["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"]
+    .flatMap(key => typeof env[key] === "string" ? [[key, env[key]]] : []));
+}
 const same = (a: Stats, b: Stats) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.mode === b.mode;
 
 /** Issuance-time snapshot, before untrusted plugin execution; never pin on first RPC. */
@@ -125,7 +129,7 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   validatePin(pin);
   authority.assertActive(); state.busy = true;
   try {
-    const env: Record<string, string> | undefined = pin.context ? Object.assign(Object.create(null), pin.context.env) : undefined;
+    const env: Record<string, string> = pin.context ? Object.assign(Object.create(null), pin.context.env) : minimalEnvironment(authority.ctx.env);
     const secrets: string[] = [];
     for (const [name, ref] of Object.entries(pin.context?.secretEnv ?? {})) {
       const resolved = await resolveBoundCredential(authority, ref);
@@ -204,7 +208,7 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
     validatePin(pin);
     child = spawn(pin.canonical!, argv.slice(1), {
       stdio: [pin.mode === "codex-live" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      ...(env === undefined ? {} : { env }),
+      env,
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
     if (pin.mode === "codex-live") {
