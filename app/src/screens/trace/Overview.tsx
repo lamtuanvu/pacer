@@ -3,7 +3,7 @@ import type { TaskDetail } from '../../../../src/core/task-detail';
 import { taskStatus } from '../../../../src/view-model/words';
 import { ButtonLink } from '../../ds/Button';
 import { hrefFor, routes } from '../../router';
-import { useOutputTail } from '../needs-you/output-tail';
+import { TaskOutputPreview } from './TaskOutputPreview';
 import { tokenValue } from './model';
 
 export function NowCard({task:t,compact=false}:{task:TaskDetail;compact?:boolean}) {
@@ -12,9 +12,8 @@ export function NowCard({task:t,compact=false}:{task:TaskDetail;compact?:boolean
  const tone=failed?'bad':t.state==='needs_input'?'warn':'info';
  const title=failed?'What failed':t.review?t.review.accepted?'Result accepted':'Result rejected':active?t.state==='needs_input'?'The agent needs your answer':t.state==='queued'?'Waiting to start':'The agent is working':'Ready for your review';
  const detail=t.review?t.review.accepted?'The accepted result and report are recorded on this task.':'The rejected result and review note are recorded on this task.':failed?t.acceptance.summary??'Inspect the failing check output before retrying.':active?t.summary??taskStatus(t).label:`${t.files.length} files changed · ${t.acceptance.state==='passed'?'Checks passed':'Checks not recorded'} · the planner summary is in Notes`;
- const log=useOutputTail(t.id,`${t.updatedAt}:${t.progress?.lastOutputAt}:${t.progress?.logBytes}`);
- const output=failed?t.acceptance.tail:active?(log.text??'').split('\n').slice(-4).join('\n'):'';
- return <section aria-label="Now" className={`pc-task-now pc-task-now--${tone}${compact?' pc-task-now--compact':''}`}><div className="pc-task-now__body"><span className="pc-trace__circle" aria-hidden="true">{failed?'✕':'◐'}</span><div><h2>{title}</h2><span className="pc-trace__cap pc-trace__detail">{detail}</span></div>{!compact&&<ButtonLink href={hrefFor(routes.workspace(t.id,failed?'changes':active?'session':'changes'))}>{failed?'Inspect in the workspace':active?'Follow in the workspace':'Review changes in the workspace'}</ButtonLink>}</div>{output&&<pre className="pc-task-now__output pc-trace__mono">{output}</pre>}</section>;
+ const output=failed?t.acceptance.tail:'';
+ return <section aria-label="Now" className={`pc-task-now pc-task-now--${tone}${compact?' pc-task-now--compact':''}`}><div className="pc-task-now__body"><span className="pc-trace__circle" aria-hidden="true">{failed?'✕':'◐'}</span><div><h2>{title}</h2><span className="pc-trace__cap pc-trace__detail">{detail}</span></div>{!compact&&<ButtonLink href={hrefFor(routes.workspace(t.id,failed?'changes':active?'session':'changes'))}>{failed?'Inspect in the workspace':active?'Follow in the workspace':'Review changes in the workspace'}</ButtonLink>}</div>{!compact&&(output?<pre tabIndex={0} aria-label="Failed check output" className="pc-task-now__output pc-trace__mono">{output}</pre>:active&&!failed?<TaskOutputPreview key={t.id} task={t}/>:null)}</section>;
 }
 export function CostTiles({task:t,compact=false,tokens=t.tokens,agentsUsed,attempts=t.attempts.length,subtasks=0,retries=Math.max(0,t.attempts.length-1)}:{task:TaskDetail;compact?:boolean;tokens?:TaskDetail["tokens"];agentsUsed?:number;attempts?:number;subtasks?:number;retries?:number}) {
  return <section aria-label="Cost summary" className={`pc-trace__cost${compact?' pc-trace__cost--compact':''}`}>

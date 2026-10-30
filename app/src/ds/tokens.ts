@@ -46,6 +46,27 @@ export type ColorToken =
   | "aurora-1"
   | "aurora-2"
   | "aurora-3"
+  | "terminal-background"
+  | "terminal-foreground"
+  | "terminal-muted"
+  | "terminal-line"
+  | "terminal-selection"
+  | "terminal-black"
+  | "terminal-red"
+  | "terminal-green"
+  | "terminal-yellow"
+  | "terminal-blue"
+  | "terminal-magenta"
+  | "terminal-cyan"
+  | "terminal-white"
+  | "terminal-bright-black"
+  | "terminal-bright-red"
+  | "terminal-bright-green"
+  | "terminal-bright-yellow"
+  | "terminal-bright-blue"
+  | "terminal-bright-magenta"
+  | "terminal-bright-cyan"
+  | "terminal-bright-white"
   | "ink-on-fill"
   | "shadow-tray-menu-tint"
   | "answer-scrim";
@@ -96,6 +117,27 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "aurora-1": { light: "#a5b4fc", dark: "#818cf8" },
   "aurora-2": { light: "#f0abfc", dark: "#d58be8" },
   "aurora-3": { light: "#99f6e4", dark: "#5ed8c4" },
+  "terminal-background": { light: "#1e1e1e", dark: "#1e1e1e" },
+  "terminal-foreground": { light: "#d4d4d4", dark: "#d4d4d4" },
+  "terminal-muted": { light: "#a1a1aa", dark: "#a1a1aa" },
+  "terminal-line": { light: "#52525b", dark: "#52525b" },
+  "terminal-selection": { light: "#3f3f46", dark: "#3f3f46" },
+  "terminal-black": { light: "#000000", dark: "#000000" },
+  "terminal-red": { light: "#cd3131", dark: "#cd3131" },
+  "terminal-green": { light: "#0dbc79", dark: "#0dbc79" },
+  "terminal-yellow": { light: "#e5e510", dark: "#e5e510" },
+  "terminal-blue": { light: "#2472c8", dark: "#2472c8" },
+  "terminal-magenta": { light: "#bc3fbc", dark: "#bc3fbc" },
+  "terminal-cyan": { light: "#11a8cd", dark: "#11a8cd" },
+  "terminal-white": { light: "#e5e5e5", dark: "#e5e5e5" },
+  "terminal-bright-black": { light: "#666666", dark: "#666666" },
+  "terminal-bright-red": { light: "#f14c4c", dark: "#f14c4c" },
+  "terminal-bright-green": { light: "#23d18b", dark: "#23d18b" },
+  "terminal-bright-yellow": { light: "#f5f543", dark: "#f5f543" },
+  "terminal-bright-blue": { light: "#3b8eea", dark: "#3b8eea" },
+  "terminal-bright-magenta": { light: "#d670d6", dark: "#d670d6" },
+  "terminal-bright-cyan": { light: "#29b8db", dark: "#29b8db" },
+  "terminal-bright-white": { light: "#ffffff", dark: "#ffffff" },
   "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
   "shadow-tray-menu-tint": { light: "rgb(9 9 11 / .16)", dark: "rgb(0 0 0 / .55)" },
   "answer-scrim": { light: "color-mix(in srgb, var(--ink) 14%, transparent)", dark: "color-mix(in srgb, var(--ink) 14%, transparent)" },
