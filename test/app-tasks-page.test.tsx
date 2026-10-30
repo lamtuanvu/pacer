@@ -54,7 +54,7 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     await page.locator('.pc-task-card__main').nth(1).click();
     expect(await aside.locator('b').textContent()).toBe('Document the budget store');
     const rootSelection = page.locator('.pc-task-card__main--selected');
-    expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('650');
+    expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
     await rootSelection.hover();
     expect(await rootSelection.evaluate(node => {
       const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
@@ -178,6 +178,41 @@ browserTest('tablet_keeps_titles_readable_and_search_adornment_in_flow', async (
       expect(geometry.title).toBeGreaterThan(100);
       expect(geometry.gap).toBe(8);
       expect(geometry.overflow).toBe(false);
+    }
+  } finally { await page.close(); }
+});
+
+browserTest('state_tabs_have_board_dots_and_selected_root_titles_keep_board_weight', async () => {
+  const page = await browser.newPage({viewport: {width: 1440, height: 900}});
+  try {
+    await page.goto(server.url.toString());
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      if (process.env.PACER_LAYOUT_EVIDENCE) await page.screenshot({path: `${process.env.PACER_LAYOUT_EVIDENCE}/tasks-board-${theme}.png`});
+      const stoppedDot = page.getByRole('tab', {name: /^Stopped/}).locator('.pc-tasks-page__dot');
+      expect(await stoppedDot.count()).toBe(1);
+      expect(await stoppedDot.getAttribute('aria-hidden')).toBe('true');
+      expect(await stoppedDot.evaluate(node => {
+        const style = getComputedStyle(node);
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--ink-muted)';
+        node.append(probe);
+        const muted = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {width: style.width, height: style.height, radius: style.borderRadius, muted: style.backgroundColor === muted};
+      })).toEqual({width: '8px', height: '8px', radius: '99px', muted: true});
+      expect(await page.getByRole('tab').locator('.pc-tasks-page__dot').count()).toBe(4);
+      for (const index of [0, 1]) {
+        await page.locator('.pc-task-card__main').nth(index).click();
+        const selected = page.locator('.pc-task-card__title[aria-current]');
+        expect(await selected.count()).toBe(1);
+        expect(await selected.evaluate(node => {
+          const style = getComputedStyle(node);
+          return [style.fontSize, style.lineHeight, style.fontWeight];
+        })).toEqual(['14px', '21px', '600']);
+        expect(await page.locator('.pc-task-card__title:not([aria-current])').evaluateAll(nodes =>
+          nodes.every(node => getComputedStyle(node).fontWeight === '600'))).toBe(true);
+      }
     }
   } finally { await page.close(); }
 });
