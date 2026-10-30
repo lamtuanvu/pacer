@@ -52,6 +52,7 @@ test("the composer replaces the managed-work hint and the review next step", () 
 test("refusals and deliveries read as plain words", () => {
   expect(messageRefusalWords("msg_node_closed")).toBe("This task no longer takes messages.");
   expect(messageRefusalWords("msg_cap_reached")).toContain("Wait a minute");
+  expect(messageRefusalWords("msg_worktree_unavailable")).toContain("worktree was cleaned up");
   for (const reason of [undefined, "msg_unknown", 3]) expect(messageRefusalWords(reason)).toBe("The answer was not sent. Try again.");
   expect(answerDeliveryWords("turn_started")).toBe("Answer sent. The task is continuing.");
   expect(answerDeliveryWords("closed")).toContain("no longer takes messages");

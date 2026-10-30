@@ -181,6 +181,7 @@ export function compactPolicyWords(policy?: PolicySummary): string {
 const messageRefusals: Record<string, string> = {
   msg_forbidden: "You can't message this task.",
   msg_node_closed: "This task no longer takes messages.",
+  msg_worktree_unavailable: "This task's worktree was cleaned up, so it can't continue. Retry it or start a new task.",
   msg_cap_reached: "Too many messages at once. Wait a minute and send again.",
   msg_too_large: "The answer is too long. Shorten it and send again.",
   msg_live_unavailable: "This task can't take answers here yet. Answer it in its session.",

@@ -76,6 +76,16 @@ export function markRead(ctx: Ctx, to: string, ids: string[], at = ctx.now): num
 export function pendingFor(ctx: Ctx, to: string): Message[] {
   return messagesDatabase(ctx).query<Row, [string]>("SELECT * FROM messages WHERE recipient=? AND status='pending' ORDER BY id").all(to).map(toMessage);
 }
+/** Messages that still need a turn of this task: pending or held for it, or its questions nobody has read. */
+export function awaitingTurn(ctx: Ctx, taskId: string): number {
+  const to = `task:${taskId}`;
+  return messagesDatabase(ctx).query<{ n: number }, [string, string]>("SELECT COUNT(*) AS n FROM messages WHERE (recipient=? AND status IN ('pending','held')) OR (sender=? AND kind='question' AND status IN ('pending','delivered'))")
+    .get(to, to)!.n;
+}
+/** When the task's thread last changed, in seconds, or null when it has no messages. */
+export function lastMessageAt(ctx: Ctx, taskId: string): number | null {
+  return messagesDatabase(ctx).query<{ at: number | null }, [string]>("SELECT MAX(created_at) AS at FROM messages WHERE task_id=?").get(taskId)?.at ?? null;
+}
 export function claimPending(ctx: Ctx, to: string, turnId: string): Message[] {
   const db = messagesDatabase(ctx);
   return db.transaction(() => {

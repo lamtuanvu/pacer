@@ -48,6 +48,8 @@ export const messagingConfigSchema = z.object({
   }).strict().prefault({}),
   hooks: z.object({ stop: z.enum(["block", "inject_only", "off"]).default("block"), stop_release_after: z.number().int().min(1).default(2) }).strict().prefault({}),
   grants: z.object({ user_started_tasks: z.enum(["on", "off"]).default("on") }).strict().prefault({}),
+  // Days a resolved task open for messages keeps its worktree after its last activity; 0 keeps it only for pending messages.
+  keep_worktree_days: z.number().int().min(0).max(3650).default(7),
 }).strict();
 export type MessagingConfig = z.infer<typeof messagingConfigSchema>;
 

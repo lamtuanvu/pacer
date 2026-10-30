@@ -91,6 +91,7 @@ The same policy holds the broker and hook settings, so they are configurable too
 | `message.max_bytes` | 64 KiB |
 | `hooks.stop` | `block`, released after the same message set blocked `2` times; also `inject_only`, `off` |
 | `grants.user_started_tasks` | `on` |
+| `keep_worktree_days` | 7 days a resolved, open task keeps its worktree after its last message or run end (`0` turns the window off) |
 
 ### Default guardrail
 
@@ -244,7 +245,7 @@ The wait-for graph is built from `awaiting_reply` edges and unread blocking mess
 | `msg.close` | close a node or tree; no verdict. Only the node's parent, the tree's origin or the human may close it; closing is not a send and does not pass the routing guardrail. |
 | `tree.status` | per-node turn state, next mover and stall counters |
 
-SSE events: one entity kind, `message`, whose value is the message row including `status`. `node.stalled` arrives with the broker in plan 2. Refusals reuse existing codes with `data.reason`: `not_allowed`/`msg_forbidden` (with `data.layer`), `too_large`/`msg_too_large`, `conflict`/`msg_cap_reached`, `conflict`/`msg_node_closed`, `conflict`/`msg_live_unavailable`.
+SSE events: one entity kind, `message`, whose value is the message row including `status`. `node.stalled` arrives with the broker in plan 2. Refusals reuse existing codes with `data.reason`: `not_allowed`/`msg_forbidden` (with `data.layer`), `too_large`/`msg_too_large`, `conflict`/`msg_cap_reached`, `conflict`/`msg_node_closed`, `conflict`/`msg_worktree_unavailable` (cleanup removed the worktree a settled task's next turn resumes in), `conflict`/`msg_live_unavailable`.
 
 ### CLI
 

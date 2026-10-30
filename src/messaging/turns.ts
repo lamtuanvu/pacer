@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { CoreError } from "../core/errors";
 import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
@@ -42,6 +43,15 @@ function turnRunner(ctx: Ctx, executor: string): Pick<ProviderCfg, "id" | "via">
   try { return loadStrategy(ctx).providers[executor] ?? { id: executor, via: null }; } catch { return { id: executor, via: null }; }
 }
 
+/** A message turn can run for this task: it ran locally through the direct backend with an executor that resumes or replays headless. */
+export function turnCapable(ctx: Ctx, t: TaskRecord): boolean {
+  const executor = sessionAgent(t);
+  return !!executor && !t.run?.host && !(t.result?.backend && t.result.backend !== "direct") && !!headlessTurnPath(turnRunner(ctx, executor));
+}
+
+/** The task worktree a message turn resumes in; the turn fails when it is gone. */
+export const turnWorktree = (t: TaskRecord): string | null => t.worktree ?? t.result?.worktree ?? null;
+
 /**
  * Begin a resume turn when the task is settled and has pending messages. A turn runs headless through the direct backend;
  * a runner that cannot do that leaves the messages pending. Managed work nodes read theirs with their grant (plan 1).
@@ -56,8 +66,7 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
     if (t.state === "queued" || t.state === "running") return "queued";
     if (!store.pendingFor(ctx, `task:${id}`).length) return "queued";
     const executor = sessionAgent(t);
-    if (!executor) return "no_session";
-    if (t.run?.host || (t.result?.backend && t.result.backend !== "direct") || !headlessTurnPath(turnRunner(ctx, executor))) return "no_session";
+    if (!executor || !turnCapable(ctx, t)) return "no_session";
     const root = rootOf(ctx, `task:${id}`);
     if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
     // The runner deletes run when the attempt starts, so the session to resume is captured now.
@@ -220,6 +229,12 @@ export function assertOpen(ctx: Ctx, to: string): void {
   const t = readTask(ctx, id);
   if (!t) throw new CoreError("not_found", `Unknown task ${id}`);
   if (isClosed(t)) throw new CoreError("conflict", `Task ${id} is closed for messages`, undefined, { reason: "msg_node_closed" });
+  // A settled task's next turn resumes in its worktree; once cleanup removed it, the message could never be delivered.
+  const wt = turnWorktree(t);
+  if (wt && !["queued", "running"].includes(t.state) && t.interactionMode !== "conversation" && !getWork(ctx, id) && turnCapable(ctx, t) && !existsSync(wt)) {
+    throw new CoreError("conflict", `Task ${id}'s worktree was cleaned up, so it cannot take another message turn`,
+      "Start a new task, or retry this one to restore its worktree from its branch.", { reason: "msg_worktree_unavailable" });
+  }
   if (t.interactionMode === "conversation" && participantKind(to) === "launched") {
     throw new CoreError("conflict", "Messages to live conversations arrive in a later release", undefined, { reason: "msg_live_unavailable" });
   }
