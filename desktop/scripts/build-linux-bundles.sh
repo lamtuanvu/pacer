@@ -29,6 +29,8 @@ done
 target=${3:-}
 smoke_home=$(mktemp -d)
 trap 'rm -rf "$smoke_home"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 version=${2:-$(HOME="$smoke_home" PACER_HOME="$smoke_home/.pacer" "$cli" --version | sed 's/^pacer //')}
 for payload in "$cli" "$core"; do
   got=$(HOME="$smoke_home" PACER_HOME="$smoke_home/.pacer" "$payload" --version)

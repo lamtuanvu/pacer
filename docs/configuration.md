@@ -126,11 +126,13 @@ then wait; running tasks are never stopped, paused or throttled. Remote hosts ke
 
 ```yaml
 execution:
+  auto_clean: true                   # clean settled task worktrees after review/dismiss/resolve, at service startup and hourly
   local_max_tasks: unlimited          # default; a whole number >= 1 sets a hard cap
   local_memory_pressure_limit: critical  # critical (default), warning or off
   local_load_limit: off               # default; or a 1-minute load average per CPU core, e.g. 3
 ```
 
+- `execution.auto_clean` defaults to `true`. Set it to `false` to disable lifecycle cleanup and the service’s startup/hourly sweep. Automatic cleanup never forces removal: dirty/shared worktrees, running tasks, unanswered questions and local branches stay. Transferred remote branch copies are removed. Lifecycle cleanup records kept-worktree reasons in task activity; startup and hourly sweeps retry quietly. Cleanup failures do not fail review or dismissal; unreachable remote hosts are retried later. Manual `pacer clean` remains available. Change this setting with `pacer config set execution.auto_clean false`.
 - `execution.local_max_tasks` is an optional hard cap shared by all local executors. Unset or
   `unlimited` means no fixed cap. A whole number of at least 1 caps local tasks; there is no upper
   ceiling, and existing numeric values keep their cap.

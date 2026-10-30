@@ -1,3 +1,4 @@
+import { autoCleanSweep } from "../core/tasks";
 import { backfillFirstSettled } from "../insights/summary";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
@@ -261,6 +262,18 @@ export function startServer(
       });
     }).catch(() => []).finally(() => { busy = false; refreshSnapshot(); });
   };
+  let cleaning = false;
+  const sweep = () => {
+    if (stopped || cleaning) return;
+    cleaning = true;
+    void Promise.resolve().then(async () => {
+      const ctx = getCtx();
+      await autoCleanSweep(ctx);
+    }).catch(error => console.warn(`pacer: automatic cleanup failed: ${String(error)}`))
+      .finally(() => { cleaning = false; });
+  };
+  const cleanStart = setTimeout(sweep, 0);
+  const cleanTimer = setInterval(sweep, 60 * 60_000);
   const retention = retentionScheduler();
   const prune = () => {
     if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
@@ -306,6 +319,8 @@ export function startServer(
     readCache.stop();
     unregisterJobs();
     stopped = true;
+    clearTimeout(cleanStart);
+    clearInterval(cleanTimer);
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);

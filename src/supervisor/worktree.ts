@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { type RepoInfo, realpathSafe } from "../core/git";
@@ -68,4 +69,22 @@ export async function resolveWorktreeBase(ctx: Ctx, top: string, brief: { base?:
   const sha = commit.stdout.trim();
   if (commit.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) return { error: `cannot resolve worktree base ${base}: ${firstLine(commit.stderr)}` };
   return { base, sha };
+}
+
+/** Restore a cleaned checkout from its retained branch; never create a replacement branch. */
+export async function restoreTaskWorktree(ctx: Ctx, repo: string, workdir: string, ownerId: string): Promise<{path?: string; missingBranch: boolean} | {error: string}> {
+  const tail = workdir.slice(taskWorktreesDir(ctx).length + 1).split("/");
+  if (!workdir.startsWith(taskWorktreesDir(ctx) + "/") || tail[1] !== ownerId || tail.some(p => !p || p === "." || p === "..")) {
+    return {error: "Task worktree is unavailable; restore it before retrying"};
+  }
+  const branch = `pacer/${ownerId}`;
+  const ref = await ctx.run(["git", "-C", repo, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
+  if (ref.code !== 0) return {missingBranch: true};
+  // A brief may target a subdirectory of the original checkout.
+  const path = join(taskWorktreesDir(ctx), tail[0]!, ownerId);
+  if (!existsSync(path)) {
+    const added = await ctx.run(["git", "-C", repo, "worktree", "add", "-q", path, branch], 60_000);
+    if (added.code !== 0) return {error: `cannot restore task worktree: ${firstLine(added.stderr)}`};
+  }
+  return {path: workdir, missingBranch: false};
 }

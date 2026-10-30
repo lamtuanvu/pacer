@@ -32,6 +32,8 @@ done
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 chmod +x "$appimage"
 offset=$("$appimage" --appimage-offset)
 case "$offset" in ''|*[!0-9]*) echo "repack-appimage: unexpected runtime offset: $offset" >&2; exit 1 ;; esac

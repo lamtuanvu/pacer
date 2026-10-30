@@ -24,7 +24,10 @@ async function raisedItems(ctx: Ctx) {
   return deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors)});
 }
 export async function dismiss(ctx: Ctx, id: string) {
-  return dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId)dismissTasks(ctx,[item.taskId]);});
+  let pending: ReturnType<typeof dismissTasks> | undefined;
+  const result = dismissItem(ctx,id,await raisedItems(ctx),item=>{if(item.taskId)pending=dismissTasks(ctx,[item.taskId]);});
+  await pending;
+  return result;
 }
 export async function snooze(ctx: Ctx, id: string, duration: "1h" | "4h" | "1d") {
   return snoozeItem(ctx,id,duration,await raisedItems(ctx));

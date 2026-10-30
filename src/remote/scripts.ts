@@ -106,7 +106,15 @@ D=$(cd "$(dirname "$D")" && pwd -P) || exit 1
 case "$D" in "$remote_home/.pacer-remote/runs/"*) ;; *) exit 1 ;; esac
 [ "$(basename "$D")" = "$task" ] && [ "$D" = "$runs/$task" ] || exit 1
 cd "$checkout" || exit 1
-if [ -d "$worktree" ]; then git worktree remove --force "$worktree" || exit 1; fi
+if [ -d "$worktree" ]; then
+  if [ "\${6:-}" = force ]; then
+    git worktree remove --force "$worktree" || exit 1
+  else
+    dirty=$(git -C "$worktree" status --porcelain) || exit 1
+    [ -z "$dirty" ] || { printf 'uncommitted changes; keeping remote worktree\\n' >&2; exit 1; }
+    git worktree remove "$worktree" || exit 1
+  fi
+fi
 rm -rf "$D" || exit 1
 if [ -n "$delete_branch" ] && git show-ref --verify --quiet "refs/heads/$delete_branch"; then
   git branch -D "$delete_branch" || exit 1

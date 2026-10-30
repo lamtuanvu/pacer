@@ -26,13 +26,14 @@ export interface ExecutionCfg {
   worktree: WorktreeMode;
   baseBranch: string | null;
   registerRepos?: boolean;
+  autoClean?: boolean;
   idleAfterS?: number;
   idleFailS?: number;
 }
 
-export const DEFAULT_EXECUTION: ExecutionCfg = { localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null };
+export const DEFAULT_EXECUTION: ExecutionCfg = { autoClean: true, localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
+const KEYS = ["auto_clean", "local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -91,6 +92,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
       baseBranch = b;
     }
   }
+  if (raw.auto_clean !== undefined && typeof raw.auto_clean !== "boolean") p.push("execution.auto_clean must be a boolean");
   const registerRepos=raw.registerRepos??raw.register_repos;
   if(registerRepos!==undefined&&typeof registerRepos!=="boolean")p.push("execution.registerRepos must be a boolean");
   const mins = (k: string): number | undefined => {
@@ -112,6 +114,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   }
   if (p.length) throw new ExecutionError(p);
   return {
+    autoClean: raw.auto_clean === undefined ? true : raw.auto_clean as boolean,
     ...(raw.launch_mode !== undefined ? {launchMode: raw.launch_mode as LaunchMode} : {}),
     ...(raw.session !== undefined ? {session: raw.session as "pty" | "pipe"} : {}),
     ...(raw.session_log_mb !== undefined ? {sessionLogMb: raw.session_log_mb as number} : {}),
