@@ -11,6 +11,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.
+
 - Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
 
 

@@ -9,7 +9,7 @@ browserTest('executor draft survives refresh, validates, saves once and preserve
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   expect(await page.getByRole('heading',{name:'Codex',level:2,exact:true}).count()).toBe(1);
-  const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
+  const input=page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   await input.fill('2');await page.getByRole('button',{name:'More actions for Claude Code · second',exact:true}).click();await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();
   expect(await page.evaluate(()=>(window as any).executorFixture.writes())).toBe(0);
   expect(await page.evaluate(()=>document.activeElement?.closest('[role=region]')?.textContent)).toContain('second');
@@ -35,17 +35,17 @@ browserTest('the Takes work switch saves immediately, stays busy and reverts on 
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  const toggle=page.getByRole('switch',{name:'Enable codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
+  const toggle=page.getByRole('switch',{name:'Enable Codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   expect(await toggle.isChecked()).toBe(true);
   await page.evaluate(()=>(window as any).executorFixture.holdSave());
   await toggle.click();
-  await page.waitForFunction(()=>document.querySelector('[role="switch"]')?.getAttribute('aria-busy')==='true');
+  await page.waitForFunction(()=>document.querySelector('.pc-immediate-save__control')?.getAttribute('aria-busy')==='true');
   expect(await toggle.isDisabled()).toBe(true);
   expect(await save.count()).toBe(0); // The inactive save bar stays hidden.
   expect(await page.evaluate(()=>(window as any).executorFixture.writes())).toBe(1);
   expect(await page.evaluate(()=>(window as any).executorFixture.settings().runners[0].enabled)).toBe(false);
   await page.evaluate(()=>(window as any).executorFixture.release());
-  await page.waitForFunction(()=>document.querySelector('[role="switch"]')?.getAttribute('aria-busy')==='false');
+  await page.waitForFunction(()=>document.querySelector('.pc-immediate-save__control')?.getAttribute('aria-busy')==='false');
   expect(await toggle.isChecked()).toBe(false);
   expect(await save.count()).toBe(0); // The inactive save bar stays hidden.
   await page.evaluate(()=>(window as any).executorFixture.fail(true));
@@ -63,7 +63,7 @@ browserTest('a delayed save acknowledgement cannot hide a newer client change',a
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
+  const input=page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   await input.fill('2');await page.evaluate(()=>(window as any).executorFixture.holdSave());await save.click();
   await page.waitForFunction(()=>(window as any).executorFixture.writes()===1);
   await page.evaluate(()=>(window as any).executorFixture.setLimit(5));
@@ -100,7 +100,7 @@ browserTest('save controls clear the narrow navigation and desktop actions stay 
   await page.evaluate(()=>document.body.classList.add('pc-app--narrow'));
   await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).fill('2');
+  await page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true}).fill('2');
   const bounds=await page.evaluate(()=>({save:document.querySelector('.u3-save-bar')!.getBoundingClientRect().bottom,nav:document.querySelector('.pc-bottom-bar')!.getBoundingClientRect().top}));
   expect(bounds.save).toBeLessThanOrEqual(bounds.nav);
   await page.setViewportSize({width:1440,height:1100});await page.evaluate(()=>{document.body.classList.remove('pc-app--narrow');document.querySelector('.pc-bottom-bar')!.remove();});
@@ -116,10 +116,10 @@ browserTest('Takes work preserves unsaved order and parallel tasks',async()=>{
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true});
+  const input=page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true});
   await input.fill('4');await page.getByRole('button',{name:'More actions for Claude Code · second',exact:true}).click();await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  await page.getByRole('switch',{name:'Enable codex',exact:true}).click();
-  await page.getByRole('status').filter({hasText:'Executor settings saved'}).first().waitFor();
+  await page.getByRole('switch',{name:'Enable Codex',exact:true}).click();
+  await page.getByRole('status').filter({hasText:'Saved'}).first().waitFor();
   expect(await input.inputValue()).toBe('4');
   expect(await page.locator('tbody tr').first().textContent()).toContain('second');
   expect(await page.evaluate(()=>(window as any).executorFixture.settings())).toEqual({revision:'2',order:['codex','claude-code#second'],runners:[{id:'codex',enabled:false,maxTasks:1},{id:'claude-code#second',enabled:true,maxTasks:1}]});
@@ -154,9 +154,9 @@ browserTest('Takes work conflict reloads saved settings and preserves page edits
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
-  const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),toggle=page.getByRole('switch',{name:'Enable codex',exact:true});
+  const input=page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true}),toggle=page.getByRole('switch',{name:'Enable Codex',exact:true});
   await input.fill('4');await page.evaluate(()=>(window as any).executorFixture.conflictNext());await toggle.click();
-  await page.locator('#executors [role="alert"]').filter({hasText:'Settings changed elsewhere'}).waitFor();
+  await page.locator('#executors [role="alert"]').filter({hasText:'This setting changed elsewhere'}).waitFor();
   await page.getByRole('button',{name:'Reload saved settings',exact:true}).waitFor();
   expect(await input.inputValue()).toBe('4');expect(await toggle.isChecked()).toBe(true);
   expect(await page.getByRole('button',{name:'Save changes',exact:true}).isDisabled()).toBe(true);
@@ -180,7 +180,7 @@ browserTest('Escape is scoped to details and its opener, preserves edits and ign
   const baseline=await page.evaluate(()=>(window as any).keydownListeners());
   const details=page.getByRole('button',{name:'More actions for Codex',exact:true}),panel=page.getByRole('region',{name:'Codex details',exact:true});
   await details.click();
-  const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true});
+  const input=page.getByRole('spinbutton',{name:'Parallel tasks for Codex',exact:true});
   await input.fill('4');await input.press('Escape');
   expect(await panel.count()).toBe(1);expect(await input.inputValue()).toBe('4');
   expect(await page.evaluate(()=>(window as any).executorFixture.shellEscapes())).toBe(0);
@@ -193,7 +193,7 @@ browserTest('Escape is scoped to details and its opener, preserves edits and ign
   expect(await details.evaluate(el=>el===document.activeElement)).toBe(true);
   expect(await page.evaluate(()=>(window as any).keydownListeners())).toBe(baseline);
   await details.click();expect(await input.inputValue()).toBe('4');
-  await page.getByRole('switch',{name:'Enable codex',exact:true}).press('Escape');await panel.waitFor({state:'detached'});
+  await page.getByRole('switch',{name:'Enable Codex',exact:true}).press('Escape');await panel.waitFor({state:'detached'});
   expect(await details.evaluate(el=>el===document.activeElement)).toBe(true);
   await details.click();
   await page.getByRole('button',{name:'Remove agent',exact:true}).click();
@@ -203,19 +203,21 @@ browserTest('Escape is scoped to details and its opener, preserves edits and ign
  } finally {await browser.close();}
 },20000);
 
-browserTest('a held Takes work failure is reported on the page after details close and can be dismissed',async()=>{
+browserTest('a held Takes work failure keeps details open until its inline rollback is visible',async()=>{
  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
   await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   await page.evaluate(()=>{(window as any).executorFixture.fail(true);(window as any).executorFixture.holdSave();});
-  await page.getByRole('switch',{name:'Enable codex',exact:true}).click();
+  await page.getByRole('switch',{name:'Enable Codex',exact:true}).click();
   await page.waitForFunction(()=>(window as any).executorFixture.writes()===1);
-  await page.getByRole('button',{name:'Close Codex details',exact:true}).click();
+  expect(await page.getByRole('button',{name:'Close Codex details',exact:true}).isDisabled()).toBe(true);
   await page.evaluate(()=>(window as any).executorFixture.release());
-  const alert=page.locator('#executors [role="alert"]').filter({hasText:'Could not change Takes work for Codex: Service unavailable'});
-  await alert.waitFor();expect(await page.getByRole('region',{name:'Codex details',exact:true}).count()).toBe(0);
-  await alert.getByRole('button',{name:'Dismiss',exact:true}).click();expect(await alert.count()).toBe(0);
+  const alert=page.getByRole('region',{name:'Codex details',exact:true}).getByRole('alert').filter({hasText:"Couldn't save"});
+  await alert.waitFor();
+  expect(await page.getByRole('switch',{name:'Enable Codex',exact:true}).isChecked()).toBe(true);
+  await page.getByRole('button',{name:'Close Codex details',exact:true}).click();
+  expect(await page.getByRole('region',{name:'Codex details',exact:true}).count()).toBe(0);
  } finally {await browser.close();}
 },20000);
