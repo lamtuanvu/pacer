@@ -23,6 +23,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Allow acceptance deadlines of 1–120 minutes via `acceptance_timeout_min` / `--acceptance-timeout-min` (default 10), preserve them on retry, and report acceptance timeouts explicitly with a hint to raise the deadline.
 
+- Keep task-page titles complete, expose Open workspace in every state, move copy-ID into the breadcrumb, and show a concise running summary without echoed executor instructions or machine paths.
+
 - Restore the Tasks board layout and selected-task card, preserve tablet titles, and keep search icons clear of their text. Show repository and branch identity in New task, enforce its 10 MB attachment limit, and align its split-work summary with submitted policy.
 
 - Match Dispatch, Needs you and Insights board spacing, typography, chart colours and mobile containment; retain complete path-safe task titles and readable budget status.

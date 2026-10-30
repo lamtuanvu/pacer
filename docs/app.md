@@ -11,6 +11,10 @@ Workspace (`#/workspace`) renders task cards from task history and the live
 snapshot. Selecting a task loads its details once; task events refresh those
 details after a short debounce. Open session panels retain their output stream.
 The task page (`#/tasks/<id>`) also follows events rather than polling task details.
+Task pages show the complete display title, with a copy-ID button in the breadcrumb.
+Open workspace is available in every state; ended sessions open read-only. Running
+cards name the agent and recorded phase and show up to two meaningful output lines,
+omitting echoed instructions and shortening home and temporary paths.
 The shared page-control worker checks for remote actions every ten seconds.
 
 ## Open the app

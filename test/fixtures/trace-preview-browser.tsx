@@ -12,7 +12,7 @@ const api = {async call(op:string) {
     if (settings.error) throw Error('unavailable');
     return {host:'builtin',attempt:1,cols:80,rows:24,live:true,capabilities:{snapshot:true},attach:{ws:'/raw-session'},...settings.session};
   }
-  if (op === 'task.log') return {stdout:settings.log ?? 'Headless output',stderr:''};
+  if (op === 'task.log') { if (settings.error) throw Error('unavailable'); return {stdout:settings.log ?? 'Headless output',stderr:''}; }
   throw Error(`Unexpected ${op}`);
 }};
 render(<TaskContext.Provider value={{api:api as any,state:initialState()}}><NowCard task={task as any} compact={settings.compact}/></TaskContext.Provider>, document.getElementById('app')!);

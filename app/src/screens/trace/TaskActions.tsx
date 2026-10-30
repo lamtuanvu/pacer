@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import type { TaskDetail } from '../../../../src/core/task-detail';
-import { Button, ButtonLink, IconButton } from '../../ds/Button';
+import { Button, ButtonLink } from '../../ds/Button';
 import { Field, TextArea } from '../../ds/Controls';
 import { Dialog } from '../../ds/Dialog';
 import { hrefFor, routes, type RouteQuery } from '../../router';
@@ -11,7 +11,7 @@ import { ErrorMessage, useQuery, useTaskContext } from '../task-shared';
 
 export function TaskActions({task:t,query,reload}:{task:TaskDetail;query:RouteQuery;reload:()=>void}) {
  const {state}=useTaskContext(),action=useResultAction();
- const [reject,setReject]=useState(false),[retry,setRetry]=useState(false),[note,setNote]=useState(''),[copied,setCopied]=useState(false);
+ const [reject,setReject]=useState(false),[retry,setRetry]=useState(false),[note,setNote]=useState('');
  const tree=useQuery<WorkResult>('dispatch.tree',{id:t.id});
  const session=useQuery<import('../../../../src/session/service').SessionInfo>('task.session',{id:t.id});
  const failed=t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state);
@@ -21,7 +21,7 @@ export function TaskActions({task:t,query,reload}:{task:TaskDetail;query:RouteQu
  const ready=!t.work||!!node&&tree.data!.nodes.filter(n=>n.parentId===t.id).every(n=>n.review?.accepted||node.waivedChildren.includes(n.taskId));
  const stop=state.snapshot?.attention?.filter(i=>i.taskId===t.id).flatMap(i=>i.actions).find(a=>a.op==='task.stop'||a.op==='dispatch.stop');
  const submit=(accept:boolean)=>void action.run(t.work?'dispatch.review':'task.review',t.work?{id:t.id,expect_rev:t.rev,accepted:accept,...(!accept?{note:note.trim()}:{})}:verdictParams(t,{verdict:accept?'accept':'reject',note}),()=>{setReject(false);reload();});
- return <><IconButton icon="notes" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/>{!active&&<ButtonLink href={hrefFor(routes.workspace(t.id))}>Open workspace</ButtonLink>}
+ return <><ButtonLink href={hrefFor(routes.workspace(t.id))}>Open workspace</ButtonLink>
  {active&&<><Button busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{(session.data?.takeover.available||session.data?.host==="builtin"&&session.data.live)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
  {reviewable&&<><Button onClick={()=>setReject(true)}>Reject</Button>{ready?<Button variant="primary" busy={action.busy} onClick={()=>submit(true)}>Accept result</Button>:<span className="pc-trace__cap">Review required child work before accepting.</span>}</>}
  {failed&&<>{stop&&<Button busy={action.busy} onClick={()=>void action.run(stop.op,{...stop.params,expect_rev:t.rev},reload)}>Stop task</Button>}<Button variant="primary" onClick={()=>setRetry(true)}>Retry</Button></>}
