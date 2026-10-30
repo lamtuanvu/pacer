@@ -9,6 +9,7 @@ import * as store from "../messaging/store";
 import { deliver, isClosed, readMessages } from "../messaging/turns";
 import { MSG_KINDS, participantSchema, type Message } from "../messaging/types";
 import { readTask, updateTask } from "../tasks/store";
+import { autoCleanTask } from "../tasks/cleanup";
 
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 const taskId = z.string().regex(/^t-\d{8}-\d{6}-[0-9a-f]{4}$/);
@@ -78,15 +79,17 @@ export const msgOps: Record<string, OpDef> = {
     },
   }),
   "msg.close": op({
-    description: "Close a task for further messages. Records no review verdict.",
+    description: "Close a task for further messages and release its worktree when it is otherwise cleanable. Records no review verdict.",
     params: z.object({ task: taskId }).strict(),
-    handler: (ctx, p, deps) => {
+    handler: async (ctx, p, deps) => {
       // Closing is not a send: only the node's parent, the tree's origin or the human may close it.
       const me = callerParticipant(ctx, deps).id, node = `task:${p.task}`;
       if (!readTask(ctx, p.task)) throw new CoreError("not_found", `Unknown participant ${node}`);
       if (me !== "human" && me !== parentOf(ctx, node) && me !== parentOf(ctx, rootOf(ctx, node)))
         throw new CoreError("not_allowed", `Only the parent of ${node}, its tree's origin or the human may close it`, undefined, { reason: "msg_forbidden", layer: "protocol" });
       const t = updateTask(ctx, p.task, x => { x.msgClosed = true; });
+      // A resolved task kept its worktree only for messages: release it now, as a verdict does. Best effort.
+      await autoCleanTask(ctx, t.id);
       return { task: t.id, closed: true };
     },
   }),

@@ -4670,7 +4670,7 @@ Params JSON Schema:
 
 ### `msg.close`
 
-Close a task for further messages. Records no review verdict.
+Close a task for further messages and release its worktree when it is otherwise cleanable. Records no review verdict.
 
 Params JSON Schema:
 

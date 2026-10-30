@@ -523,6 +523,16 @@ test("tasks that can never take a message turn are cleaned at once", async () =>
   }
 });
 
+test("msg close releases a resolved task's retained worktree at once", async () => {
+  const {ctx, t, w} = await resolvedOpen(1);
+  await tasks.autoCleanTask(ctx, t.id);
+  expect(existsSync(w.path)).toBe(true);
+  const {callOp} = await import("../src/api/ops");
+  expect(await callOp(ctx, "msg.close", {task: t.id}, {appAuthenticated: true})).toEqual({task: t.id, closed: true});
+  expect(existsSync(w.path)).toBe(false);
+  expect(readTask(ctx, t.id)!.msgClosed).toBe(true);
+});
+
 test("a send to a task whose worktree was cleaned is refused up front", async () => {
   const {ctx, t} = await resolvedOpen(1);
   const {sendMessage} = await import("../src/messaging/send");
