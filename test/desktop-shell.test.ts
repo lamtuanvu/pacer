@@ -58,7 +58,7 @@ function shell(search: string) {
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
 
-const TOKEN = "0123456789abcdef".repeat(4); // fixture value, not a credential
+const PAGE_NONCE = Array.from({ length: 64 }, (_, i) => (i % 16).toString(16)).join("");
 const inspection = {
   currentPath: "/tmp/pacer-fixture/a-rather-long-checkout-directory/.local/bin/pacer",
   currentVersion: "0.2.4", replacementPath: "/Applications/pacer.app/Contents/Resources/pacer",
@@ -89,7 +89,7 @@ test("takeover offer has its own heading, no spinner and a tray pointer", () => 
 
 test("takeover details are literal, fully readable and use one spelling for unknown values", () => {
   const page = shell("?state=takeover");
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   expect(page.element("#takeover-current").textContent).toBe(inspection.currentPath);
   // Paths may break only after each separator.
   expect(page.element("#takeover-current").breaks).toBe(inspection.currentPath.split("/").length - 1);
@@ -99,7 +99,7 @@ test("takeover details are literal, fully readable and use one spelling for unkn
   expect(segments.every((node: any) => node.className === "path-part")).toBe(true);
   // A service label breaks only after a dot, never inside its hash.
   const label = "com.pacer.live.83f409bc51037fedfe821ca66eec969d.service";
-  page.takeover({ inspection: { ...inspection, label }, progress: null, token: TOKEN });
+  page.takeover({ inspection: { ...inspection, label }, progress: null, token: PAGE_NONCE });
   expect(page.element("#takeover-label").textContent).toBe(label);
   expect(page.element("#takeover-label").breaks).toBe(4);
   expect(page.element("#takeover-label").children.filter((node: any) => node.tag === "span").map((node: any) => node.textContent))
@@ -110,11 +110,11 @@ test("takeover details are literal, fully readable and use one spelling for unkn
   expect(page.element("#takeover-port").textContent).toBe("4317");
   expect(page.element("#takeover-tasks").textContent).toBe("2");
   expect(page.element("#takeover-terminals").textContent).toBe("Unknown");
-  page.takeover({ inspection: null, progress: null, token: TOKEN });
+  page.takeover({ inspection: null, progress: null, token: PAGE_NONCE });
   for (const id of ["#takeover-current", "#takeover-version", "#takeover-port", "#takeover-tasks"]) expect(page.element(id).textContent).toBe("Unknown");
   expect(html).not.toMatch(/>unknown</);
   const path = '/tmp/<img src=x onerror="alert(1)">/pacer';
-  page.takeover({ inspection: { ...inspection, currentPath: path }, progress: null, token: TOKEN });
+  page.takeover({ inspection: { ...inspection, currentPath: path }, progress: null, token: PAGE_NONCE });
   expect(page.element("#takeover-current").textContent).toBe(path);
 });
 
@@ -131,13 +131,13 @@ test("takeover actions are buttons that navigate only with the injected single-u
   expect(page.element("#takeover-actions").hidden).toBe(true);
   page.element("#takeover-confirm").dispatch("click");
   expect(page.location.href).toBe(before);
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   expect(page.element("#takeover-actions").hidden).toBe(false);
   expect(page.element("#takeover-relink").checked).toBe(false);
   page.element("#takeover-relink").checked = true;
   page.wait(1000);
   page.element("#takeover-confirm").dispatch("click");
-  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=1&token=${TOKEN}`);
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=1&token=${PAGE_NONCE}`);
   // The token is used once, focus moves to the status and the choice is locked.
   expect(page.element("#takeover-actions").hidden).toBe(true);
   expect(page.element("#takeover-relink").disabled).toBe(true);
@@ -145,15 +145,15 @@ test("takeover actions are buttons that navigate only with the injected single-u
   page.location.href = before;
   page.element("#takeover-dismiss").dispatch("click");
   expect(page.location.href).toBe(before);
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   page.element("#takeover-dismiss").dispatch("click");
-  expect(page.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${PAGE_NONCE}`);
 });
 
 test("takeover confirm ignores clicks for a second after the offer appears or regains focus", () => {
   const page = shell("?state=takeover");
   const before = page.location.href;
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   // During the hold the button says it is unavailable, stays focusable and keeps its name.
   const confirm = page.element("#takeover-confirm");
   expect(confirm.getAttribute("aria-disabled")).toBe("true");
@@ -167,7 +167,7 @@ test("takeover confirm ignores clicks for a second after the offer appears or re
   // A periodic re-render with the same token keeps the page armed.
   page.wait(1);
   expect(confirm.getAttribute("aria-disabled")).toBeNull();
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   expect(confirm.getAttribute("aria-disabled")).toBeNull();
   // Regaining focus shows the hold again until it ends.
   page.windowEvent("focus");
@@ -177,12 +177,12 @@ test("takeover confirm ignores clicks for a second after the offer appears or re
   page.wait(1000);
   expect(confirm.getAttribute("aria-disabled")).toBeNull();
   page.element("#takeover-confirm").dispatch("click");
-  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=0&token=${TOKEN}`);
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=0&token=${PAGE_NONCE}`);
   // A new candidate brings a new token and a new delay.
   const next = shell("?state=takeover");
-  next.takeover({ inspection, progress: null, token: TOKEN });
+  next.takeover({ inspection, progress: null, token: PAGE_NONCE });
   next.wait(1000);
-  next.takeover({ inspection, progress: null, token: TOKEN.replace("0", "f") });
+  next.takeover({ inspection, progress: null, token: PAGE_NONCE.replace("0", "f") });
   next.element("#takeover-confirm").dispatch("click");
   expect(next.location.href).toBe("tauri://localhost/index.html?state=takeover");
   // Not now is never delayed.
@@ -192,7 +192,7 @@ test("takeover confirm ignores clicks for a second after the offer appears or re
 
 test("takeover progress is plain copy, keeps focus and re-enables the offer only after an error", () => {
   const page = shell("?state=takeover");
-  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.takeover({ inspection, progress: null, token: PAGE_NONCE });
   const copy = {
     prepared: "Checking the current service…", stopping: "Stopping the current service…",
     switched: "Starting the app's service…", verifying: "Checking the app's service…",
@@ -208,7 +208,7 @@ test("takeover progress is plain copy, keeps focus and re-enables the offer only
   expect(page.focused()).toBe(page.element("#takeover-progress"));
   page.takeover({ inspection, progress: { state: "committed", error: "relink" }, token: null });
   expect(page.element("#takeover-progress").textContent).toBe("The app's service is running, but the terminal command still runs the other build.");
-  page.takeover({ inspection, progress: { state: "error", error: null }, token: TOKEN });
+  page.takeover({ inspection, progress: { state: "error", error: null }, token: PAGE_NONCE });
   expect(page.element("#takeover-progress").textContent).toBe("The service wasn't replaced, and nothing was changed. You can try again.");
   expect(page.element("#takeover-actions").hidden).toBe(false);
   expect(page.element("#takeover-relink").disabled).toBe(false);
@@ -238,12 +238,12 @@ test("takeover outcomes explain reasons in plain copy and never show codes or up
   expect(restored.element("#takeover-restored-actions").hidden).toBe(true);
   // The note describes the button, so it appears only with it.
   expect(restored.element("#takeover-continue-note").hidden).toBe(true);
-  restored.takeover({ inspection: null, progress: null, token: TOKEN });
+  restored.takeover({ inspection: null, progress: null, token: PAGE_NONCE });
   expect(restored.element("#takeover-restored-actions").hidden).toBe(false);
   expect(restored.element("#takeover-continue-note").hidden).toBe(false);
   expect(html).toContain("Continuing hides this offer for this build of the current service.");
   restored.element("#takeover-continue").dispatch("click");
-  expect(restored.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
+  expect(restored.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${PAGE_NONCE}`);
 
   const failed = shell("?state=takeoverFailed");
   failed.render({ page: "takeoverFailed", error: "restore-registration:identity" });
