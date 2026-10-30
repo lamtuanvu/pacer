@@ -1,5 +1,6 @@
 import { parseDispatchConfig } from "./dispatch";
 import type { DispatchConfig } from "../dispatch/types";
+import { parseMessagingConfig, type MessagingConfig } from "../messaging/types";
 import { validateTerminalOpen } from "../session/targets";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -97,6 +98,7 @@ export interface Strategy {
   terminal?: {open:string};
   taskRetentionDays?: number;
   plugins?: PluginsCfg;
+  messaging?: MessagingConfig;
 }
 
 export class StrategyError extends Error {
@@ -276,10 +278,15 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   const plugins = parsePlugins(raw.plugins, p);
   let dispatch: DispatchConfig | undefined;
   try { dispatch = parseDispatchConfig(raw.dispatch); } catch (e) { p.push(e instanceof Error ? e.message : "invalid dispatch configuration"); }
+  let messaging: MessagingConfig | undefined;
+  if (raw.messaging !== undefined) {
+    try { messaging = parseMessagingConfig(raw.messaging); }
+    catch (e) { p.push(`messaging: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing, taskRetentionDays: taskRetentionDays as number,
-    plugins, ...(dispatch ? {dispatch} : {}),
+    plugins, ...(dispatch ? {dispatch} : {}), ...(messaging ? {messaging} : {}),
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
     ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),

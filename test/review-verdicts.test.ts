@@ -133,3 +133,11 @@ test("a send back whose retry cannot start records no verdict", async () => {
   expect(readTask(ctx, task.id)?.review).toBeUndefined();
   expect(readLabels(ctx).filter(l => l.type === "task_review")).toHaveLength(0);
 });
+
+test("a send-back retry of a human-started task keeps origin human", async () => {
+  const { ctx, task, delegate } = fixture();
+  updateTask(ctx, task.id, t => { t.origin = "human"; });
+  const inputs: DelegateInput[] = [];
+  await tasks.review({ ...ctx, env: {} }, task.id, { verdict: "send_back", note: "again" }, { delegate: (c, i) => { inputs.push(i); return delegate(c, i); } });
+  expect(inputs[0]?.origin).toBe("human");
+});

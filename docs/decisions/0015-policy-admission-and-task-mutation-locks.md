@@ -70,6 +70,26 @@ A policy may only restrict. The maintainer confirmed this rule on 2026-10-30:
 
 `plugins.policy.mode` sets the failure behavior. In `closed` mode, an unavailable, ungranted or failing policy plugin refuses or holds the action with a visible diagnostic. In `open` mode the action proceeds, and each ignored failure writes a `policy` warning with the plugin id and reason.
 
+## Message continuation turns
+
+A message turn that continues a settled task (a message, an answer or a send-back
+note) is a new attempt for policy. Before the turn is queued, it passes the
+`delegate` decision for the task's brief, kind, placement and prior executor, then
+the `route` decision over the local executors that can run a headless turn, prior
+executor first. Amendments that would change the continuing task's kind or
+placement are rejected. The task lock rechecks both receipts when the turn is
+queued, and the runner applies its own route admission at launch.
+
+- The prior executor still admitted: it resumes its native session.
+- The prior executor excluded: the first admitted executor replays the thread in
+  a fresh session.
+- A veto, or no admitted executor: the turn is held like a vetoed queued task.
+  The task keeps its settled state and result, the messages stay pending, the
+  task activity records the reason, the sender gets `delivery: "held"` with
+  `hold { reason, plugin? }`, and each sender receives a `[held]` report with the
+  reason. The next delivery admits again. `task.answer` and `send_back` instead
+  fall back to their retry, which is admitted or refused as a new delegation.
+
 ## Limits and validation
 
 Task locks serialize Pacer writers; they do not freeze the repository namespace

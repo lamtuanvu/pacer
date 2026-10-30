@@ -5,6 +5,7 @@ import { callOp } from "../api/ops";
 import { liveSnapshot } from "../api/events";
 import { helloBody } from "../api/protocol";
 import { emptySnapshot } from "../link/envelope";
+import { localHuman } from "../messaging/participants";
 import type { Ctx } from "../types";
 
 /** The dashboard consumes v3; the shared legacy clients retain their v2 contract. */
@@ -23,7 +24,7 @@ export async function dashboardClient(ctx:Ctx, local=false):Promise<ApiClient> {
   kind:legacy.kind,
   hello:()=>remote?request("hello"):Promise.resolve(helloBody()),
   snapshot:async()=>{const result=remote?await request("snapshot"):await liveSnapshot(fresh());return {...result,snapshot:{...emptySnapshot(),...result.snapshot}};},
-  call:async<T>(op:string,params?:unknown):Promise<T>=>remote?(await request(`ops/${encodeURIComponent(op)}`,params??{})).result:callOp(fresh(),op,params??{}) as Promise<T>,
+  call:async<T>(op:string,params?:unknown):Promise<T>=>remote?(await request(`ops/${encodeURIComponent(op)}`,params??{})).result:callOp(fresh(),op,params??{},{participant:localHuman(ctx)}) as Promise<T>,
   // Refreshes are also polled; legacy events remain useful wake-ups during the overlap.
   subscribe:(_since,onEvent)=>legacy.subscribe(0,onEvent),
   close(){controller.abort();legacy.close();}

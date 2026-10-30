@@ -39,7 +39,7 @@ ${budget}
 
 Use the installed \`pacer\` skill for CLI routing, brief files, waiting and review.
 Run \`pacer route <kind> --json\`, then \`pacer delegate --brief-file <path|-> --json\`.
-Review the diff and run acceptance before \`pacer review <id> --accept|--reject\`.
+Review the diff and run acceptance before \`pacer review <id> --accept|--reject\`. Use \`pacer msg send <id> "…"\` for follow-ups; it continues the same agent and worktree.
 
 ## Subagents
 

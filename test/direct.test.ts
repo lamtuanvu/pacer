@@ -221,3 +221,46 @@ test("interactive Codex refuses a runner without per-run hook support", async ()
   expect(out.report).toContain("per-run hook overrides");
   expect(readTask(ctx, task.id)?.run).toBeUndefined();
 });
+
+const PLANNER_ENV = {
+  CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "planner-sid", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_ENTRYPOINT: "cli",
+  CLAUDE_CODE_SESSION_ATTENDED: "1", CODEX_THREAD_ID: "thread-1", CODEX_SANDBOX: "seatbelt", CODEX_SANDBOX_NETWORK_DISABLED: "1",
+  PACER_PLANNER_SESSION: "planner-key",
+};
+
+test("executorEnv strips the planner's session variables and keeps user configuration", async () => {
+  const { executorEnv } = await import("../src/exec/process");
+  const env = executorEnv({ ...PLANNER_ENV, PATH: "/bin", CLAUDE_CODE_USE_BEDROCK: "1", CODEX_API_KEY: "k" }, {}, "t-1");
+  for (const k of Object.keys(PLANNER_ENV)) expect(env[k]).toBeUndefined();
+  expect(env).toMatchObject({ PATH: "/bin", CLAUDE_CODE_USE_BEDROCK: "1", CODEX_API_KEY: "k", PACER_ROLE: "executor", PACER_TASK_ID: "t-1" });
+});
+
+test("a fake claude launched by pacer sees none of the planner's session variables", async () => {
+  const { ctx, task } = await setup("claude", 'env > "$(dirname "$0")/env.txt"; echo \'{"type":"result","result":"OK"}\'');
+  const bin = (ctx.env.PATH as string).split(":")[0]!;
+  const o = await runAttempt({ ...ctx, env: { ...ctx.env, ...PLANNER_ENV } }, s.providers["claude-code"], task);
+  expect(o.exec.code).toBe(0);
+  const names = readFileSync(join(bin, "env.txt"), "utf8").split("\n").map(l => l.split("=")[0]);
+  for (const k of Object.keys(PLANNER_ENV)) expect(names).not.toContain(k);
+  expect(names).toContain("PACER_TASK_ID");
+});
+
+test.skipIf(!canInspectProcesses)("a fake interactive run that asked a question and ended its turn is stopped, not left idle", async () => {
+  const { resumeAttempt } = await import("../src/exec/direct");
+  const { startRun } = await import("../src/supervisor/run");
+  const { ctx, task } = await setup("codex", "exit 0");
+  const dir = tmpDir(), startedAt = Date.now() / 1000;
+  const started = startRun({ dir, argv: ["sleep", "60"], cwd: tmpDir(), env: { PATH: process.env.PATH } });
+  expect("pid" in started).toBe(true);
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "turn-ended", summary: "Agent finished its turn", source: "agent", at: startedAt + 1 }));
+  const run = { dir, attempt: 1, executor: "codex", startedAt, mode: "current" as const, workdir: task.brief.repo, logFile: join(dir, "log") };
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; t.attemptStartedAt = startedAt; t.question = { text: "Which table?", at: startedAt + 0.5 }; });
+  const t0 = Date.now();
+  const out = await resumeAttempt(ctx, s.providers.codex, readTask(ctx, task.id)!);
+  expect(Date.now() - t0).toBeLessThan(15_000);
+  expect(out.exec.timedOut).toBe(false);
+  expect(out.report).toContain("Which table?");
+  const { readRun } = await import("../src/supervisor/run");
+  expect(readRun(dir).alive).toBe(false);
+}, 30_000);
