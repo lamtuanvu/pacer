@@ -1,3 +1,4 @@
+import { accountUsageCapability } from "./account-usage-check";
 import { accountEvidenceScope, retireEvidence } from "./evidence";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
@@ -13,6 +14,7 @@ import { accountAuthFailure } from "../usage/auth";
 import { accountSignIn } from "../usage/signin";
 import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
+import { markFreshness } from "../usage/freshness";
 import { CoreError, toCoreError } from "./errors";
 import { writeEndpointConfig } from "../plugins/endpoint-adapter";
 import { appendActivity } from "../activity/log";
@@ -102,14 +104,14 @@ export async function list(ctx: Ctx) {
     const runners = Object.values(s.runners).filter(r=>r.account===a.name);
     const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
     const folder = accountFolder(ctx,a);
-    const usageReading = await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts);
+    const usageReading = markFreshness(await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts), ctx.now);
     // Keep listing order stable when declarations precede inferred runners.
     return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
       ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
       signedIn: (runners.length && runners.every(r => r.host !== null)
         ? accountAuthFailure(ctx, accountEvidenceScope(a, s.hosts)) ? false : null
         : accountSignIn(ctx, a, accountEvidenceScope(a, s.hosts)).signedIn) ?? (identity ? true : null),
-      runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
+      usageCheck: accountUsageCapability(a), runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
   }));
   return rows.map(row => {
     const native = row.kind === "claude" || row.kind === "codex";

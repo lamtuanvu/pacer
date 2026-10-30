@@ -95,7 +95,7 @@ test("failed refresh of uncapped spend retains its historical label and observat
   expect(row.spendUsdWeek).toBe(46);
   expect(row.stale).toBe(true);
   expect(accountUsageFreshness(row)).toBe("Reading 2m old");
-  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · refresh to use");
+  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · check account usage");
   expect(st.providers[1]!.eligibility?.state).toBe("uncertain");
 });
 

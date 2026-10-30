@@ -69,6 +69,7 @@ function plainProgressLabel(value: string): string {
   return words ? words[0]!.toUpperCase() + words.slice(1) : 'Unknown';
 }
 export function jobKindCopy(kind: string): string {
+  if (kind === "account.usage.check") return "Account usage";
   const labels: Record<string, string> = {
     'host.check': 'Host connection check',
     'runner.check': 'Executor check',

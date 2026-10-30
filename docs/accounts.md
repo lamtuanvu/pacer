@@ -120,8 +120,7 @@ OpenCode quota accounts for `coding-plan`, `byteplus-coding-plan` and
 no explicit usage source also select that reader when loaded; no re-add is needed.
 ArkCLI must be installed and signed in to the matching plan account.
 If Settings › Accounts reports an Ark CLI sign-in error, run `arkcli auth login`
-in a terminal and complete BytePlus sign-in in the browser. Then choose **Refresh
-usage** for that account. An expired Ark CLI login does not mean the plan
+in a terminal and complete BytePlus sign-in in the browser. Then choose **Check usage** for that account. An expired Ark CLI login does not mean the plan
 subscription is missing, and OpenCode's provider sign-in is separate.
 
 ### Endpoints at your own URL
@@ -265,6 +264,52 @@ pacer account rm acme
 Account JSON includes kind, source, folder or Orca id, usage settings and
 `usageReading`, runner ids, `runnable`, and `signedIn`. Runner JSON includes id,
 agent, account, host and model.
+
+### Check account usage
+
+Open **Settings › Agents › Accounts** and choose **Check usage** beside an
+account. The planner card links to these controls. Checks belong to accounts,
+so a planner account and an account without an executor can both be checked.
+Sign-in and usage freshness are separate facts: the quota column shows when
+the provider observation was captured and whether it is historical. Quota, reset
+and observation time come from the same reading, even while data updates.
+
+Claude asks for confirmation before **Run usage check**. This starts one small,
+bounded Claude Code turn using the selected account’s subscription quota or
+paid usage. It disables tools, external MCP configuration and session
+persistence, uses a disposable directory, and captures Claude’s public quota
+telemetry. Inherited API keys, bearer tokens, cloud-provider selection and routing
+overrides are excluded so they cannot bill another account. An unavailable
+account folder refuses the check instead of selecting another login. Normal
+endpoint executor authentication is unchanged. pacer does not read credentials,
+install hooks, or create an executor.
+A successful process without new complete quota telemetry fails the check and
+preserves the previous observation. No background refresh starts a paid turn.
+
+Codex reads its available provider source and newest session logs. BytePlus
+and metered sources use their existing usage readers; BytePlus authentication
+errors include Ark CLI sign-in guidance. An unchanged reading explicitly says
+**Reading unchanged**; details explain that no new usage observation was received.
+It is never reported as newly refreshed. Reactive
+accounts explain that only limit hits are observable. Unmetered accounts show
+that there is no quota to check and offer no quota action.
+
+Progress and results appear as concise text beside the account, without duplicate
+completion toasts. Open **Usage check details** for provider guidance, source errors
+and technical diagnostics; these details stay collapsed until opened.
+Concurrent checks of the same
+account share the running job. After a failure, choose **Check usage** again to
+retry. CLI and API clients can use the v3 `account.usage.check` operation with
+`account` and, for Claude, `consent: true`, then poll `job.get`. For example:
+
+```sh
+pacer api call account.usage.check --params '{"account":"work","consent":true}' --json
+pacer api call job.get --params '{"id":"<returned-job-id>"}' --json
+```
+
+Account JSON also includes `usageCheck` (`action`, `consentRequired`, and a
+provider limitation description). `limits.refresh` remains a passive refresh
+operation and never supplies consent for a Claude task.
 
 Claude executor checks collect quota windows from Claude Code's own structured
 test-task output into that account's usage cache. This works for default,
