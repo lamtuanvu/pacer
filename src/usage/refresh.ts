@@ -34,7 +34,7 @@ export function refreshAccountUsage(ctx: Ctx, name: string, automatic = false): 
     automaticAt.set(key, ctx.now);
     const current = await readAccountUsage(ctx, account, runners, true, false, strategy.hosts);
     return result(name, capability, current, current.error && capability !== "passive-log" ? "failed"
-      : current.capturedAt !== null && current.capturedAt > (prior.capturedAt ?? -Infinity) ? "updated" : "unchanged");
+      : !current.stale && current.capturedAt !== null && current.capturedAt > (prior.capturedAt ?? -Infinity) ? "updated" : "unchanged");
   })().finally(() => { pending.delete(key); });
   pending.set(key, job);
   return job;

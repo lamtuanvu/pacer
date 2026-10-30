@@ -711,6 +711,33 @@ Params JSON Schema:
 }
 ```
 
+### `account.usage.check`
+
+Check usage for an account independently of its planner or executor role. Claude requires explicit consent for a quota-consuming small task; poll job.get for progress and observation outcome.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "consent": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "account"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `activity.list`
 
 Activity log, newest first, with optional repo, kind and task filters.
