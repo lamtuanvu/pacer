@@ -13,3 +13,15 @@ test("a close event drains buffered SSH stdout before reporting EOF", async () =
   expect(await readDuplexChunk(stream, 65_536, new AbortController().signal))
     .toEqual({ base64: "", eof: true });
 });
+
+test("a retained stream reports EOF that arrives while no read is pending", async () => {
+  const stream = new Readable({ read() {} });
+  stream.on("readable", () => {}); // The broker retains output between reads.
+  stream.push(Buffer.from("body"));
+  expect(await readDuplexChunk(stream, 65_536, new AbortController().signal))
+    .toEqual({ base64: Buffer.from("body").toString("base64"), eof: false });
+  stream.push(null);
+  await Bun.sleep(10);
+  expect(await readDuplexChunk(stream, 65_536, new AbortController().signal, 1000))
+    .toEqual({ base64: "", eof: true });
+});

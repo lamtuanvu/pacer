@@ -46,6 +46,9 @@ export function consumeDuplexInputReceipt(authority: CallAuthority, seq: number)
   issuedInputs.delete(authority);
 }
 
+// Child exit resumes stdio without a readable listener, discarding output the plugin has not read yet.
+const retainOutput = () => {};
+
 function terminate(connection: Connection): void {
   const child = connection.child;
   if (connection.fullyClosed || !child.pid) return;
@@ -56,6 +59,8 @@ function terminate(connection: Connection): void {
 function close(authority: CallAuthority, connection: Connection, graceful = false): Promise<{ ok: true; code: number | null; signal: string | null; terminated: boolean }> {
   if (connection.closing) return connection.closing;
   connection.closed = true;
+  // No read follows close; discard retained output so stdout can end and the child can close.
+  connection.child.stdout.off("readable", retainOutput).resume();
   connection.closing = (async () => {
     if (graceful && !connection.fullyClosed) {
       let wait: ReturnType<typeof setTimeout> | undefined;
@@ -178,6 +183,7 @@ export async function answerDuplex(authority: CallAuthority, declaredScopes: rea
     try { child = spawn(pin.executable, argv.slice(1), { env: pin.env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] }); }
     catch (error) { pin.release(); throw error; }
     child.stderr.resume(); // Never retain session or SSH diagnostic bytes.
+    child.stdout.on("readable", retainOutput);
     child.stdin.on("error", () => {}); // The write callback reports failure; keep late EPIPE contained.
     const connection: Connection = { handle: randomUUID(), child, exited: Promise.resolve(), release: pin.release,
       detach: () => {}, onExit: () => {}, reading: false, writing: false, closed: false,

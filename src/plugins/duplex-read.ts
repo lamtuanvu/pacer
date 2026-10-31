@@ -11,7 +11,8 @@ export function readDuplexChunk(stream: Readable, length: number, signal: AbortS
     const cancelled = () => { cleanup(); reject(signal.reason); };
     const takeAvailable = () => {
       const available = Math.min(length, stream.readableLength);
-      if (available <= 0) return false;
+      // A zero-length read lets a drained stream that already saw EOF emit end.
+      if (available <= 0) { stream.read(0); return false; }
       const bytes = stream.read(available) as Buffer | null;
       if (!bytes) return false;
       done({ base64: bytes.toString("base64"), eof: false });
