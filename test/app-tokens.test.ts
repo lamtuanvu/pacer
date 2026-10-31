@@ -115,3 +115,10 @@ test("a provisional type style the design system now has is rejected", () => {
   const merged = mergeTokens(tokens, { type: { styles: [{ ...known, name: "count-badge-test", provisional: "x" }] } });
   expect(generateTokensCss(merged)).toContain("--type-count-badge-test-size:");
 });
+
+test("command menu elevation stays dark in both themes", () => {
+  const shadow = tokens.shadow.tokens.find(token => token.name === "shadow-command");
+  expect(shadow?.value).toBe("0 24px 64px -12px rgb(0 0 0 / .4), 0 2px 6px rgb(0 0 0 / .12)");
+  const rule = read("components.css").match(/\.pc-command\{[^}]+\}/)?.[0];
+  expect(rule).toContain("box-shadow:var(--shadow-command)");
+});

@@ -57,6 +57,7 @@ test.skipIf(!login || !process.env.PACER_TEST_BROWSER)("frame fidelity controls 
       await page.locator(".pc-command__input").fill(">pa");
       await page.getByRole("group",{name:"Dispatcher",exact:true}).waitFor();
       expect(await page.getByRole("group",{name:"Dispatcher",exact:true}).locator(".pc-command__label").allTextContents()).toEqual(["Pause dispatch","Switch saved setup…","Budget & pacing"]);
+      expect(await style(page,".pc-command","box-shadow")).toBe("rgba(0, 0, 0, 0.4) 0px 24px 64px -12px, rgba(0, 0, 0, 0.12) 0px 2px 6px 0px");
       expect(await style(page,".pc-command__search","box-shadow")).toBe("none");
       expect(await style(page,".pc-command__input","outline-style")).toBe("solid");
       expect(await style(page,".pc-command__scope[aria-selected=true] .pc-command__count","opacity")).toBe("0.75");

@@ -1,6 +1,6 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
 import { afterAll } from "bun:test";
-import { rmSync, realpathSync } from "node:fs";
+import { rmSync, realpathSync, mkdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
 import { cleanupTestTmp } from "./helpers";
@@ -33,6 +33,10 @@ process.env.CARGO_HOME ??= join(toolchainHome, ".cargo");
 process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
 sweepTestRoots();
 const isolatedHome = createTestRoot("pacer-test-home-");
+// Contain raw os.tmpdir()/mkdtemp allocations as well as helper-managed fixtures.
+const isolatedTmp = join(isolatedHome, "tmp");
+mkdirSync(isolatedTmp, { mode: 0o700 });
+for (const key of ["TMPDIR", "TMP", "TEMP"]) process.env[key] = isolatedTmp;
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 delete process.env.PACER_ROLE;
