@@ -5,13 +5,17 @@ import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
+import { getLiveness } from "../../messaging/liveness-store";
+import { parentOf } from "../../messaging/participants";
 import type { ApiTask } from "./types";
 
 type UnreadCounts = ReturnType<typeof unreadCounts>;
 export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts): ApiTask {
  const unread=(counts??unreadCounts(ctx,"human",[t.id])).get(t.id);
+ const own=getLiveness(ctx,`task:${t.id}`), parent=parentOf(ctx,`task:${t.id}`), parentRow=parent?getLiveness(ctx,parent):null;
+ const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt?parentRow:null;
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
- return {...taskData(t),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
+ return {...taskData(t),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
@@ -19,6 +23,25 @@ export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  const labels=labelsFor([...listRepos({...ctx,readOnly:true},repos),...repos]);
  const counts=unreadCounts(ctx,"human",records.map(t=>t.id));
  return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts));
+}
+/** Preserve task.list's per-task label scope, sharing registry reads and label work. */
+export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
+ if (!records.length) return [];
+ const registered = listRepos({...ctx,readOnly:true});
+ const counts = unreadCounts(ctx,"human",records.map(t=>t.id));
+ const labels = new Map<string, Map<string,string>>();
+ const legacyRepos = new Map<string, ApiTask["repo"]>();
+ return records.map(t => {
+  let repo = t.repo ?? legacyRepos.get(t.brief.repo);
+  if (!repo) {
+   repo = registeredRepo(ctx,t.brief.repo) ?? {...repoFor(ctx,t.brief.repo),identityUnverified:true as const};
+   legacyRepos.set(t.brief.repo,repo);
+  }
+  const key = JSON.stringify([repo.key,repo.path]);
+  let names = labels.get(key);
+  if (!names) { names = labelsFor([...registered,repo]); labels.set(key,names); }
+  return apiTask(ctx,{...t,repo},names,counts);
+ });
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));

@@ -36,8 +36,8 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  // The Tasks, Dispatch, Dispatcher, app-frame chrome, command menu, file viewer, session, Insights, failure, Answer and activity bar board values, until the design system carries them. Each entry names its board.
-  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "shadow-tray-menu-tint", "answer-scrim", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-4", "radius-5", "radius-2", "radius-7", "radius-key", "radius-tile", "radius-agents", "radius-machine-tile", "radius-answer-chip", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-10.5", "size-12.5", "size-440", "size-72", "size-220", "size-140", "size-110", "size-9", "size-236", "size-76", "size-90", "size-860", "size-400", "size-150", "size-130", "size-160", "button-control", "switch-track-width", "switch-track-height", "shadow-tray-menu", "shadow-agent-failure", "shadow-choice-selected", "shadow-answer", "count-badge", "match-strong", "session-title", "plugin-section", "tray-count", "composer-agent", "composer-request", "sheet-title", "sheet-body", "failure-output"]);
+  // The Tasks, Dispatch, Dispatcher, app-frame chrome, command menu, file viewer, session, Insights, failure, Answer, Loading and activity bar board values, until the design system carries them. Each entry names its board.
+  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "shadow-tray-menu-tint", "answer-scrim", "assistant-violet", "assistant-cyan", "assistant-blue", "aurora-gradient-1", "aurora-gradient-2", "aurora-gradient-3", "aurora-blob-1", "aurora-blob-2", "aurora-blob-3", "assistant-avatar", "board-chart-1", "board-chart-2", "board-chart-3", "board-chart-4", "board-chart-5", "board-on-series", "terminal-background", "terminal-foreground", "terminal-selection", "terminal-black", "terminal-red", "terminal-green", "terminal-yellow", "terminal-blue", "terminal-magenta", "terminal-cyan", "terminal-white", "terminal-bright-black", "terminal-bright-red", "terminal-bright-green", "terminal-bright-yellow", "terminal-bright-blue", "terminal-bright-magenta", "terminal-bright-cyan", "terminal-bright-white", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-4", "radius-5", "radius-2", "radius-7", "radius-key", "radius-tile", "radius-agents", "radius-machine-tile", "radius-answer-chip", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-10.5", "size-12.5", "size-440", "size-72", "size-220", "size-140", "size-110", "size-9", "size-236", "size-76", "size-90", "size-860", "size-400", "size-150", "size-130", "size-160", "button-control", "switch-track-width", "switch-track-height", "size-17", "shadow-tray-menu", "shadow-agent-failure", "shadow-choice-selected", "shadow-answer", "motion-skeleton", "motion-aurora-shift", "motion-aurora-breathe", "motion-aurora-first", "motion-aurora-middle", "motion-aurora-last", "count-badge", "match-strong", "session-title", "plugin-section", "tray-count", "composer-agent", "composer-request", "sheet-title", "sheet-body", "failure-output", "task-child"]);
   expect(entries.every(entry => entry.provisional.length > 20)).toBe(true);
 });
 
@@ -114,4 +114,11 @@ test("a provisional type style the design system now has is rejected", () => {
   expect(() => mergeTokens(tokens, { type: { styles: [style] } })).toThrow(`type-${known.name} is now in the design system`);
   const merged = mergeTokens(tokens, { type: { styles: [{ ...known, name: "count-badge-test", provisional: "x" }] } });
   expect(generateTokensCss(merged)).toContain("--type-count-badge-test-size:");
+});
+
+test("command menu elevation stays dark in both themes", () => {
+  const shadow = tokens.shadow.tokens.find(token => token.name === "shadow-command");
+  expect(shadow?.value).toBe("0 24px 64px -12px rgb(0 0 0 / .4), 0 2px 6px rgb(0 0 0 / .12)");
+  const rule = read("components.css").match(/\.pc-command\{[^}]+\}/)?.[0];
+  expect(rule).toContain("box-shadow:var(--shadow-command)");
 });

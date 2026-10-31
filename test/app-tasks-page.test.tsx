@@ -57,7 +57,7 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
     await rootSelection.hover();
     expect(await rootSelection.evaluate(node => {
-      const sample = document.createElement('span'); sample.style.background = 'transparent'; node.append(sample);
+      const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
       const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
     })).toBe(true);
     await page.getByRole('button', { name: /^2 subtasks of/ }).click();
@@ -67,10 +67,10 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     await page.getByRole('link', { name: /Capture screenshots/ }).focus();
     await aside.getByText(/^Subtask 2 of 2 ·/).waitFor();
     const childSelection = page.locator('.pc-task-card__child--selected');
-    expect(await childSelection.locator('.pc-task-card__child-title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
+    expect(await childSelection.locator('.pc-task-card__child-title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('650');
     await childSelection.hover();
     expect(await childSelection.evaluate(node => {
-      const sample = document.createElement('span'); sample.style.background = 'var(--surface-lane)'; node.append(sample);
+      const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
       const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
     })).toBe(true);
     expect(await aside.getByRole('link', { name: 'Fix the retry bug' }).count()).toBe(1);
@@ -99,7 +99,7 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
   expect(loaded).toContain('1 root task this week · 0 subtasks');
   for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
   expect(loaded).toContain('Showing 1 of 1 root tasks');
-  expect(html(undefined)).toContain('Loading tasks…');
+  expect(html(undefined)).not.toContain('Loading tasks…');
   expect(html([])).toContain('No tasks yet.');
 });
 
@@ -113,8 +113,8 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
     expect(await title.textContent()).toBe('Fix the retry bug');
     expect(await aside.getByText(/Delegated by Codex via pacer delegate/).count()).toBe(1);
     expect(await title.evaluate(node => getComputedStyle(node).fontWeight)).toBe('700');
-    expect(await aside.getByRole('link', { name: 'Open session' }).evaluate(node => node.getBoundingClientRect().height)).toBe(32);
-    expect(await aside.getByRole('link', { name: 'Dispatch trace' }).getAttribute('href')).toBe('#/tasks/t-1/trace');
+    expect(await aside.getByRole('link', { name: 'Open workspace' }).evaluate(node => node.getBoundingClientRect().height)).toBe(32);
+    expect(await aside.getByRole('link', { name: 'Open task page' }).getAttribute('href')).toBe('#/tasks/t-1');
     expect(await title.getAttribute('title')).toContain('Full brief');
     expect(await title.evaluate(node => ({ whiteSpace: getComputedStyle(node).whiteSpace, overflow: getComputedStyle(node).textOverflow, height: node.getBoundingClientRect().height }))).toEqual({ whiteSpace: 'nowrap', overflow: 'ellipsis', height: 19 });
     expect(await aside.locator('.pc-task-aside__caption').first().textContent()).toBe('Root task · Codex · 12m · 214k tokens');
@@ -155,10 +155,64 @@ browserTest('board_row_geometry_and_state_tokens_match_at_both_desktop_sizes_and
       await aside.getByText(/^Subtask 2 of 2 ·/).waitFor();
       const selected = page.locator('.pc-task-card__child--selected');
       expect(await selected.evaluate(node => {
-        const sample = document.createElement('span'); sample.style.background = 'var(--surface-lane)'; node.append(sample);
+        const sample = document.createElement('span'); sample.style.background = 'var(--surface-page)'; node.append(sample);
         const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches;
       })).toBe(true);
       if (process.env.PACER_DESIGN_EVIDENCE) await page.screenshot({ path: `${process.env.PACER_DESIGN_EVIDENCE}/fixture-${width}-${theme}.png` });
     }
   } finally { await page.close(); }
 }, 30_000);
+
+browserTest('tablet_keeps_titles_readable_and_search_adornment_in_flow', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const width of [1440, 768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(server.url.toString());
+      const geometry = await page.evaluate(() => {
+        const title = document.querySelector('.pc-task-card__title')!.getBoundingClientRect();
+        const input = document.querySelector('.pc-search-input input')!.getBoundingClientRect();
+        const icon = document.querySelector('.pc-search-input svg')!.getBoundingClientRect();
+        return { title: title.width, gap: input.left - icon.right, overflow: document.documentElement.scrollWidth > innerWidth };
+      });
+      expect(geometry.title).toBeGreaterThan(100);
+      expect(geometry.gap).toBe(8);
+      expect(geometry.overflow).toBe(false);
+    }
+  } finally { await page.close(); }
+});
+
+browserTest('state_tabs_have_board_dots_and_selected_root_titles_keep_board_weight', async () => {
+  const page = await browser.newPage({viewport: {width: 1440, height: 900}});
+  try {
+    await page.goto(server.url.toString());
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      if (process.env.PACER_LAYOUT_EVIDENCE) await page.screenshot({path: `${process.env.PACER_LAYOUT_EVIDENCE}/tasks-board-${theme}.png`});
+      const stoppedDot = page.getByRole('tab', {name: /^Stopped/}).locator('.pc-tasks-page__dot');
+      expect(await stoppedDot.count()).toBe(1);
+      expect(await stoppedDot.getAttribute('aria-hidden')).toBe('true');
+      expect(await stoppedDot.evaluate(node => {
+        const style = getComputedStyle(node);
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--ink-muted)';
+        node.append(probe);
+        const muted = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {width: style.width, height: style.height, radius: style.borderRadius, muted: style.backgroundColor === muted};
+      })).toEqual({width: '8px', height: '8px', radius: '99px', muted: true});
+      expect(await page.getByRole('tab').locator('.pc-tasks-page__dot').count()).toBe(4);
+      for (const index of [0, 1]) {
+        await page.locator('.pc-task-card__main').nth(index).click();
+        const selected = page.locator('.pc-task-card__title[aria-current]');
+        expect(await selected.count()).toBe(1);
+        expect(await selected.evaluate(node => {
+          const style = getComputedStyle(node);
+          return [style.fontSize, style.lineHeight, style.fontWeight];
+        })).toEqual(['14px', '21px', '600']);
+        expect(await page.locator('.pc-task-card__title:not([aria-current])').evaluateAll(nodes =>
+          nodes.every(node => getComputedStyle(node).fontWeight === '600'))).toBe(true);
+      }
+    }
+  } finally { await page.close(); }
+});

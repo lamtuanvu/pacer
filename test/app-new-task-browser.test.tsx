@@ -51,23 +51,25 @@ browserTest("new_task_desktop_ready_flow_delegates_with_cmd_enter", async () => 
     await focused(page, "#nt-request");
     // Empty draft: the board's draft state.
     await page.getByText("Describe the task to see where it goes").waitFor();
-    const delegate = page.getByRole("button", { name: /^Delegate task/ });
+    const delegate = page.getByRole("button", { name: /^Start task/ });
     await expect(delegate.isDisabled()).resolves.toBe(true);
     await page.getByText("Write a request to continue", { exact: true }).waitFor();
     await page.keyboard.type(REQUEST);
     const card = page.getByRole("region", { name: "Will go to" });
+    await card.locator("summary").filter({hasText:"Routing details"}).click();
     await card.getByText("Ladder step 1 · strategy no-agy").waitFor();
     await card.getByText("Ready", { exact: true }).waitFor();
     await card.getByText("Updated as you type").waitFor();
     await card.getByText("If it can't:").waitFor();
     await card.getByText("≈ 60k tokens").waitFor();
     expect((await calls(page, "dispatch.explain")).at(-1)).toEqual({ repo: "econ-v1/node", goal: REQUEST });
+    await page.getByText("Advanced options", {exact:true}).click();
     await expect(page.getByRole("radio", { name: /Feature · detected/ }).getAttribute("aria-checked")).resolves.toBe("true");
-    await page.getByText("Starts in a new worktree on econ-v1/node · you can watch it in Tasks").waitFor();
+    await page.getByText("Starts in a new worktree on econ-v1/node · opens its workspace").waitFor();
     await page.getByText("Draft saved just now").waitFor();
     await page.keyboard.press("Meta+Enter");
-    await page.waitForFunction(() => location.hash === "#/tasks");
-    expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ goal: REQUEST, repo: "econ-v1/node", kind: "feature", worktree: "new", source: "ui" })]);
+    await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
+    expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ goal: REQUEST, repo: "econ-v1/node", kind: "feature", worktree: "new", dispatch: { allowDelegation: true, maxConcurrent: 3 }, source: "ui" })]);
     // A delegated task clears the saved draft.
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1") ?? "{}").request ?? "")).toBe("");
   });
@@ -79,18 +81,10 @@ browserTest("new_task_focus_order_and_radio_keys", async () => {
     await page.keyboard.type(REQUEST);
     await page.getByRole("region", { name: "Will go to" }).getByText("Ready", { exact: true }).waitFor();
     const order: string[] = [];
-    for (let i = 0; i < 9; i++) { await page.keyboard.press("Tab"); order.push(await focusName(page)); }
-    // One stop per radio group, then the aside in reading order, ending on the primary action.
+    for (let i = 0; i < 7; i++) { await page.keyboard.press("Tab"); order.push(await focusName(page)); }
     expect(order).toEqual([
-      "input:Attach a file",
-      "button:Mention a file or folder",
-      "button:Repository",
-      "radio:New worktreeRecommendedIsolated copy · your checkout stays untouched",
-      "radio:Feature· detected",
-      "button:Add a check",
-      "summary:More options · base branch main",
-      "summary:Send to a specific agent · this task only",
-      "button:Delegate task⌘↵",
+      "input:Attach a file", "button:Mention a file or folder", "button:Repository",
+      "button:Add a check", "summary:Advanced options", "summary:Routing details", "button:Start task⌘↵",
     ]);
     // Before the request: the header's crumb and actions.
     await page.locator("#nt-request").focus();
@@ -98,15 +92,16 @@ browserTest("new_task_focus_order_and_radio_keys", async () => {
     for (let i = 0; i < 3; i++) { await page.keyboard.press("Shift+Tab"); back.push(await focusName(page)); }
     expect(back).toEqual(["button:Cancel", "button:Save draft", "a:Tasks ›"]);
     // Arrow keys move the workspace choice; Shift+Tab walks back.
+    await page.getByText("Advanced options", {exact:true}).click();
     await page.getByRole("radio", { name: /New worktree/ }).focus();
     await page.keyboard.press("ArrowRight");
     await expect(page.getByRole("radio", { name: /Current checkout/ }).getAttribute("aria-checked")).resolves.toBe("true");
     await focused(page, '[role="radio"][aria-checked="true"]');
-    await page.getByText("Starts in the current checkout on econ-v1/node · you can watch it in Tasks").waitFor();
+    await page.getByText("Starts in the current checkout on econ-v1/node · opens its workspace").waitFor();
     await page.keyboard.press("Shift+Tab");
-    expect(await focusName(page)).toBe("button:Repository");
+    expect(await focusName(page)).toBe("summary:Advanced options");
     // The override list is a radio group too; unavailable agents stay listed but cannot be chosen.
-    await page.getByText("Send to a specific agent").click();
+
     const agents = page.getByRole("radiogroup", { name: "Agent for this task" });
     await expect(agents.getByRole("radio").count()).resolves.toBe(4);
     await expect(agents.getByRole("radio", { name: /No active subscription/ }).getAttribute("aria-disabled")).resolves.toBe("true");
@@ -122,10 +117,10 @@ for (const explain of ["missing", "unknown"] as const) {
       await page.getByText("This pacer service can't explain routes yet. pacer still picks the agent from your dispatcher setup when you delegate.").waitFor();
       expect((await calls(page, "dispatch.explain")).length).toBe(explain === "missing" ? 0 : 1);
       // The composer still delegates without a preview, and without a detected kind.
-      const delegate = page.getByRole("button", { name: /^Delegate task/ });
+      const delegate = page.getByRole("button", { name: /^Start task/ });
       await expect(delegate.isDisabled()).resolves.toBe(false);
       await delegate.click();
-      await page.waitForFunction(() => location.hash === "#/tasks");
+      await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
       const [params] = await calls(page, "task.delegate");
       expect(params.kind).toBeUndefined();
     }, { stub: { explain } });
@@ -137,8 +132,9 @@ browserTest("new_task_routing_preview_error_and_start_failure", async () => {
     await focused(page, "#nt-request");
     await page.keyboard.type(REQUEST);
     await page.getByText("Couldn't check where it goes: The routing engine timed out.").waitFor();
+    await page.getByText("Advanced options", {exact:true}).click();
     await page.getByRole("radio", { name: /Current checkout/ }).click();
-    await page.getByRole("button", { name: /^Delegate task/ }).click();
+    await page.getByRole("button", { name: /^Start task/ }).click();
     const alert = page.getByRole("alert");
     await alert.getByText("pacer couldn't start this task").waitFor();
     await alert.getByText(/3 uncommitted files.*Your request is kept as a draft\./).waitFor();
@@ -156,9 +152,9 @@ browserTest("new_task_strict_planner_notice", async () => {
   await withComposer(async page => {
     await focused(page, "#nt-request");
     await page.keyboard.type(REQUEST);
-    await page.getByText(/is in strict mode/i).waitFor();
-    await page.getByText("9 points ahead of pace. Planning stays short. It still starts now.").waitFor();
-    await page.getByRole("link", { name: "Budget & pacing" }).waitFor();
+    await page.getByText("Routing details", {exact:true}).click();
+    await page.getByText("Planner cost", {exact:true}).waitFor();
+    expect(await page.getByText(/It still starts now/).count()).toBe(0);
   }, { stub: { mode: "strict" } });
 }, 30_000);
 
@@ -189,8 +185,8 @@ browserTest("new_task_375_sheet_rows_open_sheets", async () => {
     expect(geometry.overflow).toBe(false);
     await sheet.getByRole("button", { name: "Save draft" }).waitFor();
     await page.keyboard.type(REQUEST);
-    await sheet.getByText("Feature work matches ladder step 1", { exact: true }).waitFor();
-    await sheet.getByText(/^Planner ≈ 60k tokens/).waitFor();
+    await sheet.getByText("Ready", {exact:true}).waitFor();
+    await sheet.getByText("Advanced options", {exact:true}).click();
     // Each row opens its own sheet; focus returns to the row.
     const kindRow = sheet.getByRole("button", { name: /^Kind/ });
     await expect(kindRow.textContent()).resolves.toContain("Feature");
@@ -205,14 +201,14 @@ browserTest("new_task_375_sheet_rows_open_sheets", async () => {
     await kind.getByRole("button", { name: "Done" }).click();
     await expect(kind.count()).resolves.toBe(0);
     await expect(kindRow.textContent()).resolves.toContain("Docs");
-    await focused(page, ".pc-drill-row:nth-child(3)");
+    expect(await kindRow.evaluate(el=>el===document.activeElement)).toBe(true);
     await sheet.getByRole("button", { name: /^Where it runs/ }).click();
     await page.getByRole("dialog", { name: "Where it runs" }).getByRole("radio", { name: /Current checkout/ }).click();
     await page.keyboard.press("Escape");
     await expect(sheet.getByRole("button", { name: /^Where it runs/ }).textContent()).resolves.toContain("Current checkout");
     await sheet.getByText("Starts in the current checkout on econ-v1/node").waitFor();
-    await sheet.getByRole("button", { name: /^Delegate task/ }).click();
-    await page.waitForFunction(() => location.hash === "#/tasks");
+    await sheet.getByRole("button", { name: /^Start task/ }).click();
+    await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
     expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ kind: "docs", worktree: "current" })]);
   }, { width: 375, height: 812 });
 }, 30_000);
@@ -229,13 +225,14 @@ browserTest("new_task_submit_never_uses_a_stale_preview_and_keeps_a_mention_adde
   await withComposer(async page => {
     await focused(page, "#nt-request");
     await page.keyboard.type(REQUEST);
+    await page.getByText("Advanced options", {exact:true}).click();
     await page.getByRole("radio", { name: /Feature · detected/ }).waitFor();
     // New text, submitted before the preview refreshes: the old detected kind is not sent.
     await page.locator("#nt-request").fill("Document the config flags.");
     await page.getByRole("button", { name: "Mention a file or folder" }).click();
     await page.getByRole("textbox", { name: "File or folder in the repository" }).fill("docs/config.md");
     await page.keyboard.press("Meta+Enter");
-    await page.waitForFunction(() => location.hash === "#/tasks");
+    await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
     const [params] = await calls(page, "task.delegate");
     expect(params).toMatchObject({ goal: "Document the config flags.", scope: "docs/config.md" });
     expect(params.kind).toBeUndefined();
@@ -252,8 +249,9 @@ for (const [route, label, reason] of [
     await withComposer(async page => {
       await page.locator("#nt-request").fill(REQUEST);
       const card = page.getByRole("region", { name: "Will go to" });
-      await card.getByText(label, { exact: true }).waitFor();
-      await card.getByText(reason, { exact: true }).waitFor();
+      await card.getByText("Routing details",{exact:true}).click();
+      await card.getByText(label, { exact: true }).first().waitFor();
+      await card.getByText(reason, { exact: true }).first().waitFor();
       expect(await card.textContent()).not.toContain("Internal text must not be shown");
     }, { stub: { route } });
   }, 30_000);
@@ -282,8 +280,8 @@ for (const width of [1440, 375]) {
       expect(await page.locator("#nt-request").inputValue()).toContain("<script>window.issueExecuted=true</script>");
       expect(await calls(page, "issue.search")).toEqual([{ repo: "econ-v1/node", query: "failure", state: "open", limit: 20 }]);
       expect(await calls(page, "issue.import")).toEqual([{ repo: "econ-v1/node", issue: "42" }]);
-      await page.getByRole("button", { name: /^Delegate task/ }).click();
-      await page.waitForFunction(() => location.hash === "#/tasks");
+      await page.getByRole("button", { name: /^Start task/ }).click();
+      await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
       expect((await calls(page, "task.delegate"))[0].context).toContain("Imported from issue https://github.com/econ-v1/node/issues/42");
     }, { width, height: 900, stub: { issue: "ok" } });
   }, 30_000);
@@ -320,7 +318,7 @@ for (const width of [1440, 768, 375]) for (const dark of [false, true]) {
   browserTest(`new_task_board_typography_and_containment_${width}_${dark ? "dark" : "light"}`, async () => {
     await withComposer(async page => {
       await page.locator("#nt-request").fill(REQUEST);
-      await page.getByText(width === 375 ? "Ready" : "Ladder step 1 · strategy no-agy", { exact: true }).waitFor();
+      await page.getByText("Ready", { exact: true }).waitFor();
       const geometry = await page.evaluate(() => {
         const style = getComputedStyle(document.querySelector("#nt-request")!);
         const name = getComputedStyle(document.querySelector(".pc-route-card__name")!);
@@ -354,6 +352,7 @@ for (const route of ["built-in-fail", "built-in-select", "built-in-queue", "fail
       await page.locator("#nt-request").fill(REQUEST);
       const card = page.getByRole("region", { name: "Will go to" });
       await card.getByText(route === "fail" ? "Can't start" : "Preview only", { exact: true }).waitFor();
+      await card.getByText("Routing details", {exact:true}).click();
       if (route.startsWith("built-in-")) {
         expect(await card.locator(".pc-route-card__lead").count()).toBe(0);
         expect(await card.textContent()).not.toContain("Ladder step");
@@ -364,10 +363,10 @@ for (const route of ["built-in-fail", "built-in-select", "built-in-queue", "fail
         await card.getByText(/uses cached information/).waitFor();
       }
       if (route === "engine-not-running") await card.getByText(/engine is not running/).waitFor();
-      const delegate = page.getByRole("button", { name: /^Delegate task/ });
+      const delegate = page.getByRole("button", { name: /^Start task/ });
       expect(await delegate.isDisabled()).toBe(false);
       await delegate.click();
-      await page.waitForFunction(() => location.hash === "#/tasks");
+      await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
       expect((await calls(page, "task.delegate")).length).toBe(1);
     }, { stub: { route } });
   }, 30_000);
@@ -419,8 +418,8 @@ for (const action of ["remove", "empty", "replace"] as const) browserTest(`new_t
     }
     expect(await note.count()).toBe(0);
     if (action === "empty") await page.locator("#nt-request").fill("Fresh request");
-    await page.getByRole("button", { name: /^Delegate task/ }).click();
-    await page.waitForFunction(() => location.hash === "#/tasks");
+    await page.getByRole("button", { name: /^Start task/ }).click();
+    await page.waitForFunction(() => location.hash === "#/workspace?task=t-20261028-000000-0001");
     expect((await calls(page, "task.delegate"))[0].context).toBeUndefined();
   }, { stub: { issue: "import-only" } });
 }, 30_000);
@@ -442,29 +441,11 @@ browserTest("new_task_375_card_has_one_summary_reason_line", async () => {
     await page.locator("#nt-request").fill(REQUEST);
     const card = page.getByRole("region", { name: "Where this task goes" });
     await card.getByText("Ready", { exact: true }).waitFor();
-    expect(await card.locator(".pc-route-card__why > li").count()).toBe(1);
-    const summary = card.locator(".pc-route-card__why > li > span:last-child");
-    expect(await summary.evaluate(el => getComputedStyle(el).whiteSpace)).toBe("nowrap");
-    expect(await summary.getAttribute("title")).toContain("spare capacity");
-    expect(await card.textContent()).not.toContain("strategy no-agy");
-    const lines = await card.evaluate(el => {
-      const textLines = (selector: string) => {
-        const node = el.querySelector(selector)!;
-        const style = getComputedStyle(node);
-        return node.getBoundingClientRect().height / parseFloat(style.lineHeight);
-      };
-      const planner = el.querySelector(".pc-route-card__compact-planner") as HTMLElement;
-      return {
-        label: textLines(".pc-label"), name: textLines(".pc-route-card__name"),
-        summary: textLines(".pc-route-card__why"), planner: textLines(".pc-route-card__compact-planner"),
-        plannerText: planner.textContent, plannerTitle: planner.title,
-        plannerOverflow: getComputedStyle(planner).textOverflow,
-        whoChildren: el.querySelector(".pc-route-card__who")!.children.length,
-      };
-    });
-    expect(lines).toMatchObject({ label: 1, name: 1, summary: 1, planner: 1, whoChildren: 2, plannerOverflow: "ellipsis" });
-    expect(lines.plannerTitle).toBe(lines.plannerText);
-    expect(lines.plannerTitle).toContain("median of 12 similar tasks");
+    expect(await card.locator('.pc-route-card__who').textContent()).toContain('Likely agent · confirmed at start');
+    expect(await card.getByText('Planner cost',{exact:true}).isVisible()).toBe(false);
+    await card.getByText('Routing details',{exact:true}).click();
+    await card.getByText('Planner cost',{exact:true}).waitFor();
+    expect(await card.locator('.pc-route-card__fallback--excluded').count()).toBe(0);
   }, { width: 375, height: 812 });
 }, 30_000);
 
@@ -476,3 +457,31 @@ browserTest('canvas_new_task_has_breadcrumb_above_title_and_cancel_returns_to_di
   await page.waitForFunction(()=>location.hash==='#/');
  });
 },15000);
+
+browserTest("repository_picker_identity_and_attachment_size_match_the_board", async () => {
+  await withComposer(async page => {
+    const picker = page.locator(".pc-new-task__pick .pc-choice-picker__trigger");
+    await page.locator(".pc-new-task__pick .pc-choice-picker__branch").waitFor();
+    expect(await picker.locator("svg").count()).toBe(1);
+    expect(await picker.locator("strong").textContent()).toBe("econ-v1/node");
+    expect(await picker.locator(".pc-choice-picker__branch").textContent()).toBe("main");
+    expect(await picker.evaluate(el => ({ gap: getComputedStyle(el).gap, height: el.getBoundingClientRect().height }))).toEqual({ gap: "10px", height: 40 });
+    await page.getByLabel("Attach a file", { exact: true }).setInputFiles({ name: "too-big.log", mimeType: "text/plain", buffer: Buffer.alloc(10_000_001) });
+    await page.getByText("Attachment exceeds 10 MB", { exact: true }).waitFor();
+    expect(await calls(page, "session.draft.create")).toEqual([]);
+  });
+});
+
+browserTest('workspace_first_creation_opens_returned_task_and_keeps_advanced_controls', async()=>{
+ await withComposer(async page=>{
+  await page.locator('#nt-request').fill(REQUEST);
+  const advanced=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Advanced options'})});
+  expect(await advanced.getAttribute('open')).toBe(null);
+  expect(await page.getByRole('radio',{name:/New worktree/}).isVisible()).toBe(false);
+  await advanced.locator('summary').click();
+  await page.getByRole('radio',{name:/New worktree/}).waitFor();
+  await page.getByRole('button',{name:/^Start task/}).click();
+  await page.waitForURL(/#\/workspace\?task=t-20261028-000000-0001/);
+  expect((await calls(page,'task.delegate')).length).toBe(1);
+ });
+},30000);

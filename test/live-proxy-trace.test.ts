@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { freePort, type Session } from "../scripts/live/core";
@@ -9,7 +9,11 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 async function fixture(enabled: boolean): Promise<Session> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "proxy-trace-"))); roots.push(root);
   chmodSync(root, 0o700);
-  mkdirSync(join(root, "evidence"), { mode: enabled ? 0o700 : 0o755 });
+  const evidence = join(root, "evidence"), mode = enabled ? 0o700 : 0o755;
+  mkdirSync(evidence, { mode });
+  // Set the actual mode, independent of umask, so disabled really means shared.
+  chmodSync(evidence, mode);
+  expect(statSync(evidence).mode & 0o777).toBe(mode);
   const port = await freePort(); let innerPort = await freePort();
   while (innerPort === port) innerPort = await freePort();
   return { root, id: "trace", pid: process.pid, port, innerPort, createdAt: "now" };
@@ -89,6 +93,7 @@ test("aborting a delayed loopback request preserves client cancellation with tra
       controller.abort();
       outcomes.push(await pending);
       expect(outcomes.at(-1)).toBe("AbortError");
+      if (!enabled) expect(existsSync(traceFile(session))).toBe(false);
       release();
     } finally { release(); proxy.stop(true); upstream.stop(true); }
   }

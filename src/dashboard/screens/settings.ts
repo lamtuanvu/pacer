@@ -136,9 +136,9 @@ const accounts: Build = (ctx, width) => {
       { content: statusSpans(ctx.theme, SIGNIN[String(signed)]!), width: w[2]! },
     ], GAP, ctx.theme) });
     const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
-    const freshness = usage ? accountUsageFreshness(usage) : null;
+    const freshness = usage ? accountUsageFreshness(usage, ctx.s.at) : null;
     const users = a.executors ?? a.runners ?? [];
-    rows.push(...prose(id, `${used}${freshness ? ` · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
+    rows.push(...prose(id, `${used}${freshness ? ` · Historical usage · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
   rows.push(blank());
   for (const [id, act] of [["account-add", add], ["account-link", link]] as const) {

@@ -122,7 +122,7 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <div style="display: flex; gap: 10px; align-items: flex-start;">
 <span aria-hidden="true" style="color: var(--bad-fg); font-weight: 700; width: 14px;">✕</span>
 <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0;"><span style="font-weight: 600;">runner-forge: GitHub App authentication</span><span class="cap">Acceptance checks failed twice on Codex · yesterday 17:26 · 412k tokens</span></div>
-<a href="TaskFailed.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">Inspect failures</a>
+<a href="TaskPageFailed.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink);">Inspect failures</a>
 </div>
 </x-import>
 <x-import component-from-global-scope="Pacer.Card" tone="warn">
@@ -136,7 +136,7 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <div style="display: flex; gap: 10px; align-items: flex-start;">
 <span aria-hidden="true" style="color: var(--info-fg); font-weight: 700; width: 14px;">●</span>
 <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0;"><span style="font-weight: 600;">Browser-validate the web app PWA build</span><span class="cap">Checks passed · 3 subtasks · ready for your review · 12 min</span></div>
-<a href="Review.dc.html" class="pc-btn pc-btn--secondary pc-btn--sm" style="text-decoration: none; color: var(--ink);">Review</a>
+<a href="TaskPage.dc.html" class="pc-btn pc-btn--secondary pc-btn--sm" style="text-decoration: none; color: var(--ink);">Review</a>
 </div>
 </x-import>
 </section>
@@ -195,12 +195,12 @@ class Component extends DCLogic {
         { ...A.cu, role: 'fallback', tasks: 3, tokens: '0.6M', pct: 3 }
       ],
       decisions: [
-        { time: 'now', title: 'Make remote-support access mode opt-out', repo: 'acme/web', href: 'Session.dc.html', kind: 'feature', agents: [A.cx], lead: 'Codex', why: 'Step 1 · picked before Codex passed its pace · 12 min', tokens: '214k', status: 'Working', tone: 'info' },
-        { time: '09:30', title: 'Document that remote support is now opt-out', repo: 'acme/web', href: 'TaskDetail.dc.html', kind: 'docs', agents: [A.cx], lead: 'Codex', why: 'Step 1 · docs → capable model', tokens: '96k', status: 'Accepted', tone: 'good' },
-        { time: '09:02', title: 'Browser-validate the web app PWA build', repo: 'acme/web', href: 'TaskDetail.dc.html', fan: '3 subtasks', kind: 'tests', agents: [A.cx, A.ag, A.lo], lead: '3 agents', why: 'Split by planner · tests to Local', tokens: '1.2M', status: 'Accepted', tone: 'good' },
-        { time: '08:41', title: 'Give every node a recovery path after a broken PWA', repo: 'acme/web', href: 'TaskDetail.dc.html', kind: 'feature', agents: [A.ag], lead: 'Antigravity', why: 'Codex ahead of pace · step 2', tokens: '640k', status: 'Incomplete', tone: 'warn' },
-        { time: 'Yday', title: 'runner-forge: GitHub App authentication', repo: 'acme/runner-forge', href: 'TaskDetail.dc.html', fan: '2 attempts', kind: 'debug', agents: [A.cx, A.cx], lead: 'Codex ×2', why: 'Retried on same executor', tokens: '412k', status: 'Checks failed', tone: 'bad' },
-        { time: 'Yday', title: 'acme: tests for the three review gaps', repo: 'acme/web', href: 'TaskDetail.dc.html', kind: 'tests', agents: [A.lo], lead: 'Local model', why: 'Small tests · unmetered', tokens: '88k', status: 'Stopped', tone: 'neutral' }
+        { time: 'now', title: 'Make remote-support access mode opt-out', repo: 'acme/web', href: 'TaskPageRunning.dc.html', kind: 'feature', agents: [A.cx], lead: 'Codex', why: 'Step 1 · picked before Codex passed its pace · 12 min', tokens: '214k', status: 'Working', tone: 'info' },
+        { time: '09:30', title: 'Document that remote support is now opt-out', repo: 'acme/web', href: 'TaskPage.dc.html', kind: 'docs', agents: [A.cx], lead: 'Codex', why: 'Step 1 · docs → capable model', tokens: '96k', status: 'Accepted', tone: 'good' },
+        { time: '09:02', title: 'Browser-validate the web app PWA build', repo: 'acme/web', href: 'TaskPage.dc.html', fan: '3 subtasks', kind: 'tests', agents: [A.cx, A.ag, A.lo], lead: '3 agents', why: 'Split by planner · tests to Local', tokens: '1.2M', status: 'Accepted', tone: 'good' },
+        { time: '08:41', title: 'Give every node a recovery path after a broken PWA', repo: 'acme/web', href: 'TaskPage.dc.html', kind: 'feature', agents: [A.ag], lead: 'Antigravity', why: 'Codex ahead of pace · step 2', tokens: '640k', status: 'Incomplete', tone: 'warn' },
+        { time: 'Yday', title: 'runner-forge: GitHub App authentication', repo: 'acme/runner-forge', href: 'TaskPageFailed.dc.html', fan: '2 attempts', kind: 'debug', agents: [A.cx, A.cx], lead: 'Codex ×2', why: 'Retried on same executor', tokens: '412k', status: 'Checks failed', tone: 'bad' },
+        { time: 'Yday', title: 'acme: tests for the three review gaps', repo: 'acme/web', href: 'TaskPage.dc.html', kind: 'tests', agents: [A.lo], lead: 'Local model', why: 'Small tests · unmetered', tokens: '88k', status: 'Stopped', tone: 'neutral' }
       ]
     };
   }

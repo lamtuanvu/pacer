@@ -75,7 +75,7 @@ test("kpi_strip_shows_the_week_from_insights with the board's icon tiles and no 
 test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const states: [InsightsState | undefined, string][] = [
     [undefined, "These figures need a newer pacer service with task insights."],
-    [{ supported: true, loading: true }, "Loading figures…"],
+    [{ supported: true, loading: true }, ""],
     [{ supported: true, loading: false, error: new Error("boom") }, "Could not load these figures. They are checked again on the next update."],
   ];
   for (const [insights, words] of states) {
@@ -111,25 +111,25 @@ test("Needs you shows three urgent cards, one board action and an All in Needs y
   const html = section(view(), "needs-you");
   expect(html.match(/data-attention-id=/g)).toHaveLength(3);
   expect(html).toContain("buildbox is not answering");
-  expect(html).toContain('href="#/tasks/t-0409/failure"');
+  expect(html).toContain('href="#/workspace?task=t-0409"');
   expect(html).toContain(">Inspect failures<");
-  expect(html).toContain('href="#/tasks/t-0412/review"');
+  expect(html).toContain('href="#/workspace?task=t-0412"');
   expect(html).toContain('href="#/needs-you"');
   expect(html).toContain(">All in Needs you<");
   expect(html).not.toContain("Needs you pages");
   expect(html).not.toContain(">Retry on Codex<");
   const question = { ...snap.attention![0]!, id: "question:answer-me", kind: "question" as const, taskId: "answer-me" };
   const answer = section(view(null, { ...snap, tasks: [], attention: [question] }), "needs-you");
-  expect(answer).toContain('href="#/needs-you?answer=answer-me"');
+  expect(answer).toContain('href="#/workspace?task=answer-me"');
   expect(answer).toContain(">Answer<");
 });
 
-test("Live dispatch is a six-row decision ledger with seven columns and session or trace links", () => {
+test("Live dispatch is a six-row decision ledger with seven columns and workspace links", () => {
   const html = section(view(), "live-dispatch");
   expect(strip(html)).toContain("Live dispatch 2 running 1 queued Kind · routed to · why · tokens");
   expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(6);
-  expect(html).toContain('href="#/tasks/t-0420"');
-  expect(html).toContain('href="#/tasks/t-0422/trace"');
+  expect(html).toContain('href="#/workspace?task=t-0420"');
+  expect(html).toContain('href="#/workspace?task=t-0422"');
   expect(html).toContain("pc-dispatch-decision__agents");
   expect(html).toContain("pc-dispatch-decision__tokens");
   expect(html).toContain("pc-dispatch-decision__status");
@@ -140,7 +140,7 @@ test("Live dispatch is a six-row decision ledger with seven columns and session 
 test("Live dispatch waits for parent links and offers retry when the work read fails", () => {
   const loading = section(view(null, snap, { workLoading: true }), "live-dispatch");
   expect(loading).not.toContain("pc-dispatch-decision__task");
-  expect(strip(loading)).toContain("Loading dispatch");
+  expect(strip(loading)).not.toContain("Loading dispatch");
   const failed = section(view(null, snap, { workError: new Error("Work read unavailable") }), "live-dispatch");
   expect(failed).not.toContain("pc-dispatch-decision__task");
   expect(strip(failed)).toContain("Work read unavailable");
@@ -240,8 +240,8 @@ test("narrow Dispatch follows the board: planner, Needs you, Running without des
 
 test("repos are one All repos button that opens the repository menu", () => {
   const html = view();
-  expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<span aria-hidden="true">⌄<\/span>/);
-  expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<span/);
+  expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<\/button>/);
+  expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<\/button>/);
   expect(html).not.toContain("Budgets are shared across repos");
 });
 
@@ -567,6 +567,6 @@ test("first run detection never invents installed agents", () => {
   expect(html).toContain("How to get it");
   expect(html).toContain("not installed");
   expect(html).not.toContain(">Found<");
-  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).toContain("Looking for agent CLIs");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).not.toContain("Looking for agent CLIs");
   expect(renderToString(<FirstRun query={{ repo: null, scope: null }} error={new Error("Detection failed")} retry={() => {}} />)).toContain("Check again");
 });

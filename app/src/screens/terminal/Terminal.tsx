@@ -1,3 +1,7 @@
+import { useAnchoredMenu } from "../../ds/useAnchoredMenu";
+import { displayTitle } from "../../../../src/view-model/titles";
+import { ensurePanelTerminal } from "./auto-open";
+import { Tabs } from "../../ds/SelectionStrip";
 import type { RouteQuery } from "../../router";
 import type { TerminalRecord } from "../../../../src/terminal/workspace";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -7,7 +11,7 @@ import { Icon } from "../../ds/icons";
 import type { TerminalActions } from "../../term/term";
 import { Field, TextInput } from "../../ds/Controls";
 import { Dialog } from "../../ds/Dialog";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { Page } from "../../ds/Page";
 import { useDialogs } from "../../ds/useDialogs";
 import { ApiError } from "../../data/api";
@@ -40,6 +44,9 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const [splitId, setSplitId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const initialOpening = useRef<Promise<TerminalRecord[]> | null>(null);
+  const creating = useRef(false);
+  const opened = useRef(false);
   const pendingRequest = useRef<TerminalRequest | null>(null);
   const cancelRename = useRef(false);
   const [localId, setLocalId] = useState<string>();
@@ -48,9 +55,17 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const available = state.features.ops.has("terminal.create");
   const repos = state.snapshot?.repos ?? [];
   const folderLabel = (path: string) => {
-    const repo = repos.filter(repo => path.startsWith(`${repo.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
-    return repo ? `${repo.label}/${path.slice(repo.path.length + 1)}` : path.split("/").filter(Boolean).at(-1);
+    const task = state.snapshot?.tasks.find(task => task.worktree === path);
+    if (task) return displayTitle(task);
+    const repo = repos.find(repo => repo.path === path);
+    return repo?.label ?? path.split("/").filter(Boolean).at(-1) ?? "Home folder";
   };
+  const folderHint = (path: string) => {
+    const repo = repos.filter(repo => path === repo.path || path.startsWith(`${repo.path}/`)).sort((a,b) => b.path.length-a.path.length)[0];
+    if (repo) return path === repo.path ? repo.label : `${repo.label} · ${folderLabel(path)}`;
+    return "Home folder";
+  };
+  const menuRoot = useAnchoredMenu(menu);
   const selected = tabs.find(tab => tab.id === id) ?? tabs.at(-1);
   const secondary = tabs.find(tab => tab.id === splitId && tab.id !== selected?.id);
 
@@ -58,13 +73,17 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   useEffect(() => {
     if (!available) { setLoading(false); return; }
     let active = true;
-    const refresh = async () => {
+    const refresh = async (initial = false) => {
+      if (!initial && !opened.current) return;
       try {
-        const result = await api.call<TerminalRecord[]>("terminal.list", {});
+        const result = embedded && initial && !opened.current
+          ? await (initialOpening.current ??= ensurePanelTerminal(api, folder ?? repos.find(repo => repo.key === activeRepo(query))?.path ?? ""))
+          : await api.call<TerminalRecord[]>("terminal.list", {});
+        opened.current = true;
         if (active) { setTabs(result); setLoadError(undefined); setLoading(false); }
-      } catch (failure) { if (active) { setLoadError(failure); setLoading(false); } }
+      } catch (failure) { opened.current = true; if (active) { setLoadError(failure); setLoading(false); } }
     };
-    void refresh();
+    void refresh(true);
     const timer = setInterval(() => void refresh(), 2000);
     return () => { active = false; clearInterval(timer); };
   }, [api, available, state.connected]);
@@ -72,7 +91,8 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   useEffect(() => { if (splitId && !tabs.some(tab => tab.id === splitId)) setSplitId(null); }, [tabs, splitId]);
 
   const open = async (directory = folder ?? repos.find(repo => repo.key === activeRepo(query))?.path ?? selected?.cwd ?? "", splitAfter = false) => {
-    if (busy) return;
+    if (busy || loading || creating.current) return;
+    creating.current = true;
     setBusy(true); setError(undefined);
     try {
       const request = terminalRequest(pendingRequest.current, directory.trim(), () => crypto.randomUUID());
@@ -86,7 +106,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       setMenu(null); setChooseFolder(false);
       return created;
     } catch (failure) { pendingRequest.current=pendingAfterFailure(pendingRequest.current,failure instanceof ApiError?failure.status:undefined);setError(failure); }
-    finally { setBusy(false); }
+    finally { creating.current = false; setBusy(false); }
   };
 
   const rename = async () => {
@@ -108,14 +128,20 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       const remaining = tabs.filter(item => item.id !== tab.id);
       setTabs(remaining);
       if (splitId === tab.id) setSplitId(null);
-      if (selected?.id === tab.id) show(remaining.at(-1)?.id);
+      const retainedId = selected?.id === tab.id ? remaining.at(-1)?.id : selected?.id;
+      show(retainedId);
+      requestAnimationFrame(() => document.getElementById(`terminal-${retainedId}-tab`)?.focus());
     } catch (failure) { setError(failure); }
     finally { setBusy(false); }
   };
 
   const split = () => {
     if (!selected) return;
-    if (secondary) { setSplitId(null); return; }
+    if (secondary) {
+      setSplitId(null); show(selected.id);
+      requestAnimationFrame(() => document.getElementById(`terminal-${selected.id}-tab`)?.focus());
+      return;
+    }
     void open(selected.cwd, true);
   };
   const startRename = (tab = selected) => { if (!tab) return; show(tab.id); cancelRename.current = false; setNewTitle(tab.title); setRenaming(true); setMenu(null); };
@@ -140,7 +166,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   if (!available) return <Page width="full" embedded={embedded}><EmptyState title="Built-in terminal needs a newer Pacer service." description="Update Pacer, then reload this page." /></Page>;
   return <Page width="full" embedded={embedded} className="pc-workspace-terminal" onKeyDownCapture={event => {
     if ((event.metaKey || event.ctrlKey) && (event.key === "\\" || event.key.toLowerCase() === "f" && !(event.target as HTMLElement).closest(".pc-terminal-view"))) { event.preventDefault(); event.stopPropagation(); if (event.key.toLowerCase() === "f") command("find"); else split(); }
-    if (event.key === "Escape") setMenu(null);
+    if (event.key === "Escape" && menu) { event.preventDefault(); event.stopPropagation(); closeMenu(); }
   }}>
     {!embedded && <h1>Terminal</h1>}
     {dialogs.dialog}
@@ -154,45 +180,41 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       const at = items.indexOf(document.activeElement as HTMLButtonElement);
       items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
     }}>
-      <nav className="pc-workspace-terminal__tabs" role="tablist" aria-label="Terminals">
-        {tabs.map(tab => <div className="pc-workspace-terminal__tab" key={tab.id}>
-          {renaming && selected?.id === tab.id ? <form onSubmit={event => { event.preventDefault(); void rename(); }}><TextInput aria-label="Terminal name" autoFocus value={newTitle} maxLength={80} onInput={event => setNewTitle(event.currentTarget.value)} onBlur={() => { if (!cancelRename.current && newTitle.trim()) void rename(); else setRenaming(false); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename.current = true; setRenaming(false); } }} /></form> : <Button role="tab" id={`terminal-${tab.id}-tab`} size="sm" variant="quiet" aria-selected={selected?.id === tab.id} tabIndex={selected?.id === tab.id ? 0 : -1} onClick={() => show(tab.id)} onDblClick={() => startRename(tab)} onKeyDown={event => {
-            const at = tabs.findIndex(item => item.id === tab.id);
-            const next = event.key === "ArrowRight" ? tabs[(at + 1) % tabs.length] : event.key === "ArrowLeft" ? tabs[(at + tabs.length - 1) % tabs.length] : event.key === "Home" ? tabs[0] : event.key === "End" ? tabs.at(-1) : null;
-            if (next) { event.preventDefault(); show(next.id); document.getElementById(`terminal-${next.id}-tab`)?.focus(); }
-          }} title={`${tab.cwd} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}`}><Icon name="terminal" />{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</Button>}
-          {selected?.id === tab.id && <IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Kill ${tab.title}`} title="Kill terminal" onClick={() => void close(tab)}>×</IconButton>}
-        </div>)}
-      </nav>
+      <Tabs variant="terminal" id="terminal" label="Terminals" className="pc-workspace-terminal__tabs" value={selected?.id ?? ""} onChange={show}
+        options={tabs.map(tab => ({ value: tab.id,
+          label: <><Icon name="status-terminal" />{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</>,
+          buttonProps: { onDblClick: () => startRename(tab), title: `${folderHint(tab.cwd)} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}` },
+          replacement: renaming && selected?.id === tab.id ? <form onSubmit={event => { event.preventDefault(); void rename(); }}><TextInput aria-label="Terminal name" autoFocus value={newTitle} maxLength={80} onInput={event => setNewTitle(event.currentTarget.value)} onBlur={() => { if (!cancelRename.current && newTitle.trim()) void rename(); else setRenaming(false); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename.current = true; setRenaming(false); } }} /></form> : undefined,
+          trailing: selected?.id === tab.id ? <IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Kill ${tab.title}`} title="Kill terminal" onClick={() => void close(tab)}>×</IconButton> : undefined,
+        }))} />
       <div className="pc-terminal-menu-anchor">
-        {tool("New terminal", "plus", () => { void open(); }, busy)}
+        {tool("New terminal", "terminal-plus", () => { void open(); }, busy || loading)}
         <IconButton className="pc-terminal-tool pc-terminal-chevron" size="sm" variant="quiet" aria-label="New terminal in…" title="New terminal in a repository, worktree or folder" aria-expanded={menu === "new"} aria-haspopup="menu" onClick={() => setMenu(menu === "new" ? null : "new")}><Icon name="chevron-down" /></IconButton>
-        {menu === "new" && <div className="pc-terminal-menu" role="menu" >
-          {repos.map(repo => <Button role="menuitem" variant="quiet" key={repo.key} title={repo.path} onClick={() => void open(repo.path)}>{repo.label}</Button>)}
-          {[...new Set(state.snapshot?.tasks?.map(task => task.worktree).filter((path): path is string => !!path) ?? [])].map(path => <Button role="menuitem" variant="quiet" key={path} title={path} onClick={() => void open(path)}>{folderLabel(path)}</Button>)}
+        {menu === "new" && <div ref={menuRoot} className="pc-terminal-menu" role="menu" >
+          {repos.map(repo => <Button role="menuitem" variant="quiet" key={repo.key} title={repo.label} onClick={() => void open(repo.path)}>{repo.label}</Button>)}
+          {[...new Set(state.snapshot?.tasks?.map(task => task.worktree).filter((path): path is string => !!path) ?? [])].map(path => <Button role="menuitem" variant="quiet" key={path} title={folderHint(path)} onClick={() => void open(path)}>{folderLabel(path)}</Button>)}
           <Button role="menuitem" variant="quiet" onClick={() => void open("")}>Home folder</Button>
           <Button role="menuitem" variant="quiet" onClick={() => { setMenu(null); setCwd(""); setChooseFolder(true); }}>Choose a folder…</Button>
         </div>}
       </div>
       <span className="grow" />
-      {tool("Find (⌘F)", "search", () => command("find"), !selected || !ready[selected.id], selected ? "Terminal is loading" : undefined)}
-      {tool("Split terminal (⌘\\)", "panel-right", split, !selected || busy)}
-      {tool("Kill terminal", "end-session", () => { if (selected) void close(selected); }, !selected || busy)}
+      {tool("Find (⌘F)", "terminal-search", () => command("find"), !selected || !ready[selected.id], selected ? "Terminal is loading" : undefined)}
+      {tool("Split terminal (⌘\\)", "terminal-split", split, !selected || busy)}
+      {tool("Kill terminal", "terminal-trash", () => { if (selected) void close(selected); }, !selected || busy)}
       <div className="pc-terminal-menu-anchor">
-        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" icon="more" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}/>
-        {menu === "more" && <div className="pc-terminal-menu" role="menu">
+        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" icon="terminal-more" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}/>
+        {menu === "more" && <div ref={menuRoot} className="pc-terminal-menu" role="menu">
           <Button role="menuitem" variant="quiet" disabled={!selected} title={!selected ? "Open a terminal first" : undefined} onClick={() => startRename()}>Rename</Button>
-          <Button role="menuitem" variant="quiet" disabled title="This service does not offer opening workspace shells in an external terminal">Open in external terminal</Button>
           <Button role="menuitem" variant="quiet" disabled={!selected || !ready[selected.id]} title={!selected ? "Open a terminal first" : !ready[selected.id] ? "Terminal is loading" : undefined} onClick={() => command("reader")}>Screen reader mode</Button>
           <Button role="menuitem" variant="quiet" disabled={!selected || !ready[selected.id]} title={!selected ? "Open a terminal first" : !ready[selected.id] ? "Terminal is loading" : undefined} onClick={() => command("clear")}>Clear</Button>
         </div>}
       </div>
       <span className="pc-terminal-divider" />
-      {<IconButton className={`pc-terminal-tool${maximized ? "" : " pc-terminal-maximize"}`} variant="quiet" size="sm" aria-label={maximized ? "Restore panel" : "Maximize panel"} disabled={!maximize} title={!maximize ? "Terminal already fills the work area" : maximized ? "Restore panel" : "Maximize panel"} onClick={maximize}><Icon name="chevron-down" /></IconButton>}
+      {<IconButton className={`pc-terminal-tool${maximized ? "" : " pc-terminal-maximize"}`} variant="quiet" size="sm" aria-label={maximized ? "Restore panel" : "Maximize panel"} disabled={!maximize} title={!maximize ? "Terminal already fills the work area" : maximized ? "Restore panel" : "Maximize panel"} onClick={maximize}><Icon name={maximized ? "chevron-down" : "chevron-up"} /></IconButton>}
       {<IconButton className="pc-terminal-tool" variant="quiet" size="sm" aria-label="Hide panel (Ctrl+`)" aria-keyshortcuts="Control+`" title="Hide panel (Ctrl+`)" onClick={closePanel ?? (() => navigation.navigate(routes.dispatch()))}><Icon name="close" /></IconButton>}
     </div>
     <ErrorMessage error={error ?? loadError} />
-    {loading ? <LoadingState label="Loading terminals…" /> : !selected ? <EmptyState title="No terminals open" description="Use + to start a shell in the current repository, or choose a folder from the menu." /> : <div className="pc-workspace-terminal__panes">
+    {loading && !selected ? <Skeleton layout="rows" label="Loading terminals…" /> : !selected ? <EmptyState title="No terminals open" description="Use + to start a shell in the current repository, or choose a folder from the menu." /> : <div role="tabpanel" id={`terminal-${selected.id}-panel`} aria-labelledby={`terminal-${selected.id}-tab`} className="pc-workspace-terminal__panes">
       {pane(selected, true)}
       {secondary && <><div className="pc-terminal-split-sash" role="separator" aria-label="Resize terminal split" aria-orientation="vertical" aria-valuemin={20} aria-valuemax={80} aria-valuenow={Math.round(ratio / (1 + ratio) * 100)} tabIndex={0}
         onKeyDown={event => { const pct = ratio / (1 + ratio); const next = event.key === "ArrowLeft" ? pct - .05 : event.key === "ArrowRight" ? pct + .05 : event.key === "Home" ? .2 : event.key === "End" ? .8 : null; if (next !== null) { event.preventDefault(); const p = Math.max(.2, Math.min(.8, next)); setRatio(p / (1 - p)); } }}

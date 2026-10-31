@@ -30,7 +30,7 @@ browserTest("a running task's answer link lands on a focused composer that sends
     await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
     await page.locator(".pc-session-bar").first().waitFor({ state: "attached" });
     expect(page.url()).toContain("#/tasks/t-0412?tab=answer");
-    const panel = page.getByRole("complementary", { name: "Session details" });
+    const panel = page.getByRole("region", { name: "Session details" });
     expect(await panel.getByRole("tab", { name: "Details", exact: true }).getAttribute("aria-selected")).toBe("true");
     await panel.getByText("Which provider should the flow use?").waitFor();
     const box = panel.getByRole("textbox", { name: "Your answer" });
@@ -58,7 +58,7 @@ browserTest("a held answer keeps the question unread and says why it was not del
     await page.goto("https://pacer.test/#/sessions/t-0412/answer");
     await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = "asked"; (window as any).DELIVERY = "held"; }, css);
     await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
-    const panel = page.getByRole("complementary", { name: "Session details" });
+    const panel = page.getByRole("region", { name: "Session details" });
     await panel.getByText("Which provider should the flow use?").waitFor();
     await focused(page, ".pc-session-details textarea");
     await page.keyboard.type("Use Stripe");

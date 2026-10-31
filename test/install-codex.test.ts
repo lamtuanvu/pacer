@@ -43,6 +43,8 @@ test("Codex appends exact hooks after existing trusted groups and writes policy 
   expect(JSON.parse(readFileSync(hooks, "utf8"))).toEqual({ hooks: {
     SessionStart: [gkStart, { hooks: [{ command: "/opt/pacer/bin/pacer status --hook codex", timeout: 15, type: "command", statusMessage: "Checking subscription budgets" }] }],
     PreToolUse: [gkGuard, { matcher: "spawn_agent", hooks: [{ command: "/opt/pacer/bin/pacer guard --planner codex", timeout: 15, type: "command" }] }],
+    Stop: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook stop --planner codex", timeout: 10, type: "command" }] }],
+    UserPromptSubmit: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook prompt --planner codex", timeout: 10, type: "command" }] }],
   } });
   expect(readFileSync(agents, "utf8")).toBe(blockText(policyText("codex"), "md"));
   expect(result.notes).toContain("Codex may ask you to review and trust the new pacer hooks the next time it starts.");
@@ -110,4 +112,13 @@ test("Codex reinstall after binary relocation replaces MCP and hooks without dup
   expect(readFileSync(config, "utf8").match(/\[mcp_servers.pacer\]/g)).toHaveLength(1);
   await uninstallPlanner(ctx, "codex");
   expect(snapshot(ctx.home)).toEqual(original);
+});
+
+test("Codex installs Stop and UserPromptSubmit message hooks once across reinstalls", async () => {
+  const { env, hooks } = setup();
+  await runInstall(env, "codex", installCodex);
+  await runInstall(env, "codex", installCodex);
+  const doc = JSON.parse(readFileSync(hooks, "utf8")).hooks;
+  expect(doc.Stop).toEqual([{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook stop --planner codex", timeout: 10, type: "command" }] }]);
+  expect(doc.UserPromptSubmit).toEqual([{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook prompt --planner codex", timeout: 10, type: "command" }] }]);
 });

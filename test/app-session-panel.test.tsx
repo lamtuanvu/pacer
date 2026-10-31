@@ -52,8 +52,8 @@ test("side panel without its own bar renders nothing when closed and no toggle w
 });
 
 test("details panel shortcut is registered only where a right panel exists", () => {
-  expect(panelCommands(noop, noop, noop).map(s => s.keys)).toEqual(["Mod-b", "Ctrl-B", "Ctrl-`"]);
-  expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
+  expect(panelCommands(noop, noop, noop).map(s => s.keys)).toEqual(["Mod-b", "Ctrl-`", "Alt-Mod-b"]);
+  expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Alt-Mod-b");
 });
 
 test("review navigation stays offered in the title bar while Details is open", () => {
@@ -85,14 +85,14 @@ test("live token section distinguishes unreported and partial usage", () => {
   const html = renderToString(<SessionInsights task={task as never}/>);
   expect(html).toContain("Why Codex"); expect(html).toContain("Ladder step 1 · Spare capacity");
   expect(html).toContain("Tokens, live"); expect(html).toContain("≥ 1.2k"); expect(html).toContain("partial usage");
-  expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1/trace");
+  expect(html).not.toContain("<dl"); expect(html).toContain("#/tasks/t-1");
 });
 
 test("session header retains title, caption and working end action", () => {
   const task = {...taskDetail,id:"t-1",title:"Session title",branch:"topic"} as never;
   const html = renderToString(<SessionHeader task={task} onEnd={noop}/>);
   expect(html).toContain('<h1 title="Session title">Session title</h1>');
-  expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1/trace");
+  expect(html).toContain("acme/api · topic"); expect(html).toContain("#/tasks/t-1");
   expect(html).toContain("End session (asks to confirm)");
   expect(renderToString(<SessionHeader task={task}/>)).not.toContain("End session");
 });
@@ -134,3 +134,16 @@ test("empty or removed changes do not offer an unusable diff or deleted-file pre
   expect(html).toContain('<span>/<wbr/></span><span>tmp/<wbr/></span><span>nested/<wbr/></span><span>worktree<wbr/></span>');
   expect(html).not.toContain('~/');
  });
+
+test("session files distinguishes unavailable, remote-only and successful empty reads", () => {
+  expect(renderToString(<SessionFiles id="t-1"/>)).toBe("");
+  const empty = {patch:"",untracked:[],truncated:false};
+  expect(renderToString(<SessionFiles id="t-1" diff={empty}/>)).toContain("No changes so far.");
+  const remote = renderToString(<SessionFiles id="t-1" diff={{...empty,note:"Changes are on the remote host"}}/>);
+  expect(remote).toContain("Changes are on the remote host");
+  expect(remote).not.toContain("No changes so far.");
+  expect(remote).not.toContain("0 files");
+  const panel = renderToString(<SessionPanel id="t-1" tab="changes" onTab={noop} count={null} changes="Unavailable" details="Details"/>);
+  expect(panel).toContain(">Changes</button>");
+  expect(panel).not.toContain("Changes 0");
+});

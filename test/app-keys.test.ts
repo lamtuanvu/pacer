@@ -135,3 +135,19 @@ test('the shell detects terminal control ownership from the session marker', asy
  expect(sessionControlActive({querySelector:()=>null})).toBe(false);
  expect(sessionControlActive(undefined)).toBe(false);
 });
+
+test("right panel uses Alt plus the platform command modifier without stealing terminal keys", () => {
+  for (const mac of [true, false]) {
+    let runs = 0, control = false;
+    const registry = createKeyRegistry({ mac, controlActive: () => control });
+    registry.register({ keys: "Alt-Mod-b", label: "Right panel", scope: "global", run: () => runs++ });
+    const mods = { altKey: true, metaKey: mac, ctrlKey: !mac };
+    expect(registry.handle(key("b", mods, { tagName: "INPUT", type: "text" }))).toBe(true);
+    expect(runs).toBe(1);
+    expect(registry.handle(key("b", { ctrlKey: true }))).toBe(false);
+    expect(registry.handle(key("b", { altKey: true }))).toBe(false);
+    control = true;
+    expect(registry.handle(key("b", mods))).toBe(false);
+    expect(runs).toBe(1);
+  }
+});
