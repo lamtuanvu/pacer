@@ -62,6 +62,19 @@ export function seedUi(root: string): void {
   const repo = join(home, "repos/sample");
   const repoKey = `local:${createHash("sha256").update(repo).digest("hex").slice(0, 12)}`;
   mkdirSync(repo, { recursive: true, mode: 0o700 });
+  // A sample must be a repository itself: Git otherwise walks up into the
+  // source checkout when the sandbox lives under .work/.
+  for (const args of [
+    ["init", "-q", "--template=", "-b", "main"],
+    ["-c", "user.name=Live validation", "-c", "user.email=live@example.invalid", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Sample baseline"],
+  ]) {
+    const result = Bun.spawnSync(["git", "-C", repo, ...args], {
+      env: { PATH: process.env.PATH, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      timeout: 5000,
+      stdout: "pipe", stderr: "pipe",
+    });
+    if (result.exitCode !== 0) throw Error(`Sample git setup failed: ${result.stderr.toString()}`);
+  }
   json("state/repos.json", { [repo]: { key: repoKey, path: repo, lastUsed: now } });
   const states = ["done", "failed", "partial", "running", "done"] as const;
   const attention: Record<string, { since: number }> = {};

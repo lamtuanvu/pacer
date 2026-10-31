@@ -367,6 +367,11 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   seedUi(session.root);
   expect(readdirSync(session.root).filter(name => name !== "home")).toEqual(outside);
   for (const name of outside) expect(readdirSync(join(session.root, name))).toEqual([]);
+  const sample = join(session.root, "home/repos/sample");
+  const top = Bun.spawnSync(["git", "-C", sample, "rev-parse", "--show-toplevel"]);
+  expect(top.exitCode).toBe(0);
+  expect(top.stdout.toString().trim()).toBe(await import("node:fs").then(fs => fs.realpathSync(sample)));
+  expect(Bun.spawnSync(["git", "-C", sample, "rev-parse", "--verify", "HEAD"]).exitCode).toBe(0);
   session.seed = "ui";
   const env = sandboxEnv(session);
   expect(env.HOME).toBe(join(session.root, "home"));
