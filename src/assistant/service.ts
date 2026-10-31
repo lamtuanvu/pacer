@@ -118,7 +118,7 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
 export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): Promise<string | null> {
   if (pluginId !== ASSISTANT_PLUGIN) throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
   const settings = readSettings(ctx);
-  if (!settings.account || ref !== `endpoint/${settings.account}`) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
+  if (!settings.account || ![`endpoint:${settings.account}`, `endpoint/${settings.account}`].includes(ref)) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
   const account = loadStrategy(ctx).accounts[settings.account];
   if (!account?.connection) throw new CoreError("capability_denied", "The assistant's account is not an endpoint.");
   return readKey(ctx, settings.account, account.connection.key);

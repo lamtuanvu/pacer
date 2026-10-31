@@ -42,6 +42,12 @@ test("cache opaque lease preserves compatibility JSON and private atomic replace
   expect((await stat(join(s.ctx.pacerHome, "cache"))).mode & 0o777).toBe(0o700);
   expect((await snapshot(s.authority)).value).toEqual(value);
 });
+test("usage state refuses a staged total above 16 MiB",async()=>{
+  const s=setup(),lease=(await snapshot(s.authority)).lease,chunk=Buffer.alloc(262144,32).toString("base64");
+  for(let i=0;i<64;i++) await call(s.authority,"stageChunk",{lease,offset:i*262144,base64:chunk});
+  await expect(call(s.authority,"stageChunk",{lease,offset:16*1024*1024,base64:"eA=="})).rejects.toMatchObject({code:"invalid_input"});
+  await call(s.authority,"release",{lease});
+});
 test("state refuses missing grants, unknown stores, cross-call leases, invalid chunks and expired authority", async () => {
   const s = setup(); const other = setup();
   await expect(call(s.authority, "begin", { store: s.path })).rejects.toMatchObject({ code: "capability_denied" });

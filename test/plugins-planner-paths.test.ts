@@ -6,6 +6,11 @@ import { PlannerResources } from "../src/plugins/planner-resources";
 import { PluginRegistry } from "../src/plugins/registry";
 import { plannerSelectedSources } from "../src/plugins/planner-selection";
 import { plannerPrivatePath } from "../src/plugins/planner-private-paths";
+test("planner roots cannot include HOME or alternate-case credential trees",()=>{
+  const ctx=fakeCtx();
+  expect(plannerPrivatePath(ctx,ctx.home)).toBe(true);
+  expect(plannerPrivatePath(ctx,join(ctx.home,".Config/GH/hosts.yml"))).toBe(process.platform==="darwin");
+});
 import type { PluginManifest } from "../src/plugins/protocol";
 test("actual peer reads exact selected account under PACER_HOME but cannot read siblings or private/native credential stores", async () => {
   const ctx = fakeCtx(),

@@ -7,6 +7,7 @@ import { claudeCachePaths } from "../usage/claude";
 import { defaultAccountFolder } from "../exec/account-folder";
 import { pluginRegistry } from "./index";
 import type { CallResources } from "./authority";
+import { NETWORK_ENV } from "./capability-spawn";
 
 /** Project public account identity and fixed host-owned resources, never credential configuration. */
 export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
@@ -35,7 +36,7 @@ export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: Acco
     resources.reads.push({ path: root, kind: "codex-logs" });
     resources.stores.push({ id: "codex-cursors", path: join(ctx.pacerHome, "state", "codex-cursors.json"), kind: "cursors", version: 4, root });
     if (refresh) resources.commands.push({ argv: ["codex", "-s", "read-only", "-a", "never", "app-server"],
-      timeoutMs: 10_000, mode: "codex-live", env: { ...Object.fromEntries(Object.entries(ctx.env).filter(([, value]) => typeof value === "string")) as Record<string, string>, CODEX_HOME: accountHome } });
+      timeoutMs: 10_000, mode: "codex-live", env: { ...Object.fromEntries(["HOME", "PATH", "TMPDIR", "LANG", "XDG_CONFIG_HOME",...NETWORK_ENV].flatMap(key => typeof ctx.env[key] === "string" ? [[key, ctx.env[key]]] : [])) as Record<string, string>, CODEX_HOME: accountHome } });
   } else if (cfg.usage === "quota" && cfg.quotaSource === "arkcli") {
     resources.commands.push({ argv: ["arkcli", "usage", "plan", "--product", "coding-plan"], timeoutMs: 8000 });
     resources.stores.push({ id: "arkcli-usage-plan", path: join(ctx.pacerHome, "cache", "arkcli-usage-plan.json"), kind: "cache" });

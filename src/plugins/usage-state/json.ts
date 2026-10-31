@@ -1,5 +1,6 @@
 import { open } from "node:fs/promises";
-import { openStateFile } from "./storage";
+import { CoreError } from "../../core/errors";
+import { openStateFile, USAGE_STATE_MAX_BYTES } from "./storage";
 
 /** Incremental object reader: at most one JSON entry is materialized at a time. */
 class Reader {
@@ -72,6 +73,7 @@ class Reader {
 export async function readCursorFile(path: string, check: () => void): Promise<{ version: unknown; files: Record<string, unknown> }> {
   const file = await openStateFile(path);
   try {
+    if ((await file.stat()).size > USAGE_STATE_MAX_BYTES) throw new CoreError("too_large", "usage state exceeds 16 MiB limit");
     const reader = new Reader(file, check);
     let version: unknown; let files: Record<string, unknown> = Object.create(null);
     await reader.object(async (key, r) => {

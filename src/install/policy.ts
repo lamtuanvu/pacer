@@ -1,1 +1,1 @@
-export {policyText} from "../../plugins/pacer-planners/policy";
+export { policyText } from "../../packages/plugin-sdk/src/install/policy-text";

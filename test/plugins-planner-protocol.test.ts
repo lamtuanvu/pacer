@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   CAPABILITY_METHODS,
   EXTENSION_METHODS,
+  secretReference,
   capabilityOf,
   manifestSchema,
 } from "../src/plugins/protocol";
@@ -30,6 +31,14 @@ test("planner command capability maps strict intent to process.spawn", () => {
         .success,
     ).toBe(false);
   }
+});
+test("secret references accept the shared grammar and old endpoint slash refs",()=>{
+  for(const ref of ["env:KEY", "secrets:api-key", "endpoint:account-id", "endpoint/account-id"])
+    expect(secretReference.safeParse(ref).success).toBe(true);
+  for(const ref of ["endpoint/../key", "endpoint:", "secrets/key", "env:BAD/KEY"])
+    expect(secretReference.safeParse(ref).success).toBe(false);
+  expect(CAPABILITY_METHODS["capability.secrets.resolve"]?.params.safeParse({ref:"endpoint:account-id"}).success).toBe(true);
+  expect(CAPABILITY_METHODS["capability.secrets.check"]?.params.safeParse({ref:"endpoint/account-id"}).success).toBe(true);
 });
 test("planner extension schema declares prepare-only final data and rejects spoofed context fields", () => {
   expect(

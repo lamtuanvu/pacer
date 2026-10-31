@@ -5,6 +5,10 @@ import { runTask } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
 import { queueTask, queueDeps } from "./queue-helpers";
 import { fakeCtx } from "./helpers";
+import { policyGateFixture } from "./fixtures/policy-host";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { activeHooks } from "../src/classify/active";
 
 function waiting(ctx: ReturnType<typeof fakeCtx>, goal: string, createdAt: number, executor: string | null = null) {
   const task = queueTask({...ctx, now: createdAt}, goal, executor);
@@ -17,6 +21,33 @@ test("one free slot drains only the oldest task and reserves it across drains", 
   expect(results.flat()).toEqual([a.id]); expect(spawned).toEqual([a.id]);
   expect(readTask(ctx, a.id)?.queue).toBeUndefined();
   expect(readTask(ctx, b.id)?.queue).toBeDefined(); expect(readTask(ctx, c.id)?.queue).toBeDefined();
+});
+test("no policy plugins: slow status and classification do not stall the queued head",async()=>{
+  const ctx=fakeCtx(),a=waiting(ctx,"first",ctx.now-2);
+  let clock=0;
+  const base=queueDeps();
+  const deps={...base,now:()=>clock,computeStatus:async (...args:Parameters<typeof base.computeStatus>)=>{
+    clock+=10_001;
+    return base.computeStatus(...args);
+  },hooks:{...activeHooks,taskKind:async()=>{clock+=10_001;return "feature" as const;},filterExecutors:async (_ctx:unknown,_task:unknown,candidates:string[])=>candidates}};
+  expect(await drainQueue(ctx,()=>process.pid,deps)).toEqual([a.id]);
+});
+test("open drain finishes its first slow policy evaluation and leaves later work queued",async()=>{
+  const f=policyGateFixture({verdict:"allow"});
+  writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),JSON.stringify({...f.config,plugins:{...f.config.plugins,policy:{mode:"open"}}}));
+  const a=waiting(f.ctx,"first",f.ctx.now-2),b=waiting(f.ctx,"second",f.ctx.now-1);
+  const deps={...queueDeps(),now:()=>f.calls().length?10_001:0};
+  expect(await drainQueue(f.ctx,()=>process.pid,deps)).toEqual([a.id]);
+  expect(readTask(f.ctx,b.id)).toMatchObject({state:"queued"});
+  expect(f.calls()).toHaveLength(1);
+});
+test("closed drain finishes its first slow policy evaluation and leaves later work queued",async()=>{
+  const f=policyGateFixture({verdict:"allow"});
+  const a=waiting(f.ctx,"first",f.ctx.now-2),b=waiting(f.ctx,"second",f.ctx.now-1);
+  const deps={...queueDeps(),now:()=>f.calls().length?10_001:0};
+  expect(await drainQueue(f.ctx,()=>process.pid,deps)).toEqual([a.id]);
+  expect(readTask(f.ctx,b.id)).toMatchObject({state:"queued"});
+  expect(f.calls()).toHaveLength(1);
 });
 test("pinned removed executor fails with a clear report; unpinned work is reranked", async () => {
   const ctx = fakeCtx(), pinned = waiting(ctx, "pinned", ctx.now - 2, "missing"), other = waiting(ctx, "other", ctx.now - 1);

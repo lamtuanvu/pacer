@@ -18,7 +18,7 @@ export { FILE_WRITE_CHUNK_FEATURE, FILE_WRITE_MAX_BYTES, FILE_WRITE_CHUNK_BYTES 
 import { NOTIFIER_METHODS } from "./notifier-protocol";
 export { notificationMessage, notificationResult } from "./notifier-protocol";
 import { CLASSIFIER_METHODS } from "./classifier-protocol";
-import { HTTP_CAPABILITY_METHODS, HTTP_METHOD_CAPABILITY } from "./http-protocol";
+import { HTTP_CAPABILITY_METHODS, HTTP_METHOD_CAPABILITY, secretReference } from "./http-protocol";
 export { questionSchema, answerSchema, classifierAdapterConfig, classifierAskParams, type ClassifierQuestion, type ClassifierAnswer, type ClassifierAskParams } from "./classifier-protocol";
 export { HTTP_BODY_CHUNK_FEATURE, HTTP_BODY_MAX_BYTES, HTTP_BODY_CHUNK_BYTES, httpRequest, httpResponse, httpBodyReference, secretReference, type HttpWireRequest, type HttpWireResponse } from "./http-protocol";
 import { compareVersions, isVersion } from "../update/version";
@@ -28,7 +28,9 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.7.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.8.0";
+/** Release that added the #503 policy redaction metadata and `kind:name` secret references. */
+export const PLUGIN_HARDENING_PROTOCOL_VERSION = "1.8.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
@@ -222,7 +224,7 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
-  "capability.secrets.resolve": method({ description: "Resolve the key of the endpoint account the user chose for the assistant. Any other reference is refused.", params: z.object({ ref: z.string().regex(/^endpoint\/[a-z0-9][a-z0-9-]*$/) }), result: z.object({ value: z.string().nullable() }), deadlineMs: 5000 }),
+  "capability.secrets.resolve": method({ description: "Resolve the key of the endpoint account the user chose for the assistant. endpoint/<id> remains accepted for compatibility.", params: z.object({ ref: secretReference }), result: z.object({ value: z.string().nullable() }), deadlineMs: 5000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
   "capability.identity.sign": method({
     description: "Sign a payload with this machine's key under the domain-separated format \"pacer-machine-sig/v1\" 0x00 plugin_id 0x00 purpose 0x00 payload. purpose must be declared in the manifest scopes for identity.sign. The transport-key purpose requires the payload \"transport-key/v1\" 0x00 followed by a 32-byte key and records it as the plugin's current transport key. payload and signature are base64. Refused with capability_denied while the home looks copied from another machine, until the user rotates the machine key. Every signature is recorded in the host-owned identity audit log. Refusals are recorded there too, at most 10 per minute per plugin; the next refusal in that minute writes one summary line and the rest are counted, not logged.",

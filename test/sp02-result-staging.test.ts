@@ -38,6 +38,13 @@ test("zero, malformed, oversized and noncontiguous chunks never advance accepted
     expect(await f.staging.finish(2)).toEqual({});
   } finally { await f.authority.revoke(); }
 });
+test("result staging refuses a total above 16 MiB before accepting the extra chunk", async () => {
+  const f=fixture(Date.now()+30000),chunk=Buffer.alloc(CHUNK,32).toString("base64");
+  try {
+    for(let i=0;i<64;i++) await f.staging.stage(i*CHUNK,chunk);
+    await expect(f.staging.stage(64*CHUNK,"eA==")).rejects.toMatchObject({code:"invalid_input"});
+  } finally { await f.authority.revoke(); }
+});
 
 test("one authority staging window rejects overlap without renewing the call", async () => {
   const f = fixture();

@@ -23,6 +23,8 @@ export interface PlannerInstallOptions {
   roots: readonly string[];
   files?: readonly string[];
   binaries: readonly string[];
+  /** Host-owned test/integration command policy; never sourced from a plugin. */
+  commandApproval?: (argv: readonly string[]) => boolean;
   registry?: PluginRegistry;
   signal?: AbortSignal;
   prepareOnly?: boolean;
@@ -115,6 +117,8 @@ export async function withPlannerInstall(
               ? "reconcile"
               : "install",
       binaries: options.binaries,
+      commandApproval: options.commandApproval,
+      pacerArgv: options.operation === "uninstall" ? prior?.pacerArgv ?? env.pacerArgv : env.pacerArgv,
       cwd: ctx.home,
       env: {
         ...Object.fromEntries(

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { installPlanner } from "../src/install";
 import { uninstallPlanner } from "../src/install/uninstall";
 import { runDoctor } from "../src/install/doctor";
-import { PACER_SKILL } from "../src/install/skill";
+import { PACER_SKILL } from "../plugins/pacer-planners/skill";
 import { readManifest } from "../src/install/manifest";
 import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER, snapshot } from "./install-helpers";
