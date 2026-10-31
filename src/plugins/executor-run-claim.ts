@@ -59,7 +59,9 @@ export async function answerExecutorClaim(authority: CallAuthority,
         cwdIdentity: { dev: cwd.dev, ino: cwd.ino }, env: launch.env,
         ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
         ...(launch.session === undefined ? {} : { session: launch.session }),
-        ...(launch.files === undefined ? {} : { files: launch.files }) });
+        ...(launch.files === undefined ? {} : { files: launch.files }),
+        ...(launch.umask === undefined ? {} : { umask: launch.umask }),
+        ...(launch.keepColor === undefined ? {} : { keepColor: launch.keepColor }) });
     } catch { return deny(); }
     authority.assertActive();
     return { task: { id: grant.taskId, rev: task.rev }, attempt: grant.attempt, runDir: 1,
