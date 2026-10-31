@@ -9,7 +9,7 @@ import { sendMessage } from "../src/messaging/send";
 import * as store from "../src/messaging/store";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { loadStrategy } from "../src/config/strategy";
-import { resolveRepo, resolvePolicyRepo } from "../src/core/repos";
+import { resolveRepo } from "../src/core/repos";
 import { projectReferences } from "../src/engine/project-routing";
 import * as projectPolicy from "../src/core/project-policy";
 import { deliver } from "../src/messaging/turns";
@@ -62,10 +62,8 @@ test("an executor policy now excludes reroutes the turn to an admitted one that 
 });
 
 test("a changed project selection excludes the prior executor from a continuation", async () => {
-  const f = settled();
-  const repo = await resolvePolicyRepo(f.ctx, f.repo);
-  updateTask(f.ctx, f.id, t => { t.repo = repo; });
-  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ["cursor"]), 0);
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
   const r = await f.send("continue on selected executor");
   expect(r.hold).toBeUndefined();
   expect(r.delivery).toBe("turn_started");
@@ -74,8 +72,8 @@ test("a changed project selection excludes the prior executor from a continuatio
 });
 
 test("a changed project selection with no runnable candidate holds the continuation", async () => {
-  const f = settled();
-  const repo = await resolvePolicyRepo(f.ctx, f.repo);
+  const f = settled(gitRepo());
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
   updateTask(f.ctx, f.id, t => { t.repo = repo; });
   // A selected runner reference removed from the strategy leaves the task pending.
   await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
@@ -291,8 +289,8 @@ test("a policy-held answer replayed with its request id stays open while held, t
 });
 
 test("a broker delivery uses the project selection, as a send does", async () => {
-  const f = settled();
-  const repo = await resolvePolicyRepo(f.ctx, f.repo);
+  const f = settled(gitRepo());
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
   updateTask(f.ctx, f.id, t => { t.repo = repo; });
   store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: "broker", to: `task:${f.id}`, kind: "nudge", body: "nudge", replyTo: null, requestId: "nudge:1" });
   await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
