@@ -24,7 +24,7 @@ Code audit at `bb163906`. Each item names the cause the design removes.
 
 - The window starts on a small bundled page (`desktop/ui/`). Rust then grants IPC to `http://127.0.0.1:<port>` at runtime and navigates the window there (`desktop/src-tauri/src/main.rs:955-1033`). First paint waits for the service and an HTTP page load.
 - On a disconnect or service restart, Rust navigates the window back to the bundled recovery page and then to the service again (`main.rs:813-866`, `client.rs:949,1696-1706`). The whole UI and all in-page state are rebuilt.
-- Rust already runs its own service client: owner token, `/v3/session/exchange`, hello and version gate, SSE lifecycle loop, notification actions (`client.rs:421-517,1084-1124`). The page opens a second, independent connection.
+- Rust already runs its own service client: it exchanges the owner token once at `/v3/session/exchange` for an app cookie session (`client.rs:488-535`), then runs the hello and version gate, SSE lifecycle loop, notification actions (`client.rs:421-517,1084-1124`). The page opens a second, independent connection.
 
 **The UI discards what it already has.**
 
@@ -76,7 +76,8 @@ Code audit at `bb163906`. Each item names the cause the design removes.
 - A second task engine or task database in the client or in Rust (ARCH-1, D1).
 - Rust or a client reading private service files beyond the owner token it already uses.
 - A generic HTTP, shell, file or arbitrary-URL proxy in Rust.
-- Weakening SEC-3, SEC-4 or SEC-8 (Host check, no CORS, Origin check, Strict cookie, scoped capabilities).
+- Weakening SEC-3 or SEC-4 (Host check, no CORS, Origin check, Strict cookie), or widening desktop capabilities beyond the exact commands section 5.2 lists (SEC-8 is amended, not loosened; section 9).
+- Page traffic authenticated as anything other than the app (the owner bearer token is never used for forwarded calls).
 - Showing an unconfirmed mutation as done.
 - Silently taking or keeping terminal control the user released.
 - A desktop-only fork of screens or behavior. Desktop-only code is limited to the platform adapter and the Rust shell.
@@ -98,7 +99,7 @@ flowchart TB
   end
   PA -->|browser| HTTP["HTTP / SSE / WebSocket, same origin"]
   PA -->|desktop| IPC["Tauri commands + Channels"]
-  IPC --> RUST["Rust service client: one connection, owner token"]
+  IPC --> RUST["Rust service client: one app cookie session"]
   RUST --> OS["Menus, tray, notifications, dialogs, windows"]
   HTTP --> SVC["pacer serve: public v3 API"]
   RUST --> SVC
@@ -133,19 +134,22 @@ The window loads the bundle once and never navigates afterwards. Deep links, tra
 
 ### 5.2 Rust service client
 
-Rust is the only desktop component that talks to the service. It already authenticates with the owner token and runs the lifecycle loop. It is extended to serve the page:
+Rust is the only desktop component that talks to the service. It already exchanges the owner token once for an app cookie session and runs the lifecycle loop. It is extended to serve the page:
+
+- **Authentication:** every forwarded call, event stream and terminal socket uses that app cookie session with `Origin: http://127.0.0.1:<port>` and `X-Pacer-Client: app`, exactly as the page does today. The owner bearer token is used only for the exchange. This matters: on the bearer path the service treats the caller as an external client (`src/serve/http.ts:241`) — terminal presets are not enforced, calls are attributed to `external:local` instead of the human (`participants.ts:50-56`), and terminals open in an external target. Forwarded page calls must keep app semantics.
 
 - **Operations:** one command `service_call(op, params)` that forwards only operations listed in the service's hello `ops`. Results and typed errors (including `conflict`) pass through unchanged. The page's API client calls it instead of `fetch`. It is an allow-listed op forwarder, not an HTTP proxy: Rust builds the request URL itself from the fixed service base.
 - **Events:** one `ipc::Channel` per page that carries the v3 event stream. Rust keeps the SSE connection and its `since` cursor across page reloads and service restarts, and replays from the cursor on reconnect. The service already stores events by sequence and emits a `reset` event when the cursor is older than its oldest stored event (`src/api/events.ts:71-96`). Rust passes that through as one `resync` message, and the page refetches the snapshot in place. A long restart therefore costs one snapshot read, never a page reload.
 - **Connection status:** pushed on the same channel (`connecting`, `connected`, `reconnecting` with attempt and next retry, `incompatible` with reason). It replaces the recovery-page navigation.
-- **Terminal streams:** `terminal_attach(target, from)` opens or reuses the session WebSocket in Rust and streams frames over a Channel. `terminal_send`, `terminal_resize`, `terminal_take(force)`, `terminal_release` and `terminal_detach` map to the existing session frames. `target` is a task session (`/v3/tasks/:id/session`) or a host terminal (`/v3/terminals/:uuid/session`); Rust uses the v3 routes only, so the planned /v2 removal does not affect it. Rust holds the socket; the page holds the runtime state (section 7). Builder: define per-Channel buffering and a drop-to-snapshot rule when the page falls behind.
-- **Non-op routes:** the page also uses routes that are not hello `ops`: the assistant turn stream (`/v3/assistant/turns/:id/stream`), attachments (`/v3/attachments` upload, list and read) and the task log follow stream (`/v2/tasks/:id/log?follow=1`). Each gets its own typed command with a fixed route: `assistant_turn_stream(id)` and `task_log_follow(id, from)` stream over a Channel; `attachment_upload`, `attachment_list` and `attachment_read` are plain commands with the service's existing size limits. Any new non-op route the page adopts gets a typed command in the same change. There is no general route forwarder.
+- **Terminal streams:** `terminal_attach(target, from)` opens or reuses the session WebSocket in Rust and streams frames over a Channel. `terminal_send`, `terminal_resize`, `terminal_take(force)`, `terminal_release` and `terminal_detach` map to the existing session frames. `target` is a task session (`/v3/tasks/:id/session`) or a host terminal (`/v3/terminals/:uuid/session`); Rust uses the v3 terminal routes, so the planned /v2 removal does not affect terminals. Rust holds the socket; the page holds the runtime state (section 7). Builder: define per-Channel buffering and a drop-to-snapshot rule when the page falls behind.
+- **Non-op routes:** the page also uses routes that are not hello `ops`: the assistant turn stream (`/v3/assistant/turns/:id/stream`), attachments (`/v3/attachments` upload, list, read and delete) and the task log follow stream (`/v2/tasks/:id/log?follow=1`). Each gets its own typed command with a fixed route: `assistant_turn_stream(id)` and `task_log_follow(id, from)` stream over a Channel; `attachment_upload`, `attachment_list`, `attachment_read` and `attachment_delete` are plain commands with the service's existing size limits. Any new non-op route the page adopts gets a typed command in the same change. There is no general route forwarder. `task_log_follow` uses `/v2/tasks/:id/log` today; a v3 log-follow route is a prerequisite of step 6 (section 10). The page's `/v2` fallbacks for older services (`app/src/data/api.ts:45,76`) are not forwarded: the desktop shell requires a v3 service, and Rust's hello check shows the outdated-service state otherwise.
+- **Forwarder hardening:** the op allow-list is the exact `ops` list from the latest hello, refreshed on every reconnect; op names must match `^[a-z][a-z0-9_.]*$` (no `/`); the existing `ui.open` exclusion stays; params are capped at the service's 256 KiB body limit before sending; IDs passed to typed commands are validated against the service's ID formats; Rust connects only to the public loopback listener (ARCH-15), never a private core listener.
 - **Caller identity:** the service reads `X-Pacer-Client` and `X-Pacer-Client-Instance` on every authenticated request and uses them for the interactive driving lease and the timeline (`src/api/http.ts:82-86`, `src/session/send.ts:22-30`). The lease is cooperative, not a security boundary. Rust sends `X-Pacer-Client: app` and the per-window instance ID the page generates (as `app/src/data/api.ts` does today), so a desktop window contends with a browser window exactly as two browser windows do.
 - **Hello and version:** Rust keeps `check_hello` and the service version gate. The page receives the result as a status and shows the outdated-service and outdated-app states inside the shell.
 
-The SSE and WebSocket routes keep requiring the same-origin cookie or the bearer token. Rust uses the bearer path. No CORS, Origin or cookie rule changes are needed.
+The SSE and WebSocket routes keep requiring the same-origin cookie, Origin check and app client header. Rust satisfies them as the app does. No CORS, Origin or cookie rule changes are needed.
 
-Capabilities: the main window gets a static capability for the bundled origin covering only these commands and the existing `client_control` commands. The runtime grant to the service origin is removed. Every command keeps checking the calling window label.
+Capabilities: the main window gets a static capability for the bundled origin covering only these commands and the existing `client_control` commands. The tray window gets the same treatment: its bundled popover receives a static capability for its existing tray commands, replacing today's runtime `tray-service-<port>` grant, and it shares Rust's single connection instead of its own cookie session. The runtime grants to the service origin are removed. The main and tray windows are locked to the bundled origin (navigation to any other origin opens the system browser, as `on_navigation` does today). Every command keeps checking the calling window label.
 
 ### 5.3 Notification ownership
 
@@ -172,7 +176,7 @@ A module-level store keyed by `serviceIdentity + taskId` (and `section` for non-
 
 Screens use `useWorkspaceState(key, field, initial)`. On activation, a view restores scroll and focus from the manager. The global scroll reset and focus jump on hash change are removed; a new view with no saved state starts at the top with focus on its heading, as today.
 
-Drafts and the open-session list persist to local storage under the service identity. Nothing else persists. `useDraft` (session storage) is folded into this.
+Drafts and the open-session list persist to local storage under the service identity. Each draft is capped (my call: 64 KiB), deleted when it is sent, and all entries for a service identity are cleared on sign-out or when the service identity changes. Nothing else persists. `useDraft` (session storage) is folded into this.
 
 ### 6.3 Keep-alive view host
 
@@ -199,7 +203,7 @@ Drafts and the open-session list persist to local storage under the service iden
 
 ### 6.6 Pending feedback
 
-- A sent thread message or answer appears at once in the list, marked "Sending", and becomes normal when the service confirms it (result or event). On failure it stays with the error and Retry and Discard.
+- A sent thread message or answer appears at once in the list, marked "Sending", and becomes normal when the service confirms it (result or event). On failure it stays with the error and Retry and Discard. Retry resends the same `request_id` and `expect_rev` as the original call, so a request the service did apply is not applied twice (ARCH-3).
 - Other actions keep the busy state on their control, and the delayed busy rule stays.
 - Nothing is shown as done before the service confirms it.
 - An uncertain outcome (timeout, lost connection mid-request) is resolved by reading the entity before offering Retry. Destructive operations are never retried automatically.
@@ -274,13 +278,13 @@ Consequences recorded with the amendment:
 
 - The bundled UI and the service can differ in version. Rust's hello check and service version gate stay the authority; the shell shows actionable mismatch states (update the app, update the service, or continue with a known older service, as today). When continuing with an older service, the page gates features on the hello `ops` and `events` lists, as `store.ts:27-29` already does; a feature whose op is missing is hidden or shown as unavailable with the reason.
 - The desktop updater now also updates the UI. Release notes for the desktop app cover UI changes.
-- SEC-8 is restated: a static capability for the bundled origin covering only the listed commands replaces the runtime grant to the service origin.
+- SEC-8 changes. It is an established security rule, so the change follows the constitution's amendment process: an edit to `.project/rules/security.md` (SEC-8: desktop windows load only the bundled origin; each window has a static capability covering exactly its listed commands; no runtime grants to service origins; CSP stays `default-src 'self'` plus what the bundle needs), a constitution version bump, and a `.project/decisions.md` entry. These land in the same amendment PR as the D4 change.
 
 The amendment goes through the constitution's process and lands with or before the code that bundles the UI.
 
 ## 10. Service changes
 
-None are required for the core design: the bearer path, caller-identity headers, hello `ops`/`events`, SSE `since` with `reset`, terminal `?from=` and the non-op routes in 5.2 already exist. One existing gap matters for later: task log follow exists only at `/v2/tasks/:id/log`. It needs a v3 route before the planned /v2 removal; that is tracked with the /v2 removal, not added here. If the builder finds the SSE replay window too short for a service restart, a longer replay or a cursor-validity signal is added to the public protocol (API rules), not as a desktop-only contract.
+None are required for the core design: the app cookie session exchange, caller-identity headers, hello `ops`/`events`, SSE `since` with `reset`, terminal `?from=` and the non-op routes in 5.2 already exist. One addition is required before step 6: task log follow exists only at `/v2/tasks/:id/log`, so a v3 log-follow route is added to the public protocol (API rules, protocol-compat review) first. It is also needed for the planned /v2 removal. If the builder finds the SSE replay window too short for a service restart, a longer replay or a cursor-validity signal is added to the public protocol (API rules), not as a desktop-only contract.
 
 ## 11. Delivery order
 
@@ -291,7 +295,7 @@ Each step is useful on its own and ships as its own PR.
 3. **Workspace manager, keep-alive view host and connection loss** (6.2, 6.3, 6.5). Both clients.
 4. **Session runtime registry** (7). Both clients.
 5. **Platform adapter** (8.4) with the browser implementation only; no behavior change.
-6. **ADR amendment, then bundled UI and Rust service client** (5, 9). Desktop.
+6. **ADR and SEC-8 amendment and the v3 log-follow route, then bundled UI and Rust service client** (5, 9, 10). Desktop.
 7. **App menu, command bridge, route events and native dialogs** (8.3, 8.5). Desktop. This step does not depend on step 6: the current page on the service origin already has IPC through its runtime capability, so the command and route events reach it through the platform adapter either way. It may ship before step 6 if the ADR amendment is still under review.
 8. **Pending feedback** (6.6). Both clients.
 
@@ -335,7 +339,7 @@ Reviews: UI and accessibility (focus restoration, `inert`, live region for the c
 
 ## 14. Calls made in this spec (not yet confirmed by the owner)
 
-- Rust owns the desktop connection from the start of step 6, instead of the bundled page calling `127.0.0.1`. Reason: SEC-3 and SEC-4 (no CORS, Origin check, Strict cookie) would otherwise have to be weakened, and Rust already holds the owner token and a lifecycle connection.
+- Rust owns the desktop connection from the start of step 6, instead of the bundled page calling `127.0.0.1`. Reason: SEC-3 and SEC-4 (no CORS, Origin check, Strict cookie) would otherwise have to be weakened, and Rust already holds an app cookie session and a lifecycle connection.
 - Steps 1–4 come before the bundled UI because they fix both clients and need no ADR change.
 - A driving runtime keeps its socket while hidden, because closing it releases control. This follows the issue's rule that navigation must not change control; the shell shows when you are in control of a hidden session.
 - Base styles apply in the browser too.
