@@ -133,3 +133,5 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  review.required=review.required.filter(k=>k!=='verdict');
  return schemas;
 }
+
+for (const name of ["list","get","create","end","retry","resume"]) V3_ONLY_OPS.add(`session.agent.${name}`);

@@ -19,6 +19,8 @@ export interface PolicyEvaluationOptions {
   allowedPlacements?: readonly DelegateInput["placement"][];
   /** Pure synchronous project/executor/placement constraint check; false rejects amendment. */
   validateDelegate?: (input: Readonly<DelegateInput>) => boolean;
+  /** Fixed-identity continuations cannot safely ignore an unsupported amendment. */
+  strictAmendments?: boolean;
   signal?: AbortSignal;
   /** Absolute wall-clock deadline shared with the outer operation. */
   deadline?: number;
@@ -102,6 +104,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
   for(const policy of snapshot.policies) {
     checkCancelled(options.signal);
     let explicitVeto:string|undefined;
+    let amending=false;
     try {
       const remaining=options.deadline===undefined?3000:Math.min(3000,options.deadline-now());
       if(remaining<=0) throw new CoreError("plugin_timeout","Policy call timed out");
@@ -110,6 +113,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
       const verdict=policyVerdict.parse(boundedClone(raw));
       if(verdict.verdict==="veto") explicitVeto=verdict.reason??"Policy vetoed decision";
       if(verdict.verdict==="amend") {
+        amending=true;
         if(params.decision==="review") throw Error("Review amendments are forbidden");
         if(params.decision==="delegate") {
           const amend=policyDelegateAmend.parse(verdict.amend);
@@ -133,6 +137,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
       }
     } catch(error) {
       checkCancelled(options.signal);
+      if(amending&&options.strictAmendments) veto(policy,"Policy amendment is unsupported for this session");
       if(snapshot.mode==="closed") veto(policy,"Policy decision failed");
       ignored(policy,`Policy decision failed and was ignored in open mode (${failureReason(error)})`);
     }

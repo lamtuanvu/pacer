@@ -24,7 +24,7 @@ export function refusal(args: string[]): string | undefined {
 }
 
 /** CLI commands and API operations that start or re-start executor work. */
-const DELEGATION_OPS = ["task.delegate", "task.retry", "task.retry_all", "task.answer", "task.takeover", "dispatch.submit", "dispatch.child", "dispatch.retry", "dispatch.answer", "session.create", "session.resume"];
+const DELEGATION_OPS = ["task.delegate", "task.retry", "task.retry_all", "task.answer", "task.takeover", "dispatch.submit", "dispatch.child", "dispatch.retry", "dispatch.answer", "session.create", "session.resume", "session.agent.create", "session.agent.retry", "session.agent.resume"];
 function delegates(args: string[]): string | undefined {
   const [command, action] = args;
   if (command === "delegate" || command === "retry" || command === "answer" || command === "_run") return command;

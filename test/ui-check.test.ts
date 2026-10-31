@@ -257,6 +257,15 @@ test("assistant conic mark exception rejects neighboring selectors, colors, file
   for (const source of [mark.replace(".pc-aurora-avatar", ".other"), mark.replace("var(--aurora-1)", "red"), mark.replace("200deg", "100deg"), ".other " + mark, mark.replace(".pc-aurora-avatar", ".other,.pc-aurora-avatar")]) expect(checkUiSource(path, source)).not.toEqual([]);
   expect(checkUiSource("app/src/shell/other.css", mark)).not.toEqual([]);
 });
+test("only the frame's header offset accepts measured top-bar height", () => {
+  const source = 'root.style.setProperty("--pc-frame-header-height", `${topBar?.getBoundingClientRect().height ?? 0}px`);';
+  expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);
+  expect(checkUiSource("app/src/screens/workspace/Workspace.tsx", source)).not.toEqual([]);
+  for (const bad of [source.replace("--pc-frame-header-height", "height"), source.replace(".height", ".width"), source.replace("?? 0", "?? 20"), source.replace("root.style", "other.style"), source.replace("topBar?", "input?")]) {
+    expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
+  }
+});
+
 test("only the frame's assistant offset accepts measured dock height", () => {
   const source = 'root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);';
   expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);

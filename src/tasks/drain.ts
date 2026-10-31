@@ -179,7 +179,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           });
           return;
         }
-        const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }));
+        const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }),ctx);
         const executor = permitted.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
         if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.

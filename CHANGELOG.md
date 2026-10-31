@@ -6,6 +6,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep phone Workspace task tabs above bottom navigation and Ask pacer on entry, accounting for the wrapped header when sizing the task list and session.
+
+- Keep Workspace Overview, Changes and Notes tabs visible while reading long task details, including below the wrapping phone header.
+
+- Stop repeatedly probing naturally exited added-agent history on warm task reads, slot checks, workspace admission and lifecycle pumps, while preserving ambiguous starts and retry invalidation.
+
+- Fail closed when the session database is replaced during reservation acquisition, instead of caching old sessions under a replacement database's identity.
+
+- Make Stop all cancel pending task-agent checks before claim or acceptance launch, stop running checker children, retain checkout ownership through diff capture, and report cancelled checks even before a child starts.
+
+- Retain overlapping checkout ownership through task-agent final acceptance and diff capture. Apply delegation and route plugin policy to added-session create, retry and resume before invalidating prior results or spawning an agent; reject amendments that cannot preserve the parent task and checkout.
+
 - Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
 
 - Attribute Orca task diffs to the recorded task base or current-checkout start commit, including committed work without a direct session record. Give the live UI sample its own Git repository so repository discovery cannot escape into the source checkout.

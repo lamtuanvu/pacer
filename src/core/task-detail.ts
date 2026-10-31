@@ -1,3 +1,4 @@
+import { agentChecksPending } from "../session/agents-checks";
 import { requirePolicyIdentity } from "./project-policy";
 import { getWork } from "../dispatch/work";
 import { attemptsWithTokens, itemsOf, rollupTokens, type TokenRollup } from "../tokens/rollup";
@@ -148,7 +149,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   let policyError: string | undefined;
   const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true).catch(error => { policyError = error instanceof Error ? error.message : String(error); return []; })]);
   const attempts = attemptsWithTokens(ctx, task.id, task.attempts);
-  const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
+  const acceptance = agentChecksPending(ctx,id)?undefined:task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
     ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth}} : {}),

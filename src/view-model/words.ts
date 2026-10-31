@@ -72,8 +72,9 @@ const sessionStates: Record<string, Status> = {
   queued: taskStates.queued!,
 };
 const waitingReview = status("Review requested", "warn", "◐");
-export interface TaskStatusInput { interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
+export interface TaskStatusInput { activeAgentSessions?:number; interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; dismissed?: boolean; resolved?: string | null; retriedBy?: string | null; state: string; review?: { accepted: boolean } | null; acceptanceState?: string; phase?: string; progress?: { phase?: string } | null }
 export function taskStatus(task: TaskStatusInput): Status {
+  if(task.activeAgentSessions)return status("Working", "info", "▶");
   if (task.interactionMode === "conversation" && task.state === "running") {
     if (task.conversation?.activity === "idle") return status("Ready for input", "neutral", "…");
     if (task.conversation?.activity === "waiting") return status("Needs input", "warn", "?");
@@ -213,3 +214,5 @@ export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown
   // Project policy held the task's next turn: say why; the answer waits with the question still open.
   delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
     : typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";
+/** Stable task-local identity for independently controlled conversations. */
+export const agentSessionLabel=(executor:string,ordinal:number)=>`${executorLabel(executor)} · Session ${ordinal}`;

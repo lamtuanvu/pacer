@@ -123,8 +123,8 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
     const tokens = tokenText(tok);
     built.set(task.id, {
       id: task.id, title: task.fullTitle ?? task.title ?? task.goal,
-      state: { tone: status.tone, live: task.state === "running", label: status.label },
-      active: task.state === "running" || task.state === "queued",
+      state: { tone: status.tone, live: !!task.activeAgentSessions || task.state === "running", label: status.label },
+      active: !!task.activeAgentSessions || task.state === "running" || task.state === "queued",
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
       ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localTaskHostWords, kind: "local" as const } } : {}),
       ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),

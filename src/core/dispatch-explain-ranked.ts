@@ -30,7 +30,7 @@ export async function explainRankedDispatch(
     selection && { executors: selection.executors, order: "configured" }, { includePlanner: p.interactionMode === "conversation" });
   if (p.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind.value, strategy, byId, requested);
   const exclusions = new Map(ranking.excluded.map(e => [e.id, exclusionReason(e.id, e.reason, e.eligibility)]));
-  const use = slotUse(slotTasksReadOnly(store));
+  const use = slotUse(slotTasksReadOnly(store),ctx);
   const eligible: typeof ranking.ranked = [];
   for (const candidate of ranking.ranked) {
     const host = strategy.runners[candidate.id].host;

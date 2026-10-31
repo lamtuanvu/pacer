@@ -3,6 +3,7 @@ import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import type { Ctx } from '../types';
 import { FrameType, WireDecoder, wire, MAX_FRAME, type Frame } from '../session/framing';
 import { sessionDirectory, sessionSocket } from '../session/service';
+import { agentSessionDirectory } from '../session/agents';
 import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
 import { existsSync, readFileSync } from 'node:fs';
@@ -83,6 +84,13 @@ export async function upgradeTerminal(req:Request,server:Server<SessionWS>,ctx:C
  if(req.method!=='GET')return new Response('method not allowed',{status:405});
  try{return upgradeDirectory(req,server,terminalDirectory(ctx,id));}
  catch{return new Response('Terminal not found',{status:404});}
+}
+export async function upgradeAgentSession(req:Request,server:Server<SessionWS>,ctx:Ctx,task:string,id:string):Promise<Response|undefined>{
+ if(req.method!=='GET')return new Response('method not allowed',{status:405});
+ try{
+  const value=new URL(req.url).searchParams.get('attempt');
+  return upgradeDirectory(req,server,agentSessionDirectory(ctx,task,id,value===null?undefined:Number(value)));
+ }catch{return new Response('Session not found',{status:404});}
 }
 async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string):Promise<Response|undefined>{
  try{

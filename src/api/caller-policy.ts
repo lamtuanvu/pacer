@@ -17,6 +17,7 @@ export function isUpgradeOperation(name: string): boolean {
 export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<string, unknown>): void {
   if (!isExecutorSession(ctx)) return;
   if (isUpgradeOperation(name)) throw new ApiError('not_allowed', UPGRADE_REFUSAL);
+  if (name.startsWith('session.agent.')) throw new ApiError('not_allowed', 'Executor sessions cannot manage interactive agents.');
   if (name.startsWith('assistant.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executors cannot use the assistant or read its history.');
   if (name.startsWith('plugin.ui.') || name.startsWith('plugin.settings.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: plugin UI and settings are for the app and the operator, not executor sessions.');
   if (name === 'plugin.enable' && params.grant === true) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executor sessions cannot grant plugin access.');

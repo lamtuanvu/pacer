@@ -424,3 +424,41 @@ fn sessions_expire_against_the_request_time() {
     // Requests use the current clock (serve::mod handles each request with `ctx.at_now()`).
     assert!(!sessions::check(&started.at_now(), &value).unwrap());
 }
+
+#[test]
+fn independent_agent_websockets_require_local_origin() {
+    let (_dir, ctx) = fixture();
+    let cookie = sessions::create(&ctx).unwrap();
+    for path in [
+        "/v3/tasks/task/agent-sessions/00000000-0000-4000-8000-000000000000/session",
+        "/v3/terminals/00000000-0000-4000-8000-000000000000/session",
+    ] {
+        for origin in [
+            None,
+            Some("http://foreign.invalid"),
+            Some("http://127.0.0.1:4317"),
+        ] {
+            let mut req = Request::builder()
+                .uri(path)
+                .header("host", "127.0.0.1:4317")
+                .header("cookie", format!("pacer_session={cookie}"));
+            if let Some(value) = origin {
+                req = req.header("origin", value);
+            }
+            let decision = auth::classify(&req.body(()).unwrap(), 4317, "token", &ctx);
+            if origin == Some("http://127.0.0.1:4317") {
+                assert!(matches!(
+                    decision,
+                    Decision::Forward {
+                        auth: AuthKind::Cookie
+                    }
+                ));
+            } else {
+                let Decision::Reject(response) = decision else {
+                    panic!("foreign or absent Origin accepted")
+                };
+                assert_eq!(response.status(), 403);
+            }
+        }
+    }
+}

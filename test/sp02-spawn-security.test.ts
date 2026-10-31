@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { chmodSync, renameSync, writeFileSync } from "node:fs";
+import { expect, spyOn, test } from "bun:test";
+import * as childProcess from "node:child_process";
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCallAuthority } from "../src/plugins/authority";
 import { fakeCtx } from "./helpers";
@@ -102,14 +103,75 @@ test("stdout and stderr enforce separate incremental 1MiB limits", async () => {
 });
 
 test("timeout reaps a TERM-ignoring child and concurrent calls cannot start another", async () => {
-  const f = fixture('process.on("SIGTERM",()=>{}); process.stdout.write(String(process.pid)); setInterval(()=>{},10);');
+  const f = fixture(`
+    const { writeFileSync } = require("node:fs");
+    process.on("SIGTERM", () => {});
+    process.stdout.write(String(process.pid));
+    writeFileSync(process.argv[1] + ".ready", String(process.pid));
+    setInterval(() => {}, 10);
+  `);
+  const originalSpawn = childProcess.spawn;
+  let child: childProcess.ChildProcess | undefined;
+  const spawning = spyOn(childProcess, "spawn").mockImplementation(((...args: Parameters<typeof originalSpawn>) => {
+    child = originalSpawn(...args);
+    return child;
+  }) as typeof originalSpawn);
+  // Drive only the command deadline after readiness, not Bun/OS startup latency.
+  // The real TERM/KILL escalation, streams and child settlement remain untouched.
+  const originalTimer = globalThis.setTimeout;
+  let expire: (() => void) | undefined;
+  const clock = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+    if (delay === 700) {
+      expire = callback;
+      return originalTimer(() => {}, 10000);
+    }
+    return originalTimer(callback, delay);
+  }) as typeof setTimeout);
   try {
     const running = answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 });
+    const observed = running.then(value => ({ value, error: null }), error => ({ value: null, error }));
+    spawning.mockRestore();
+    clock.mockRestore(); // No global mock remains installed across an await.
+    await expect(answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 })).rejects.toMatchObject({ code: "capability_denied" });
+    const readyDeadline = Date.now() + 5000;
+    while (!existsSync(f.executable + ".ready") && Date.now() < readyDeadline) await Bun.sleep(10);
+    expect(existsSync(f.executable + ".ready")).toBe(true);
+    const pid = Number(readFileSync(f.executable + ".ready", "utf8"));
+    expect(pid).toBeGreaterThan(1);
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    expect(expire).toBeDefined();
+    expire!();
+    // Admission stays closed during escalation, not just while the child runs.
+    await expect(answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 })).rejects.toMatchObject({ code: "capability_denied" });
+    const settled = await observed;
+    expect(settled.error).toBeNull();
+    const result = settled.value as { timedOut: boolean; stdout: string };
+    expect(result.timedOut).toBe(true);
+    expect(Number(result.stdout)).toBe(pid);
+    expect(child?.signalCode).toBe("SIGKILL");
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally { spawning.mockRestore(); clock.mockRestore(); await f.authority.revoke(); }
+});
+
+test("startup timeout reaps a child even before it emits readiness output", async () => {
+  const f = fixture('Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); process.stdout.write("unreachable");');
+  // Observe the OS-owned PID without depending on application startup or stdout.
+  const originalSpawn = childProcess.spawn;
+  let pid: number | undefined;
+  const spawning = spyOn(childProcess, "spawn").mockImplementation(((...args: Parameters<typeof originalSpawn>) => {
+    const child = originalSpawn(...args);
+    pid = child.pid;
+    return child;
+  }) as typeof originalSpawn);
+  try {
+    const running = answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 });
+    spawning.mockRestore();
     await expect(answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 })).rejects.toMatchObject({ code: "capability_denied" });
     const result = await running as { timedOut: boolean; stdout: string };
-    expect(result.timedOut).toBe(true); const pid = Number(result.stdout); expect(pid).toBeGreaterThan(1);
-    expect(() => process.kill(pid, 0)).toThrow();
-  } finally { await f.authority.revoke(); }
+    expect(result).toMatchObject({ timedOut: true, stdout: "" });
+    expect(pid).toBeGreaterThan(1);
+    expect(() => process.kill(pid!, 0)).toThrow();
+  } finally { spawning.mockRestore(); await f.authority.revoke(); }
 });
 
 test("revocation waits child settlement and never returns cancelled output", async () => {

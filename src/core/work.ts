@@ -76,7 +76,7 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
   const permitted=Object.values(strategy.runners).filter(runner=>runner.enabled!==false&&route.has(runner.id)&&(!candidate.executor||runner.id===(resolveRunner(strategy,candidate.executor)?.id??candidate.executor))
    &&!executorExclusion(currentCtx,strategy,runner.id)&&(options.allowDelegation||runner.agent!==strategy.planner.agent||runner.account!==strategy.planner.account)
    &&models.some(model=>model.runner===runner.id&&meetsRequirements(model,options.requirements)&&(!options.model||model.binding.kind==="exact"&&model.binding.id===options.model)));
-  const use=slotUse(listTasksWhere(currentCtx,{states:SLOT_STATES}));
+  const use=slotUse(listTasksWhere(currentCtx,{states:SLOT_STATES}),currentCtx);
   if(!permitted.some(runner=>!slotBlock(strategy,runner.id,use)))throw new CoreError("not_allowed","Child cannot make progress with the available executor slots and model policy; increase capacity or use another executor");
  };
  validateProgress({brief:{goal:input.goal,repo:parent.brief.repo},dispatch:options,executor:input.executor,kind:null});
