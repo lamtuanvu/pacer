@@ -73,7 +73,7 @@ export interface MachineCapacity {
 export interface PauseState { until: number | null; reason: string | null; by: string | null }
 export type SnapshotV2 = Omit<LinkSnapshot, "tasks"> & ReadModelFields & { tasks: TaskDataV2[]; attention: AttentionItem[]; pause?: PauseState | null };
 export interface Job {
- id: string; kind: "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply";
+ id: string; kind: "account.usage.check" | "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply";
  target: string; state: "running" | "passed" | "failed" | "cancelled";
  steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
  startedAt: number; endedAt?: number; error?: { code: string; message: string; hint?: string };

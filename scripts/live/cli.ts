@@ -13,8 +13,9 @@ import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kick
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
                                   start isolated service and disposable repo; ui seeds sample data;
+                                  plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
@@ -28,8 +29,8 @@ const usage = `usage: bun run live <command> [--id <id>]
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
   integrations --id <id>          exercise fixed private integration refresh fixtures
-  updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
-  repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
+  updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
+  repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
