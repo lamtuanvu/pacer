@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import { CoreError } from "../core/errors";
+import { projectSnapshot, resolvePolicyRepo } from "../core/project-policy";
+import type { ProjectSelection } from "../engine/project-routing";
 import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
 import { publishTaskMessages } from "./publish";
@@ -112,12 +114,30 @@ export interface TurnHold { reason: string; plugin?: string }
 export interface TurnDelivery { delivery: Delivery; hold?: TurnHold }
 
 /** The task's executors that could run its next turn: the prior one first, then its routing rule's local headless executors. */
-function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string): string[] {
+function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string, selection: ProjectSelection | undefined): string[] {
+  // The runner refuses an executor the repository's project policy forbids, so a turn never picks one.
+  const allowed = (id: string) => !selection || selection.executors.includes(id);
   let s: Strategy;
-  try { s = loadStrategy(ctx); } catch { return [prior]; }
+  try { s = loadStrategy(ctx); } catch { return [prior].filter(allowed); }
   const planner = (id: string) => s.runners[id]?.agent === s.planner.agent && s.runners[id]?.account === s.planner.account;
   const others = executorsFor(t.kind ?? null, s).filter(id => id !== prior && s.runners[id]?.enabled !== false && !planner(id) && !!headlessTurnPath(turnRunner(ctx, id)));
-  return [prior, ...new Set(others)];
+  return [prior, ...new Set(others)].filter(allowed);
+}
+
+/** The repository's project executor selection, resolved as the runner resolves it; undefined when the project is unrestricted. */
+async function turnSelection(ctx: Ctx, t: TaskRecord): Promise<{ repoKey: string; selection: ProjectSelection | undefined } | null> {
+  let s: Strategy;
+  try { s = loadStrategy(ctx); } catch { return null; }
+  const repo = t.repo && !t.repo.identityUnverified ? t.repo : await resolvePolicyRepo(ctx, t.brief.repo);
+  return { repoKey: repo.key, selection: projectSnapshot(ctx, s, repo.key).selection };
+}
+
+/** At queue commit: the project policy still allows the chosen executor, or the turn is admitted again. */
+function revalidateSelection(ctx: Ctx, repoKey: string, executor: string): void {
+  let s: Strategy;
+  try { s = loadStrategy(ctx); } catch { return; }
+  const selection = projectSnapshot(ctx, s, repoKey).selection;
+  if (selection && !selection.executors.includes(executor)) throw new CoreError("conflict", "Project policy changed while the turn was admitted");
 }
 
 const policyHold = (e: CoreError): TurnHold => ({ reason: e.message, ...(e.hint?.startsWith("plugin ") ? { plugin: e.hint.slice(7) } : {}) });
@@ -135,7 +155,12 @@ async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; g
   try {
     const delegate = await applyPolicy(ctx, "delegate", { goal: t.brief.goal, repo: t.brief.repo, kind: t.kind ?? null, requestedExecutor: prior, placement },
       { contextFingerprint: context, eligibleRunnerIds: [prior], allowedPlacements: [placement], validateDelegate: () => false, ...admissionLifetime(ctx) });
-    const route = await applyPolicy(ctx, "route", { taskId: t.id, candidates: turnCandidates(ctx, t, prior) }, { contextFingerprint: context, ...admissionLifetime(ctx) });
+    // A repository identity that project policy cannot establish holds the turn rather than failing it in the runner.
+    const project = await turnSelection(ctx, t).catch((e: unknown) => { if (e instanceof CoreError && e.code === "invalid_input") return { hold: { reason: e.message } }; throw e; });
+    if (project && "hold" in project) return project.hold;
+    const candidates = turnCandidates(ctx, t, prior, project?.selection);
+    if (!candidates.length) return { reason: `No executor that project policy allows for ${project!.selection!.repoKey} can run this task's next turn` };
+    const route = await applyPolicy(ctx, "route", { taskId: t.id, candidates }, { contextFingerprint: context, ...admissionLifetime(ctx) });
     if (route.params.decision !== "route") throw new CoreError("invalid_input", "Invalid route policy receipt");
     const admitted = route.params.input.candidates;
     const executor = admitted.includes(prior) ? prior : admitted[0];
@@ -143,7 +168,7 @@ async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; g
       const plugins = [...new Set(Object.values(route.excludedBy))];
       return { reason: `No executor is admitted for this task's next turn${plugins.length ? ` (excluded by plugin ${plugins.join(", ")})` : ""}`, ...(plugins.length === 1 ? { plugin: plugins[0] } : {}) };
     }
-    return { executor, guard: () => { delegate.revalidate(); route.revalidate(); } };
+    return { executor, guard: () => { delegate.revalidate(); route.revalidate(); if (project) revalidateSelection(ctx, project.repoKey, executor); } };
   } catch (e) {
     if (e instanceof CoreError && (e.code === "not_allowed" || e.code === "plugin_timeout")) return policyHold(e);
     throw e;
@@ -163,6 +188,7 @@ async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRun
 /**
  * Start the task's next message turn after fresh policy admission (ADR 0015), retrying when the policy context changed meanwhile.
  * A held turn leaves its messages pending, records why in the task's activity, and reports it to their senders unless quiet.
+ * Policy that still changes on the third admission holds the turn too.
  */
 export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean; quiet?: boolean } = {}): Promise<TurnDelivery> {
   for (let attempt = 0; ; attempt++) {
@@ -174,8 +200,16 @@ export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defau
       if (!o.quiet) await reportHold(ctx, id, admitted, spawn);
       return { delivery: "held", hold: admitted };
     }
+    let hold: TurnHold;
     try { return { delivery: startTurnIfIdle(ctx, id, spawn, { replay: o.replay, executor: admitted.executor, guard: admitted.guard }) }; }
-    catch (e) { if (attempt < 2 && e instanceof CoreError && e.code === "conflict") continue; throw e; }
+    catch (e) {
+      if (!(e instanceof CoreError && e.code === "conflict")) throw e;
+      if (attempt < 2) continue;
+      // Policy kept changing under admission: the messages wait for the next send rather than failing it.
+      hold = { reason: `Project policy changed while this task's next turn was admitted (${e.message})` };
+    }
+    if (!o.quiet) await reportHold(ctx, id, hold, spawn);
+    return { delivery: "held", hold };
   }
 }
 
