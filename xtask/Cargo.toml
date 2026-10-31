@@ -12,7 +12,7 @@ typify = "0.4"
 schemars = "0.8"
 quote = "1"
 syn = { version = "2", features = ["visit-mut"] }
-prettyplease = "0.2"
+prettyplease = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 
