@@ -6,7 +6,7 @@ import { markAgent } from "./agents";
 import { needsYou, type Scope } from "./selectors";
 
 import { sessionTime } from "./copy";
-import { attentionStatus, localHostWords, subtaskAttentionWords, taskOutcome, taskStatus, type Status, type Tone } from "./words";
+import { attentionStatus, localTaskHostWords, subtaskAttentionWords, taskOutcome, taskStatus, type Status, type Tone } from "./words";
 
 export type TaskAttention = "none" | "warn" | "bad";
 /** Icon names shared with the DS icon set; kept as a subset so the view model never imports the app. */
@@ -126,7 +126,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       state: { tone: status.tone, live: task.state === "running", label: status.label },
       active: task.state === "running" || task.state === "queued",
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
-      ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localHostWords, kind: "local" as const } } : {}),
+      ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localTaskHostWords, kind: "local" as const } } : {}),
       ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
       meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued", bucket: "other", tok, ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}),
       accepted: task.review?.accepted === true, stopped: ["failed", "limit", "partial", "stopped", "cancelled"].includes(task.state) || task.review?.accepted === false,

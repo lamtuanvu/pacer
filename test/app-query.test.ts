@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { createQuery, type QueryState } from '../app/src/data/query';
+import { createQuery, dedupeQuery, type QueryState } from '../app/src/data/query';
 import { queryRevision } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import snapshot from './fixtures/ui/snapshot.json';
@@ -143,4 +143,117 @@ test('work rows refresh when a node starts, settles or appears, so a running tre
  // Progress ticks on a running task must not refetch a hundred work rows each time.
  const progress={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,rev:(t.rev??0)+1,updatedAt:t.updatedAt+5}:t)}};
  expect(queryRevision(progress,'dispatch.list',params)).toBe(before);
+});
+
+test('filtered reads opt in to previous data across keys without publishing late answers or hiding errors', async () => {
+  const api = deferredApi(), states: QueryState<string>[] = [];
+  const query = createQuery(api.call, state => states.push(state), true);
+  query.update('insights.summary', '{"period":"7d"}', '1');
+  api.calls[0]!.resolve('last visible');
+  await settle();
+  query.update('insights.summary', '{"period":"today"}', '1');
+  expect(states.at(-1)).toEqual({data:'last visible',loading:true});
+  query.update('insights.summary', '{"period":"30d","repo":"two"}', '1');
+  api.calls[1]!.resolve('late today');
+  await settle();
+  expect(states.at(-1)?.data).toBe('last visible');
+  const error = new Error('offline');
+  api.calls[2]!.reject(error);
+  await settle();
+  expect(states.at(-1)).toEqual({data:'last visible',loading:false,error});
+  query.update('version.get', '{}', '1');
+  expect(states.at(-1)?.data).toBeUndefined();
+  query.dispose();
+});
+
+test('identical in-flight reads from separate consumers share one request and clear after errors', async () => {
+  const api = deferredApi();
+  const owner = {};
+  const one = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  const two = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  expect(api.calls).toHaveLength(1);
+  api.calls[0]!.resolve('one');
+  expect(await one).toBe('one');
+  expect(await two).toBe('one');
+  const failed = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  api.calls[1]!.reject(new Error('offline'));
+  await expect(failed).rejects.toThrow('offline');
+  const retry = dedupeQuery(owner, api.call, 'task.get', {id:'one'});
+  expect(api.calls).toHaveLength(3);
+  api.calls[2]!.resolve('retry');
+  expect(await retry).toBe('retry');
+});
+
+test('tree reads refresh on relevant task changes but not unrelated invalidations', () => {
+  const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+  const task=state.snapshot.tasks[0]!;
+  const before=queryRevision(state,'dispatch.tree',{id:task.id});
+  expect(queryRevision({...state,invalidations:{plugin:10}},'dispatch.tree',{id:task.id})).toBe(before);
+  expect(queryRevision({...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map(t=>t.id===task.id?{...t,state:'running',rev:(t.rev??0)+1}:t)}},'dispatch.tree',{id:task.id})).not.toBe(before);
+});
+
+test('a task state event refreshes selected detail even without a timestamp change', () => {
+  const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+  const task=state.snapshot.tasks[0]!;
+  const before=queryRevision(state,'task.get',{id:task.id});
+  const changed={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map(t=>t.id===task.id?{...t,state:t.state==='running'?'done':'running'}:t)}};
+  expect(queryRevision(changed,'task.get',{id:task.id})).not.toBe(before);
+});
+
+test('returning to an identical pending selection does not queue a duplicate read', async () => {
+  const api=deferredApi(), query=createQuery(api.call,()=>{});
+  query.update('task.get','{"id":"one"}','1');
+  query.update('task.get','{"id":"two"}','1');
+  query.update('task.get','{"id":"one"}','1');
+  api.calls[0]!.resolve('one');
+  await settle();
+  expect(api.calls.filter(call=>(call.params as {id:string}).id==='one')).toHaveLength(1);
+  query.dispose();
+  api.calls[1]!.resolve('two');
+});
+
+test('a shared cache coalesces consumers and serves a fresh remount without another request', async () => {
+ const {createQueryCache}=await import('../app/src/data/query');
+ const api=deferredApi(), cache=createQueryCache(api.call), states:QueryState<string>[]=[];
+ const a=cache.createQuery(state=>states.push(state)), b=cache.createQuery(state=>states.push(state));
+ a.update('repo.list','{}','r1');b.update('repo.list','{}','r1');
+ expect(api.calls).toHaveLength(1);
+ a.dispose();api.calls[0]!.resolve('repos');await settle();
+ expect(states.at(-1)).toEqual({data:'repos',loading:false});b.dispose();
+ const c=cache.createQuery(state=>states.push(state));c.update('repo.list','{}','r1');
+ expect(states.at(-1)).toEqual({data:'repos',loading:false});expect(api.calls).toHaveLength(1);c.dispose();
+});
+
+test('shared query freshness is bounded, failed reads retry, revisions and manual refresh coalesce', async()=>{
+ const {createQueryCache}=await import('../app/src/data/query');
+ let now=0;const api=deferredApi(),states:QueryState<string>[]=[],cache=createQueryCache(api.call,{now:()=>now,maxAgeMs:100,maxEntries:2});
+ const a=cache.createQuery(state=>states.push(state));a.update('repo.list','{}','online');api.calls[0]!.resolve('old');await settle();a.dispose();
+ now=101;const b=cache.createQuery(state=>states.push(state));b.update('repo.list','{}','online');
+ expect(states.at(-1)).toEqual({data:'old',loading:true});expect(api.calls).toHaveLength(2);
+ b.update('repo.list','{}','reconnected');b.update('repo.list','{}','reconnected');
+ api.calls[1]!.reject(new Error('offline'));await settle();expect(api.calls).toHaveLength(3);
+ api.calls[2]!.reject(new Error('still offline'));await settle();expect(states.at(-1)?.error).toBeInstanceOf(Error);b.dispose();
+ const c=cache.createQuery(state=>states.push(state));c.update('repo.list','{}','reconnected');expect(api.calls).toHaveLength(4);
+ api.calls[3]!.resolve('recovered');await settle();expect(states.at(-1)).toEqual({data:'recovered',loading:false});
+ c.refresh();c.refresh();expect(api.calls).toHaveLength(5);api.calls[4]!.resolve('fresh');await settle();expect(api.calls).toHaveLength(6);api.calls[5]!.resolve('newest');await settle();c.dispose();
+});
+
+test('cache scopes do not share client results and unused query history is bounded',async()=>{
+ const {createQueryCache}=await import('../app/src/data/query');
+ const api=deferredApi(),cache=createQueryCache(api.call,{maxEntries:2}),other=createQueryCache(api.call),a=cache.createQuery(()=>{}),b=other.createQuery(()=>{});
+ a.update('task.get','{"id":"one"}','1');b.update('task.get','{"id":"one"}','1');expect(api.calls).toHaveLength(2);
+ api.calls[0]!.resolve('client one');api.calls[1]!.resolve('client two');await settle();
+ for(const id of ['two','three']){a.update('task.get',JSON.stringify({id}),'1');api.calls.at(-1)!.resolve(id);await settle();}
+ a.update('task.get','{"id":"one"}','1');expect(api.calls).toHaveLength(5);a.dispose();b.dispose();api.calls.at(-1)!.resolve('one');await settle();
+});
+
+test('client cache invalidation forces a remount after an unseen reconnect to refresh',async()=>{
+ const {queryCacheFor,invalidateQueryCache}=await import('../app/src/data/query');
+ const api=deferredApi(),owner={},states:QueryState<string>[]=[];
+ const cache=queryCacheFor(owner,api.call),a=cache.createQuery<string>(state=>states.push(state));
+ expect(queryCacheFor(owner,api.call)).toBe(cache);
+ a.update('repo.list','{}','online');api.calls[0]!.resolve('before reconnect');await settle();a.dispose();
+ invalidateQueryCache(owner);
+ const b=cache.createQuery<string>(state=>states.push(state));b.update('repo.list','{}','online');expect(api.calls).toHaveLength(2);
+ expect(states.at(-1)).toEqual({data:'before reconnect',loading:true});api.calls[1]!.resolve('after reconnect');await settle();b.dispose();
 });

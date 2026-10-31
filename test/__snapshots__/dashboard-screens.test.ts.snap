@@ -413,8 +413,8 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 120x40 1`] = `
      Executors 2 down           │   Where quota comes from. An executor uses one account.
      This machine               │   
      Remote hosts 1 needs setup │ › team                                     codex · folder          ✓ Signed in       
-     Routing                    │   3% of week · resets 20 Jan 08:00 · Stale reading · refresh to use · Used by Codex  
-     Project strategies         │   · team on devbox · In use by 1 executor(s)                                         
+     Routing                    │   3% of week · resets 20 Jan 08:00 · Historical usage · Stale reading · check       \u0020
+     Project strategies         │   account usage · Used by Codex · team on devbox · In use by 1 executor(s)          \u0020
      Strategies                 │   spare                                    claude · folder         ! Sign-in needed  
      Updates                    │   Usage unknown · Not used
      Notifications              │   
@@ -456,14 +456,14 @@ exports[`golden frames (NO_COLOR) settings › Accounts at 80x24 1`] = `
    Where quota comes from. An executor uses one account.
    
  › team                              codex · folder          ✓ Signed in       
-   3% of week · resets 20 Jan 08:00 · Stale reading · refresh to use · Used    
-   by Codex · team on devbox · In use by 1 executor(s)                         
+   3% of week · resets 20 Jan 08:00 · Historical usage · Stale reading ·      \u0020
+   check account usage · Used by Codex · team on devbox · In use by 1         \u0020
+   executor(s)                                                                \u0020
    spare                             claude · folder         ! Sign-in needed  
    Usage unknown · Not used
    
    + Add account
    + Link Orca account
- 
  
  
  

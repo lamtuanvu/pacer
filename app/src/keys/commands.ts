@@ -45,9 +45,9 @@ const MAC_MODS: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", 
 export function keyCaps(keys: string, mac = isMacPlatform()): string[] {
   return keys.split(" ").flatMap(step => {
     const at = step.length > 1 && !step.endsWith("-") ? step.indexOf("-") : -1;
-    const [mod, key] = at > 0 ? [step.slice(0, at), step.slice(at + 1)] : [null, step];
+    const parts = at > 0 ? step.split("-") : [step];
+    const key = parts.pop()!, mods = parts;
     const cap = key === "Enter" ? "↵" : key.length === 1 ? key.toUpperCase() : key;
-    if (mod === null) return [cap];
-    return [mac ? MAC_MODS[mod] ?? mod : mod === "Mod" ? "Ctrl" : mod, cap];
+    return [...mods.map(mod => mac ? MAC_MODS[mod] ?? mod : mod === "Mod" ? "Ctrl" : mod), cap];
   });
 }

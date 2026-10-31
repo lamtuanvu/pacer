@@ -10,7 +10,7 @@ import { unknownTokens } from "../tokens/extract";
 import type { Ctx } from "../types";
 import { requirementsSchema, preferencesSchema } from "./types";
 import { appendWorkEvent, boundedJson, dispatchDatabase } from "./store";
-import { pidAlive } from "../link/store";
+import { pidAlive } from "../link/pid";
 
 export const workOptionsSchema = z.object({
   requirements: requirementsSchema.default({}), preferences: preferencesSchema.default({models:[], strengths:[]}), model: z.string().min(1).max(256).optional(),

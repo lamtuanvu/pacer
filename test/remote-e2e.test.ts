@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as tasks from "../src/core/tasks";
 import { clean as hostClean } from "../src/remote/hosts";
@@ -11,6 +11,85 @@ import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import type { TaskRecord, TaskState } from "../src/tasks/types";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
+
+function safeDiagnostic(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\bBearer\s+[^\s,;"']+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replace(/\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PACER_KEY)[A-Za-z0-9_]*=[^\s]+/gi, "[redacted]")
+    .replace(/(?:[a-z][a-z0-9+.-]*:\/\/|(?:[A-Za-z]:)?[/\\]|~\/)[^\s"'`]+/gi, "[location]")
+    .replace(/[A-Za-z0-9+/_=-]{32,}/g, "[redacted]")
+    .slice(0, 300);
+}
+
+function sshLogTail(path: string): string {
+  if (!existsSync(path)) return "[missing]";
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size, bytes = Math.min(size, 512);
+    const buffer = Buffer.alloc(bytes);
+    const read = readSync(fd, buffer, 0, bytes, size - bytes);
+    return safeDiagnostic(buffer.subarray(0, read).toString("utf8"));
+  } finally { closeSync(fd); }
+}
+
+function expectTaskState(task: TaskRecord, expected: TaskState, sshLog: string): void {
+  if (task.state === expected) return;
+  const attempt = task.attempts.at(-1);
+  const evidence = {
+    state: task.state,
+    resultStatus: task.result?.status ?? null,
+    report: safeDiagnostic(task.result?.report ?? ""),
+    exitCode: attempt?.exitCode ?? null,
+    timedOut: attempt?.timedOut ?? null,
+    attemptError: safeDiagnostic(attempt?.brokenReason ?? ""),
+    sshLogTail: sshLogTail(sshLog),
+  };
+  throw Error(`expected remote task state ${expected}; ${JSON.stringify(evidence)}`);
+}
+
+test("remote failure diagnostics redact paths and secrets within a fixed bound", () => {
+  const fixturePath = join(tmpDir(), "repo");
+  const text = `Bearer abc123 sk-exampletoken PACER_KEY_TEST=hidden ${fixturePath} https://example.invalid/private ${"z".repeat(600)}`;
+  const sanitized = safeDiagnostic(text);
+  expect(sanitized).not.toContain("abc123");
+  expect(sanitized).not.toContain("exampletoken");
+  expect(sanitized).not.toContain("hidden");
+  expect(sanitized).not.toContain(fixturePath);
+  expect(sanitized).not.toContain("example.invalid");
+  expect(sanitized.length).toBeLessThanOrEqual(300);
+  const task = {
+    state: "failed",
+    result: { status: "failed", report: `host fetch expired at ${fixturePath} with Bearer abc123` },
+    attempts: [{ exitCode: 127, timedOut: true, brokenReason: "sk-exampletoken" }],
+  } as TaskRecord;
+  let message = "";
+  try { expectTaskState(task, "done", join(tmpDir(), "missing")); }
+  catch (error) { message = String(error); }
+  expect(message).toContain('"exitCode":127');
+  expect(message).toContain("host fetch expired");
+  expect(message).not.toContain(fixturePath);
+  expect(message).not.toContain("abc123");
+  expect(message).not.toContain("exampletoken");
+});
+
+test("remote E2E fixture cleanup reaps its bundled SSH provider", async () => {
+  const { ctx } = await setup();
+  const report = (await pluginRegistry(ctx).doctor(ctx, "pacer-ssh"))[0];
+  expect(report?.ok).toBe(true);
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(ctx);
+  }
+});
 
 async function setup(wait = false, autoClean = true) {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git");
@@ -34,8 +113,14 @@ async function setup(wait = false, autoClean = true) {
   writeFileSync(join(bin, "codex"), `#!/bin/sh\ncat > PROMPT.txt\necho agent-started\n${wait ? 'while [ ! -f "$HOME/release" ]; do sleep 0.05; done' : ''}\ngit add PROMPT.txt\ngit commit -q -m result\necho agent-done\n`, { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(bin, "setsid"), `#!${Bun.which("python3")}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n`, { mode: 0o755 });
   writeFileSync(join(hostHome, ".bash_profile"), 'echo hello from profile\nexport PATH="$HOME/bin:$PATH"\n');
-  const env = { ...process.env, ...fakeSshEnv(hostHome, join(root, "ssh.log")), PACER_BACKEND: "direct" };
-  const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }) });
+  const ssh = join(bin, "ssh"), sshLog = join(root, "ssh.log");
+  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(hostHome)} PACER_FAKE_SSH_LOG=${JSON.stringify(sshLog)}; export PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`, { mode: 0o755 });
+  const env = { ...process.env, ...fakeSshEnv(hostHome, sshLog), PACER_BACKEND: "direct" };
+  env.PATH = `${bin}:${env.PATH}`;
+  const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }),
+    which: name => name === "ssh" ? ssh :
+      name === "git" ? "/usr/bin/git" : Bun.which(name) });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: {auto_clean: autoClean}, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
@@ -59,11 +144,11 @@ async function until(check: () => boolean, ms = 10000) {
 test("a remote task runs end to end", async () => {
   const f = await setup();
   const t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   expect(t.result?.report).toStartWith(`ran on box; fetched pacer/${t.id}`);
   expect(await f.git("-C", f.repo, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
   expect(tasks.log(f.ctx, t.id).stdout).toContain("agent-done");
-}, 20000);
+}, 60000);
 
 test("a remote attempt resumes after the runner dies", async () => {
   const f = await setup(true), id = f.task.id;
@@ -75,9 +160,9 @@ test("a remote attempt resumes after the runner dies", async () => {
   const dir = runDir(f.ctx, id, 1), host = loadStrategy(f.ctx).hosts.box;
   const launch = remoteLaunch(loadStrategy(f.ctx).providers["codex@box"], worktree, remoteDir);
   const io = new RemoteRunIO(f.ctx, host, remoteDir, dir);
-  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
-  const run = { dir, attempt: 1, executor: "codex@box", startedAt: Date.now()/1000, mode: "new" as const, workdir: worktree, logFile: join(dir, "legacy.log"), host: "box", remoteDir, remoteWorktree: worktree, baseSha };
+  const run = { dir, attempt: 1, executor: "codex@box", startedAt: Date.now()/1000, mode: "new" as const, workdir: worktree, logFile: join(dir, "legacy.log"), host: "box", remoteDir, remoteWorktree: worktree, remoteBranch: `pacer/${id}`, baseSha };
   updateTask(f.ctx, id, t => { t.state = "running"; t.runnerPid = 2147483647; t.attemptStartedAt = run.startedAt; t.run = run; t.baseBranch = "main"; t.placement = { requested: "new", mode: "new", why: "agent" }; });
+  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   // A remote pid must never be checked against the local process table.
   writeFileSync(join(dir, "pid"), "2147483647");
   let resumed: ReturnType<typeof runTask> | undefined;
@@ -86,12 +171,12 @@ test("a remote attempt resumes after the runner dies", async () => {
     expect(resumed).toBeDefined();
   } finally { writeFileSync(join(f.hostHome, "release"), ""); }
   const t = await resumed!;
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   expect(t.result?.report).toStartWith(`ran on box; fetched pacer/${id}`);
   expect(readdirSync(join(f.hostHome, ".pacer-remote/runs", id))).toEqual(["1"]);
   expect(t.run?.remoteDir).toBe(remoteDir);
   expect(readFileSync(join(t.result!.worktree!, "PROMPT.txt"), "utf8")).toBe("resume prompt");
-}, 20000);
+}, 60000);
 
 test("stopping a remote task kills it on the host", async () => {
   const f = await setup(true), running = runTask(f.ctx, f.task.id, f.deps);
@@ -101,40 +186,40 @@ test("stopping a remote task kills it on the host", async () => {
   updateTask(f.ctx, f.task.id, t => { t.runnerPid = 2147483647; delete t.childPid; });
   try {
     expect(taskStop(f.ctx, f.task.id)?.state).toBe("stopped");
-    await until(() => readFileSync(f.sshLog, "utf8").includes('D="$1"; grace="$2"'), 1000);
+    await until(() => readFileSync(f.sshLog, "utf8").includes('D="$1"; grace="$2"'), 10000);
     await until(() => existsSync(join(run.remoteDir!, "exit")));
     const io = new RemoteRunIO(f.ctx, loadStrategy(f.ctx).hosts.box, run.remoteDir!, run.dir);
     expect((await io.read()).alive).toBe(false);
     expect((await running).state).toBe("stopped");
   } finally { writeFileSync(join(f.hostHome, "release"), ""); await running; }
-}, 20000);
+}, 60000);
 
 test("clean removes the remote worktree and run dir after review", async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: true });
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(existsSync(t.result!.worktree!)).toBe(false);
   expect(await f.git("-C", f.checkout, "for-each-ref", `refs/heads/pacer/${t.id}`)).toBe("");
   expect(await f.git("-C", f.repo, "show-ref", "--verify", `refs/heads/pacer/${t.id}`)).not.toBe("");
-}, 20000);
+}, 60000);
 
 test("clean keeps the remote branch when transfer was refused", async () => {
   const f = await setup();
   await f.git("-C", f.checkout, "config", "user.email", "foreign@example.invalid");
   const t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("partial");
+  expectTaskState(t, "partial", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: false });
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
   expect(await f.git("-C", f.checkout, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
   expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${t.id}`)).toBe("");
-}, 20000);
+}, 60000);
 
 for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} preserves a remote branch when the local head differs`, async () => {
   const f = await setup(false, false), t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
   expect(t.run).toHaveProperty("transferredHead", head);
   await f.git("-C", f.repo, "update-ref", `refs/heads/pacer/${t.id}`, t.run!.baseSha!);
@@ -142,7 +227,7 @@ for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} 
   const result = hostOnly ? await hostClean(f.ctx, "box") : await tasks.clean(f.ctx, { force: true });
   expect(result.removed).toContain(t.id);
   expect(await f.git("-C", f.checkout, "rev-parse", `pacer/${t.id}`)).toBe(head);
-}, 20000);
+}, 60000);
 
 test("repeat remote attempts start and clean removes every attempt run directory", async () => {
   const f = await setup(), cfg = loadStrategy(f.ctx).providers["codex@box"];

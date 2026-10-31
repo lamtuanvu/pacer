@@ -6,7 +6,12 @@ export type {PolicyBeforeParams,PolicyDecision,PolicyVerdict,PolicyEventType,Pol
 import {POLICY_REDACTION_METADATA_FEATURE} from "./policy";
 import { createFileSystem } from "./fs";
 import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
+import { createHosts } from "./hosts";
+export type { HostFetchInput } from "./hosts";
 export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentDelegationControl, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
+export type {HostRunnerScript,HostRunnerSession,HostRunnerRequest,HostRunnerRunInput,HostRunnerRunResult,HostRunnerFetchResult} from "./host-runner";
+export { executorAvailableHandler } from "./executor";
+export type { ExecutorAvailableInput, ExecutorAvailableResult, ExecutorAvailableHandler } from "./executor";
 
 export interface PluginManifest {
   id: string; version: string; publisher: string; host: string;
@@ -17,9 +22,15 @@ export interface PluginManifest {
 export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
 export interface HostClient extends ObservationClient {
   fs: ReturnType<typeof createFileSystem>;
+  /** Present in the current SDK runtime; optional for older mock/SDK clients. */
+  hosts?: ReturnType<typeof createHosts>;
   http(request:HttpRequest):Promise<HttpResponse>;
   secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
+  /** Present only for an owned hostRunner.stream request. Waits for host consumption. */
+  streamProgress?: (streamId: string, seq: number, bytes: Uint8Array) => Promise<void>;
+  /** Present only for an owned hostRunner.stream request. One frame until ack. */
+  streamInput?: { next(): Promise<{ bytes: Uint8Array; ack(): Promise<void> }> };
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
   /** Sign `payload` with the machine key under a purpose declared in the manifest scopes for `identity.sign` (host >= 1.4.0). */
@@ -61,9 +72,20 @@ export class PluginError extends Error {
   }
 }
 
-export const PROTOCOL = "1.6.0";
+export const PROTOCOL = "1.8.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
+
+function streamDuplexDeadline(method: string, params: unknown, owner?: { method: string; id: number }): number | undefined {
+  if (owner?.method !== "hostRunner.stream") return undefined;
+  if (method === "capability.process.duplex.open") return 10_000;
+  if (method === "capability.process.duplex.close") return 5_000;
+  if (method !== "capability.process.duplex.read" && method !== "capability.process.duplex.write") return undefined;
+  const requested = params && typeof params === "object" && !Array.isArray(params)
+    ? (params as Record<string, unknown>).timeoutMs : undefined;
+  return typeof requested === "number" && Number.isSafeInteger(requested) && requested > 0
+    ? Math.min(requested + 5_000, 65_000) : 65_000;
+}
 
 /** Newline-delimited text from a byte stream, for stdin. */
 export async function* stdinLines(stream: AsyncIterable<Buffer | string> = process.stdin): AsyncGenerator<string> {
@@ -91,6 +113,9 @@ export async function serve(o: ServeOptions): Promise<void> {
   };
   const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>();
   const inflight = new Map<string | number, AbortController>();
+  type InputFrame = { seq: number; bytes: Uint8Array; delivered: boolean };
+  const streamInputs = new Map<number, { streamId: string; nextSeq: number; frame?: InputFrame;
+    waiter?: { resolve: () => void; reject: (error: Error) => void } }>();
   const tasks = new Set<Promise<void>>();
   let nextId = 1, startedAt: number | null = null, hello: Hello | null = null;
 
@@ -109,7 +134,7 @@ export async function serve(o: ServeOptions): Promise<void> {
   },()=>{observationScope.abort();readOwner=undefined;failObservations(new PluginError("plugin_unavailable","event callback queue cannot deliver reset"));});
 
 
-  function hostFor(metadata?: unknown, signal?: AbortSignal): HostClient {
+  function hostFor(metadata?: unknown, signal?: AbortSignal, request?: { method: string; id: number }): HostClient {
     const candidate=metadata&&typeof metadata==="object"&&!Array.isArray(metadata)?metadata as Json:undefined;
     if(candidate&&candidate.capabilityCall!==undefined&&candidate.readOwner!==undefined)throw new PluginError("capability_denied","mixed authority metadata");
     const meta=candidate&&(typeof candidate.capabilityCall==="string"||typeof candidate.readOwner==="string")?candidate:undefined;
@@ -120,14 +145,24 @@ export async function serve(o: ServeOptions): Promise<void> {
       const envelope = { jsonrpc: "2.0", id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) };
       if (Buffer.byteLength(JSON.stringify(envelope)+"\n") > 1048576) return Promise.reject(new PluginError("invalid_input", "HTTP complete frame exceeds limit"));
       return new Promise<T>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const cancel = () => {
           const waiting = pending.get(id); if (!waiting) return;
           pending.delete(id); waiting.dispose();
           reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
         };
-        const dispose = () => signal?.removeEventListener("abort", cancel);
+        const dispose = () => { signal?.removeEventListener("abort", cancel); if (timer) clearTimeout(timer); };
         pending.set(id, { resolve: value => resolve(value as T), reject, dispose });
         if (!cleanup) signal?.addEventListener("abort", cancel, { once: true });
+        const deadline = streamDuplexDeadline(method, params, request);
+        if (deadline !== undefined) {
+          timer = setTimeout(() => {
+            const waiting = pending.get(id); if (!waiting) return;
+            pending.delete(id); waiting.dispose();
+            reject(new PluginError("plugin_timeout", `${method} response passed its ${deadline} ms deadline`));
+          }, deadline);
+          timer.unref();
+        }
         send({ id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) });
       });
     };
@@ -139,9 +174,41 @@ export async function serve(o: ServeOptions): Promise<void> {
       },
       events: {async subscribe(types){observations();const result=await call<{ok:true;readOwner:string}>("capability.events.subscribe",{types});if(result.ok!==true||typeof result.readOwner!=="string"||!result.readOwner.length||result.readOwner.length>256)throw new PluginError("plugin_refused","invalid read owner acknowledgement");readOwner=result.readOwner;}},
       call,
+      ...(request?.method === "hostRunner.stream" && meta?.capabilityCall ? { streamProgress: async (streamId: string, seq: number, bytes: Uint8Array) => {
+        if (signal?.aborted || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(streamId) ||
+          !Number.isSafeInteger(seq) || seq < 0 || !(bytes instanceof Uint8Array) || bytes.length < 1 || bytes.length > 65_536)
+          throw new PluginError("capability_denied", "invalid owned stream progress frame");
+        send({ method: "$/progress", params: { id: request.id, event: { streamId, seq, base64: Buffer.from(bytes).toString("base64") } } });
+        const ack = await call<{ seq: number }>("$/streamAck", { request: request.id, streamId, seq });
+        if (ack?.seq !== seq) throw new PluginError("plugin_refused", "invalid stream progress acknowledgement");
+      } } : {}),
+      ...(request?.method === "hostRunner.stream" && meta?.capabilityCall ? { streamInput: { next: async () => {
+        const state = streamInputs.get(request.id);
+        if (!state || signal?.aborted || state.frame?.delivered || state.waiter)
+          throw new PluginError("capability_denied", "stream input owner is unavailable");
+        if (!state.frame) await new Promise<void>((resolve, reject) => {
+          const abort = () => { state.waiter = undefined; reject(new PluginError("plugin_unavailable", "stream input owner ended")); };
+          state.waiter = { resolve: () => { signal?.removeEventListener("abort", abort); resolve(); },
+            reject: error => { signal?.removeEventListener("abort", abort); reject(error); } };
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+        const frame = state.frame;
+        if (!frame || frame.delivered || signal?.aborted) throw new PluginError("capability_denied", "stream input frame is unavailable");
+        frame.delivered = true;
+        return { bytes: frame.bytes, ack: async () => {
+          if (signal?.aborted || state.frame !== frame) throw new PluginError("capability_denied", "stream input frame retired");
+          const ack = await call<{ seq: number }>("$/streamInputAck", { request: request.id,
+            streamId: state.streamId, seq: frame.seq });
+          if (ack?.seq !== frame.seq) throw new PluginError("plugin_refused", "invalid stream input acknowledgement");
+          state.frame = undefined;
+          state.nextSeq++;
+        } };
+      } } } : {}),
       fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
         negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
+      hosts: createHosts(call),
       http: createHttp({call, cleanupCall:(method,params)=>call(method,params,true), signal,
         negotiated:()=>negotiatedFeatures.has("httpBodyChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
@@ -176,6 +243,25 @@ export async function serve(o: ServeOptions): Promise<void> {
       if(negotiatedFeatures.has(POLICY_OBSERVATIONS_FEATURE)&&readOwner&&isPolicyEvent(r.params))callbacks.push(r.params);
       return;
     }
+    if (r.method === "$/streamInput" && r.id === undefined) {
+      const value = r.params && typeof r.params === "object" && !Array.isArray(r.params) ? r.params as Json : {};
+      const state = typeof value.request === "number" ? streamInputs.get(value.request) : undefined;
+      if (!state) return;
+      const bad = Object.keys(value).length !== 4 || value.streamId !== state.streamId ||
+        value.seq !== state.nextSeq || state.frame !== undefined ||
+        typeof value.base64 !== "string" || value.base64.length < 4 || value.base64.length > 87_384 ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64);
+      const bytes = bad ? Buffer.alloc(0) : Buffer.from(value.base64 as string, "base64");
+      if (bad || !bytes.length || bytes.length > 65_536 || bytes.toString("base64") !== value.base64) {
+        inflight.get(value.request as number)?.abort();
+        state.waiter?.reject(new PluginError("plugin_refused", "invalid stream input frame"));
+        state.waiter = undefined;
+        return;
+      }
+      state.frame = { seq: value.seq as number, bytes, delivered: false };
+      state.waiter?.resolve(); state.waiter = undefined;
+      return;
+    }
 
     if (typeof r.method === "string") {
       const id = r.id as string | number | undefined;
@@ -191,7 +277,7 @@ export async function serve(o: ServeOptions): Promise<void> {
             || feature === "fileWriteChunks" && minor >= 4
             || feature === "plannerInstallTransactions" && minor >= 4
             || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 6
-            || feature === POLICY_REDACTION_METADATA_FEATURE && minor >= 6) : [];
+            || feature === POLICY_REDACTION_METADATA_FEATURE && minor >= 8) : [];
         negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
@@ -200,8 +286,14 @@ export async function serve(o: ServeOptions): Promise<void> {
       const handler = o.handlers?.[r.method] ?? builtin[r.method];
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
+      if (r.method === "hostRunner.stream" && typeof id === "number" &&
+        r.params && typeof r.params === "object" && !Array.isArray(r.params) &&
+        typeof (r.params as Json).streamId === "string" &&
+        r._meta && typeof r._meta === "object" && typeof (r._meta as Json).capabilityCall === "string")
+        streamInputs.set(id, { streamId: (r.params as Json).streamId as string, nextSeq: 0 });
       try {
-        const host = hostFor(r._meta, controller.signal);
+        const host = hostFor(r._meta, controller.signal,
+          r.method === "hostRunner.stream" && typeof id === "number" ? { method: r.method, id } : undefined);
         const result = await handler(r.params ?? {}, host, controller.signal);
         if(o.onEvent&&["diagnostic.ping","policy.before"].includes(r.method)&&!readOwner) {
           if(!host||!r._meta||typeof (r._meta as Json).capabilityCall!=="string")throw new PluginError("capability_denied","observations need an actual owning host call");
@@ -226,7 +318,8 @@ export async function serve(o: ServeOptions): Promise<void> {
         } else send({ id, result });
       }
       catch (e) { send({ id, error: errorBody(e) }); }
-      finally { inflight.delete(id); controller.abort(); }
+      finally { inflight.delete(id); controller.abort();
+        if (typeof id === "number") { const state = streamInputs.get(id); state?.waiter?.reject(new PluginError("plugin_unavailable", "stream input owner ended")); streamInputs.delete(id); } }
       return;
     }
     if (typeof r.id !== "string") return;

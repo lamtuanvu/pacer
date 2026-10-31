@@ -1,4 +1,4 @@
-import { SelectableRow, ApprovalCard, LoadingState, EmptyState } from "../ds/Patterns";
+import { SelectableRow, ApprovalCard, Skeleton, EmptyState } from "../ds/Patterns";
 
 import { Disclosure } from "../ds/Controls";
 import { costCopy, reasonCopy } from "../../../src/view-model/copy";
@@ -61,7 +61,7 @@ export function ReviewView({ snapshot, view, task, now, filePath, diff, loading,
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} snapshot={snapshot} now={now} />
       <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
         {view.missing ? <section className="pc-notice"><SectionHeading>Already reviewed</SectionHeading><p><code>{view.missing}</code> is no longer waiting for review. <a className="pc-inline-link" href={`#/sessions/${encodeURIComponent(view.missing)}`}>Open it in Sessions</a>, or pick one from the queue.</p></section>
-        : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <LoadingState label="Loading task…" />) : <>
+        : !task ? (error ? <SectionHeading>{view.queue.find(item => item.taskId === view.selectedId)?.title}</SectionHeading> : <Skeleton layout="task" label="Loading task…" />) : <>
           <div className="row"><SectionHeading className="pc-ellipsis grow" title={displayTitle(task)}>{displayTitle(task)}</SectionHeading><StatusPill status={status!} /></div>
           <p className="pc-review-run muted"><code title={executorLabel(task.executor)}>{executorLabel(task.executor)}</code>{task.startedAt !== null && task.endedAt !== null && <> · ran {elapsed(task.endedAt - task.startedAt)}</>}{task.branch && <> · <code>{task.branch}</code></>}{task.branch && task.base && <> → <code>{task.base}</code></>} · {task.repo.label}{task.endedAt !== null && <> · finished {clock(task.endedAt, now)}</>}</p>
           <div className="pc-review-cards"><section><SectionHeading>Done when</SectionHeading>{acceptance?.state === "none" ? <p>No done-when command</p> : <>

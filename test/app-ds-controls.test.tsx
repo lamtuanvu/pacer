@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToString } from 'preact-render-to-string';
+import { TaskContext } from '../app/src/screens/task-shared';
+import { initialState } from '../app/src/data/store';
 import { HostSessionSwitch } from '../app/src/screens/settings/HostSessionSwitch';
 
 test('app links and native controls always opt into their styles', () => {
@@ -23,8 +25,9 @@ test('app links and native controls always opt into their styles', () => {
 });
 
 test('host checkbox preserves switch semantics, inline label and disabled state', () => {
-  const html = renderToString(<HostSessionSwitch alias="devbox" host={{session:'full'}} disabled run={() => {}}/>);
+  const html = renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>({})} as never}}><HostSessionSwitch alias="devbox" host={{session:'full'}} disabled run={() => {}}/></TaskContext.Provider>);
   expect(html).toContain('<label class="pc-checkbox">');
+  expect(html).toContain('<strong>Full live sessions</strong>');
   expect(html).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/);
   expect(html).toContain('role="switch"');
   expect(html).toContain('aria-label="Full live sessions"');
@@ -36,7 +39,7 @@ test('host checkbox preserves switch semantics, inline label and disabled state'
 test('new control styles only reference generated design tokens', () => {
   const css = readFileSync('app/src/ds/components.css', 'utf8').split('/* Text actions')[1]!;
   const tokens = readFileSync('app/src/ds/tokens.css', 'utf8');
-  for (const [, token] of css.matchAll(/var\((--[^)]+)\)/g)) { if (['--agent-size','--mark-size'].includes(token!)) continue; if (['--frame-top','--frame-status'].includes(token!)) { const shell = readFileSync('app/src/styles.css', 'utf8'); expect(shell).toContain(`${token}:var(--size-`); continue; } expect(tokens).toContain(`${token}:`); }
+  for (const [, token] of css.matchAll(/var\((--[^)]+)\)/g)) { if (['--agent-size','--mark-size','--pc-panel-width'].includes(token!)) continue; if (['--frame-top','--frame-status'].includes(token!)) { const shell = readFileSync('app/src/styles.css', 'utf8'); expect(shell).toContain(`${token}:var(--size-`); continue; } expect(tokens).toContain(`${token}:`); }
 });
 
 test('section typography is shared and component sizes come from tokens', async () => {

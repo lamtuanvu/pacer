@@ -1,37 +1,60 @@
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import type { HostCfg } from "../config/hosts";
 import { taskWorktreePath } from "../supervisor/worktree";
 import { ask } from "../core/tasks";
-import { tasksDir, readTask, updateTask } from "../tasks/store";
+import { readTask, updateTask } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { SCRIPTS } from "./scripts";
-import { bundleToFile, runRemote } from "./ssh";
+import { pluginRegistry } from "../plugins";
+import { issuePersistedFetch, validatePersistedFetch, type PersistedFetchGrant } from "../plugins/fetch-issuer";
+import { issuePersistedQuestion } from "../plugins/question-issuer";
+import { prepareClaimedBundle, publishPreparedBundle, removeConsumedClaimedBundle,
+  withFinalizedClaimedBundleInput } from "../plugins/claimed-bundle";
+import type { CallAuthority } from "../plugins/authority";
+import type { ClaimedBundleTicket } from "../plugins/bundle-stage";
+import { execProcess } from "../exec/process";
+import { CoreError } from "../core/errors";
 
 type TransferResult = { ok: true; branch: string; commits: number; reviewWorktree: string } | { ok: false; reason: string; bundle?: string };
 
 /** Collect the file before cleanliness checks, including failed/no-commit attempts. */
 export async function receiveQuestion(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<void> {
   if (!run.remoteWorktree) return;
-  const result = await runRemote(ctx,host,SCRIPTS.QUESTION,[run.remoteWorktree]);
-  if (result.code) throw new Error(result.stderr || "cannot read remote question");
+  if (run.host !== host.alias) throw new Error("remote question host changed");
+  const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+  if (caller !== "pacer-remote-caller") throw new Error("bundled remote caller plugin is unavailable");
+  const read = issuePersistedQuestion(ctx, task.id, run.attempt);
+  const result = await registry.callWithIssuedHostQuestion<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+    ctx, caller, "remoteCaller.questionRead", { alias: host.alias, path: run.remoteWorktree }, read);
+  if (result.code || result.timedOut) throw new Error(result.stderr || "cannot read remote question");
   if (!result.stdout) return;
   const prior = readTask(ctx,task.id)?.question;
+  if (prior && prior.text !== result.stdout) throw new Error("remote question changed after task acceptance");
   if (!prior) await ask(ctx,task.id,result.stdout);
-  const cleared = await runRemote(ctx,host,SCRIPTS.QUESTION_CLEAR,[run.remoteWorktree]);
-  if (cleared.code) throw new Error(cleared.stderr || "cannot clear remote question");
 }
 
 /** Receive only committed task changes, after checking ancestry, cleanliness and identity. */
-export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<TransferResult> {
+export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef, bundleTimeoutMs = 60_000): Promise<TransferResult> {
   let branch = `pacer/${task.id}`, ref = `refs/heads/${branch}`;
   const remoteBranch = run.remoteBranch ?? branch;
-  let bundle: string | undefined;
-  const fail = (reason: string): TransferResult => ({ ok: false, reason, ...(bundle ? { bundle } : {}) });
+  // The broker may roll back a publication after our claim callback. A path
+  // observed there is never stable failure evidence for this caller.
+  const fail = (reason: string): TransferResult => ({ ok: false, reason });
   const git = (...args: string[]) => ctx.run(["git", "-C", task.brief.repo, ...args], 60000);
+  const matchesPersisted = (grant?: PersistedFetchGrant): boolean => {
+    const current = readTask(ctx, task.id), saved = current?.run;
+    return !!current && !!saved && current.brief.repo === task.brief.repo &&
+      saved.attempt === run.attempt && saved.host === run.host &&
+      saved.remoteWorktree === run.remoteWorktree && saved.baseSha === run.baseSha &&
+      saved.remoteBranch === run.remoteBranch &&
+      (!grant || (current.rev === grant.taskRev && current.brief.repo === grant.repo &&
+        saved.remoteWorktree === grant.resource.args[0] &&
+        saved.baseSha === grant.resource.args[1] && saved.remoteBranch === grant.resource.args[2]));
+  };
   try {
+    if (!matchesPersisted()) return fail("remote transfer task or run changed");
     await receiveQuestion(ctx,task,host,run);
+    if (!matchesPersisted()) return fail("remote transfer task or run changed");
     const exists = await git("show-ref", "--verify", "--quiet", ref);
     if (exists.code !== 0 && exists.code !== 1) return fail(exists.stderr.trim() || "local branch check failed");
     if (!run.remoteWorktree || !run.baseSha) return fail("remote run has no worktree or base");
@@ -48,37 +71,48 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
         current = "";
       }
     }
-    const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [run.remoteWorktree, run.baseSha, remoteBranch]);
-    if (preflight.code) return fail(preflight.stderr.trim() || "remote pre-flight failed");
-    const facts = Object.fromEntries(preflight.stdout.trim().split("\n").map(line => {
-      const at = line.indexOf("="); return [line.slice(0, at), line.slice(at + 1)];
-    }));
-    if (facts.ancestor !== "1") return fail("not a descendant of the base");
-    if (!/^\d+$/.test(facts.dirty ?? "")) return fail("invalid remote pre-flight");
-    if (Number(facts.dirty) !== 0) return fail(`uncommitted changes on the host: ${facts.dirty_files}`);
-    const commits = Number(facts.commits);
-    if (!Number.isSafeInteger(commits) || commits < 0 || !/^[a-f0-9]{40,64}$/.test(facts.head ?? "")) return fail("invalid remote pre-flight");
-    if (!commits) return fail("no commits");
-    if (commits > 500) return fail(`${commits} commits exceed 500`);
-    const identity = await git("config", "user.email");
-    if (identity.code || !identity.stdout.trim()) return fail("local repo has no user.email");
-    const foreign = [...new Set([...(facts.emails ?? "").split(","), ...(facts.signoffs ?? "").split(",")].filter(email => email && email !== identity.stdout.trim()))].sort();
-    if (foreign.length) return fail(`foreign identity ${foreign.join(",")}; run pacer host setup ${host.alias}`);
-    if (!facts.emails) return fail("invalid remote pre-flight");
-    const path = join(tasksDir(ctx), `${task.id}.bundle`);
-    mkdirSync(dirname(path), { recursive: true });
-    bundle = path;
-    const streamed = await bundleToFile(ctx, host, [run.remoteWorktree, run.baseSha, remoteBranch], path, 50 * 1024 * 1024);
-    if (streamed.stdoutOverflow) return fail("bundle over 50 MB");
-    if (streamed.code) return fail(streamed.stderr.trim() || "bundle stream failed");
-    const verified = await git("bundle", "verify", path);
-    if (verified.code) return fail(verified.stderr.trim() || "bundle verification failed");
-    const heads = await git("bundle", "list-heads", path);
-    if (heads.code || heads.stdout.trim() !== `${facts.head} refs/heads/${remoteBranch}`) return fail("bundle head differs from pre-flight");
-    // Fetch objects without a destination ref; compare-and-swap the selected
-    // branch so changes made during the stream are never overwritten.
-    const fetched = await git("fetch", "--no-tags", path, remoteBranch);
-    if (fetched.code) return fail(fetched.stderr.trim() || "bundle fetch failed");
+    if (run.remoteBranch !== remoteBranch || run.host !== host.alias)
+      return fail("remote run does not match the configured host and branch");
+    const grant = issuePersistedFetch(ctx, task.id, run.attempt, 50 * 1024 * 1024, bundleTimeoutMs);
+    if (!matchesPersisted(grant)) return fail("remote transfer task or run changed");
+    const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+    if (caller !== "pacer-remote-caller") return fail("bundled remote caller plugin is unavailable");
+    let claimed: { authority: CallAuthority; ticket: ClaimedBundleTicket } | undefined;
+    let verified: { head: string; commits: number } | undefined;
+    try {
+      await registry.callWithIssuedHostFetch<{ ok: true }>(ctx, caller, "remoteCaller.fetch",
+        { alias: host.alias, timeoutMs: bundleTimeoutMs, maxBytes: 50 * 1024 * 1024 }, grant,
+        async (authority, ticket) => {
+          const prepared = await prepareClaimedBundle(authority, ticket, grant);
+          publishPreparedBundle(authority, prepared);
+          claimed = { authority, ticket }; verified = prepared;
+        });
+    } catch (error) {
+      if (error instanceof CoreError && error.code === "plugin_timeout") return fail("host fetch expired");
+      throw error;
+    }
+    if (!claimed || !verified) return fail("remote bundle was not finalized");
+    const { authority, ticket } = claimed;
+    const { head, commits } = verified;
+    // Git cannot fetch from /dev/fd/0 on macOS. Unbundle the immutable host
+    // snapshot into the object database, then compare-and-swap only our ref.
+    const imported = await withFinalizedClaimedBundleInput(authority, ticket, grant, async input => {
+      const executable = ctx.which("git");
+      if (!executable?.startsWith("/")) throw new Error("local git is unavailable");
+      return execProcess({ argv: [executable, "-C", task.brief.repo, "bundle", "unbundle", "/dev/fd/0"],
+        cwd: ctx.home, env: ctx.env, stdinBlob: input, timeoutMs: 60_000, maxStdoutBytes: 1024 * 1024 });
+    });
+    if (imported.code || imported.timedOut || imported.stdoutOverflow ||
+      imported.stdout.trim() !== `${head} refs/heads/${remoteBranch}`)
+      return fail(imported.stderr.trim() || "bundle unbundle failed");
+    // A question written during preflight or bundle import must not be missed
+    // before the local branch is published.
+    await receiveQuestion(ctx,task,host,run);
+    validatePersistedFetch(ctx, grant);
+    if (!matchesPersisted(grant)) return fail("remote transfer task or run changed");
+    // Cleanup can fail under same-UID replacement. Settle it before publishing
+    // the branch so a failure result never hides a committed local transfer.
+    removeConsumedClaimedBundle(authority, ticket, grant);
     const top = await git("rev-parse", "--show-toplevel");
     if (top.code) return fail(top.stderr.trim() || "local repo root unavailable");
     const reviewWorktree = taskWorktreePath(ctx, top.stdout.trim(), task.id);
@@ -90,20 +124,21 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
       if (checkedOut.code || ![ref, `refs/heads/pacer/${task.id}`].includes(checkedOut.stdout.trim()) || status.code || status.stdout.trim()) return fail("review worktree is occupied or dirty");
       switchBranch = checkedOut.stdout.trim() !== ref;
     }
-    const created = await git("update-ref", ref, facts.head, current || "0".repeat(facts.head.length));
+    validatePersistedFetch(ctx, grant);
+    if (!matchesPersisted(grant)) return fail("remote transfer task or run changed");
+    const created = await git("update-ref", ref, head, current || "0".repeat(head.length));
     if (created.code) return fail(`local branch ${branch} exists; not overwritten`);
     let added;
     if (reuse) {
       added = switchBranch
         ? await ctx.run(["git", "-C", reviewWorktree, "checkout", "-q", branch], 60000)
-        : await ctx.run(["git", "-C", reviewWorktree, "read-tree", "--reset", "-u", facts.head], 60000);
+        : await ctx.run(["git", "-C", reviewWorktree, "read-tree", "--reset", "-u", head], 60000);
     } else added = await git("worktree", "add", "-q", reviewWorktree, branch);
     if (added.code) return fail(added.stderr.trim() || "review worktree creation failed");
-    run.transferredHead = facts.head;
+    run.transferredHead = head;
     updateTask(ctx, task.id, t => {
-      if (t.run?.attempt === run.attempt) t.run.transferredHead = facts.head;
+      if (t.run?.attempt === run.attempt) t.run.transferredHead = head;
     });
-    unlinkSync(path);
     return { ok: true, branch, commits, reviewWorktree };
   } catch (e) { return fail(e instanceof Error ? e.message : String(e)); }
 }

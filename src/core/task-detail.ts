@@ -21,7 +21,7 @@ import { executorName } from "../link/notification";
 import { listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type Attempt, type Brief, type RoutingNote, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { diff, get, type DiffFile } from "./tasks";
+import { diff, get, userStartedRoot, type DiffFile } from "./tasks";
 
 export interface Cost {
   executor: { account: string; deltaPct: number | null; window: string | null; reason?: "shared" | "no_reading" } | null;
@@ -29,7 +29,10 @@ export interface Cost {
 }
 export interface RetryOption { id: string; state: ExecutorRow["state"]; reason: string }
 export interface TaskDetail extends ApiTask {
-  work?: {rootId:string;parentId:string|null;depth:number};
+  /** `userStarted`: a root a person started, which keeps the usual task controls; its children use the Work tab. */
+  work?: {rootId:string;parentId:string|null;depth:number;allowDelegation?:boolean;userStarted?:boolean};
+  /** Why a task a person started cannot coordinate sub-agents; copy comes from `managedSkipWords`. */
+  managedSkip?: {reason:string};
   brief: Brief;
   attempts: (Attempt & { log: string })[];
   /** Token roll-up for this task, with the split per agent. */
@@ -134,7 +137,11 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
   if (hit?.key === key && Date.now() - hit.at < 5000) return hit.value;
   const knownBranch = task.run?.remoteBranch ?? (task.run?.mode === "new" ? `pacer/${task.id}` : null);
   const value = Promise.all([
-    diff(ctx, task.id, {summaryOnly: true}).then(r => ({files: r.files, filesState: "ready" as const})).catch(() => ({files: [], filesState: "unavailable" as const})),
+    diff(ctx, task.id, {summaryOnly: true}).then(r => {
+      const files = new Map(r.files.map(file => [file.path, file]));
+      for (const path of r.untracked) if (!files.has(path)) files.set(path, {path, status: "added", added: 0, removed: 0, binary: false});
+      return {files: [...files.values()], filesState: "ready" as const};
+    }).catch(() => ({files: [], filesState: "unavailable" as const})),
     knownBranch ? Promise.resolve({branch: knownBranch, branchState: "ready" as const})
       : boundedGitRead(ctx.run, ["git", "-C", worktree, "branch", "--show-current"]).then(r => ({branch: r.code === 0 ? r.stdout.trim() || null : null, branchState: r.code === 0 ? "ready" as const : "unavailable" as const})).catch(() => ({branch: null, branchState: "unavailable" as const})),
   ]).then(([files, branch]) => ({...files, ...branch}));
@@ -151,8 +158,9 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
-    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth}} : {}),
+    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation,...(userStartedRoot(ctx,task)?{userStarted:true}:{})}} : {}),
     ...(policyError ? { policyError } : {}),
+    ...(task.managedSkip && !work ? { managedSkip: { reason: task.managedSkip.reason } } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
     acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },

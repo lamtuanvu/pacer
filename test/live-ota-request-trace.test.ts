@@ -45,16 +45,26 @@ test("unsafe evidence directories and destinations are left untouched", () => {
     writeFileSync(target, "private sentinel", { mode: 0o600 });
     if (kind === "file-symlink") symlinkSync(target, file(session.root));
     if (kind === "file-hardlink") linkSync(target, file(session.root));
-    if (kind === "file-mode") writeFileSync(file(session.root), "private sentinel", { mode: 0o644 });
+    if (kind === "file-mode") {
+      writeFileSync(file(session.root), "private sentinel", { mode: 0o600 });
+      // Creation modes are filtered by umask; this case must really be unsafe.
+      chmodSync(file(session.root), 0o644);
+    }
     if (kind === "directory") mkdirSync(file(session.root), { mode: 0o700 });
     if (kind === "dir-symlink") { rmSync(evidence, { recursive: true }); mkdirSync(join(session.root, "other"), { mode: 0o700 }); symlinkSync(join(session.root, "other"), evidence); }
     if (kind === "dir-mode") chmodSync(evidence, 0o755);
     if (kind === "root-mode") chmodSync(session.root, 0o755);
     if (kind === "root-symlink") { symlinkSync(session.root, session.root + "-link"); roots.push(session.root + "-link"); session.root += "-link"; }
     if (kind === "lock") writeFileSync(join(evidence, ".ota-request-trace.lock"), "held", { mode: 0o600 });
+    if (kind === "file-mode") expect(statSync(file(session.root)).mode & 0o7777).toBe(0o644);
+    if (kind === "dir-mode") expect(statSync(evidence).mode & 0o7777).toBe(0o755);
+    if (kind === "root-mode") expect(statSync(session.root).mode & 0o7777).toBe(0o755);
     expect(() => createOtaRequestTrace(session, "desktop.update.check")({ stage: "body", outcome: "start" })).not.toThrow();
     expect(readFileSync(target, "utf8")).toBe("private sentinel");
-    if (kind === "file-mode") expect(readFileSync(file(session.root), "utf8")).toBe("private sentinel");
+    if (kind === "file-mode") {
+      expect(readFileSync(file(session.root), "utf8")).toBe("private sentinel");
+      expect(statSync(file(session.root)).mode & 0o7777).toBe(0o644);
+    }
     if (["dir-symlink", "dir-mode", "root-mode", "root-symlink", "lock"].includes(kind)) expect(() => statSync(file(session.root))).toThrow();
   }
 });

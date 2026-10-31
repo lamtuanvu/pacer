@@ -24,7 +24,7 @@ test('the executor pool offers only executors that are not already in a rule', (
  expect(html).toContain('Rule 1 task kinds');
 });
 test('Dispatcher owns saved setups and executor eligibility', () => {
- expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).toContain('Loading dispatcher');
+ expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).not.toContain('Loading dispatcher');
  const html=render(<SavedSetups initialData={settings.strategies}/>);
  expect(html).toContain('Saved setups');
  expect(html).toContain('id="saved-profiles"');
@@ -49,10 +49,10 @@ test('the update checkbox keeps its label inline', () => {
  expect(html).toMatch(new RegExp(`<input(?=[^>]*type="checkbox")(?=[^>]*id="${id}")`));
 });
 test('all General sections provide loading and empty states',()=>{
- expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
+ expect(render(<SettingsGeneral section="planner"/>)).not.toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
  const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
- for(const word of ['No accounts','No executors','Loading dispatcher','No saved setups'])expect(html).toContain(word);
+ for(const word of ['No accounts','No executors','No saved setups'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where it runs','Model and test'])expect(html).toContain(word);
@@ -67,7 +67,7 @@ test('host board includes management sections, facts and service supplied branch
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('disabled');expect(html).not.toContain('Full sessions');
 });
 test('host list and detail expose loading and empty states',()=>{
- expect(render(<SettingsGeneral section="machine" initialData={settings}/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).toContain('Loading');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).not.toContain('Loading');
  expect(render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,hosts:[]}})).toContain('Add a remote host');
 });
 test('job progress uses service words and steps, including error hints',()=>{
@@ -130,10 +130,10 @@ test('a passed host connection check cannot make an executor Ready',()=>{
 test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
  const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
- const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
+ const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
- for(const label of ['On pace','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ for(const label of ['Stale reading','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
  expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
  expect(html).not.toContain(executor.id);
@@ -144,12 +144,29 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');
 });
 
+test('Accounts never present stale measured usage as current pace', () => {
+ const now = 1_800_000_000;
+ const accounts = [{name:'team',kind:'codex',signedIn:true}];
+ const current = {name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:now+3600,capturedAt:now,stale:false,verdict:'ON_PACE',signedIn:true};
+ for (const [overrides, label] of [
+  [{}, 'On pace'],
+  [{resetsAt:now}, 'Stale reading'],
+  [{capturedAt:now-86401}, 'Stale reading'],
+  [{stale:true}, 'Stale reading'],
+  [{eligibility:{budget:'unknown'}}, 'Stale reading'],
+ ] as const) {
+  const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{...current,...overrides}]}});
+  expect(html).toMatch(new RegExp(`data-label="Status"><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+  expect(html).toContain('17% of week');
+ }
+});
+
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
- const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
+ const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageCheck:{action:'refresh' as const,consentRequired:false,description:'Reads provider usage.'},usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>);
  expect(html).toContain('Fix Ark CLI sign-in');
  expect(html).toContain('arkcli auth login');
- expect(html).toContain('Refresh usage');
+ expect(html).toContain('Check usage');
  expect(html).not.toContain('No subscription');
 });
 
@@ -232,7 +249,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
  const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · refresh to use');
+ expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · check account usage');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
@@ -283,7 +300,7 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
  expect(html).toContain('$3.20 of $5 this week');
- expect(html).toContain('Stale reading · refresh to use');
+ expect(html).toContain('Stale reading · check account usage');
 });
 
 test('Updates identifies the service and preserves failed-check status', () => {

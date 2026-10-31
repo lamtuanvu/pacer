@@ -6,8 +6,8 @@ import { validateExecution } from "../config/execution";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { transferred } from "../remote/transfer";
 import { repoKey } from "../config/hosts";
-import { SCRIPTS } from "../remote/scripts";
-import { runRemote } from "../remote/ssh";
+import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
+import { pluginRegistry } from "../plugins";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { cleanSettledSessions } from "../session/retention";
 import { cleanHostWorktree, reconcileHostWork } from "../exec/cleanup";
@@ -237,7 +237,8 @@ async function cleanTaskLocked(ctx: Ctx, id: string, o: { dryRun?: boolean; forc
           if (!host || !checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
             kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
           }
-          const remote = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, await transferred(ctx, t) ? (t.run.remoteBranch ?? `pacer/${t.id}`) : "", o.force ? "force" : ""]);
+          const grant = await issueConfiguredHostClean(ctx, t.run.host, t.id, await transferred(ctx, t), { force: o.force });
+          const remote = await pluginRegistry(ctx).cleanConfiguredHost(ctx, grant);
           if (remote.code) { kept.push({ id: t.id, reason: remote.stderr.trim() || "remote cleanup failed" }); continue; }
         } catch (e) { kept.push({ id: t.id, reason: e instanceof Error ? e.message : String(e) }); continue; }
       }

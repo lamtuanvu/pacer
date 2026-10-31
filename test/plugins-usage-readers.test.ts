@@ -42,11 +42,14 @@ test("plugin arkcli preserves subscription availability, rich windows, and exact
 
 test("plugin metered preserves dollar/token budgets, incomplete errors and failed-command errors", async () => {
   expect(typeof metered.readMetered).toBe("function");
-  for (const payload of [{}, { models: [] }, { models: [{ model: { providerID: "public", id: "code" }, tokens: { input: 10 }, cost: 25 }] },
+  // One pacer home keeps one warm plugin child; a fresh home per case cold-starts a child each (#494 CI timeouts).
+  // readOnly leaves no cache behind, and refresh reruns the command, so every case still compares a fresh reading.
+  let payload: unknown;
+  const shared = { ...fakeCtx({ now, run: async () => ({ code: 0, stdout: JSON.stringify(payload), stderr: "" }) }), readOnly: true };
+  for (payload of [{}, { models: [] }, { models: [{ model: { providerID: "public", id: "code" }, tokens: { input: 10 }, cost: 25 }] },
     { models: [{ model: { providerID: "public", id: "code" }, tokens: { input: 10 } }] }]) {
     for (const budget of [cfg, { ...cfg, weeklyUsd: null, weeklyTokens: 100 }, { ...cfg, model: null }]) {
-      const ctx = { ...fakeCtx({ now, run: async () => ({ code: 0, stdout: JSON.stringify(payload), stderr: "" }) }), readOnly: true };
-      expect(await metered.readMetered(context(ctx), budget, true)).toEqual(await originalMetered(ctx, budget, true));
+      expect(await metered.readMetered(context(shared), budget, true)).toEqual(await originalMetered(shared, budget, true));
     }
   }
   const ctx = { ...fakeCtx({ now, run: async () => ({ code: 3, stdout: "", stderr: "synthetic offline" }) }), readOnly: true };

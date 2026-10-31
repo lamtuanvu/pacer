@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { isAbsolute } from "node:path";
@@ -17,7 +17,8 @@ const CODEX_LIVE_REQUEST = [
 interface Pin {
   argv: readonly string[];
   timeoutMs: number;
-  mode?: "codex-live";
+  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
+  input?: Uint8Array;
   selected: string | null;
   canonical?: string;
   stat?: Stats;
@@ -31,7 +32,7 @@ interface Pin {
     secretEnv: Readonly<Record<string, string>>;
   };
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -54,6 +55,35 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
   const pins = authority.resources.commands.map(command => {
     const selected = authority.ctx.which(command.argv[0]!);
     const pin: Pin = { argv: command.argv, timeoutMs: command.timeoutMs, selected, mode: command.mode };
+    if (command.mode === "prepare-bundle") {
+      if (!(command.input instanceof Uint8Array) || command.input.length > 50 * 1024 * 1024 ||
+        command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
+        command.argv[0] !== "ssh" || command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 60_000)
+        deny("remote prepare input was not issued by the host");
+      pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "start-input") {
+      if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 50 * 1024 * 1024 ||
+        command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
+        command.argv[0] !== "ssh" || command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 60_000)
+        deny("remote start input was not issued by the host");
+      pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "binary-upload") {
+      if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 128 * 1024 * 1024 ||
+        command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
+        command.argv[0] !== "ssh" || command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 300_000)
+        deny("remote binary upload input was not issued by the host");
+      pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "session-duplex") {
+      if (command.argv[0] !== "ssh" || command.input !== undefined || command.inputSha256 !== undefined ||
+        command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 60_000)
+        deny("remote session stream was not issued by the host");
+    } else if (command.input !== undefined || command.inputSha256 !== undefined) {
+      deny("provider input requires host-issued remote mutation");
+    }
     if (command.mode === "codex-live" &&
       (JSON.stringify(command.argv) !== JSON.stringify(CODEX_LIVE_ARGV) ||
         !authority.accountHome || !isAbsolute(authority.accountHome) ||
@@ -85,7 +115,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -97,6 +127,25 @@ function stateOf(authority: CallAuthority): State {
 /** Private owner cleanup: retiring output never grants or renews process authority. */
 export function discardSpawnOutput(authority: CallAuthority): void {
   states.get(authority)?.output.clear();
+}
+
+/** Claim one exact host-issued SSH command for a private duplex process, not ordinary spawn. */
+export function claimSessionDuplexPin(authority: CallAuthority, declaredScopes: readonly string[],
+  argv: string[], timeoutMs: number): { executable: string; env: NodeJS.ProcessEnv; release: () => void } {
+  const state = stateOf(authority);
+  if (!declaredScopes.includes("ssh") || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000 ||
+    !Array.isArray(argv) || state.sessionUsed || state.busy)
+    deny("remote session stream is not issued for this call");
+  const pin = state.pins.find(candidate => candidate.mode === "session-duplex" &&
+    JSON.stringify(candidate.argv) === JSON.stringify(argv) && timeoutMs <= candidate.timeoutMs);
+  if (!pin) return deny("remote session SSH command is unavailable");
+  if (!pin.selected || !pin.canonical) return deny("remote session SSH command is unavailable");
+  validatePin(pin);
+  authority.assertActive();
+  state.sessionUsed = true;
+  state.busy = true;
+  return { executable: pin.canonical, env: authority.ctx.env,
+    release: () => { state.busy = false; } };
 }
 
 export async function readSpawnOutput(authority: CallAuthority, params: Record<string, unknown>): Promise<{ base64: string }> {
@@ -115,7 +164,7 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (!Array.isArray(argv) || argv.length < 1 || argv.length > 32 || argv.some(arg => typeof arg !== "string" || arg.length > 4096 || arg.includes("\0")) || !Number.isSafeInteger(timeoutMs) || (timeoutMs as number) <= 0) invalid("invalid provider command");
   const args = argv as string[];
   if (!declaredScopes.includes(args[0]!) || args[0] === "*" || isAbsolute(args[0]!)) deny("provider command is not declared");
-  const candidates = state.pins.filter(pin => JSON.stringify(pin.argv) === JSON.stringify(argv));
+  const candidates = state.pins.filter(pin => pin.mode !== "session-duplex" && JSON.stringify(pin.argv) === JSON.stringify(argv));
   if (!candidates.length) deny("provider command is not owned by this call");
   if (candidates.every(pin => !pin.context) && (Object.hasOwn(params, "env") || Object.hasOwn(params, "cwd"))) invalid("provider env and cwd overrides are unavailable");
   const pin = candidates.find(candidate => (candidate.mode === "codex-live"
@@ -125,6 +174,18 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (pin.mode === "codex-live") {
     if (state.liveUsed) deny("Codex live command already used by this call");
     state.liveUsed = true;
+  }
+  if (pin.mode === "prepare-bundle") {
+    if (state.prepareUsed) deny("remote prepare command already used by this call");
+    state.prepareUsed = true;
+  }
+  if (pin.mode === "start-input") {
+    if (state.startUsed) deny("remote start command already used by this call");
+    state.startUsed = true;
+  }
+  if (pin.mode === "binary-upload") {
+    if (state.uploadUsed) deny("remote binary upload command already used by this call");
+    state.uploadUsed = true;
   }
   if (Object.keys(pin.context?.secretEnv ?? {}).length) authority.assertGranted("secrets.resolve");
   if ((timeoutMs as number) > pin.timeoutMs) deny("provider timeout exceeds owning call");
@@ -213,13 +274,34 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
     authority.assertActive();
     validatePin(pin);
     child = spawn(pin.canonical!, argv.slice(1), {
-      stdio: [pin.mode === "codex-live" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      env,
+      stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
+      env: pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? authority.ctx.env : env,
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
     if (pin.mode === "codex-live") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "Codex usage request input failed"); stop(); });
       child.stdin?.write(CODEX_LIVE_REQUEST);
+    }
+    if (pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input") {
+      child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "remote host input failed"); stop(); });
+      // A bounded host-owned buffer is streamed in chunks to honor pipe backpressure.
+      void (async () => {
+        const input = pin.input!;
+        const chunkSize = pin.mode === "binary-upload" ? 65_535 : 65_536;
+        for (let offset = 0; offset < input.length; offset += chunkSize) {
+          if (failure || child.stdin?.destroyed) return;
+          const chunk = input.subarray(offset, offset + chunkSize);
+          const encoded = pin.mode === "binary-upload" ? Buffer.from(chunk).toString("base64") : chunk;
+          if (!child.stdin!.write(encoded)) {
+            await new Promise<void>(resolve => {
+              const stream = child.stdin!;
+              const done = () => { stream.off("drain", done); stream.off("close", done); resolve(); };
+              stream.once("drain", done); stream.once("close", done);
+            });
+          }
+        }
+        child.stdin?.end();
+      })().catch(() => { failure ??= new CoreError("plugin_unavailable", "remote host input failed"); stop(); });
     }
   } catch (error) {
     settle(); detach();

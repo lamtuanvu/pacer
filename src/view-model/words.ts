@@ -80,8 +80,15 @@ export function taskStatus(task: TaskStatusInput): Status {
     if (task.conversation?.activity === "working") return status("Working", "info", "▶");
   }
   const phase = task.progress?.phase ?? task.phase;
-  if (task.state === "running" && phase) return sessionStatus(phase);
+  if (task.state === "running" && phase && Object.hasOwn(sessionStates, phase)) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;
+}
+/** Task destinations combine execution, checks and explicit review handoffs. */
+export function taskPageStatus(task: TaskStatusInput & {reviewRequest?: unknown; acceptance?: {state:string}}): Status {
+  if (task.acceptance?.state === "failed" || task.acceptanceState === "failed") return status("Checks failed", "bad", "✕");
+  if (task.review) return taskOutcome(task);
+  if (task.reviewRequest && !task.dismissed && !task.resolved && !task.retriedBy) return status("Waiting for review", "info", "◐");
+  return taskStatus(task);
 }
 export function taskOutcome(task: TaskStatusInput): Status {
   return task.review ? task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕")
@@ -150,7 +157,21 @@ export function attentionStatus(item: { kind: string; taskId?: string }, tasks: 
 export const offlineWords = "pacer not running · pacer serve";
 /** The name shown for the machine pacer runs on, wherever a host is named. */
 export const localHostWords = "This Mac";
+/** Task boards distinguish local execution from a named remote host. */
+export const localTaskHostWords = "Local Mac";
 /** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
+/** Plain copy for a managed task whose grant lets it start and message its own sub-agents. */
+export const COORDINATES = "This task can coordinate sub-agents.";
+/** Why a task a person started runs without coordinating sub-agents (`TaskRecord.managedSkip.reason`). */
+const managedSkipReasons: Record<string, string> = {
+  interactive: "its executor runs in an interactive session, where pacer cannot block sub-agents.",
+  unsupported: "its executors cannot have their own sub-agents blocked yet.",
+  unverified: "pacer has not confirmed it can block sub-agents for its executors yet.",
+  unavailable: "no executor that pacer can check for sub-agent control is available.",
+  refused: "pacer could not confirm sub-agent control when the task started, so it runs on its own.",
+};
+export const managedSkipWords = (reason: string): string =>
+  `Can't coordinate sub-agents here: ${Object.hasOwn(managedSkipReasons, reason) ? managedSkipReasons[reason] : managedSkipReasons.unavailable}`;
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";
@@ -179,16 +200,16 @@ export function compactPolicyWords(policy?: PolicySummary): string {
 }
 /** Why the service refused a message, from its `data.reason`; never the raw code (UI-12, UI-13). */
 const messageRefusals: Record<string, string> = {
-  msg_forbidden: "You can't message this task.",
-  msg_node_closed: "This task no longer takes messages.",
+  msg_forbidden: "A messaging rule does not allow you to message this task.",
+  msg_node_closed: "This task is closed for messages.",
   msg_worktree_unavailable: "This task's worktree was cleaned up, so it can't continue. Retry it or start a new task.",
   msg_cap_reached: "Too many messages at once. Wait a minute and send again.",
-  msg_too_large: "The answer is too long. Shorten it and send again.",
+  msg_too_large: "This message is too long to send.",
   msg_live_unavailable: "This task can't take answers here yet. Answer it in its session.",
   msg_request_mismatch: "This answer was already sent with different text. Refresh and try again.",
 };
 export const messageRefusalWords = (reason: unknown): string =>
-  typeof reason === "string" && Object.hasOwn(messageRefusals, reason) ? messageRefusals[reason]! : "The answer was not sent. Try again.";
+  typeof reason === "string" && Object.hasOwn(messageRefusals, reason) ? messageRefusals[reason]! : "The message was not sent. Try again.";
 /** What became of a sent answer, from msg.send's `delivery`. */
 const answerDeliveries: Record<string, string> = {
   turn_started: "Answer sent. The task is continuing.",
@@ -204,3 +225,11 @@ export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown
   // Project policy held the task's next turn: say why; the answer waits with the question still open.
   delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
     : typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";
+
+/** Message thread copy shared by the app and TUI. */
+const messageKinds: Record<string, string> = { question: "Question", answer: "Answer", report: "Report", nudge: "Reminder", close: "Closed" };
+export const messageKindWords = (kind: string): string | null => Object.hasOwn(messageKinds, kind) ? messageKinds[kind]! : null;
+const messageDeliveries: Record<string, string> = { turn_started: "Sent. The task is picking it up.", queued: "Sent. The task reads it when its current step ends.", live: "Sent to the live session.", pull: "Sent. The task reads it with its next step.", held: "Sent. A messaging rule holds it until you confirm.", cap: "Sent, but this task tree has reached its turn limit.", no_session: "Sent, but this task can't resume its session to read it.", live_unavailable: "Sent, but this live session can't receive it yet.", closed: "Sent, but this task is closed for messages." };
+export const messageDeliveryWords = (delivery: string | undefined): string => delivery && Object.hasOwn(messageDeliveries, delivery) ? messageDeliveries[delivery]! : "Sent.";
+export const stalledWords = "Stalled — needs a decision";
+export const handBackWords = "Waiting for you to hand back the terminal";

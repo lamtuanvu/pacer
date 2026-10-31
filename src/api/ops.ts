@@ -39,11 +39,12 @@ import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
 import { requireRepoDirectory, resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
-import { apiTask } from "./read-model/tasks";
+import { apiTask, apiTaskPage } from "./read-model/tasks";
 import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
+import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-usage-check";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { msgOps } from "./ops-msg";
@@ -89,7 +90,10 @@ export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
   appAuthenticated?: boolean;
-  /** In-process callers only (CLI, MCP): the messaging participant when no planner session is detected. Never set from a request. */
+  /**
+   * In-process callers (CLI, MCP): the messaging participant when no planner session is detected. Never taken from
+   * request fields; the HTTP service sets `human` only for a bearer request that also presents a valid app session.
+   */
   participant?: string;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
@@ -101,6 +105,7 @@ export interface OpDeps {
   clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
+  accountUsageCheck?: AccountUsageCheckDeps;
   terminal?: Partial<TerminalDeps>;
   openInTerminal?: typeof openInTerminal;
   spawnRunner?: SpawnRunner;
@@ -177,6 +182,16 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 }
 
 /** Check before any liveness refresh, label write, process signal or spawn. */
+/**
+ * task.retry on a work root a person started restarts it as managed work, keeping its lineage, worktree and delegation
+ * policy. The request id is stable per revision, so a repeated click retries once. Other managed work returns null.
+ */
+function userStartedRetry(ctx: Ctx, id: string, expectRev: number | undefined, executor: string | undefined, deps: OpDeps) {
+  const task = readTask(ctx, id);
+  if (!task || !core.tasks.userStartedRoot(ctx, task)) return null;
+  const rev = expectRev ?? task.rev;
+  return retryWork(ctx, id, { expectRev: rev, requestId: `retry-${id}-${rev}`, ...(executor ? { executor } : {}) }, deps.spawnRunner ?? spawnRunner).then(summarizeTask);
+}
 function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, action: () => T): T {
   return withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
@@ -382,7 +397,7 @@ export const OPS: Record<string, OpDef> = {
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
-    const page={tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+    const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
     if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
@@ -408,7 +423,8 @@ export const OPS: Record<string, OpDef> = {
     description: "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
-      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
+      const work=getWork(ctx,p.id)?readTask(ctx,p.id):null;
+      if(work&&!core.tasks.canContinue(ctx,work))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner),spawnRunner:deps.spawnRunner,appAuthenticated:deps.appAuthenticated,participant:deps.participant});
     },
   }),
@@ -422,7 +438,11 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+      if(getWork(ctx,p.id)){
+        const managed=userStartedRetry(ctx,p.id,p.expect_rev,p.executor,deps);
+        if(!managed)throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+        const r=await managed;return { retry: r, of: r };
+      }
       const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
@@ -436,7 +456,11 @@ export const OPS: Record<string, OpDef> = {
       const skipped: { id: string; reason: string }[] = [];
       for (const id of [...new Set<string>(p.ids)]) {
         try {
-          if(getWork(ctx,id))throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+          if(getWork(ctx,id)){
+            const managed=userStartedRetry(ctx,id,undefined,p.executor,deps);
+            if(!managed)throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+            const r=await managed;retried.push({ of: r, retry: r });continue;
+          }
           const r = await core.tasks.retry(ctx, id, { executor: p.executor, fromPanel: p.from_panel }, {
             delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
           });
@@ -466,11 +490,12 @@ export const OPS: Record<string, OpDef> = {
       .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
     handler: (ctx, p, deps) => {
       if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      if(getWork(ctx,p.id)){
+      const work=getWork(ctx,p.id)?readTask(ctx,p.id):null;
+      if(work&&!(p.verdict==="send_back"&&core.tasks.canContinue(ctx,work))){
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
@@ -496,6 +521,7 @@ export const OPS: Record<string, OpDef> = {
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
+  "account.usage.check": op({description: "Check usage for an account independently of its planner or executor role. Claude requires explicit consent for a quota-consuming small task; poll job.get for progress and observation outcome.", params: z.object({account: id, consent: z.boolean().optional()}), handler: (ctx, p, deps) => checkAccountUsage(ctx, p.account, p.consent, {...deps.accountUsageCheck, onDone: deps.usageRefreshDone})}),
   "limits.refresh": op({ description: "Refresh configured account usage from each provider's available source without starting an agent turn.", params: z.object({ account: id.optional() }), handler: async (ctx, p, deps) => {
     const accounts = p.account ? [await refreshAccountUsage(ctx, p.account)] : await refreshAllUsage(ctx);
     await deps.usageRefreshDone?.();

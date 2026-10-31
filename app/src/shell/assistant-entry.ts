@@ -40,9 +40,9 @@ export function assistantPreferences(): AssistantPreferences {
     return { showButton: saved.showButton !== false, stillAurora: saved.stillAurora === true };
   } catch { return { showButton: true, stillAurora: false }; }
 }
-export function setAssistantPreferences(patch: Partial<AssistantPreferences>): void {
+export function setAssistantPreferences(patch: Partial<AssistantPreferences>, reportFailure = false): void {
   try { localStorage.setItem(preferenceKey, JSON.stringify({ ...assistantPreferences(), ...patch })); }
-  catch { /* Storage may be blocked; keep the assistant reachable with defaults. */ }
+  catch (error) { if (reportFailure) throw error; }
   preferenceWatchers.forEach(w => w());
 }
 export function watchAssistantPreferences(watcher: () => void): () => void {

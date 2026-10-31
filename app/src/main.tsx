@@ -1,5 +1,6 @@
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
 import { discoveryNoticeHiddenOn, updateNoticeHiddenOn } from "./settings-pages";
+import { startPolling } from "./data/poll";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -76,26 +77,26 @@ function App() {
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
   useEffect(() => {
     let active = true;
-    const refresh = () => { void api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => { if (active) setChecklist(c => c ?? "error"); }); };
-    refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => { active = false; clearInterval(timer); };
+    const refresh = () => api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => { if (active) setChecklist(c => c ?? "error"); });
+    const stop = startPolling(refresh, 30_000);
+    return () => { active = false; stop(); };
   }, [api, state.invalidations.setup, state.connected, setupRevision]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = state.features.ops.size ? setupCompleteFrom(checklist) : null;
   const resolved = resolveRoute(hash, setupComplete, state.features.ops.has("session.create"));
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
+  const pendingRoute = resolveRoute(hash, true);
   const narrow = useNarrow(route.query);
   if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "dispatch", keys: "g o", run: go("#/") }),
-      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
-      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
-      commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
+      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "command-nav", keys: "g o", run: go("#/") }),
+      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "command-nav", keys: "g r", run: go("#/needs-you") }),
+      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "command-nav", keys: "g t", run: go("#/tasks") }),
+      commands.register({ id: "go.terminal", title: "Go to Workspace", group: "Go to", icon: "command-terminal", keywords: "terminal sessions", keys: "g e", run: go("#/workspace") }),
       commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
       commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
       commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "Mod-n", shortcutLabel: "New task", run: () => openNewTask() }),
@@ -123,7 +124,7 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
+      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} loadingRoute={"redirect" in pendingRoute ? route : pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
         the update notice stays in the corner and its Restart and Later never move. */}

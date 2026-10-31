@@ -6,7 +6,7 @@ import type { LinkSnapshot, TaskData } from "../../link/envelope";
 
 export interface RepoRef { key: string; label: string; path: string; unreachable?: true; identityUnverified?: true }
 /** fullTitle is complete display text; title remains the compact compatibility fallback. */
-export type TaskDataV2 = TaskData & { archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"]; messages?: { unreadForHuman: number; question?: { id: string; text: string; at: number } } };
+export type TaskDataV2 = TaskData & { archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"]; messages?: { unreadForHuman: number; question?: { id: string; text: string; at: number } }; liveness?: { stalled: boolean; reason: string; waitingOn?: string; since: number } };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
  stale?: boolean;
@@ -73,11 +73,11 @@ export interface MachineCapacity {
 export interface PauseState { until: number | null; reason: string | null; by: string | null }
 export type SnapshotV2 = Omit<LinkSnapshot, "tasks"> & ReadModelFields & { tasks: TaskDataV2[]; attention: AttentionItem[]; pause?: PauseState | null };
 export interface Job {
- id: string; kind: "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply";
+ id: string; kind: "account.usage.check" | "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply";
  target: string; state: "running" | "passed" | "failed" | "cancelled";
  steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
  startedAt: number; endedAt?: number; error?: { code: string; message: string; hint?: string };
 }
-export const ENTITY_EVENT_TYPES = ["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify"] as const;
+export const ENTITY_EVENT_TYPES = ["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify", "message", "liveness"] as const;
 
 export type SnapshotV3 = ReadModelFields & Pick<LinkSnapshot, "seq" | "at" | "mode"> & { tasks: ApiTask[]; strategies: NonNullable<LinkSnapshot["strategies"]> };

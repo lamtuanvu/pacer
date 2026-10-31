@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
+import { AccountsSection } from '../app/src/screens/settings/Accounts';
 import { SettingsGeneral } from '../app/src/screens/settings/General';
 import { SetupEditor } from '../app/src/screens/settings/DispatcherSetup';
 import { dispatchConfigSchema } from '../src/dispatch/types';
@@ -32,7 +33,7 @@ test('all rendered budget and overview captions round fractional percentages', (
 
 test('weekly copy keeps a meter but omits compact pace and engine strings', () => {
   expect(executorWeekUsage({...row,usedPct:81.45},snap)).toBe('81% of week');
-  expect(executorWeekUsage({...row,stale:true},snap)).toBe('Stale · refresh to use');
+  expect(executorWeekUsage({...row,stale:true},snap)).toBe('Stale · check account usage');
   expect(executorWeekUsage(row,{...snap,accounts:[{...snap.accounts![0]!,verdict:'UNMETERED'}]})).toBe('Unmetered');
   const reset = new Date('2026-11-01T12:00:00Z').getTime()/1000;
   expect(executorWeekUsage({...row,usedPct:81},{...snap,accounts:[{...snap.accounts![0]!,resetsAt:reset}]})).toBe('81% of week · resets Sun');
@@ -99,7 +100,7 @@ test('Dispatcher shows one friendly executor identity without raw ids', () => {
  test('stale account copy gives one readable age or a refresh instruction', () => {
   const account = {...snap.accounts![0]!,stale:true,usedPct:28,capturedAt:snap.at-113*3600,eligibility:eligible};
   expect(accountUsageFreshness({...account,eligibility:{...eligible,evaluatedAt:snap.at}})).toBe('Reading 113h old');
-  expect(accountUsageFreshness({...account,capturedAt:null})).toBe('Stale reading · refresh to use');
+  expect(accountUsageFreshness({...account,capturedAt:null})).toBe('Stale reading · check account usage');
  });
 
  test('Dispatcher rows use board readiness and a short reason', () => {
@@ -130,4 +131,15 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)('Dispatcher technical detail opens 
     expect(await reason.evaluate(node=>document.activeElement===node)).toBe(true);
     expect(await page.evaluate(()=>(window as any).escaped)).toBe(false);
   } finally { await browser.close(); }
+});
+
+test('Accounts quota copy suppresses synthetic reactive and unmetered readings', () => {
+  for (const [action, source, label] of [['unsupported', 'reactive', 'Quota unavailable'], ['unmetered', 'unmetered', 'Unmetered']] as const) {
+    const account = {name:'synthetic',kind:'endpoint',signedIn:true,usageCheck:{action,consentRequired:false,description:'Provider explanation'},usageReading:{source,windows:[{name:'limit',usedPct:0,resetsAt:null}],capturedAt:snapshot.at,stale:true}};
+    const html = draw(<AccountsSection initialData={[account]} initialConfig={{keys:{},planners:[]} as any}/>, {...snapshot,accounts:[{...snapshot.accounts![0]!,name:account.name,source,usedPct:0,capturedAt:snapshot.at,stale:true}]});
+    expect(visible(html)).toContain(label);
+    expect(html).not.toContain('role="meter"');
+    expect(visible(html)).not.toMatch(/0%|Last observed|No observation|No usage reported|Usage observed|Historical usage|Stale|check account usage/);
+    expect(html).not.toContain('Check usage<span');
+  }
 });

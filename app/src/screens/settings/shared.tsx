@@ -1,9 +1,11 @@
+import { PageColumns } from "../../ds/Page";
+import { budgetResourceRevision } from "../../data/budget-revision";
 import { displayPath, settingsText } from "./presentation";
 import { useNotifications } from "../../data/notification-context";
 import { Alert } from "../../ds/Alert";
 import { createContext } from 'preact';
 import { jobKindCopy, jobStateCopy } from "../../../../src/view-model/copy";
-import { SegmentedControl, LoadingState, EmptyState, TextRow } from "../../ds/Patterns";
+import { SegmentedControl, Skeleton, EmptyState, TextRow } from "../../ds/Patterns";
 export { Field } from "../../ds/Controls";
 import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
@@ -38,28 +40,31 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
 /** Board page heading and block rhythm shared by the Slice 6b editors. */
-export function SettingsBoard({id,title,caption,actions,children}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren}) {
+export function SettingsBoard({id,title,caption,actions,children,aside}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren;aside?:ComponentChildren}) {
  useSettingsStyles();
- return <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
+ const board = <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
   <header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header>
   {children}
  </section>;
+ return aside ? <PageColumns layout="agents" main={board} aside={aside}/> : board;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
- // update.check itself publishes an update event; reacting to it creates a request loop.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
+ const budget = budgetResourceRevision(op, invalidations);
+ if (budget !== undefined) return budget;
+ // update.check itself publishes an update event; reacting to it creates a request loop. Message threads have their own counters.
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
  const {api,state}=useTaskContext();const [data,setData]=useState(initial),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(initial===undefined),[revision,reload]=useState(0);
  const generation=useRef(0);
- const serialized=JSON.stringify(params),invalidations=resourceRevision(op,state.invalidations);
+ const serialized=JSON.stringify(params),invalidations=budgetResourceRevision(op,state.invalidations,state.snapshot?.accounts) ?? resourceRevision(op,state.invalidations);
  useEffect(()=>{let active=true;const ticket=++generation.current;setLoading(true);setError(undefined);void api.call<T>(op,JSON.parse(serialized)).then(r=>{if(active&&ticket===generation.current)setData(r);},e=>{if(active&&ticket===generation.current)setError(e);}).finally(()=>{if(active&&ticket===generation.current)setLoading(false);});return()=>{active=false;};},[api,op,serialized,revision,invalidations,state.connected]);
  return {data,error,loading,setData:(next:T)=>{generation.current++;setLoading(false);setData(next);},reload:()=>reload(v=>v+1)};
 }
 export function ResourceState({resource,empty,children}:{resource:{data:unknown;loading:boolean;error:unknown;reload:()=>void};empty?:string;children:ComponentChildren}) {
  if(resource.error)return <><ErrorMessage error={resource.error}/><Button onClick={resource.reload}>Try again</Button></>;
- if(resource.data===undefined)return resource.loading?<LoadingState/>:<EmptyState title="No data available."/>;
+ if(resource.data===undefined)return resource.loading?<Skeleton layout="settings"/>:<EmptyState title="No data available."/>;
  if(Array.isArray(resource.data)&&resource.data.length===0)return <EmptyState title={empty??'Nothing here yet.'}/>;
  return <>{children}</>;
 }
@@ -72,7 +77,7 @@ export async function performOperation(call:BrowserApi['call'],op:string,params:
 export function shouldNotifySuccess(result: OperationResult, enabled = true): boolean {
  return !result.jobId && !result.warning && enabled;
 }
-export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean} = {}) {
+export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean; notifyJob?: boolean} = {}) {
  const notifications=useNotifications();
  const runner=useActions();
  const {api,state}=useTaskContext(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<OperationResult>();const pending=useRef(false);
@@ -81,7 +86,7 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
  const completed=useRef<string>();
  useEffect(()=>{if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
  const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active)setResult(r=>r?{...r,job:current}:r);}catch(e){if(active)setError(e);}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state]);
- useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message ? settingsText(job.error.message) : undefined});onDone?.();}},[job]);
+ useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;if(options.notifyJob!==false)notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message ? settingsText(job.error.message) : undefined});onDone?.();}},[job]);
  async function run(op:string,params:unknown,done?:(data:any)=>void) {
   if(pending.current)return;pending.current=true;setBusy(true);setError(undefined);setResult(undefined);
   try{const r=await performOperation(async <T,>(operation:string,payload:unknown)=>{

@@ -104,11 +104,11 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line);">
 <span style="display: flex; align-items: center; gap: 8px;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 99px; background: var(--warn-fill); animation: pulse 1.6s ease-in-out infinite;"></span><b style="flex-grow: 1;">Run demo-stages flow with WebGL</b><dc-import name="AgentMark" mono="Cx" size="20" hint-size="20px,20px"></dc-import></span>
 <span class="cap">Subtask 1 of 3 · Codex · 12m · 214k tokens</span>
-<div style="display: flex; gap: 6px;"><a href="Session.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; background: var(--ink); color: var(--ink-on-ink); font-weight: 600; text-decoration: none;">Open session</a><a href="TaskDetail.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-weight: 600; text-decoration: none;">Dispatch trace</a></div>
+<div style="display: flex; gap: 6px;"><a href="Workspace.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; background: var(--ink); color: var(--ink-on-ink); font-weight: 600; text-decoration: none;">Open workspace</a><a href="TaskPage.dc.html" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-weight: 600; text-decoration: none;">Task page</a></div>
 </div>
 <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line);">
 <span class="lbl" style="display: flex; align-items: center; gap: 6px;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>Linked work</span>
-<span>Parent: <a href="TaskDetail.dc.html">Browser-validate the web app PWA build</a></span>
+<span>Parent: <a href="TaskPage.dc.html">Browser-validate the web app PWA build</a></span>
 <span class="cap">Delegated by Claude Code via <span class="mono">pacer delegate</span> · worktree <span class="mono">validate/pwa-drop</span></span>
 </div>
 <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line);">
@@ -134,7 +134,7 @@ class Component extends DCLogic {
     const D = { run: 'var(--info-fg)', wait: 'var(--warn-fill)', bad: 'var(--bad-fill)', ok: 'var(--good-fill)', idle: 'var(--ink-muted)' };
     const root = (o) => {
       const isOpen = !!open[o.id];
-      return { bd: 'var(--line)', bg: 'transparent', selBg: 'transparent', anim: 'none', href: 'TaskDetail.dc.html', pill: '', tone: 'neutral', kids: [], meta: [], ...o,
+      return { bd: 'var(--line)', bg: 'transparent', selBg: 'transparent', anim: 'none', href: 'TaskPage.dc.html', pill: '', tone: 'neutral', kids: [], meta: [], ...o,
         hasKids: (o.kids || []).length > 0, open: isOpen, kidLabel: (o.kids || []).length + ((o.kids || []).length === 1 ? ' subtask' : ' subtasks'),
         chev: isOpen ? 'rotate(180deg)' : 'none', toggle: () => this.setState({ open: { ...open, [o.id]: !isOpen } }) };
     };
@@ -148,23 +148,23 @@ class Component extends DCLogic {
     };
     const C = { ok: 'var(--good-fg)', bad: 'var(--bad-fg)', warn: 'var(--warn-fg)', info: 'var(--info-fg)', mut: 'var(--ink-secondary)' };
     const m = (k, text, fg = C.mut, title = text, fw = 400) => ({ d: I[k], text, fg, title, fw });
-    const kid = (o) => ({ selBg: 'transparent', anim: 'none', href: 'TaskDetail.dc.html', host: 'Local Mac', ...o });
+    const kid = (o) => ({ selBg: 'transparent', anim: 'none', href: 'TaskPage.dc.html', host: 'Local Mac', ...o });
     return {
       roots: [
         root({ id: 'pwa', title: 'Browser-validate the web app PWA build', host: 'Local Mac', branch: 'acme/web · validate/pwa-drop', agents: ['Cl', 'Cx', 'Ag', 'Lo'], tokens: '0.6M', dot: D.wait, anim: live, pill: 'Needs your answer', tone: 'warn', bd: 'var(--warn-line)', bg: 'var(--warn-tint)',
           meta: [m('pr', '1 PR open · #3931', C.info, 'Pull request #3931 is open', 600), m('commit', '4 commits'), m('files', '6 files +214 −37'), m('checks', 'Checks passing', C.ok), m('time', '20m · started 09:02')], kids: [
-          kid({ title: 'Run demo-stages flow with WebGL', mono: 'Cx', tokens: '214k', branch: 'validate/pwa-drop-1', status: 'Asks you · 12m', dot: D.wait, anim: live, href: 'Session.dc.html', selBg: 'var(--surface-lane)' }),
-          kid({ title: 'Capture first-frame screenshots', mono: 'Ag', tokens: '410k', branch: 'validate/pwa-drop-2', status: 'Running · 6m', dot: D.run, anim: live, href: 'Session.dc.html' }),
+          kid({ title: 'Run demo-stages flow with WebGL', mono: 'Cx', tokens: '214k', branch: 'validate/pwa-drop-1', status: 'Asks you · 12m', dot: D.wait, anim: live, href: 'TaskPageRunning.dc.html', selBg: 'var(--surface-lane)' }),
+          kid({ title: 'Capture first-frame screenshots', mono: 'Ag', tokens: '410k', branch: 'validate/pwa-drop-2', status: 'Running · 6m', dot: D.run, anim: live, href: 'TaskPageRunning.dc.html' }),
           kid({ title: 'Diff screenshots against design drop', mono: 'Lo', tokens: '—', branch: 'validate/pwa-drop-3', status: 'Waits on subtask 2', dot: D.idle })
         ]}),
-        root({ id: 'rs', title: 'Make remote-support access mode opt-out', host: 'Local Mac', branch: 'acme/web · remote-support-optout', agents: ['Cx'], tokens: '214k', dot: D.run, anim: live, href: 'Session.dc.html',
+        root({ id: 'rs', title: 'Make remote-support access mode opt-out', host: 'Local Mac', branch: 'acme/web · remote-support-optout', agents: ['Cx'], tokens: '214k', dot: D.run, anim: live, href: 'TaskPageRunning.dc.html',
           meta: [m('pr', 'No PR yet'), m('commit', '2 commits'), m('files', '3 files +41 −12'), m('checks', 'Checks running', C.info), m('time', '12m · started 10:12')] }),
         root({ id: 'forge', title: 'runner-forge: GitHub App authentication', host: 'devbox', branch: 'acme/runner-forge · fix/app-auth', agents: ['Cx'], tokens: '412k', dot: D.bad, pill: 'Checks failed twice', tone: 'bad', bd: 'var(--bad-line)', bg: 'var(--bad-tint)',
           meta: [m('pr', 'No PR · blocked by checks'), m('retry', '2 attempts', C.warn), m('files', '4 files +88 −19'), m('checks', '1 of 6 checks failing', C.bad, 'maintainer_scripts_contract failed', 600), m('time', '41m · yesterday')], kids: [
           kid({ title: 'Attempt 1 · token exchange', mono: 'Cx', tokens: '198k', host: 'devbox', branch: 'fix/app-auth', status: 'Failed · 17:02', dot: D.bad }),
           kid({ title: 'Attempt 2 · installation id lookup', mono: 'Cx', tokens: '214k', host: 'devbox', branch: 'fix/app-auth', status: 'Failed · 17:26', dot: D.bad })
         ]}),
-        root({ id: 'ota', title: 'ota: stale plan shown as the current update', host: 'Local Mac', branch: 'acme/ota-client · fix/stale-plan', agents: ['Cx'], tokens: '133k', dot: D.wait, pill: 'Needs your answer', tone: 'warn', href: 'Session.dc.html',
+        root({ id: 'ota', title: 'ota: stale plan shown as the current update', host: 'Local Mac', branch: 'acme/ota-client · fix/stale-plan', agents: ['Cx'], tokens: '133k', dot: D.wait, pill: 'Needs your answer', tone: 'warn', href: 'TaskPageRunning.dc.html',
           meta: [m('pr', 'No PR yet'), m('commit', '1 commit'), m('files', '2 files +18 −6'), m('time', 'Waiting on you 38m', C.warn)] }),
         root({ id: 'docs', title: 'Document that remote support is now opt-out', host: 'Local Mac', branch: 'acme/web · docs/adr-033', agents: ['Cx'], tokens: '96k', dot: D.ok, pill: 'Accepted', tone: 'good',
           meta: [m('pr', 'PR #3929 merged', C.ok, 'Pull request #3929 merged 09:41', 600), m('commit', '1 commit'), m('files', '5 files +39 −24'), m('checks', 'Checks passed', C.ok), m('time', '9m')] }),

@@ -105,7 +105,7 @@ browserTest('Add agent: creates once with the chosen options, then is Ready only
     await page.getByRole('button', { name: 'Tests', exact: true }).click();
     const add = page.getByRole('button', { name: 'Add agent and run test task' });
     await add.dblclick();
-    await page.getByText('codex#team is ready.').waitFor();
+    await page.getByText('Codex · team is ready.').waitFor();
     const adds = (await agentCalls(page)).filter(([op]) => op === 'runner.add');
     expect(adds).toHaveLength(1);
     expect(adds[0]![1]).toEqual({ agent: 'codex', account: 'team', host: 'devbox', kinds: ['tests'], max_tasks: 1, test: true });
@@ -125,7 +125,7 @@ browserTest('Add agent: a failed test never shows Ready, can re-run, and the add
     expect(await page.getByRole('button', { name: 'Remove this agent' }).count()).toBe(1);
     await page.evaluate(() => (window as any).agentFixture.outcome('passed'));
     await page.getByRole('button', { name: 'Run test task again' }).click();
-    await page.getByText('codex#team is ready.').waitFor();
+    await page.getByText('Codex · team is ready.').waitFor();
     expect((await agentCalls(page)).filter(([op]) => op === 'runner.add')).toHaveLength(1);
     expect((await agentCalls(page)).filter(([op]) => op === 'runner.check')).toHaveLength(1);
   });
@@ -164,7 +164,7 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
     await page.addScriptTag({ content: await built.outputs[0]!.text() });
     await page.getByRole('button', {name:'More actions for Codex',exact:true}).click();
-    const input = page.getByRole('spinbutton', { name: 'Parallel tasks for codex', exact: true });
+    const input = page.getByRole('spinbutton', { name: 'Parallel tasks for Codex', exact: true });
     await input.waitFor();
     const bar = page.locator('.u3-save-bar');
     expect(await bar.isVisible()).toBe(false);
@@ -176,7 +176,8 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     expect(await bar.isVisible()).toBe(false);
     const aside=await page.locator('.pc-page-columns__aside').evaluate(el=>({width:el.getBoundingClientRect().width,padding:getComputedStyle(el).padding}));
     expect(aside).toEqual({width:400,padding:'28px 24px'});
-    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(4);
+    await page.getByText('More agent settings', { exact: true }).click();
+    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(3);
     await input.fill('3');
     expect(await bar.isVisible()).toBe(true);
     await page.evaluate(() => (window as any).executorFixture.holdSave());
@@ -215,12 +216,12 @@ browserTest('Accounts policy saves spread/fill and threshold through the existin
   const page=await browser.newPage({viewport:{width:375,height:1000}});await page.setContent('<div class="u3-settings" id="app"></div>');
   await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n')});
   await page.addScriptTag({content:await built.outputs[0]!.text()});
-  const spread=page.getByRole('radio',{name:'Spread evenly'}),fill=page.getByRole('radio',{name:'Fill one, then the next'});
-  await spread.waitFor();expect(await spread.isChecked()).toBe(true);
+  const spread=page.getByRole('button',{name:'Spread evenly',exact:true}),fill=page.getByRole('button',{name:'Fill one, then the next',exact:true});
+  await spread.waitFor();expect(await spread.getAttribute('aria-pressed')).toBe('true');
   for(const radio of [spread,fill]) expect((await radio.locator('..').boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await spread.focus();await page.keyboard.press('ArrowRight');
   await page.getByRole('spinbutton',{name:'Account fill threshold'}).waitFor();
-  expect(await fill.isChecked()).toBe(true);
+  expect(await fill.getAttribute('aria-pressed')).toBe('true');
   const threshold=page.getByRole('spinbutton',{name:'Account fill threshold'});await threshold.fill('85');await threshold.press('Tab');
   await page.waitForFunction(()=>((window as any).policyCalls as any[]).length===2);
   expect(await page.evaluate(()=>(window as any).policyCalls)).toEqual([['config.set',{key:'pacing.accounts',value:'fill'}],['config.set',{key:'pacing.fill_threshold',value:85}]]);
@@ -258,7 +259,9 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
   expect(geometry[0]).toMatchObject({radius:'12px',overflow:'hidden',border:'1px'});
   const rows=page.locator('.u3-machine-body .pc-setting-row--board');
-  expect(await rows.count()).toBe(8);
+  expect(await rows.count()).toBe(6);
+  await page.getByText('More machine settings', { exact: true }).click();
+  expect(await page.getByRole('button', { name: 'Delegated task launch', exact: true }).isVisible()).toBe(true);
   const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
   for (const row of layout) {
    expect(row.padding).toBe('12px 0px');
@@ -309,13 +312,13 @@ browserTest('Add agent board geometry, install guidance, radio keyboard choices 
   const model=page.getByRole('button',{name:'Model',exact:true});expect(await model.evaluate(el=>el.getBoundingClientRect().width)).toBe(280);
   await model.click();await page.getByRole('option',{name:'Fixture model',exact:true}).click();
   await page.getByRole('button',{name:'Tests',exact:true}).click();
-  expect(await page.getByRole('button',{name:'Tests',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBe(32);
+  expect(await page.getByRole('button',{name:'Tests',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBe(29);
   await page.setViewportSize({width:375,height:1000});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const testBlock=page.locator('.u3-test-task');
-  expect(await testBlock.evaluate(el=>{const c=getComputedStyle(el);return [c.padding,c.borderRadius]})).toEqual(['14px','10px']);
+  expect(await testBlock.evaluate(el=>{const c=getComputedStyle(el);return [c.padding,c.borderRadius]})).toEqual(['14px','12px']);
   await testBlock.getByRole('button',{name:'Add agent and run test task'}).click();
-  await page.getByText('codex#team is ready.').waitFor();
+  await page.getByText('Codex · team is ready.').waitFor();
   expect((await agentCalls(page)).find(([op])=>op==='runner.add')![1].model).toBe('fixture-model');
  });
 },20000);
@@ -436,7 +439,8 @@ browserTest('Agents five columns and More actions remain contained with the asid
       const bounds=await action.boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport);
       if(viewport===375) {
-        const toggle=page.getByRole('switch',{name:'Enable codex',exact:true}).locator('..');
+        await page.getByText('More agent settings', { exact: true }).click();
+        const toggle=page.getByRole('switch',{name:'Enable Codex',exact:true}).locator('..');
         const size=await toggle.boundingBox();expect(size!.width).toBeGreaterThanOrEqual(44);expect(size!.height).toBeGreaterThanOrEqual(44);
         expect((await page.getByRole('link',{name:'Dispatcher',exact:true}).boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
@@ -500,7 +504,7 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
         expect(tracks).toHaveLength(6);
         expect(tracks[1]).toBe(130);
         expect(tracks[3]).toBe(150);
-        expect(tracks[5]).toBe(32);
+        expect(tracks[5]).toBe(180);
         console.log('Accounts tracks at 1000px content:', tracks.join('/'));
         await assertHeaderBand(page);
       } else {
@@ -538,8 +542,8 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
       expect(await page.getByRole('button', { name: 'Sign in', exact: true }).isVisible()).toBe(false);
       await page.getByRole('button', { name: 'More actions for ark', exact: true }).click();
       await page.getByText('Fix Ark CLI sign-in for ark', { exact: true }).click();
-      await page.getByRole('button', { name: 'Refresh usage for ark', exact: true }).click();
-      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'limits.refresh' && p.account === 'ark'));
+      await page.getByRole('button', { name: 'Check usage for ark', exact: true }).click();
+      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.usage.check' && p.account === 'ark'));
       await checkCells();
       await page.close();
     }

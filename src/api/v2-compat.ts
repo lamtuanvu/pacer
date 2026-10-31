@@ -26,13 +26,14 @@ export function v2Hello() {
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
-for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
+for (const op of ["account.usage.check", "limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
 for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
-for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status"]) V3_ONLY_OPS.add(op);
+for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status", "liveness.status"]) V3_ONLY_OPS.add(op);
+for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;

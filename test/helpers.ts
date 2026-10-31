@@ -1,8 +1,10 @@
-import { chmodSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { createTestRoot } from "./temp-roots";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
 import type { Ctx, RunFn } from "../src/types";
+import { manifestSchema } from "../src/plugins/protocol";
+import type { RegistryDeps } from "../src/plugins/registry";
 
 // One parent folder per test run, removed after the run (see test/setup.ts), so test homes don't pile up in TMPDIR.
 // Set PACER_KEEP_TEST_TMP=1 to keep it for debugging.
@@ -87,4 +89,24 @@ export function fakeLoginShell(dir: string, profile: string): string {
   writeFileSync(shell, `#!/bin/sh\necho "profile says hello"\n${profile}\n[ "$1 $2 $3" = "-l -i -c" ] || exit 64\neval "$4"\n`);
   chmodSync(shell, 0o755);
   return shell;
+}
+
+/**
+ * Registry dependencies that serve plugin folders as bundled plugins. Only bundled plugins may
+ * contribute hostRunner or remoteCaller, so tests run their copies of pacer-ssh and fixtures this way.
+ */
+export function folderPlugins(folders: string[], base: Pick<RegistryDeps, "bundled" | "spawnBundled"> =
+  { bundled: [], spawnBundled: (_ctx, id) => { throw Error(`no bundled plugin ${id}`); } }): RegistryDeps {
+  const served = new Map(folders.map(folder => {
+    const manifest = manifestSchema.parse(JSON.parse(readFileSync(join(folder, "pacer-plugin.json"), "utf8")));
+    return [manifest.id, { manifest, folder }] as const;
+  }));
+  return {
+    bundled: [...base.bundled, ...[...served.values()].map(({ manifest }) => ({ manifest, main: async () => ({ handlers: {} }) }))],
+    spawnBundled: (ctx, id) => {
+      const plugin = served.get(id);
+      return plugin ? { argv: [join(plugin.folder, plugin.manifest.entry!)], cwd: plugin.folder, env: {} } : base.spawnBundled(ctx, id);
+    },
+    eventPumpMs: 0,
+  };
 }

@@ -8,10 +8,11 @@ const READ_MODEL_EVENTS: readonly string[] = [...ENTITY_EVENT_TYPES, "pause"];
 type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause";
 import { attentionOrder } from "../../../src/view-model/selectors";
 import { ApiError, createApi, type BrowserApi } from "./api";
+import { invalidateQueryCache } from "./query";
 
 export interface Features { readModel: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
-  snapshot: SnapshotV2 | null; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
+  snapshot: SnapshotV2 | null; connectionRevision: number; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
   invalidations: Record<string, number>; version: string | null;
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
 }
@@ -20,7 +21,7 @@ export type StoreAction = { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
-  return { snapshot: null, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
+  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
 }
 /** The 2.1 read model is on when the service says protocol >= 2.1 and announces attention events. */
 export function featuresOf(hello: Hello): Features {
@@ -85,6 +86,11 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
     case "counts": return patch({ counts: data as unknown as SnapshotV2["counts"] });
     case "pause": return patch({ pause: (data.removed === true || !Object.keys(data).length ? null : data) as SnapshotV2["pause"] });
     case "job": return typeof data.id === "string" ? { ...state, jobs: { ...state.jobs, [data.id]: data as unknown as Job }, snapshot: { ...snapshot, seq, at } } : state;
+    // A thread refetches its own messages; the snapshot holds no message rows.
+    case "message": {
+      const key = typeof data.taskId === "string" ? `msg:${data.taskId}` : null;
+      return { ...state, snapshot: { ...snapshot, seq, at }, invalidations: key ? { ...state.invalidations, [key]: (state.invalidations[key] ?? 0) + 1 } : state.invalidations };
+    }
     case "activity": return typeof data.id === "string" ? { ...state, activity: [data as unknown as ActivityEntry, ...state.activity].slice(0, ACTIVITY_CAP), snapshot: { ...snapshot, seq, at } } : state;
     default: return state;
   }
@@ -92,9 +98,9 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
 export function reduceStore(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
     case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false };
-    case "disconnected": return { ...state, connected: false };
-    case "reconnected": return { ...state, connected: true, needsSnapshot: true };
-    case "session-ended": return { ...state, sessionEnded: true, connected: false };
+    case "disconnected": return { ...state, connected: false, connectionRevision: state.connectionRevision + 1 };
+    case "reconnected": return { ...state, connected: true, needsSnapshot: true, connectionRevision: state.connectionRevision + 1 };
+    case "session-ended": return { ...state, sessionEnded: true, connected: false, connectionRevision: state.connectionRevision + 1 };
     case "hello": return { ...state, version: action.hello.pacer, features: featuresOf(action.hello) };
     case "event": {
       const event = action.event;
@@ -133,8 +139,9 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let stopped = true;
   let generation = 0;
   let retryDelay = 1000;
+  let cursorReset = false;
   const acknowledgedReviews = new Set<string>();
-  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
+  const dispatch = (action: StoreAction) => { if (["disconnected", "reconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
   const retry = () => {
@@ -149,6 +156,10 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
     try {
       const [hello, result] = await Promise.all([api.hello(), api.snapshot()]);
       if (stopped || current !== generation) return;
+      // A warm service cache can lag behind the event that prompted this read.
+      // Never rewind the cursor and replay that same invalidation in a tight loop.
+      if (!cursorReset && state.snapshot && result.seq < state.snapshot.seq) { retry(); return; }
+      cursorReset = false;
       dispatch({ type: "hello", hello });
       dispatch({ type: "snapshot", snapshot: { ...result.snapshot, seq: result.seq } });
       const source = stream = new Events(`${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`);
@@ -176,6 +187,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
           const message = event as MessageEvent;
           const seq = Number(message.lastEventId);
           if (!Number.isSafeInteger(seq) || seq < 0) return;
+          if (type === "reset") cursorReset = true;
           dispatch({ type: "event", event: { seq, at: Date.now() / 1000, type: type as EventType, data: JSON.parse(message.data) } });
           if (state.needsSnapshot) void refresh();
         } catch { dispatch({ type: "reconnected" }); void refresh(); }

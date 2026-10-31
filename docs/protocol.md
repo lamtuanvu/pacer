@@ -711,6 +711,33 @@ Params JSON Schema:
 }
 ```
 
+### `account.usage.check`
+
+Check usage for an account independently of its planner or executor role. Claude requires explicit consent for a quota-consuming small task; poll job.get for progress and observation outcome.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "consent": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "account"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `activity.list`
 
 Activity log, newest first, with optional repo, kind and task filters.
@@ -4792,11 +4819,11 @@ Params JSON Schema:
       "properties": {
         "from": {
           "type": "string",
-          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
         },
         "to": {
           "type": "string",
-          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
         },
         "kind": {
           "type": "string",
@@ -4866,7 +4893,7 @@ Params JSON Schema:
   "properties": {
     "to": {
       "type": "string",
-      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+      "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
     },
     "body": {
       "type": "string",
@@ -5455,6 +5482,252 @@ Params JSON Schema:
     "id",
     "visible",
     "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.messaging.get`
+
+Read a repository messaging policy and revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.messaging.remove`
+
+Remove repository messaging rules with a revision check.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `project.messaging.set`
+
+Set repository messaging rules with a revision check.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "rules": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "effect": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          },
+          "from_kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "external",
+              "launched",
+              "broker",
+              "any"
+            ]
+          },
+          "to_kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "external",
+              "launched",
+              "broker",
+              "any"
+            ]
+          },
+          "from_position": {
+            "type": "string",
+            "enum": [
+              "top",
+              "child",
+              "any"
+            ]
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "any"
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "parent",
+                    "child",
+                    "sibling",
+                    "descendant",
+                    "ancestor",
+                    "top_peer",
+                    "same_tree",
+                    "none"
+                  ]
+                }
+              }
+            ]
+          },
+          "kinds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "message",
+                "question",
+                "answer",
+                "report",
+                "nudge",
+                "close"
+              ]
+            }
+          },
+          "repo": {
+            "type": "string",
+            "minLength": 1
+          },
+          "executor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "grant": {
+            "type": "string",
+            "enum": [
+              "required",
+              "not_required"
+            ]
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "per_minute": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "max_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1048576
+              },
+              "confirm": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "effect"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "max_turns": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 10000
+    },
+    "liveness": {
+      "type": "object",
+      "properties": {
+        "interval_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 9007199254740991
+        },
+        "backoff_max_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 9007199254740991
+        },
+        "max_nudges": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nudge_in_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "relaxed",
+              "normal",
+              "strict",
+              "emergency"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "repo",
+    "expect_rev",
+    "rules"
   ],
   "additionalProperties": false
 }
@@ -7074,6 +7347,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },
@@ -7083,6 +7357,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },
@@ -7180,9 +7455,33 @@ Params JSON Schema:
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 10000
+        },
+        "liveness": {
+          "type": "object",
+          "properties": {
+            "interval_s": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 9007199254740991
+            },
+            "max_nudges": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "escalate_after_s": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
+    },
+    "grant": {
+      "type": "boolean"
     }
   },
   "required": [

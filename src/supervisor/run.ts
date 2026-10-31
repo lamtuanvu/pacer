@@ -111,12 +111,21 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
   if (s.exit !== null) return { code: s.exit, killed: false };
   if (s.pid === null || !s.alive) return { code: s.exit ?? 137, killed: false };
   const end = Date.now() + (o.graceMs ?? 5000);
+  // The wrapper can exit before its atomic exit receipt appears. Once it is gone,
+  // wait within the original grace period rather than signalling an unowned PID.
+  const waitForExit = async (): Promise<number | null> => {
+    for (;;) {
+      const exit = readRun(dir).exit;
+      if (exit !== null || Date.now() >= end) return exit;
+      await sleep(50);
+    }
+  };
   // The parent publishes pid before the wrapper installs its traps and starts the child.
   // Wait for child readiness so an immediate stop can record a graceful TERM exit.
   while (!existsSync(join(dir, "child")) && Date.now() < end) {
     const now = readRun(dir);
     if (now.exit !== null) return { code: now.exit, killed: false };
-    if (!now.alive) break;
+    if (!now.alive) return { code: (await waitForExit()) ?? 137, killed: false };
     await sleep(50);
   }
   if (o.expectedIdentities) {
@@ -135,13 +144,19 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
     await sleep(100);
     return { code: readRun(dir).exit ?? 137, killed: false };
   }
+  const beforeTerm = readRun(dir);
+  if (beforeTerm.exit !== null) return { code: beforeTerm.exit, killed: false };
+  if (!beforeTerm.alive) return { code: (await waitForExit()) ?? 137, killed: false };
   killTree(s.pid, "SIGTERM");
   while (Date.now() < end) {
     const now = readRun(dir);
     if (now.exit !== null) return { code: now.exit, killed: false };
-    if (!now.alive) break;
+    if (!now.alive) return { code: (await waitForExit()) ?? 137, killed: false };
     await sleep(50);
   }
+  const beforeKill = readRun(dir);
+  if (beforeKill.exit !== null) return { code: beforeKill.exit, killed: false };
+  if (!beforeKill.alive) return { code: 137, killed: false };
   // The PTY child owns a separate session, outside the host process group.
   const child = num(join(dir, "child"));
   if (child !== null && Number.isInteger(child) && child > 1) killTree(child, "SIGKILL");
