@@ -10,7 +10,7 @@ const m = (u: unknown, over: object = {}) => parseManifest({ ...base, ...over, c
 const page = (fields: object) => ({ settings: [{ id: "s", title: "S", schema: { fields } }] });
 
 test("the protocol serves the three ui methods (1.2.0 added them; later minors keep them)", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.6.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.10.0");
   for (const k of ["ui.render", "ui.action", "ui.settings.validate"]) expect(EXTENSION_METHODS[k]).toBeDefined();
 });
 

@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.17.0 | Updated: 2026-10-29
+Status: Amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.18.0 | Updated: 2026-10-31
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -35,7 +35,7 @@ External constraints:
 | P5 | Secrets are handled by reference. Native tool credentials are never read or copied. Endpoint keys never appear in config, logs, events or API results. | `src/endpoints/`, `src/usage/`, `src/remote/`, `src/install/` | [docs/accounts.md](../docs/accounts.md), [SECURITY.md](../SECURITY.md) | Established |
 | P6 | The local service binds only to loopback and authenticates every request. Write requests also need Origin plus `X-Pacer-Client`. There is no CORS. | `src/serve/`, `app/`, `desktop/` | [ADR app-web-ui](../docs/decisions/2026-10-15-app-web-ui.md), [docs/protocol.md](../docs/protocol.md) | Established |
 | P7 | Retired (0.5.0). Was: the Orca plugin panel only shows information. The Orca plugin is removed. | — | [ADR retire-orca-plugin](../docs/decisions/2026-10-20-retire-orca-plugin.md) | Retired (0.5.0) |
-| P8 | `src/core` never imports `src/exec/orca`. (0.5.0 removed the `orca-plugin/` clause with the plugin.) | `src/` | `test/core-boundaries.test.ts` | Established (enforced by test) |
+| P8 | `src/core` never imports the Orca execution adapter or `plugins/pacer-exec-orca`; Orca execution is reached through host-neutral executor interfaces. | `src/`, `plugins/` | `test/core-boundaries.test.ts`; [ADR 0018](../docs/decisions/0018-orca-terminal-worker-executor-extraction.md) | Established (0.18.0) |
 | P9 | The repository is public. Agent working files stay under the untracked `.work/`. Tracked files hold no machine-specific paths and no personal emails. | all tracked files | [AGENTS.md](../AGENTS.md) | Established |
 | P10 | Contributions are signed off under the DCO and use Conventional Commit PR titles. PRs are squash-merged. | all PRs | [CONTRIBUTING.md](../CONTRIBUTING.md), `.github/workflows/pr-title.yml` | Established |
 | P11 | Generated artifacts (protocol docs, embedded app assets, design tokens) are committed fresh, and tests fail when they are stale. | `scripts/`, `src/app/assets.generated.ts`, `docs/protocol*.md` | CONTRIBUTING.md, `test/api-protocol-doc.test.ts` | Established |
@@ -175,6 +175,12 @@ Proposed; adopted only by the maintainer merging this amendment PR. It records t
 - SEC-11 to SEC-16 are added to [rules/security.md](rules/security.md): presence-only discovery, plugin-owned peer listeners, tiered peer credentials, the one-hop rule, domain-separated signing and untrusted discovered values. Its "Applies to" line gains `src/plugins/**`, `src/identity/**`, `src/discovery/**` and `$PACER_HOME/identity/**`.
 
 SEC-1, SEC-2, SEC-3 and SEC-6 are unchanged. SEC-3 governs the service's API listener; SEC-11 is the only non-loopback socket the open host opens. The amendment names no plugin; pairing is described as a host feature that plugins provide. It doesn't relax REPO-10, CT-11 or the maintainer's merge authority.
+
+## Amendment 0.18.0 — Orca executor extraction
+
+Adopted on 2026-10-31 by the maintainer merging #523. ARCH-4 and P8 name the plugin boundary after the Orca backend is extracted. `src/plugins/` may implement task-owned Orca capability and cleanup brokers; `src/core` may not import Orca-specific modules. The bundled `pacer-exec-orca` implements the existing #461 terminal-worker flow with pacer's composed unattended launch command and exact host-owned identity and closure checks. See [ADR 0018](../docs/decisions/0018-orca-terminal-worker-executor-extraction.md).
+
+This amendment does not revive the retired Orca panel (P7 and ARCH-6), waive SEC-5 or CT-11, or claim extraction is complete before validation. It replaces the earlier `src/core` to `src/exec/orca` boundary.
 
 ## Amendment and exception policy
 

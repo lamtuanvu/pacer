@@ -17,6 +17,7 @@ export const pluginMetadata = z
   ])
   .optional();
 export const POLICY_OBSERVATIONS_FEATURE = "policyObservations";
+export const POLICY_REDACTION_METADATA_FEATURE = "policyRedactionMetadata";
 export const POLICY_DECISIONS = ["delegate", "route", "review"] as const;
 export const POLICY_EVENT_TYPES = [
   "desktop.update",
@@ -59,6 +60,10 @@ const delegateInput = z
   .object({
     goal: z.string().max(200000),
     repo: z.string().min(1).max(4096),
+    /** Opaque metadata when the policy lacks the tasks.read grant. */
+    goalLength: z.number().int().nonnegative().optional(),
+    goalHash: z.string().length(64).optional(),
+    repoKey: z.string().length(64).optional(),
     kind: z.string().min(1).max(128).nullable(),
     requestedExecutor: id.nullable(),
     placement,
@@ -72,6 +77,8 @@ const reviewInput = z
     state: z.enum(POLICY_TASK_STATES),
     verdict: z.enum(["accept", "reject", "send_back", "retry"]),
     note: z.string().max(4096).optional(),
+    noteLength: z.number().int().nonnegative().optional(),
+    noteHash: z.string().length(64).optional(),
     kind: kind.optional(),
     executor: id.optional(),
   })

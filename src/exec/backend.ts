@@ -14,6 +14,8 @@ export interface Backend {
   runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome>;
   /** Optional capability: a backend that keeps an interactive lane's worker alive (`TaskRecord.live`). */
   live?: LiveWorkerOps;
+  /** Why routing chose this backend over the requested one; the runner logs it whichever direct owner runs. */
+  note?: string;
 }
 
 export type LiveRefusal = { ok: false; code: "unavailable" | "conflict"; message: string };
@@ -39,6 +41,7 @@ export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras
 
 const loggedDirect = (line: string): Backend => ({
   ...directBackend,
+  note: line,
   runAttempt: async (ctx, cfg, task, onSpawn) => {
     const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
     appendFileSync(out.attempt.log, `direct backend: ${line}\n`);
@@ -65,8 +68,9 @@ export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = d
   }
   if (wantsOrca) {
     const orca = extras.find(b => b.id === "orca");
-    try { return orca && await orca.available(ctx, s) ? orca : directBackend; }
-    catch { return directBackend; }
+    if (!orca) return loggedDirect("Orca is unavailable (no Orca executor provider)");
+    try { return await orca.available(ctx, s) ? orca : loggedDirect("Orca is unavailable (the runtime or its executor provider is not ready)"); }
+    catch (e) { return loggedDirect(`Orca is unavailable (${String(e instanceof Error ? e.message : e).replace(/\s+/g, " ").slice(0, 200)})`); }
   }
   if (launch?.mode === "interactive") return directBackend;
   const forced = ctx.env.PACER_BACKEND;

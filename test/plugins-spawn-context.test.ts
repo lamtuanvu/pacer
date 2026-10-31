@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, 
 import { join } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
 import { answerSpawn, prepareSpawnAuthority } from "../src/plugins/capability-spawn";
+import { SCOPED_CAPABILITY_METHODS } from "../src/plugins/capability-protocol";
 import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
 import { fakeCtx } from "./helpers";
 const owners: CallAuthority[] = [], homes: string[] = [];
@@ -32,15 +33,84 @@ test("owned context injects only exact captured environment and cwd into actual 
     expect(JSON.stringify(f.authority.resources)).not.toContain("owned-injected-credential");
   } finally { delete process.env.SPAWN_CONTEXT_AMBIENT; }
 });
+test("legacy pinned commands receive only the host's minimal environment", async () => {
+  const ctx=fakeCtx({env:{HOME:process.env.HOME,PATH:process.env.PATH,SPAWN_CONTEXT_AMBIENT:"private"}});
+  homes.push(ctx.home);
+  const script=join(ctx.home,"legacy-env.js");
+  writeFileSync(script,"console.log(JSON.stringify({home:process.env.HOME,ambient:process.env.SPAWN_CONTEXT_AMBIENT}))");
+  ctx.which=name=>name==="legacy-tool"?process.execPath:null;
+  const authority=createCallAuthority(ctx,{reads:[],commands:[{argv:["legacy-tool",script],timeoutMs:5000}],stores:[]},{deadlineMs:Date.now()+10000,grants:["process.spawn"]});
+  owners.push(authority);prepareSpawnAuthority(authority);
+  const result=await answerSpawn(authority,["legacy-tool"],{argv:["legacy-tool",script],timeoutMs:5000}) as {stdout:string};
+  expect(JSON.parse(result.stdout)).toEqual({home:process.env.HOME});
+});
+test("legacy consumers receive only their required ambient variables",async()=>{
+  const ambient={HOME:"/tmp/home",PATH:process.env.PATH,DBUS_SESSION_BUS_ADDRESS:"unix:path=/bus",DISPLAY:":1",WAYLAND_DISPLAY:"wayland-0",XDG_RUNTIME_DIR:"/run/user/1",HTTPS_PROXY:"http://proxy",http_proxy:"http://lower",NO_PROXY:"localhost",SSL_CERT_FILE:"/tmp/ca",NODE_EXTRA_CA_CERTS:"/tmp/node-ca",ARK_PROFILE:"work",ARK_REGION:"region",ARK_API_KEY:"fixture-key",PRIVATE_TOKEN:"hidden"};
+  const ctx=fakeCtx({env:ambient});homes.push(ctx.home);
+  const script=join(ctx.home,"env-consumer.js");writeFileSync(script,"console.log(JSON.stringify(process.env))");
+  ctx.which=()=>process.execPath;
+  for(const name of ["notify-send","arkcli","opencode","generic-tool"]){
+    const authority=createCallAuthority(ctx,{reads:[],commands:[{argv:[name,script],timeoutMs:5000}],stores:[]},{deadlineMs:Date.now()+10000,grants:["process.spawn"]});
+    owners.push(authority);prepareSpawnAuthority(authority);
+    const result=await answerSpawn(authority,[name],{argv:[name,script],timeoutMs:5000}) as {stdout:string};
+    const env=JSON.parse(result.stdout);
+    expect(env.PRIVATE_TOKEN).toBeUndefined();
+    expect(env.DBUS_SESSION_BUS_ADDRESS).toBe(name==="notify-send"?ambient.DBUS_SESSION_BUS_ADDRESS:undefined);
+    expect(env.DISPLAY).toBe(name==="notify-send"?ambient.DISPLAY:undefined);
+    expect(env.WAYLAND_DISPLAY).toBe(name==="notify-send"?ambient.WAYLAND_DISPLAY:undefined);
+    expect(env.XDG_RUNTIME_DIR).toBe(name==="notify-send"?ambient.XDG_RUNTIME_DIR:undefined);
+    expect(env.HTTPS_PROXY).toBe(["arkcli","opencode"].includes(name)?ambient.HTTPS_PROXY:undefined);
+    expect(env.http_proxy).toBe(["arkcli","opencode"].includes(name)?ambient.http_proxy:undefined);
+    expect(env.SSL_CERT_FILE).toBe(["arkcli","opencode"].includes(name)?ambient.SSL_CERT_FILE:undefined);
+    expect(env.ARK_PROFILE).toBe(name==="arkcli"?ambient.ARK_PROFILE:undefined);
+    expect(env.ARK_REGION).toBe(name==="arkcli"?ambient.ARK_REGION:undefined);
+    expect(env.ARK_API_KEY).toBe(name==="arkcli"?ambient.ARK_API_KEY:undefined);
+  }
+});
 test("altered vector/context and undeclared scopes deny before credential lookup or child effects", async () => {
   const f = fixture();
   for (const params of [
     { ...f.params, argv: [...f.params.argv, "extra"] }, { ...f.params, cwd: f.cwd + "/other" },
     { ...f.params, env: { PLAIN: "changed", CREDENTIAL: { secretRef: "endpoint:owned" } } },
     { ...f.params, env: { ...f.params.env, EXTRA: "x" } }, { ...f.params, env: {} },
+    { ...f.params, stdin: "unissued" },
   ]) await expect(f.run(params)).rejects.toMatchObject({ code: "capability_denied" });
   await expect(answerSpawn(f.authority, ["other-tool"], f.params)).rejects.toMatchObject({ code: "capability_denied" });
   expect(f.lookups).toBe(0); expect(existsSync(f.receipt)).toBe(false);
+});
+test("host-issued stdin is exact and reaches the pinned child", async () => {
+  expect(SCOPED_CAPABILITY_METHODS["capability.process.spawn"]!.deadlineMs).toBe(0);
+  const f = fixture();
+  const script = join(f.authority.ctx.home, "stdin-child.js");
+  writeFileSync(script, `process.stdin.setEncoding("utf8");let input="";for await(const chunk of process.stdin)input+=chunk;require("node:fs").writeFileSync(${JSON.stringify(f.receipt)}, input);`);
+  const command = { argv: ["owned-child", script], cwd: f.cwd, env: {}, timeoutMs: 5000,
+    stdin: "host prompt\n" };
+  const authority = createCallAuthority(f.authority.ctx, { reads: [], commands: [command], stores: [] },
+    { deadlineMs: Date.now() + 10000, grants: ["process.spawn"] });
+  owners.push(authority); prepareSpawnAuthority(authority);
+  const params = { argv: command.argv, cwd: f.cwd, env: {}, timeoutMs: 5000 };
+  await expect(answerSpawn(authority, ["owned-child"], { ...params, stdin: "plugin override" }))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  expect(existsSync(f.receipt)).toBe(false);
+  expect(await answerSpawn(authority, ["owned-child"], { ...params, stdin: command.stdin }))
+    .toMatchObject({ code: 0, timedOut: false });
+  expect(readFileSync(f.receipt, "utf8")).toBe(command.stdin);
+});
+test("timed-out stdin child is reaped before returning", async () => {
+  const f = fixture();
+  const script = join(f.authority.ctx.home, "stdin-hold.js");
+  writeFileSync(script, `require("node:fs").writeFileSync(${JSON.stringify(f.receipt)},String(process.pid));process.stdin.resume();setTimeout(()=>{},10000);`);
+  const command = { argv: ["owned-child", script], cwd: f.cwd, env: {}, timeoutMs: 1000,
+    stdin: "host prompt" };
+  const authority = createCallAuthority(f.authority.ctx, { reads: [], commands: [command], stores: [] },
+    { deadlineMs: Date.now() + 3000, grants: ["process.spawn"] });
+  owners.push(authority); prepareSpawnAuthority(authority);
+  const result = await answerSpawn(authority, ["owned-child"], {
+    argv: command.argv, cwd: f.cwd, env: {}, timeoutMs: 1000, stdin: command.stdin,
+  });
+  expect(result).toMatchObject({ timedOut: true });
+  expect(existsSync(f.receipt)).toBe(true);
+  expect(() => process.kill(Number(readFileSync(f.receipt, "utf8")), 0)).toThrow();
 });
 for (const mode of ["stdout", "stderr"]) test(`exact injected credential reflection in ${mode} is refused before output handles`, async () => {
   const f = fixture(mode);

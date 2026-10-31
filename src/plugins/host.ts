@@ -10,7 +10,16 @@ import { CallAuthority } from "./authority";
 import { answerUsageState } from "./usage-state";
 import { answerFilesystem } from "./capability-fs";
 import { answerSpawn, readSpawnOutput } from "./capability-spawn";
+import { answerDuplex } from "./capability-duplex";
+import { answerDetachedRun } from "./capability-detached-run";
+import { answerDetachedStop } from "./capability-detached-stop";
+import { answerDetachedInspect } from "./capability-detached-inspect";
+import { stageBundle } from "./bundle-stage";
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { answerWorktree } from "./executor-worktree";
+import { answerExecutorClaim } from "./executor-run-claim";
+import { answerExecutorPoll, answerExecutorOutput } from "./executor-run-observe";
+import { answerExecutorReportedCompletion } from "./executor-run-complete";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
@@ -35,7 +44,7 @@ async function refuseSign(ctx: Ctx, pluginId: string, params: unknown, reason: s
 }
 
 /** Answer a plugin's capability call. Undeclared or unimplemented capabilities are refused without side effects. */
-export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest; config?: Record<string, unknown> }, method: string, params: unknown, authority?: CallAuthority, deliver?: (result: unknown) => void, transport?: CapabilityTransport): Promise<unknown> {
+export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest; config?: Record<string, unknown> }, method: string, params: unknown, authority?: CallAuthority, deliver?: (result: unknown) => void, transport?: CapabilityTransport, hostBroker?: (method: string, params: unknown, authority: CallAuthority) => Promise<unknown>): Promise<unknown> {
   const name = capabilityOf(method), def = CAPABILITY_METHODS[method];
   if(name==="tasks.read"||name==="events.subscribe")throw new CoreError("capability_denied","observations require the generation-aware registry broker");
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
@@ -45,7 +54,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   }
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   // capability.secrets.resolve keeps its 1.3.0 assistant contract and needs no owning call; capability.secrets.check does.
-  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve"].includes(name) && method !== "capability.secrets.resolve") {
+  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree", "orca"].includes(name) && method !== "capability.secrets.resolve") {
     if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
     authority.assertGranted(name);
   }
@@ -70,6 +79,16 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     } finally { clearTimeout(timer); }
   });
   const scopes = plugin.manifest.capabilities.find(capability => capability.name === name)?.scopes ?? [];
+  if (authority && name === "process.spawn" &&
+    (method === "capability.process.duplex.read" || method === "capability.process.duplex.write"))
+    return answerDuplex(authority, scopes, method, parsed.data as Record<string, unknown>);
+  if (name === "hosts") {
+    if (!authority || !hostBroker) throw new CoreError("capability_denied", "hosts require an active registry broker");
+    return scoped(() => hostBroker(method, parsed.data, authority));
+  }
+  // Loaded on use: the Orca broker reaches the task and execution modules that load this host.
+  if (name === "orca") return scoped(async () => (await import("./orca-broker")).answerOrca(authority!, plugin.id, method, parsed.data as Record<string, unknown>));
+  if (name === "worktree") return scoped(() => answerWorktree(authority!, method, parsed.data as { taskId: string; attempt: number; baseSha?: string }));
   if (authority && name === "fs.write") {
     if (!transport) throw new CoreError("capability_denied", "file writes require a captured transport envelope");
     if (!transport.requestFits(parsed.data)) throw new CoreError("too_large", "file write request exceeds transport limit");
@@ -110,7 +129,25 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   if (authority && name === "fs.read" && plannerBorrow(authority)) return scoped(() => plannerBorrow(authority)!.read(authority,scopes,method,parsed.data as Record<string,unknown>));
   if (authority && name === "fs.read") return scoped(() => answerFilesystem(authority, scopes, method, parsed.data as Record<string, unknown>));
   if (authority && name === "process.spawn") return scoped(() => method === "capability.process.outputChunk"
-    ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
+    ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : method === "capability.process.stageBundle"
+      ? scopes.includes("ssh") ? stageBundle(authority, parsed.data as { argv: string[]; timeoutMs: number; maxBytes: number })
+        : Promise.reject(new CoreError("capability_denied", "bundle staging requires declared SSH process scope"))
+      : method.startsWith("capability.process.duplex.") ? answerDuplex(authority, scopes, method, parsed.data as Record<string, unknown>)
+      : method === "capability.process.startRun"
+        ? Promise.resolve(answerDetachedRun(authority, scopes, parsed.data as { task: { id: string; rev: number }; attempt: number; runDir: 1 }))
+      : method === "capability.process.stopRun"
+        ? answerDetachedStop(authority, parsed.data as { taskId: string; attempt: number; graceMs: number })
+      : method === "capability.process.inspectRun"
+        ? Promise.resolve(answerDetachedInspect(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.claimRun"
+        ? answerExecutorClaim(authority, parsed.data as { taskId: string; attempt: number })
+      : method === "capability.process.pollRun"
+        ? Promise.resolve(answerExecutorPoll(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.readRunOutput"
+        ? Promise.resolve(answerExecutorOutput(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.completeReportedRun"
+        ? answerExecutorReportedCompletion(authority, parsed.data as { taskId: string; attempt: number })
+      : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
   if (authority && method === "capability.secrets.check") return scoped(() => secretPresence(authority, (parsed.data as { ref: string }).ref));

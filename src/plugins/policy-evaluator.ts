@@ -1,7 +1,9 @@
 import {CoreError} from "../core/errors";
+import {PolicyHashKeyError} from "./policy-key-error";
 import {policyBeforeParams, policyDelegateAmend, policyRouteAmend, policyVerdict, type PolicyBeforeParams} from "./policy-protocol";
 
 const MAX_BYTES = 1024 * 1024;
+const POLICY_AGGREGATE_MS = 10_000;
 export interface PolicyIdentity { readonly id: string; readonly generation: string }
 export interface PolicySnapshot {
   readonly mode: "open" | "closed";
@@ -22,6 +24,8 @@ export interface PolicyEvaluationOptions {
   signal?: AbortSignal;
   /** Absolute wall-clock deadline shared with the outer operation. */
   deadline?: number;
+  /** Shared policy budget for a queue drain; expiry skips later policies in open mode. */
+  budgetDeadline?: number;
   now?: () => number;
   onVeto?: (event: {pluginId:string; decision:PolicyBeforeParams["decision"]; reason:string}) => void;
   /** Open mode ignored a failed or unavailable policy; the sink records a trace. */
@@ -84,6 +88,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
   catch(error) {if(error instanceof CoreError) throw error;throw new CoreError("invalid_input","Invalid policy decision input");}
   const excludedBy:Record<string,string>=Object.create(null);
   const now=options.now??Date.now;
+  const aggregateDeadline=Math.min(options.deadline??Infinity,options.budgetDeadline??Infinity,now()+POLICY_AGGREGATE_MS);
   const eligibleRunnerIds=options.eligibleRunnerIds ? [...options.eligibleRunnerIds] : undefined;
   const allowedPlacements=options.allowedPlacements ? [...options.allowedPlacements] : undefined;
   const veto=(policy:PolicyIdentity,reason:string):never=>{
@@ -95,7 +100,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     try {options.onFailure?.({pluginId:policy.id,decision:params.decision,reason});} catch { /* Tracing never changes the decision. */ }
   };
   for(const missing of snapshot.unavailable??[]) {
-    const reason=`Policy plugin is unavailable (${missing.reason})`;
+    const reason=`Granted plugin ${missing.id} cannot be verified (${missing.reason})`;
     if(snapshot.mode==="closed") veto({id:missing.id,generation:""},reason);
     ignored(missing,reason);
   }
@@ -103,8 +108,8 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     checkCancelled(options.signal);
     let explicitVeto:string|undefined;
     try {
-      const remaining=options.deadline===undefined?3000:Math.min(3000,options.deadline-now());
-      if(remaining<=0) throw new CoreError("plugin_timeout","Policy call timed out");
+      const remaining=Math.min(3000,aggregateDeadline-now());
+      if(remaining<=0) throw new CoreError("plugin_timeout",`Policy ${policy.id} skipped: shared deadline expired`);
       const raw=await invoke(policy,params,options,remaining);
       checkCancelled(options.signal);
       const verdict=policyVerdict.parse(boundedClone(raw));
@@ -133,6 +138,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
       }
     } catch(error) {
       checkCancelled(options.signal);
+      if(error instanceof PolicyHashKeyError) throw new CoreError("not_allowed",error.message);
       if(snapshot.mode==="closed") veto(policy,"Policy decision failed");
       ignored(policy,`Policy decision failed and was ignored in open mode (${failureReason(error)})`);
     }

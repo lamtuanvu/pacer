@@ -1,5 +1,5 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
-import { afterAll, afterEach } from "bun:test";
+import { afterAll, afterEach, beforeEach } from "bun:test";
 import { rmSync, realpathSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename, delimiter } from "node:path";
@@ -76,6 +76,17 @@ process.env.PATH = `${join(isolatedHome, "bin")}:${process.env.PATH ?? "/usr/bin
 
 // Preload hooks apply across files; hooks in cached imported helpers do not.
 afterEach(cleanupFixtureResources);
+
+// The whole run shares one process, so a bundled plugin child a test leaves running
+// holds its memory until the run ends. Stop registries the test created; shared
+// registries set up before the test (beforeAll or module scope) stay warm.
+const { pluginRegistryHomes, shutdownPlugins } = await import("../src/plugins/index");
+let registriesBeforeTest = new Set<string>();
+beforeEach(() => { registriesBeforeTest = new Set(pluginRegistryHomes()); });
+afterEach(async () => {
+  await Promise.all(pluginRegistryHomes().filter(pacerHome => !registriesBeforeTest.has(pacerHome))
+    .map(pacerHome => shutdownPlugins({ pacerHome })));
+});
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

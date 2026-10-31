@@ -15,40 +15,13 @@ import { resolvePlacement, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
-import { SCRIPTS } from "./scripts";
 import { receiveQuestion, transferBack } from "./transfer";
-import { payload, runRemote, sshArgv } from "./ssh";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostPrepare } from "../plugins/host-prepare-issuer";
+import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
 import { probeCodexUsage } from "./usage";
-
-const MAX_BUNDLE = 50 * 1024 * 1024;
-
-/** Preserve binary git bundles across RunFn's text-only output boundary. */
-async function baseBundle(ctx: Ctx, repo: string, taskId: string, baseSha: string): Promise<Uint8Array> {
-  const ref = `refs/pacer/base/${taskId}`;
-  const set = await ctx.run(["git", "-C", repo, "update-ref", ref, baseSha], 10000);
-  if (set.code) throw new Error(set.stderr);
-  try {
-    const proc = Bun.spawn(["git", "-C", repo, "bundle", "create", "-", ref], { env: ctx.env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => proc.kill(), 60000);
-    const stderr = new Response(proc.stderr).text();
-    try {
-      const chunks: Uint8Array[] = []; let bytes = 0;
-      for await (const chunk of proc.stdout) {
-        bytes += chunk.length;
-        if (bytes > MAX_BUNDLE) {
-          proc.kill(); await proc.exited; await stderr;
-          throw new Error("base bundle over 50 MB");
-        }
-        chunks.push(chunk);
-      }
-      const code = await proc.exited, error = await stderr;
-      if (code) throw new Error(error || "base bundle failed");
-      return Buffer.concat(chunks);
-    } finally { clearTimeout(timer); }
-  } finally {
-    await ctx.run(["git", "-C", repo, "update-ref", "-d", ref], 10000);
-  }
-}
+import { baseBundle } from "./base-bundle";
+import { hasCommittedWork } from "./committed-work";
 
 export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, host: HostCfg, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const startedAt = Date.now() / 1000, log = join(tasksDir(ctx), `${task.id}.${cfg.id}.log`);
@@ -58,7 +31,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const git = await gitInfo(ctx.run, task.brief.repo);
     if ("error" in git) return failed(git.error);
     const placement = resolvePlacement(task, ex.worktree, false, git.dirty);
-    const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode });
+    const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode }, { currentTaskId: task.id });
     if (excluded) return failed(excluded);
     const resolvedBase = await resolveWorktreeBase(ctx, git.top, task.brief, ex.baseBranch);
     if ("error" in resolvedBase) return failed(resolvedBase.error);
@@ -69,15 +42,15 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const tag = `${key.split("/").at(-1)}-${createHash("sha1").update(key).digest("hex").slice(0, 8)}`;
     const attempt = task.attempts.length + 1;
     const args = [host.repos[key], tag, task.id, baseSha, base, String(attempt)];
-    let prepared = await runRemote(ctx, host, SCRIPTS.PREPARE, args, { stdin: "" });
+    const registry = pluginRegistry(ctx);
+    const initial = await issueConfiguredHostPrepare(ctx, host.alias, task.id, baseSha, base, new Uint8Array());
+    if (JSON.stringify(initial.resource.args) !== JSON.stringify(args)) return failed("remote prepare snapshot changed");
+    let prepared = await registry.prepareConfiguredHost(ctx, initial);
     if (prepared.code === 3 && prepared.stderr.includes("missing-base")) {
       const bundle = await baseBundle(ctx, git.top, task.id, baseSha);
-      const proc = Bun.spawn(sshArgv(ctx, host, SCRIPTS.PREPARE, args), { env: ctx.env, stdin: new Blob([new Uint8Array(bundle)]), stdout: "pipe", stderr: "pipe" });
-      const timer = setTimeout(() => proc.kill(), 60000);
-      try {
-        const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-        prepared = { stdout: payload(stdout), stderr, code };
-      } finally { clearTimeout(timer); }
+      const retry = await issueConfiguredHostPrepare(ctx, host.alias, task.id, baseSha, base, bundle);
+      if (JSON.stringify(retry.resource.args) !== JSON.stringify(args)) return failed("remote prepare snapshot changed");
+      prepared = await registry.prepareConfiguredHost(ctx, retry);
     }
     if (prepared.code) return failed(prepared.stderr || "remote preparation failed");
     const worktree = prepared.stdout.split("\n").find(l => l.startsWith("worktree="))?.slice(9);
@@ -121,9 +94,12 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     await receiveQuestion(ctx,task,host,run);
     if (result.exec.timedOut) return result;
     if (result.exec.code !== 0) {
-      const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, remoteBranch]);
-      const commits = Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0);
-      if (preflight.code || commits === 0) return result;
+      const preflightGrant = issueConfiguredHostAttemptPreflight(ctx, task.id, attempt);
+      if (preflightGrant.resource.alias !== host.alias ||
+        JSON.stringify(preflightGrant.resource.args) !== JSON.stringify([worktree, baseSha, remoteBranch]))
+        return failed("remote preflight snapshot changed");
+      const preflight = await registry.preflightConfiguredHostAttempt(ctx, preflightGrant);
+      if (preflight.code || preflight.timedOut || !hasCommittedWork(preflight.stdout)) return result;
     }
     const transfer = await transferBack(ctx, task, host, run);
     if (!transfer.ok) {

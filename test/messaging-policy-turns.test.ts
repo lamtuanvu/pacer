@@ -45,7 +45,10 @@ test("a still-admitted executor resumes its own session after delegate and route
   expect(f.spawned).toEqual([f.id]);
   const calls = f.decisions();
   expect(calls.map(c => c.decision)).toEqual(["delegate", "route"]);
-  expect(calls[0]!.input).toMatchObject({ goal: "the original brief", requestedExecutor: "codex" });
+  expect(calls[0]!.input).toMatchObject({ goal: "", requestedExecutor: "codex" });
+  expect(calls[0]!.input).not.toHaveProperty("goalLength");
+  expect(calls[0]!.input).not.toHaveProperty("goalHash");
+  expect(calls[0]!.input.repo).not.toBe(f.repo);
   expect(calls[1]!.input).toEqual({ taskId: f.id, candidates: ["codex", "cursor"] });
 });
 

@@ -41,12 +41,13 @@ export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceS
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
 }
 export function taskData(t:TaskRecord):TaskData & {title:string} {
-  const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0,t.reviewRequest?.at??0),
+  const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0,t.reviewRequest?.at??0,t.stopPending?.requestedAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
     ...(t.interactionMode ? {interactionMode:t.interactionMode} : {}),
     ...(t.conversation ? {conversation:t.conversation} : {}),
     acceptanceState: acceptanceState(t),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
+    ...(t.stopPending ? {stopPending:t.stopPending} : {}),
     ...(t.review?{review:t.review}:{}),...(t.resolved?{resolved:t.resolved}:{}),
     ...(t.dismissed ? {dismissed:true} : {}), ...(t.retryOf ? {retryOf:t.retryOf} : {}), ...(t.retriedBy ? {retriedBy:t.retriedBy} : {}),
     ...(t.result?.brokenReason ? {brokenExecutor:t.result.brokenExecutor,brokenReason:t.result.brokenReason} : {}),
@@ -184,8 +185,13 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
     if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=strategy && policies ? retryTargetFor(policyTasks[index]!,strategy,retryExecutors,policies) : null;
       const kind=d.state==="done"?"done":"failed";
-      // A manual stop is recorded by core.tasks.stop, rather than reported as a failure.
-      if (d.state !== "stopped") appendActivity(ctx, {
+      // A pending provider stop is recorded only when the exact wrapper exit settles it.
+      if (d.state === "stopped" && t.executorProvider && t.executorExitReceipt) appendActivity(ctx, {
+        kind: "task_settled", level: "info", text: `Stopped “${taskTitle(t)}”`,
+        ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,
+        ...(d.executor ? { executor: d.executor } : {}),
+      });
+      else if (d.state !== "stopped") appendActivity(ctx, {
         kind: "task_settled", level: d.state === "done" ? "info" : "warn",
         text: d.state === "done" ? `${name} finished “${taskTitle(t)}”` : `${name} failed “${taskTitle(t)}”`,
         ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,

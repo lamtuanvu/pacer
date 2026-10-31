@@ -12,7 +12,7 @@ const registry = (plugins: any[], answer: (id: string, method: string, params: u
 };
 
 test("pairing arrived in 1.5.0: the pairing point, its method and the net.p2p capability", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.6.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.10.0");
   expect(EXTENSION_POINTS).toContain("pairing");
   expect(CAPABILITIES).toContain("net.p2p");
   const start = EXTENSION_METHODS["pairing.start"]!;
