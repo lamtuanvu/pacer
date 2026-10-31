@@ -12,8 +12,6 @@ import {initialState} from '../app/src/data/store';
 import {TaskContext} from '../app/src/screens/task-shared';
 import {resolveRoute, type Route} from '../app/src/router';
 import snapshot from './fixtures/ui/snapshot.json';
-import {join} from 'node:path';
-import {tmpDir} from './helpers';
 
 const draw=(children:any)=>renderToString(<TaskContext.Provider value={{state:{...initialState(),snapshot} as any,api:{} as any}}>{children}</TaskContext.Provider>);
 test('all consumed radii and type styles follow the canvas scale',()=>{
@@ -38,8 +36,12 @@ test('dock belongs between the centre column boundaries; rail keeps only attenti
  expect(rail).not.toContain('aria-label="Dispatcher"');
 });
 test('diagnostics render plain labels without raw identities, paths, commands or key dumps',()=>{
- const path=join(tmpDir(),'home/accounts/team/skills/pacer/SKILL.md');
- expect(displayPath(path)).toBe('~/accounts/team/skills/pacer/SKILL.md');
+ // Path presentation is lexical; a real TMPDIR may itself be inside a user's home.
+ const suffix='accounts/team/skills/pacer/SKILL.md';
+ for(const home of ['/Users/example/', '/home/example/', '/fixture/home/']) {
+  expect(displayPath(home+suffix)).toBe('~/'+suffix);
+ }
+ expect(displayPath('~/'+suffix)).toBe('~/'+suffix);
  expect(settingsText('Integration freshness codex#personal')).toBe('Integration freshness Codex · personal');
  expect(settingsText('opencode#local')).toBe('OpenCode · local');
  const checks=[{name:'Integration freshness codex#personal',level:'fail',detail:'installed: true; healthy: false',fix:'pacer uninstall codex#personal'},{name:'CLI codex#personal',level:'fail',detail:'codex --help failed: fixture'},{name:'Service latency',level:'ok',detail:'/v2/snapshot max 1.7 ms'}] as any;
