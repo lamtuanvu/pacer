@@ -1,0 +1,7 @@
+/* Native chrome layer: appended last to the app and tray bundles so it beats earlier chrome styles.
+   Content stays selectable; chrome is unselectable with an arrow cursor and never drags. */
+html,body{overscroll-behavior:none}
+:is(.pc-app,.tray) :is(button,[role=button],[role=tab],[role=menuitem],[role=option],summary,label,.pc-btn,.pc-pill,.pc-chip,.pc-rail,.pc-topbar,.pc-statusbar,.pc-panel-tabs,.pc-settings-nav,.pc-segmented){-webkit-user-select:none;user-select:none;cursor:default}
+:is(.pc-app,.tray) :is(button,[role=button],[role=tab],[role=menuitem],[role=option],summary,label,.pc-btn,.pc-pill,.pc-chip,.pc-rail,.pc-topbar,.pc-statusbar,.pc-panel-tabs,.pc-settings-nav,.pc-segmented) :is(code,pre,input,textarea,[contenteditable=true]){-webkit-user-select:text;user-select:text;cursor:auto}
+:is(.pc-app,.tray) :is(a[href^="#/"],.pc-rail img,.pc-topbar img,button img,svg){-webkit-user-drag:none}
+::selection{background:var(--focus);color:var(--surface-page)}

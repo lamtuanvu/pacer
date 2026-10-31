@@ -12,9 +12,11 @@ import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
 import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
-import { attachKeyRegistry, newTaskShortcut } from "./keys/registry";
+import { attachKeyRegistry, isApplePlatform } from "./keys/registry";
 import { openNewTask } from "./screens/new-task/entry";
 import { commands, keys } from "./keys/instance";
+import { registerShellCommands } from "./shell/shell-commands";
+import { attachContextMenuPolicy } from "./shell/context-menu";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
 import { useNarrow } from "./shell/narrow";
@@ -23,7 +25,7 @@ import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
-import { readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
+import { desktopHost, readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
 import { resetDesktopPageScroll } from "./shell/page-scroll";
 import { NoticeStack } from "./ds/NoticeCard";
 void readRoundedWindowSupport().then(supported => {
@@ -91,23 +93,17 @@ function App() {
   if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
-    const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
+    const go = (to: string) => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "command-nav", keys: "g o", run: go("#/") }),
-      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "command-nav", keys: "g r", run: go("#/needs-you") }),
-      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "command-nav", keys: "g t", run: go("#/tasks") }),
-      commands.register({ id: "go.terminal", title: "Go to Workspace", group: "Go to", icon: "command-terminal", keywords: "terminal sessions", keys: "g e", run: go("#/workspace") }),
-      commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
-      commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
-      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "Mod-n", shortcutLabel: "New task", run: () => openNewTask() }),
-      keys.register(newTaskShortcut(() => openNewTask())),
+      registerShellCommands(commands, keys, { go, back: () => history.back(), forward: () => history.forward(), openNewTask, showHelp: () => setHelp(true), apple: isApplePlatform(), desktop: typeof desktopHost().__TAURI__?.core?.invoke === 'function' }),
       // Screens with a "New task" button ask the shell to open the New task composer.
       (() => { const open = () => openNewTask(); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];
     const detach = attachKeyRegistry(keys, window);
-    return () => { offs.forEach(off => off()); detach(); };
+    const detachContextMenu = attachContextMenuPolicy(window);
+    return () => { offs.forEach(off => off()); detach(); detachContextMenu(); };
   }, []);
   useEffect(() => { keys.setScope(route.name); }, [route.name]);
   useEffect(() => {
