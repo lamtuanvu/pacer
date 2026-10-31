@@ -5,7 +5,7 @@ import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
 import { ApiError, type BrowserApi } from "../data/api";
-import { createQuery, type QueryState } from "../data/query";
+import { queryCacheFor, type QueryState } from "../data/query";
 import { draftStorage } from "../model/draft";
 import { taskHref } from "../model/tasks";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
@@ -29,17 +29,16 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
 }
 export function useQuery<T>(op: string, params: unknown, revision = "") {
   const { api, state } = useTaskContext();
-  const [published, setResult] = useState<{ key: string; state: QueryState<T> }>();
-  const [version, reload] = useState(0);
+  const [published, setResult] = useState<{ api: BrowserApi; key: string; state: QueryState<T> }>();
   const serialized = JSON.stringify(params);
   const invalidation = queryRevision(state, op, params);
-  const query = useMemo(() => createQuery<T>((op, params) => api.call<T>(op, params), (state, key) => setResult({ state, key })), [api]);
+  const query = useMemo(() => queryCacheFor(api, (op, params) => api.call(op, params)).createQuery<T>((state, key) => setResult({ api, state, key })), [api]);
   useEffect(() => () => query.dispose(), [query]);
   useEffect(() => {
-    query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, version]));
-  }, [query, op, serialized, revision, invalidation, state.connected, version]);
-  const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true };
-  return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => reload(v => v + 1) };
+    query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, state.connectionRevision]));
+  }, [query, op, serialized, revision, invalidation, state.connected, state.connectionRevision]);
+  const result = published?.api === api && published.key === JSON.stringify([op, serialized]) ? published.state : { loading: true };
+  return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => query.refresh() };
 }
 export function useAction() {
   const runner = useActions();

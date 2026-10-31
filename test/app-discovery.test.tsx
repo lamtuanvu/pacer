@@ -162,7 +162,7 @@ test("busy or unchanged Rename and the name field stay focusable instead of nati
 });
 
 test("a discovery.found event refreshes discovery resources", () => {
-  const state = { snapshot: { seq: 1 } as never, connected: true, sessionEnded: false, needsSnapshot: false, invalidations: {}, version: null, features: { readModel: true, ops: new Set<string>() }, jobs: {}, activity: [] };
+  const state = { snapshot: { seq: 1 } as never, connectionRevision: 0, connected: true, sessionEnded: false, needsSnapshot: false, invalidations: {}, version: null, features: { readModel: true, ops: new Set<string>() }, jobs: {}, activity: [] };
   const next = reduceStore(state, { type: "event", event: { seq: 2, at: 0, type: "discovery.found", data: { discoveryId: id, name: "x", version: "1" } } });
   expect(next.invalidations.discovery).toBe(1);
 });

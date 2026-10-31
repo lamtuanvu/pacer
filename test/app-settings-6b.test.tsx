@@ -68,7 +68,7 @@ test('wizard screen: a later step cannot be opened early, Continue is disabled w
 const accounts = [
   { name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] },
   { name: 'out', kind: 'codex', signedIn: false, signin_command: 'codex login' },
-  { name: 'ark', kind: 'endpoint', quotaSource: 'arkcli', state: 'not_tested', usageReading: { windows: [], error: 'x', availability: { state: 'unknown', reason: 'authentication_failed' } } },
+  { name: 'ark', kind: 'endpoint', quotaSource: 'arkcli', state: 'not_tested', usageCheck: { action: 'refresh', consentRequired: false, description: 'Read provider usage' }, usageReading: { windows: [], error: 'x', availability: { state: 'unknown', reason: 'authentication_failed' } } },
   { name: 'stale', kind: 'codex', signedIn: true }, { name: 'bare', kind: 'codex' },
 ] as any;
 const summary = (over: object) => ({ agent: 'codex', source: 'Codex sign-in', usedPct: 40, pacePct: 30, window: 'week', resetsAt: null, verdict: 'ON_PACE', signedIn: true, executors: [], spendUsdWeek: null, capUsdWeek: null, ...over });
@@ -77,12 +77,14 @@ test('Accounts: status pill with a fix link only where the fix can work', () => 
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
     summary({ name: 'team', executors: [executor.id] }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
   for (const label of ['On pace', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
-  // Sign-in help for the signed-out native account; Ark CLI help (with refresh) for its endpoint only: no other account has a refresh that can succeed.
+  // Sign-in help remains available for the signed-out native account and Ark CLI endpoint.
+  // Other fixture rows deliberately omit usageCheck: they offer no usage action, while reconnect guidance stays available.
   expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary>/g)).toHaveLength(1);
   expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
   expect(html).not.toContain('<code>codex login</code>');
   expect(html).toContain('Fix Ark CLI sign-in');
-  expect(html.match(/Refresh usage<span class="sr-only"> for ([a-z]+)/g)).toEqual(['Refresh usage<span class="sr-only"> for ark']);
+  expect(html.match(/Check usage<span class="sr-only"> for [^<]+<\/span>/g)).toEqual(['Check usage<span class="sr-only"> for ark</span>']);
+  expect(html.match(/Reconnect to load account usage controls\./g)).toHaveLength(4);
   expect(html).not.toContain('Fix sign-in<span class="sr-only"> for team');
   expect(html).toContain('<a href="#/settings/accounts" aria-current="page"');
   expect(html).toContain('href="#/settings/executors"');

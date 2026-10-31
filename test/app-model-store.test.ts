@@ -327,3 +327,36 @@ test("offline transport refuses direct operations without a request and resumes 
     expect(request).toHaveBeenCalledTimes(2);
   } finally { request.mockRestore(); }
 });
+
+test('a stream error invalidates client query data even when its screen is unmounted',async()=>{
+ const {queryCacheFor}=await import('../app/src/data/query');
+ FakeEvents.instances=[];let reads=0;
+ const api={hello:async()=>hello('3.0.0',[]),snapshot:async()=>({protocol:'3.0.0',seq:5,snapshot}),call:async<T>()=>{reads++;return ['repo'] as T;}};
+ const cache=queryCacheFor(api,api.call),query=cache.createQuery(()=>{});
+ query.update('repo.list','{}','online');await flush();query.dispose();expect(reads).toBe(1);
+ const store=createStore(api,FakeEvents as any),stop=store.start();
+ try {await flush();FakeEvents.instances[0]!.emit('open');FakeEvents.instances[0]!.emit('error');const remount=cache.createQuery(()=>{});remount.update('repo.list','{}','online');await flush();expect(reads).toBe(2);remount.dispose();}finally{stop();}
+});
+
+test('a separate screen API refreshes cached reads after a store reconnect while unmounted', async () => {
+  const { queryCacheFor } = await import('../app/src/data/query');
+  FakeEvents.instances = [];
+  let reads = 0;
+  const screenApi = { call: async <T>() => { reads++; return ['repo'] as T; } };
+  const storeApi = { hello: async () => hello('3.0.0', []), snapshot: async () => ({ protocol: '3.0.0', seq: 5, snapshot }), call: async <T>() => ({} as T) };
+  const store = createStore(storeApi, FakeEvents as any), stop = store.start();
+  try {
+    await flush();
+    FakeEvents.instances[0]!.emit('open');
+    const cache = queryCacheFor(screenApi, screenApi.call);
+    const a = cache.createQuery(() => {});
+    a.update('repo.list', '{}', JSON.stringify(store.getState().connectionRevision));
+    await flush(); a.dispose();
+    expect(reads).toBe(1);
+    FakeEvents.instances[0]!.emit('error');
+    const b = cache.createQuery(() => {});
+    b.update('repo.list', '{}', JSON.stringify(store.getState().connectionRevision));
+    await flush(); b.dispose();
+    expect(reads).toBe(2);
+  } finally { stop(); }
+});
