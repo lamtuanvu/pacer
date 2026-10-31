@@ -12,12 +12,16 @@ import { Recording } from '../src/session/recording';
 import { fakeCtx } from './helpers';
 // Match the existing session integration convention: sandboxed runners may forbid listeners.
 const canBind=(()=>{try{const probe=Bun.serve({port:0,fetch:()=>new Response('probe')});probe.stop(true);return true;}catch{return false;}})();
-async function fixture(){
+async function fixture(refusal?:string){
  const ctx=fakeCtx();const task=createTask(ctx,{brief:{goal:'ws',repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:300});
  const dir=join(ctx.pacerHome,'runs',task.id,'1');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'session.log'),'');
  const received:{type:number;data:Buffer}[]=[];let peer:Socket|undefined;
- const unix=createServer(s=>{peer=s;const d=new WireDecoder();s.on('data',b=>{for(const f of d.push(Buffer.from(b))){received.push(f);if(f.type===1){s.write(wire(2,{outputOffset:10,cols:120,rows:40}));s.write(wire(3,Buffer.from([0,255,27])));}}});});
+ const unix=createServer(s=>{peer=s;const d=new WireDecoder();s.on('data',b=>{
+  if(refusal){s.end(`PACER-REFUSED ${refusal}\n`);return;}
+  for(const f of d.push(Buffer.from(b))){received.push(f);if(f.type===1){s.write(wire(2,{outputOffset:10,cols:120,rows:40}));s.write(wire(3,Buffer.from([0,255,27])));}}
+ });});
  const path=socketPath(dir);writeFileSync(join(dir,'session.sock.path'),path);
+ if(refusal)writeFileSync(join(dir,'session.bridge.pid'),String(process.pid));
  await new Promise<void>((resolve,reject)=>{unix.once('error',reject);unix.listen(path,resolve);});
  const http=startServer(()=>ctx,{port:0,pumpMs:3600000});const url=`http://127.0.0.1:${http.port}/v2/tasks/${task.id}/session`;
  return {ctx,http,url,received,close(){peer?.destroy();unix.close();http.stop();}};
@@ -198,4 +202,26 @@ test('ended remote session replays from its local recording mirror',async()=>{
  expect(response).toBeUndefined();expect(closed).toBe(true);
  expect(messages.map(f=>f.type)).toEqual(['snapshot','output','exit']);
  expect(messages.at(-1)).toEqual({type:'exit',code:7});
+});
+
+test.skipIf(!canBind)('remote viewer refusal arrives as HTTP 409 before WebSocket upgrade',async()=>{
+ const f=await fixture('remote session already has 2 viewers; close one and try again');
+ try{
+  let upgraded=false;
+  const response=await upgradeSession(new Request(f.url),{
+   upgrade:()=>{upgraded=true;return true;},
+  } as any,f.ctx,f.url.split('/').at(-2)!);
+  expect(upgraded).toBe(false);
+  expect(response?.status).toBe(409);
+  expect(await response?.text()).toContain('remote session already has 2 viewers');
+ }finally{f.close();}
+});
+
+test.skipIf(!canBind)('remote stream pool refusal arrives as HTTP 503',async()=>{
+ const f=await fixture('session viewer stream capacity exhausted');
+ try{
+  const response=await upgradeSession(new Request(f.url),{upgrade:()=>{throw Error('upgraded');}} as any,f.ctx,f.url.split('/').at(-2)!);
+  expect(response?.status).toBe(503);
+  expect(await response?.text()).toBe('session viewer stream capacity exhausted');
+ }finally{f.close();}
 });

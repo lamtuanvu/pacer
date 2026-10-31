@@ -46,3 +46,15 @@ test("the API operation table loads execution backends only on use", () => {
   expect(ops).not.toMatch(/from\s+["'][^"']*\/exec\//);
   expect(ops).toMatch(/import\(["']\.\.\/exec\/backend["']\)/);
 });
+
+test("only the plugin host builds SSH argv and core keeps no direct-SSH fallback", () => {
+  const src = join(import.meta.dir, "..", "src");
+  const builders = new Set([join(src, "remote", "ssh.ts"), join(src, "plugins", "registry.ts"),
+    join(src, "plugins", "fetch-issuer.ts"), join(src, "plugins", "bundle-stage.ts")]);
+  expect(files(src).filter(f => !builders.has(f) && /\bsshArgv\b/.test(readFileSync(f, "utf8")))).toEqual([]);
+  // The user-opened interactive terminal is the only ssh argv outside the plugin host.
+  const spawnsSsh = /\[\s*["']ssh["']\s*,\s*(?:["']-|[\w.]+\.ssh\b)/;
+  const allowed = new Set([join(src, "remote", "ssh.ts"), join(src, "remote", "hosts.ts")]);
+  expect(files(src).filter(f => !allowed.has(f) && !f.startsWith(join(src, "plugins")) && spawnsSsh.test(readFileSync(f, "utf8")))).toEqual([]);
+  expect(readFileSync(join(src, "remote", "ssh.ts"), "utf8")).not.toMatch(/\b(?:Bun\.spawn|spawn|ctx\.run)\s*\(/);
+});

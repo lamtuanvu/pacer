@@ -5,8 +5,9 @@ import type { HostCfg } from "../config/hosts";
 import type { Ctx, UsageReading } from "../types";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { rateLimitObservation, readingFromObservation } from "../usage/codex";
-import { SCRIPTS } from "./scripts";
-import { runRemote } from "./ssh";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredRemoteUsage } from "../plugins/remote-usage-issuer";
+import { HOST_RUNNER_METHODS } from "../plugins/host-runner-protocol";
 
 const cachePath = (ctx: Ctx, account: string) => join(ctx.pacerHome, "cache", "remote-usage", `${account}.json`);
 const origin = (host: HostCfg, account: AccountCfg) => JSON.stringify([host.alias, host.ssh, host.accounts[account.name]?.home ?? null]);
@@ -27,8 +28,12 @@ export function cachedRemoteUsage(ctx: Ctx, account: AccountCfg, hosts?: Record<
 export async function probeCodexUsage(ctx: Ctx, host: HostCfg, account: AccountCfg): Promise<UsageReading | null> {
   if (account.kind !== "codex") return null;
   try {
-    const home = host.accounts[account.name]?.home;
-    const result = await runRemote(ctx, host, SCRIPTS.CODEX_USAGE, home ? [home] : []);
+    const grant = issueConfiguredRemoteUsage(ctx, host, account);
+    const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+    if (caller !== "pacer-remote-caller") return null;
+    const result = await registry.callWithIssuedHostUsage<ReturnType<typeof HOST_RUNNER_METHODS["hostRunner.run"]["result"]["parse"]>>(
+      ctx, caller, "remoteCaller.usageRead",
+      { alias: host.alias, ...(grant.resource.args[0] ? { home: grant.resource.args[0] } : {}) }, grant);
     if (result.code !== 0) return null;
     const observations = result.stdout.split("\n").slice(0, -1).flatMap(line => {
       try { const value = rateLimitObservation(JSON.parse(line)); return value ? [value] : []; } catch { return []; }

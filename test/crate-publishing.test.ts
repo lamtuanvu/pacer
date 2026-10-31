@@ -18,7 +18,7 @@ test("independent crate versions ignore generated VCS and lock metadata but dete
 test("the independent protocol crates publish before the SDK that depends on all of them", () => {
   const root = join(import.meta.dir, "..");
   const manifest = (folder: string) => Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string; publish?: boolean }; dependencies?: Record<string, unknown> };
-  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-protocol", "plugin-sdk"]);
+  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-install-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-protocol", "plugin-sdk"]);
   const names = pluginCrateFolders.map(folder => manifest(folder).package.name);
   for (const [index, folder] of pluginCrateFolders.entries()) {
     const { package: metadata, dependencies = {} } = manifest(folder);
@@ -115,7 +115,7 @@ test("0.2 release graph packages every independent area before the SDK", async (
 });
 
 test("new publishable area archives use the same bounded canonical content checks", async () => {
-  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol"]) {
+  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol", "pacer-plugin-install-protocol", "pacer-plugin-hosts-protocol", "pacer-plugin-exec-protocol"]) {
     const bytes = await new Bun.Archive({
       [`${name}-0.2.0/Cargo.toml`]: `[package]\nname="${name}"\nversion="0.2.0"\n`,
       [`${name}-0.2.0/src/lib.rs`]: "pub struct Distinct;",
@@ -124,4 +124,10 @@ test("new publishable area archives use the same bounded canonical content check
   }
   const privateArea = await new Bun.Archive({ "pacer-plugin-policy-protocol-0.0.0/Cargo.toml": "private", "pacer-plugin-policy-protocol-0.0.0/src/lib.rs": "private" }, { compress: "gzip" }).bytes();
   await expect(crateContentHash(privateArea)).rejects.toThrow("Invalid plugin crate archive path");
+});
+
+test("SDK facade re-exports the hosts and execution areas", () => {
+  const sdk = readFileSync(new URL("../crates/plugin-sdk/src/lib.rs", import.meta.url), "utf8");
+  expect(sdk).toContain("pub use pacer_plugin_exec_protocol::*;");
+  expect(sdk).toContain("pub use pacer_plugin_hosts_protocol::*;");
 });

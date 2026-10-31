@@ -10,6 +10,7 @@ import type { Ctx } from "../types";
 import { type ConsoleData, type OutboxEvent, LIMITS, type LinkSnapshot, emptySnapshot, parseOutboxEvent, parseSnapshot } from "./envelope";
 import { consolePath, consolesDir, latestPath, linkDir, outboxPath } from "./paths";
 import { list as listStrategies } from "../strategy/service";
+import { pidAlive } from "./pid";
 export const OUTBOX_MAX_BYTES = 1024 * 1024;
 export const OUTBOX_KEEP = 1000;
 export interface OutboxEntry { seq:number; at?:number; envelope:OutboxEvent }
@@ -25,7 +26,7 @@ export function subscribeOutbox(ctx: Ctx, listener: () => void): () => void {
   };
 }
 export function readLatest(ctx:Ctx):LinkSnapshot { return parseSnapshot(readJson<unknown>(latestPath(ctx)))??emptySnapshot(); }
-export function pidAlive(pid:number):boolean { try { process.kill(pid,0); return true; } catch(e) { return (e as NodeJS.ErrnoException).code==="EPERM"; } }
+export { pidAlive } from "./pid";
 export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):ConsoleData|null {
   const c=parseSnapshot({v:1,seq:0,at:0,console:readJson<unknown>(consolePath(ctx))})?.console??null;
   if(!c || ctx.now-c.heartbeatAt>LIMITS.heartbeatS || !alive(c.pid)) return null; return c;

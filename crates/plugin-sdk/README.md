@@ -132,3 +132,7 @@ A capability with no `on_capability` answer is denied with `capability_denied`.
 
 See [docs/plugin-protocol.md](../../docs/plugin-protocol.md) for the wire
 protocol, manifest schema, extension points, capabilities and error codes.
+
+Host-runner and host capability types live in the independent publishable `pacer-plugin-hosts-protocol` 0.2, with the same `pacer_plugin::types` facade names. See [ADR 0016](../../docs/decisions/0016-plugin-hosts-protocol-area.md).
+
+Executor and process capability types live in the independent publishable `pacer-plugin-exec-protocol` 0.2. The `pacer_plugin::types` facade preserves their names; direct `pacer_plugin_protocol` imports of those types use the new area crate. See [ADR 0017](../../docs/decisions/0017-plugin-exec-protocol-area.md).

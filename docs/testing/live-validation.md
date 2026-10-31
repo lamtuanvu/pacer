@@ -167,6 +167,28 @@ Combine rows for changes spanning areas. Remote live tests still require separat
 
 ## Drive the surfaces
 
+### Sandbox SSH stream faults
+
+For a disposable full-session SSH task, the harness can arm one live-only
+`pacer-ssh` stream transport fault before opening its viewer:
+
+```sh
+bun run live stream-fault arm --id my-change --mode lost-input-ack
+# or: --mode read-response-timeout
+```
+
+The first persisted `SESSION_PIPE` stream in that sandbox claims the fault.
+`lost-input-ack` drops one input acknowledgement only after the host broker
+accepted that frame's exact stdin bytes; the viewer must close without replay.
+`read-response-timeout` drops one broker read response so the provider's
+finite call deadline must close the viewer. The live guard proxies only the
+bundled `pacer-ssh` child, passes all other frames unchanged, and does not
+log session bytes. Its private `faults/<id>.consumed.json` contains only
+fault mode, task ID, stream ID and time. Exercise one fault per dedicated
+sandbox, verify the consumed proof and task outcome, then record a separate
+CT-11 verdict. Other plugin children and ordinary guarded CLI commands keep
+their existing launch path.
+
 ### CLI and API
 
 ```sh

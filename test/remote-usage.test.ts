@@ -3,13 +3,15 @@ import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
 afterUsageFixture(cleanupUsageFixtures);
 import { accountEvidenceScope } from "../src/evidence/scope";
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { main } from "../src/cli";
 import { loadStrategy } from "../src/config/strategy";
 import { check } from "../src/remote/hosts";
 import { cachedRemoteUsage, probeCodexUsage } from "../src/remote/usage";
+import { pluginRegistry } from "../src/plugins";
+import { consumeConfiguredRemoteUsage, issueConfiguredRemoteUsage, validateConfiguredRemoteUsage } from "../src/plugins/remote-usage-issuer";
 import { readAccountUsage } from "../src/usage";
 import { fakeSshEnv, realRun, tmpDir } from "./helpers";
 
@@ -29,6 +31,10 @@ function fixture() {
   writeFileSync(join(home, ".bash_profile"), "echo hello from profile\n");
   ctx.env = fakeSshEnv(home, join(home, "ssh.log"));
   ctx.run = (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...ctx.env, ...o?.env } });
+  const ssh = join(home, "ssh-fixture");
+  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(home)} PACER_FAKE_SSH_LOG=${JSON.stringify(join(home, "ssh.log"))} exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`);
+  chmodSync(ssh, 0o755);
+  ctx.which = name => name === "ssh" ? ssh : null;
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), stringify({
     accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: "codex", home: "~/.codex-team" } },
@@ -55,6 +61,48 @@ test("probe uses the declared remote account home", async () => {
   const { ctx, home, s, host } = fixture();
   session(join(home, ".codex-team"), ctx.now, 60);
   expect(await probeCodexUsage(ctx, host, s.accounts.team)).toMatchObject({ windows: [{ usedPct: 60 }, {}] });
+});
+
+test("a disabled remote caller cannot fall back to direct SSH for usage", async () => {
+  const { ctx, home, s, host } = fixture();
+  session(join(home, ".codex"), ctx.now, 60);
+  await pluginRegistry(ctx).disable(ctx, "pacer-remote-caller");
+  expect(await probeCodexUsage(ctx, host, s.accounts.codex)).toBeNull();
+  expect(existsSync(join(home, "ssh.log"))).toBe(false);
+});
+
+test("a disabled SSH provider cannot fall back to direct SSH for usage", async () => {
+  const { ctx, home, s, host } = fixture();
+  session(join(home, ".codex"), ctx.now, 60);
+  await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
+  expect(await probeCodexUsage(ctx, host, s.accounts.codex)).toBeNull();
+  expect(existsSync(join(home, "ssh.log"))).toBe(false);
+});
+
+test("remote usage grant pins configured alias, account home and one consumption", () => {
+  const { ctx, s, host } = fixture();
+  const grant = issueConfiguredRemoteUsage(ctx, host, s.accounts.team);
+  expect(grant.resource).toMatchObject({ alias: "box", script: "CODEX_USAGE", args: ["~/.codex-team"] });
+  expect(() => issueConfiguredRemoteUsage(ctx, { ...host, alias: "other" }, s.accounts.team)).toThrow();
+  expect(() => issueConfiguredRemoteUsage(ctx, { ...host, accounts: {} }, s.accounts.team)).toThrow();
+  expect(() => validateConfiguredRemoteUsage(ctx, { ...grant })).toThrow();
+  consumeConfiguredRemoteUsage(ctx, grant);
+  expect(() => consumeConfiguredRemoteUsage(ctx, grant)).toThrow();
+  const changed = join(ctx.pacerHome, "strategy.yaml");
+  writeFileSync(changed, readFileSync(changed, "utf8").replace("~/.codex-team", "~/.changed"));
+  expect(() => validateConfiguredRemoteUsage(ctx, grant)).toThrow();
+});
+
+test("remote usage caller rejects swapped home and provider before SSH", async () => {
+  const { ctx, home, s, host } = fixture();
+  const registry = pluginRegistry(ctx);
+  const wrongProvider = issueConfiguredRemoteUsage(ctx, host, s.accounts.team);
+  await expect(registry.callWithIssuedHostUsage(ctx, "pacer-ssh", "remoteCaller.usageRead",
+    { alias: host.alias, home: "~/.codex-team" }, wrongProvider)).rejects.toMatchObject({ code: "capability_denied" });
+  const wrongHome = issueConfiguredRemoteUsage(ctx, host, s.accounts.team);
+  await expect(registry.callWithIssuedHostUsage(ctx, "pacer-remote-caller", "remoteCaller.usageRead",
+    { alias: host.alias, home: "~/.other" }, wrongHome)).rejects.toMatchObject({ code: "capability_denied" });
+  expect(existsSync(join(home, "ssh.log"))).toBe(false);
 });
 
 test("newer remote snapshot beats local, while newer local beats remote", async () => {

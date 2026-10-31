@@ -11,6 +11,7 @@ import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
+import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
@@ -34,6 +35,8 @@ const usage = `usage: bun run live <command> [--id <id>]
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
+  stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
+                                  arm one scoped pacer-ssh RPC fault in this sandbox
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -57,7 +60,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -81,6 +84,20 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "status") {
     const rows = id ? [loadSession(id)] : sessions();
     console.log(JSON.stringify(await Promise.all(rows.map(async session => ({ ...session, running: await healthy(session) }))), null, 2));
+    return 0;
+  }
+  if (command === "stream-fault") {
+    if (!id || positionals.length !== 1 || positionals[0] !== "arm" || forwarded.length ||
+      flags.size || [...options.keys()].some(key => key !== "--id" && key !== "--mode"))
+      throw Error("usage: live stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout");
+    const session = loadSession(id);
+    if (!await healthy(session)) throw Error("session stream fault requires a running sandbox");
+    const mode = options.get("--mode");
+    if (mode !== "lost-input-ack" && mode !== "read-response-timeout")
+      throw Error("unsupported session stream fault mode");
+    const armed = armSessionStreamFault(session.root, mode as StreamFaultMode);
+    record(session, { kind: "note", text: `Armed one-use pacer-ssh stream fault ${armed.mode} (${armed.id})` });
+    console.log(JSON.stringify(armed));
     return 0;
   }
   if (command === "ota") {

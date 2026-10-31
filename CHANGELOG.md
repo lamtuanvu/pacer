@@ -14,6 +14,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Plugin protocol 1.7.0 (additive): the `hostRunner` (`hostRunner.check`, `open`, `run`, `upload`, `stream`, `fetch`, `close`), `remoteCaller` (`remoteCaller.reachability`, `fetch`, `identity`, `questionRead`) and staged `executor` (`executor.available`) extension points; the `hosts` capability (`capability.hosts.open`, `run`, `fetch`, `close`) with host-owned broker sessions on configured SSH aliases; bounded `capability.process.duplex.*` and `capability.process.stageBundle`; and the private `$/streamAck` and `$/streamInputAck` stream transport for an owner-bound `hostRunner.stream`. A manifest that uses any of these sets `host` to `>=1.7.0`. Only the bundled `pacer-ssh` and `pacer-remote-caller` plugins may contribute `hostRunner` or `remoteCaller`; installed plugins that do are refused. Their Rust types are generated into the new `pacer-plugin-hosts-protocol` and `pacer-plugin-exec-protocol` crates; `pacer_plugin::types` keeps their names.
+- SSH host runners now run through the bundled `pacer-ssh` host-runner plugin and the `pacer-remote-caller` plugin: reachability, host checks and setup, clone and cleanup, prepare, start, stop, reports, output and question reads, Codex usage, binary checks and uploads, runtime probes, session discovery, full-session paging, interactive full-session viewers and result-bundle transfer. Every fixed-script SSH operation uses a one-use host-issued grant for a configured alias and has no direct-SSH fallback; disabling either plugin reports the plugin as unavailable.
 - Make task workspaces the primary destination from Dispatch, Tasks and successful task creation. Simplify the composer with advanced controls and routing details, explain configured checks, show queued/result/question states, make watching and explicit control clear, and preserve unknown metrics. Task history remains available. Workspace agent questions use the shared message answer composer, with explicit answer focus and unread questions preserved when delivery is held.
 - Check usage directly from Agents › Accounts for planner and executor accounts, including accounts without an executor. Claude asks consent for a small quota-consuming telemetry task; other providers report fresh, unchanged or failed reads honestly, with reactive and unmetered limitations. Account rows keep progress and failures compact, with provider guidance and technical errors in one expandable Usage check details disclosure and no duplicate job toasts. The planner card links to account usage controls. New v3 operation: `account.usage.check`.
 
@@ -52,6 +54,24 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Consecutive empty polls back off from 200 ms to 2 s plus SSH round-trip latency.
+- Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
+- Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
+- Check a remote attempt's committed work after a failed executor exit through the bundled SSH host runner. A disabled or uncertain provider stops that transfer decision without a direct SSH retry.
+- Probe the remote platform for full-session binary setup through the bundled SSH host runner with a one-use persisted-run grant. A disabled or failing provider stops startup without a direct SSH retry.
+- Install remote agent binaries through the bundled SSH host runner using a one-use, hash-bound upload. Uploads over 128 MiB are refused; a missing completion receipt stops the attempt without a direct SSH retry.
+- Stop persisted remote task runs through the bundled SSH host runner's fixed STOP script with a one-use grant. A missing completion receipt leaves that stop operation unsettled even if a later stop succeeds; there is no direct SSH fallback.
+- Clean eligible remote task worktrees through the bundled SSH host runner with a one-use task grant and completion receipt. Disabled providers and ambiguous completion do not trigger a direct SSH retry.
+- Run consented remote checkout clones through the bundled SSH host runner with a one-use configured grant and completion receipt. Missing receipts leave the operation unsettled and never trigger a direct SSH retry.
+- Check remote checkout existence for setup and clone consent through the bundled SSH host runner's fixed read-only script. Plugin refusal stops setup without a direct SSH retry.
+- Check configured remote account folders, checkouts and repository identity through the bundled SSH host runner's fixed read-only script. Plugin refusal does not retry these checks through direct SSH.
+- Run the initial `pacer host check` SSH and tool diagnostic through the bundled SSH host runner. Disabled or failing plugins report the specific plugin as unavailable; paused hosts remain diagnosable.
+- Check remote runner reachability through the bundled remote caller and fixed SSH provider. A disabled or failing plugin reports the specific plugin as unavailable without trying direct SSH.
+- Read configured remote Codex usage through the bundled remote caller and fixed SSH provider with a one-use account/host grant. Plugin refusal produces no direct SSH retry; previously cached readings remain available.
+- Receive remote task questions through one-use host-issued `remoteCaller` reads; keep the accepted text durable and ignore the remote question file at preflight only while its exact content matches.
+- Receive committed SSH task results through the bundled remote caller and host-issued, verified bundle; import its immutable bytes and compare-and-swap the local branch without a direct host fetch fallback.
+- Route `pacer host setup` repository identity updates through the bundled remote caller and SSH provider with a one-use host-issued grant. Setup reports a plugin error if either required plugin is disabled.
+- A remote full-session run accepts at most two attached viewers, and at most four viewers stream at once across all runs; extra viewers receive a visible refusal before web upgrade or in CLI attach. Viewer streams never take the plugin call slots that reachability, usage and run polling use.
 - Replace loading indicators with delayed, accessible page skeletons for tasks, lists, settings and Dispatch; keep loaded content visible during refresh.
 
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
@@ -67,6 +87,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 - Collapsing a terminal split restores focus to the retained tab without closing either shell. Unavailable session Changes keep their friendly error and no longer show a successful empty count.
 
+- Close an SSH session viewer when an owned duplex broker reply is lost, using a finite per-call deadline while leaving the remote task running.
 - Wake event subscribers promptly after same-process persisted writes while retaining polling for other writers, batch task-list enrichment, and include untracked files in task-detail change counts.
 - Keep unavailable task file changes distinct from measured zero counts in Overview and the Now card.
 - Keep Workspace panel menus reachable after resizing, fit the workspace canvas to its frame, and keep narrow header controls visible. Long panel identities ellipsize inside the header while status pills retain theme contrast. Ended sessions show read-only metadata, failed session loads offer Retry, and the new-agent flow is accurately labelled as a new task in the selected worktree.

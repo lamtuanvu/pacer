@@ -33,3 +33,8 @@ export async function shutdownPlugins(ctx: Pick<Ctx, "pacerHome">): Promise<void
   const r = registries.get(ctx.pacerHome);
   if (r) { registries.delete(ctx.pacerHome); await r.shutdown(); }
 }
+
+/** Pacer homes with a registry in this process; test teardown stops the ones a test left running. */
+export function pluginRegistryHomes(): string[] {
+  return [...registries.keys()];
+}

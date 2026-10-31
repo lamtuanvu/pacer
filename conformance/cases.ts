@@ -116,6 +116,22 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
 }
 
 export const CASES: ConformanceCase[] = [
+  { name: "executor availability fake stays lazy and serves only the staged direct point", async run(t) {
+    t.install("executor");
+    const h=await t.host();
+    await h.call("plugin.enable",{id:"fx-executor",grant:true});
+    assert((await listed(h))["fx-executor"]?.pid===null,"fake executor remains lazy at listing");
+    const r=await doctor(h,"fx-executor");
+    assert(r.ok&&r.served.includes("executor"),"fake executor handshakes without running an attempt");
+  } },
+  { name: "an installed host runner is refused: only the bundled pacer-ssh serves the SSH point", async run(t) {
+    t.install("host-runner");
+    const h=await t.host();
+    const entry=(await listed(h))["fx-host-runner"];
+    assert(entry?.state==="refused"&&/only the bundled pacer-ssh/.test(entry.error??""),"an installed hostRunner contributor is refused with the reason");
+    assert(entry.pid===null,"a refused host runner never starts");
+    assert(await codeOf(h.call("plugin.enable",{id:"fx-host-runner",grant:true}))==="plugin_refused","enable on an installed host runner returns plugin_refused");
+  } },
   {
  name: 'bundled usage discovery refuses an installed canonical-id shadow',
  async run(t) {

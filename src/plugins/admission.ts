@@ -1,15 +1,23 @@
 import { scheduleDeadline } from "../deadline";
 import { CoreError } from "../core/errors";
 
+/** Concurrent full-session viewer streams across all sessions; extra viewers are refused, never queued. */
+export const SESSION_STREAM_SLOTS = 4;
+
 interface Job { start: () => void; cancel: (reason: CoreError) => void }
 /** Bound transient concurrency without renewing queued requests' original clocks. */
 export class CallAdmission {
   private active = 0;
+  get activeCount(): number { return this.active; }
+  /** `label` names the pool in the refusal; a zero queue refuses as soon as every slot is busy. */
+  constructor(private readonly limit = 8, private readonly queueLimit = 32, private readonly label = "plugin registry call") {}
   private readonly queued: Job[] = [];
   run<T>(deadlineAt: number, task: (signal: AbortSignal) => Promise<T>, parent?: AbortSignal): Promise<T> {
-    if (this.active >= 8 && this.queued.length >= 32) return Promise.reject(new CoreError("plugin_unavailable", "plugin registry call capacity exhausted"));
+    const parentFailure = () => parent?.reason instanceof CoreError && parent.reason.code === "plugin_timeout"
+      ? parent.reason : new CoreError("plugin_unavailable", "owning plugin call ended");
+    if (this.active >= this.limit && this.queued.length >= this.queueLimit) return Promise.reject(new CoreError("plugin_unavailable", `${this.label} capacity exhausted`));
     if (Date.now() >= deadlineAt) return Promise.reject(new CoreError("plugin_timeout", "plugin call expired before admission"));
-    if (parent?.aborted) return Promise.reject(new CoreError("plugin_unavailable", "owning plugin call ended"));
+    if (parent?.aborted) return Promise.reject(parentFailure());
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       let started = false, over = false, reason: CoreError | undefined;
@@ -39,9 +47,9 @@ export class CallAdmission {
           ).finally(() => { this.active--; this.queued.shift()?.start(); });
         },
       };
-      const abort = () => job.cancel(new CoreError("plugin_unavailable", "owning plugin call ended"));
+      const abort = () => job.cancel(parentFailure());
       const cancelDeadline = scheduleDeadline(deadlineAt, () => job.cancel(new CoreError("plugin_timeout", "plugin call passed its absolute deadline")), true); parent?.addEventListener("abort", abort, { once: true });
-      if (this.active < 8) job.start(); else this.queued.push(job);
+      if (this.active < this.limit) job.start(); else this.queued.push(job);
     });
   }
 }
