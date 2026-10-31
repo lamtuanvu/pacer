@@ -23,7 +23,10 @@ import { createActionRunner } from "../../../app/src/data/actions";
 const query = { repo: null, scope: null };
 const mode = new URLSearchParams(location.search).get("state");
 const snap = fixture as unknown as ClientSnapshot;
-const snapshot = mode?.startsWith("home-") ? { ...snap, tasks: [], attention: [], executors: mode === "home-first" ? snap.executors!.filter(e => e.rank === "planner") : snap.executors } : mode === "empty" || mode === "first" || mode === "sample" ? { ...snap, tasks: [], attention: [], executors: mode === "first" ? [] : snap.executors } : snap;
+// The policy states carry the longest captions of each mode, framed by both side panels as in the 1440 app.
+const policyMode = mode === "policy-open" ? { mode: "open" as const, plugins: 0 } : mode === "policy-closed" ? { mode: "closed" as const, plugins: 2 } : null;
+const panels = !!policyMode;
+const snapshot = policyMode ? { ...snap, policy: policyMode } : mode?.startsWith("home-") ? { ...snap, tasks: [], attention: [], executors: mode === "home-first" ? snap.executors!.filter(e => e.rank === "planner") : snap.executors } : mode === "empty" || mode === "first" || mode === "sample" ? { ...snap, tasks: [], attention: [], executors: mode === "first" ? [] : snap.executors } : snap;
 const runner = createActionRunner({ call: async <T,>(op: string) => { document.body.dataset.sampleOp = op; return { task_id: "sample-task" } as T; }, waitFor: async () => true, refetch() {}, navigate() {} });
 const homeState = { ...initialState(), connected: mode !== "offline", snapshot, features: { readModel: true, ops: new Set(mode === "home-sample" ? ["agent.detect", "onboarding.try"] : ["agent.detect"]) } };
 const homeApi = { call: async (op: string) => {
@@ -52,10 +55,13 @@ function Fixture() {
   return <TaskContext.Provider value={{ state: current, api: homeApi }}><SetupContext.Provider value={{ refresh() {}, setRunning() {}, checklist: { checkedAt: 0, ready: mode !== "home-first", complete: mode !== "home-first", items: [{ id: "connect", title: "Connect planner", required: true, status: mode === "home-first" ? "pending" : "done" }] } }}><ActionContext.Provider value={runner}><AppFrame mainClass="pc-main pc-main--canvas" narrow={narrow} top={<TopBar narrow={narrow} title="Dispatch" planner={snapshot.planner ?? null} plannerFigure={false} mode="relaxed" connected={connected} lastUpdate={snapshot.at} onDelegate={newTask} pageTitle={narrow} narrowSearch={<CommandTrigger narrow onOpen={() => { document.body.dataset.search = "open"; }} />} />}
     overlay={mode === "offline" ? <Button>Assistant service send</Button> : undefined}
     activity={<Rail narrow={narrow} route={{ name: "dispatch", query }} counts={snapshot.counts ?? null} />}
+    left={panels ? <aside className="pc-side-panel pc-side-panel--left" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope" /> : undefined}
+    right={panels ? <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector" /> : undefined}
     live={!connected ? <OfflineNotice lastUpdate={Date.now() / 1000 - 60} /> : undefined}
     status={!narrow ? <StatusBar snapshot={snapshot} registry={keys} /> : undefined}
     main={<>{(mode === "offline" || mode === "recovery") && <><Button onClick={() => { document.body.dataset.submitted = "yes"; }}>Direct service submit</Button><ActionButton runner={runner} id="offline-test" action={{ op: "task.retry", label: "Offline service action", params: {} }} /></>}
     {mode?.startsWith("home-") ? <DispatchHome query={query} /> : <DispatchView snapshot={snapshot} query={query} now={snapshot.at} runner={runner} connected={connected}
+      {...panels ? { insights: { supported: true, loading: true }, onPeriod() {} } : {}}
       sampleTask={mode === "sample" ? <SampleTask query={query} /> : undefined}
       firstRun={mode === "first" ? <FirstRun planner="claude-code" query={query} detections={[{ agent: "claude-code", found: true, version: "2.1", path: null, install_hint: "" }, { agent: "codex", found: true, version: "0.162", path: null, install_hint: "" }, { agent: "cursor", found: false, version: null, path: null, install_hint: "Install Cursor CLI" }]} /> : undefined} />}</>} /></ActionContext.Provider></SetupContext.Provider></TaskContext.Provider>;
 }

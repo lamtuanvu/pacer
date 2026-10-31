@@ -1,9 +1,12 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures, lastRateLimits } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { appendFile, mkdir, readFile, rename, stat, truncate, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildActivity, hourBin } from "../src/pace/activity";
-import { lastRateLimits, readCodex, windowsFromRateLimits } from "../src/usage/codex";
-import { fakeCtx } from "./helpers";
+import { readCodex, windowsFromRateLimits } from "../src/usage/codex";
+
 import type { Ctx } from "../src/types";
 
 const stamp = (ts: number) => JSON.stringify({ timestamp: new Date(ts * 1000).toISOString() });
@@ -116,12 +119,14 @@ test("persisted cursors are usable in another process without reading unchanged 
       return realOpen(...args);
     });
     const ctx = {...makeCtx(), now: ${ctx.now}, readOnly: true};
-    console.log(JSON.stringify({profile: await buildActivity(ctx), quota: await readCodex(ctx)}));`;
+    const {shutdownPlugins}=await import(${JSON.stringify(new URL("../src/plugins/index.ts", import.meta.url).pathname)});
+    try {console.log(JSON.stringify({profile: await buildActivity(ctx), quota: await readCodex(ctx)}));} finally {await shutdownPlugins(ctx);}`;
   const child = Bun.spawn([process.execPath, "-e", script], {
     env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, stdout: "pipe", stderr: "pipe",
   });
-  expect(await child.exited).toBe(0);
-  expect(JSON.parse(await new Response(child.stdout).text())).toEqual({profile: expected, quota: expectedQuota});
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(code, stderr).toBe(0);
+  expect(JSON.parse(stdout)).toEqual({profile: expected, quota: expectedQuota});
 });
 
 

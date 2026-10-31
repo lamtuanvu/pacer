@@ -11,8 +11,11 @@ import { ButtonLink, IconButton, TextAction } from "../../ds/Button";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { EmptyState, Skeleton } from "../../ds/Patterns";
+import { ActionPanel } from "../../ds/Page";
 import { hrefFor, routes, withQuery, type RouteQuery } from "../../router";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
+import { MessageAnswer } from "../TaskResult";
+import { messageQuestion } from "../../model/task-answer";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
 
 const name = (agent:string) => agentInfo(markAgent(agent)).name;
@@ -23,10 +26,14 @@ function Agent({agent,chip=false}:{agent:string;chip?:boolean}) {
 export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const {state}=useTaskContext();
   const [copied,setCopied]=useState(false);
-  const task=useQuery<TaskDetail>("task.get",{id});
+  // Keep confirmation on the task page after a delivered question disappears.
+  const [answered,setAnswered]=useState("");
+  const task=useQuery<TaskDetail>("task.get",{id},"",true);
   const tree=useQuery<TraceTree>("dispatch.tree",{id});
   if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
   const t=task.data, root=tree.data?.nodes.find(n=>n.taskId===id), nodes=tree.data?.nodes ?? [];
+  const question=messageQuestion(t);
+  const focusAnswer=new URLSearchParams(location.hash.split("?")[1]).get("tab")==="answer";
   const steps=traceSteps(t,tree.data), totals=tree.data?.totals.tokens ?? (t.work?undefined:t.tokens);
   const children=nodes.filter(n=>n.taskId!==id);
   const decisionNode=root?.decisions.length ? root : children.find(n=>n.decisions.length);
@@ -63,6 +70,11 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
       </div>
     </header>
     {task.error && <ErrorMessage error={task.error}/>}
+    {question && <ActionPanel aria-label="Task question">
+      <h2>Next step</h2>
+      <MessageAnswer key={question.id} task={t} question={question} focus={focusAnswer} onSent={message=>{setAnswered(message);task.reload();}}/>
+    </ActionPanel>}
+    {answered && <p role="status" aria-live="polite">{answered}</p>}
     <NowCard task={t}/>
     <CostTiles task={t} tokens={totals} agentsUsed={agents.length} attempts={attempts} subtasks={children.length} retries={retries}/>
     <div className="pc-trace__columns">

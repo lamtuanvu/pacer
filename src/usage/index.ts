@@ -1,3 +1,4 @@
+import { readPluginUsage } from "../plugins/usage-broker";
 import { accountEvidenceScope } from "../evidence/scope";
 import { statusTimer } from "./trace";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
@@ -10,7 +11,7 @@ import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  return usageAdapter(cfg).read(ctx, cfg, account, refresh);
+  return readPluginUsage(ctx, cfg, account, refresh);
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>; refreshing?:boolean}>();
@@ -33,8 +34,9 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     try {
       const value=await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
-      entry.value = value.availability ? value : value.error && hit?.value?.windows.length
-        ? { ...hit.value, stale: true, error: value.error }
+      const replacesHistory = value.availability?.reason === "authentication_failed" || value.availability?.reason === "subscription_missing";
+      entry.value = replacesHistory ? value : value.error && hit?.value?.windows.length
+        ? { ...hit.value, stale: true, error: value.error, ...(value.availability ? { availability: value.availability } : {}) }
         : hit?.value?.capturedAt != null && (value.capturedAt == null || value.capturedAt < hit.value.capturedAt)
           ? hit.value : value;
       return entry.value;

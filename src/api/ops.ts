@@ -44,8 +44,10 @@ import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
+import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-usage-check";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
+import { msgOps } from "./ops-msg";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -82,11 +84,14 @@ import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
+import { callerParticipant } from "../messaging/participants";
 
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
   appAuthenticated?: boolean;
+  /** In-process callers only (CLI, MCP): the messaging participant when no planner session is detected. Never set from a request. */
+  participant?: string;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
@@ -97,6 +102,7 @@ export interface OpDeps {
   clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
+  accountUsageCheck?: AccountUsageCheckDeps;
   terminal?: Partial<TerminalDeps>;
   openInTerminal?: typeof openInTerminal;
   spawnRunner?: SpawnRunner;
@@ -224,7 +230,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -300,9 +306,9 @@ export const OPS: Record<string, OpDef> = {
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
   "account.adopt": op({ description: "Adopt an external OpenCode provider's URL and model ids, supplying a new key source.", params: z.object({name: id, key_source: endpointFields.key_source, key: endpointFields.key, env_var: endpointFields.env_var}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.adoptEndpoint(ctx, p, deps.endpoint))) }),
-  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id.regex(/^[a-z0-9][a-z0-9-]*$/, "invalid account name"), delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", () => { const {migrated} = accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
+  "account.remove": op({ description: "Remove an unused account, optionally deleting its protected-path-checked home.", params: z.object({name: id.regex(/^[a-z0-9][a-z0-9-]*$/, "invalid account name"), delete_home: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "accounts", async () => { const {migrated} = await accounts.remove(ctx, p.name, {deleteHome: p.delete_home}); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
   "runner.add": op({ description: "Add an agent/account runner to the default routing rule.", params: z.union([interactive.omit({interactive:true}).extend({interactive:z.literal("runner-add")}),z.object({agent: z.enum(AGENTS), account: id.optional(), host: id.optional(), model: z.string().min(1).optional(), rank: z.number().int().nonnegative().optional(), kinds: z.array(z.enum(KINDS)).min(1).optional(), max_tasks: z.number().int().positive().optional(), test: z.boolean().optional()})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : mutation(ctx, "runners", async () => {
-    const {id, migrated} = runnersConfig.add(ctx, p);
+    const {id, migrated} = await runnersConfig.add(ctx, p);
     return {id, ...(migrated ? {migrated} : {}), ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
   }) }),
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
@@ -310,7 +316,7 @@ export const OPS: Record<string, OpDef> = {
   "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
-  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { const {migrated} = runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
+  "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", async () => { const {migrated} = await runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
   "routing.get": op({ description: "Routing rules and available executor ids.", params: z.object({}), handler: ctx => routingConfig.get(ctx) }),
   "routing.set": op({ description: "Validate and replace routing rules, keeping the default last and preserving comments.", params: z.object({rules: z.array(z.object({kinds: z.array(z.string()).optional(), executors: z.array(id)}))}), handler: (ctx, p) => mutation(ctx, "routing", () => routingConfig.set(ctx, p.rules)) }),
   "host.add": op({ description: "Add an SSH host alias without connecting to it.", params: z.object({alias: id, ssh: z.string().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.add(ctx, p)) }),
@@ -391,7 +397,7 @@ export const OPS: Record<string, OpDef> = {
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
-      const task = (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source}, deps.spawnRunner ?? spawnRunner);
+      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: callerParticipant(ctx, deps).id}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
@@ -401,11 +407,11 @@ export const OPS: Record<string, OpDef> = {
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
   "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(getWork(ctx,p.id)?stopWork(ctx,p.id,p.expect_rev):core.tasks.stop(ctx, p.id))) }),
   "task.answer": op({
-    description: "Answer an executor question and retry on the same executor. Conflicts unless awaiting input.",
+    description: "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
-      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
+      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner),spawnRunner:deps.spawnRunner,appAuthenticated:deps.appAuthenticated,participant:deps.participant});
     },
   }),
   "task.send": op({
@@ -466,7 +472,7 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
@@ -492,6 +498,7 @@ export const OPS: Record<string, OpDef> = {
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
+  "account.usage.check": op({description: "Check usage for an account independently of its planner or executor role. Claude requires explicit consent for a quota-consuming small task; poll job.get for progress and observation outcome.", params: z.object({account: id, consent: z.boolean().optional()}), handler: (ctx, p, deps) => checkAccountUsage(ctx, p.account, p.consent, {...deps.accountUsageCheck, onDone: deps.usageRefreshDone})}),
   "limits.refresh": op({ description: "Refresh configured account usage from each provider's available source without starting an agent turn.", params: z.object({ account: id.optional() }), handler: async (ctx, p, deps) => {
     const accounts = p.account ? [await refreshAccountUsage(ctx, p.account)] : await refreshAllUsage(ctx);
     await deps.usageRefreshDone?.();

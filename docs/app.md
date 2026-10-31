@@ -7,6 +7,9 @@ pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available f
 
 ## Workspace reads
 
+Long active-panel identities ellipsize within the header; hover the identity or
+metadata for its full text. Status pills remain fully visible in both themes.
+
 Workspace (`#/workspace`) renders task cards from task history and the live
 snapshot. Selecting a task loads its details once; task events refresh those
 details after a short debounce. Open session panels retain their output stream.
@@ -21,6 +24,8 @@ in both app themes, including ANSI colors and a contrast floor for agent text.
 The toolbar uses quiet handback and danger **Stop task** icons. Running
 cards name the agent and recorded phase and show up to two meaningful output lines,
 omitting echoed instructions and shortening home and temporary paths.
+Task file summaries distinguish unavailable changes from a measured empty diff: unavailable
+changes show no added/removed line totals, while measured zero counts remain visible.
 The shared page-control worker checks for remote actions every ten seconds.
 
 ## Open the app
@@ -56,6 +61,19 @@ share it. Run `pacer open` again if it expires or has already been used.
 
 `pacer open --logout` signs out all browser sessions. Settings also shows this
 command under Sign out; run it in a terminal.
+
+## Read freshness
+
+Returning to a screen within two seconds can reuse its last successful read.
+Screens sharing the same service connection also share identical in-flight reads.
+Changed task/configuration events, reconnects and explicit refreshes request new
+data; a failed refresh keeps the last visible result and reports the error.
+Connections keep separate results, and unused query history is bounded.
+
+Repository branch choices are cached by the service for at most two seconds
+between reads, so a branch created outside pacer can take another read after that
+interval to appear. This picker cache does not replace the repository and working
+tree checks performed when starting work.
 
 ## Screens
 
@@ -118,7 +136,9 @@ checklist and advance in place; the Setup route stays open. **Change** returns t
 planner selection without connecting integrations until the connection step.
 
 The connection card explains additions and edits in plain words. **Show the files**
-reveals technical paths and the undo command before consent. **Skip for now** leaves
+reveals technical paths and the undo command before consent. Tab into each long
+preview and use the Left and Right Arrow keys to scroll its full text horizontally.
+**Skip for now** leaves
 connection pending, with a return action in the rail. Restart open planner sessions
 after connecting. Executor checkboxes enable or block work, and arrow buttons save
 priority. **Looks right** confirms the list; an empty list offers the existing
@@ -177,7 +197,14 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
-Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions can be answered in the workspace. Execution status and quality verdict are separate:
+The tray planner header keeps its caption and mode visible at narrow widths; the
+pace label truncates first, with the full status available in its tooltip. Below
+340px, the four task-count columns fit their full captions with compact insets,
+and footer actions use two rows so labels, shortcut hints and controls remain
+visible; the More menu stays above the footer and scrolls within short windows,
+even with a long expanded strategy list. Large count values ellipsize when space
+is tight; count links keep the exact value in their accessible name and tooltip.
+Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.
@@ -190,7 +217,9 @@ Failed checks and incomplete results expose recovery actions. Ordinary completed
 runs keep verdict recording optional. Mixed attention has no bulk accept action.
 
 Acceptance records a verdict only; integrate branches separately. Send back needs
-a note and creates a linked retry on the same executor. Retry on another executor
+a note. A local task with a resumable session continues in that session with the
+note, after the same project policy admission as a new attempt; otherwise it creates
+a linked retry on the same executor. Retry on another executor
 also creates a linked attempt. Concurrent mutations report a conflict and refresh
 the result rather than overwriting another client's decision.
 

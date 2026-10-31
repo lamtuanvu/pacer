@@ -48,6 +48,19 @@ browserTest("terminal page creates, selects, renames, splits and closes tabs wit
     await page.getByRole("button",{name:"New terminal",exact:true}).click();
     await tabs.nth(1).waitFor();
     await expect(tabs.count()).resolves.toBe(2);
+    for (const width of [375, 640, 1440]) {
+      await page.setViewportSize({width,height:900});
+      for (const name of ["New terminal in…", "More terminal actions"]) {
+        const trigger=page.getByRole("button",{name,exact:true});
+        await trigger.click();
+        await page.waitForFunction(()=>document.activeElement?.getAttribute("role")==="menuitem");
+        await page.keyboard.press("End");
+        await page.keyboard.press("Escape");
+        await page.getByRole("menu").waitFor({state:"detached"});
+        await expect(trigger.getAttribute("aria-expanded")).resolves.toBe("false");
+        await expect(trigger.evaluate(node=>document.activeElement===node)).resolves.toBe(true);
+      }
+    }
     await tabs.nth(1).focus();await page.keyboard.press("ArrowLeft");
     await expect(tabs.nth(0).getAttribute("aria-selected")).resolves.toBe("true");
     await page.getByRole("button",{name:"More terminal actions"}).click();

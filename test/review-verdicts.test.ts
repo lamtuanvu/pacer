@@ -17,7 +17,12 @@ function fixture(state: "done" | "running" | "queued" = "done") {
     t.state = state;
     if (state === "done") t.result = { status: "done", executor: "codex#codex", model: null, files: "", report: "", backend: "direct" };
   });
-  const delegate = (c: typeof ctx, input: DelegateInput) => createTask(c, { brief: input.brief, kind: input.kind ?? null, requestedExecutor: input.executor ?? null, timeoutS: 60 });
+  // This unit fixture replaces creation only; consume the trusted commit discipline.
+  // Actual policy/constructor boundaries are exercised by plugins-policy-review-gates.
+  const delegate = (c: typeof ctx, input: DelegateInput) => {
+    const create=()=>createTask(c,{brief:input.brief,kind:input.kind??null,requestedExecutor:input.executor??null,timeoutS:60});
+    return input.commitWith?input.commitWith(create):create();
+  };
   return { ctx, task, delegate };
 }
 
@@ -127,4 +132,12 @@ test("a send back whose retry cannot start records no verdict", async () => {
   await expect(tasks.review(ctx, task.id, { verdict: "send_back", note: "again" }, { delegate: failing })).rejects.toThrow();
   expect(readTask(ctx, task.id)?.review).toBeUndefined();
   expect(readLabels(ctx).filter(l => l.type === "task_review")).toHaveLength(0);
+});
+
+test("a send-back retry of a human-started task keeps origin human", async () => {
+  const { ctx, task, delegate } = fixture();
+  updateTask(ctx, task.id, t => { t.origin = "human"; });
+  const inputs: DelegateInput[] = [];
+  await tasks.review({ ...ctx, env: {} }, task.id, { verdict: "send_back", note: "again" }, { delegate: (c, i) => { inputs.push(i); return delegate(c, i); } });
+  expect(inputs[0]?.origin).toBe("human");
 });

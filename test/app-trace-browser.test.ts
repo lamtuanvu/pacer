@@ -123,3 +123,33 @@ browserTest('task header keeps workspace access in every state and copy ID in th
   }
  }finally {await browser.close();}
 });
+
+browserTest('task Overview distinguishes unavailable file changes from a measured empty diff',async()=>{
+ const build=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',minify:true});
+ expect(build.success).toBe(true);
+ const source=await build.outputs[0]!.text();
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/trace/trace.css'].map(p=>Bun.file(p).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  for(const scenario of ['files-unavailable','files-running-unavailable','files-zero']) {
+   const page=await browser.newPage({viewport:{width:1440,height:900}});
+   await page.route('http://pacer.test/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><style>${css}</style><div id="app"></div>`}));
+   await page.goto(`http://pacer.test/?scenario=${scenario}#/tasks/trace-root`);
+   await page.addScriptTag({content:source});
+   await page.locator('.pc-trace__cost').waitFor();
+   const changed=await page.locator('.pc-trace__cost>div').last().innerText();
+   const now=await page.getByRole('region',{name:'Now',exact:true}).innerText();
+   if(scenario==='files-zero') {
+    expect(changed).toContain('0 files');
+    expect(changed).toContain('+0 −0');
+    expect(now).toContain('0 files changed');
+   } else {
+    expect(changed).toContain('Not recorded');
+    expect(changed).not.toMatch(/[+−]0/);
+    expect(now).toContain('File changes unavailable');
+    expect(now).not.toContain('0 files');
+   }
+   await page.close();
+  }
+ }finally {await browser.close();}
+});

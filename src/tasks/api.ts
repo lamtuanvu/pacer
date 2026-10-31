@@ -1,7 +1,14 @@
-import { getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { prepareCreationAdmission } from "./creation-admission";
+import { createHash } from "node:crypto";
+import { withLock } from "../core/lock";
+import { readTask as currentTask } from "./store";
+import { buildModelInventory } from "../dispatch/inventory";
+import { meetsRequirements } from "../dispatch/candidates";
+import { MissingStrategyError } from "../config/strategy";
+import { authorizeWorkGrant, getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
 import { dispatchDatabase } from "../dispatch/store";
 import { revokeEnforcementTokens } from "../dispatch/enforcement-token";
-import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync } from "../update/desktop/admission";
+import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
 import { resolveProjectSelection } from "../engine/project-routing";
@@ -30,6 +37,8 @@ import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
 import { taskDatabase, createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
+import { messagingOverrideSchema } from "../messaging/types";
+import { callerParticipant } from "../messaging/participants";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
 export function validBase(base: string): boolean {
@@ -52,6 +61,7 @@ export const delegateSchema = {
   timeout_min: z.number().min(1).max(240).optional(),
   interactive: z.boolean().optional(),
   group: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/, "group must be 1–40 characters, starting alphanumeric, of letters, digits, - and _").optional(),
+  messaging: messagingOverrideSchema.optional(),
 };
 export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateInput {
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
@@ -60,7 +70,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
-    interactive:a.interactive, group:a.group };
+    interactive:a.interactive, group:a.group, messaging:a.messaging };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
@@ -89,7 +99,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string }
+export interface DelegateInput { /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -117,7 +127,8 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
   validatePendingWorkSync(ctx, lease);
   describeWorkSync(ctx, lease, { kind: "task", id: taskId, label: `Task ${taskId}` });
   markLaunchStartedSync(ctx, lease);
-  return spawn({ ...ctx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
+  const {operation:_requestLifetime,...launchCtx}=ctx;
+  return spawn({ ...launchCtx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
 }
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
 
@@ -152,7 +163,112 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   return p;
 }
 
-export function delegate(
+const admissionClocks = new WeakMap<Ctx,number>();
+/** Preserve the request clock while accounting for time spent awaiting admission. */
+export function admissionCtx(ctx:Ctx):Ctx {
+  let started=admissionClocks.get(ctx);
+  if(started===undefined) {started=performance.now();admissionClocks.set(ctx,started);}
+  return {...ctx,now:ctx.now+(performance.now()-started)/1000};
+}
+
+/** Authorize before entering a caller's final synchronous task transaction. */
+export async function prepareDelegate(
+  ctx: Ctx, original: DelegateInput, spawnFn: SpawnRunner = spawnRunner, supplied?: Strategy,
+  contextFingerprint: () => string = () => "",
+  validateAmend: (candidate: Readonly<DelegateInput>) => boolean = () => true,
+) {
+  const fresh=()=>admissionCtx(ctx);
+  const {commitWith,admissionContext,admissionSignal,admissionDeadline,admissionTaskLock,admissionPaths,admissionPrepare,admissionValidate,...cloneable}=original;
+  const input=structuredClone(cloneable);
+  const strategy=()=>{
+    try {return loadStrategy(fresh());}
+    catch(error){if(supplied&&error instanceof MissingStrategyError)return supplied;throw error;}
+  };
+  const initial=supplied??strategy();
+  const basicProblems=validateInput(initial,{...input,repoValidated:true});
+  if(basicProblems.length)throw new DelegateError(basicProblems.join("; "));
+  input.repoValidated=true;
+  if(input.executor)input.executor=resolveRunner(initial,input.executor)?.id??input.executor;
+  const repo=input.repoRef??registeredRepo(ctx,input.brief.repo);
+  const validate=(candidate:DelegateInput,current:Strategy)=>{
+    const problems=validateInput(current,candidate);
+    if(candidate.executor){
+      const runner=resolveRunner(current,candidate.executor);
+      if(runner?.enabled===false)problems.push(`${candidate.executor}: disabled`);
+      if(candidate.dispatch&&!buildModelInventory(current,[],fresh().now).some(model=>model.runner===candidate.executor&&meetsRequirements(model,candidate.dispatch!.requirements)&&(!candidate.dispatch!.model||model.binding.kind==="exact"&&model.binding.id===candidate.dispatch!.model)))problems.push(`${candidate.executor}: incompatible managed model policy`);
+      const reason=executorExclusion(fresh(),current,candidate.executor);if(reason)problems.push(`${candidate.executor}: ${reason}`);
+    }
+    if(problems.length)throw new DelegateError(problems.join("; "));
+    const projects=readProjectStrategies(fresh());
+    if(!repo&&Object.values(projects.projects).some(p=>p.executors))throw new CoreError("invalid_input","Resolve the repository before delegating with project policies");
+    if(repo)requirePolicyIdentity(fresh(),repo);
+    requireProjectExecutor(repo?resolveProjectSelection(current,repo.key,projects.projects):undefined,candidate.executor);
+    if(candidate.workGrant)authorizeWorkGrant(fresh(),candidate.workGrant);
+    if(candidate.admissionLease)validatePendingWorkSync(fresh(),candidate.admissionLease);
+    admissionValidate?.(candidate);
+  };
+  const policyKind=input.dispatch?.kind??input.kind??null;
+  const map=(next:{kind:string|null;requestedExecutor:string|null;placement:WorktreeRequest}):DelegateInput=>{
+    const changed=next.kind!==policyKind;
+    return {...input,kind:changed?next.kind:input.kind,executor:next.requestedExecutor,worktree:next.placement,
+      ...(input.dispatch&&changed?{dispatch:{...input.dispatch,kind:next.kind??undefined}}:{})};
+  };
+  const capture=()=>{
+    const current=strategy();
+    return JSON.stringify({strategy:current,projects:readProjectStrategies(fresh()),repo,registered:registeredRepo(fresh(),input.brief.repo),
+      parent:input.workParent?currentTask(fresh(),input.workParent):null,work:input.workParent?getWork(fresh(),input.workParent):null,
+      root:input.workParent?getWork(fresh(),getWork(fresh(),input.workParent)!.rootId):null,
+      active:input.workParent?listTasksWhere(fresh(),{states:["running"]}).map(t=>[t.id,t.rev]):null,
+      candidates:Object.keys(current.runners).map(id=>[id,executorExclusion(fresh(),current,id)]),context:[contextFingerprint(),admissionContext?.()]});
+  };
+  const admission=await prepareCreationAdmission(fresh(),{goal:input.brief.goal,repo:input.brief.repo,kind:policyKind,requestedExecutor:input.executor??null,placement:input.worktree??"auto"},{
+    contextFingerprint:capture,taskLock:admissionTaskLock,validateArtifacts:admissionPrepare,signal:admissionSignal,deadline:admissionDeadline,
+    additionalDirectories:[...(input.reuseWorktree?[input.reuseWorktree]:[]),...(admissionPaths??[])],
+    eligibleRunnerIds:Object.keys(initial.runners),allowedPlacements:input.workParent||input.reuseWorktree?[input.worktree??"auto"]:["auto","current","new"],
+    validateCurrent:next=>validate(map(next),strategy()),
+    validateAmend:next=>{try{const candidate=map(next);validate(candidate,strategy());return validateAmend(candidate);}catch{return false;}},
+  });
+  const candidate=map(admission.input);
+  const synchronous=(effect:Function)=>{
+    if(effect.constructor.name==="AsyncFunction"||commitWith?.constructor.name==="AsyncFunction")throw new CoreError("invalid_input","Admission effect must be synchronous");
+  };
+  return {
+    input:structuredClone(candidate),policies:admission.policies,
+    consume<T>(effect:(permit:{input:Readonly<DelegateInput>;revalidate:()=>void})=>T):Promise<T>{
+      synchronous(effect);return admission.consume(({input,revalidate})=>effect({input:structuredClone(map(input)),revalidate}));
+    },
+    commit:()=>{
+      synchronous(()=>{});
+      return admission.consume(({revalidate})=>{
+        let committed=false;
+        const commit=()=>{if(committed)throw new CoreError("conflict","Delegation commit was already consumed");revalidate();committed=true;return commitDelegate(fresh(),candidate,spawnFn,strategy());};
+        return commitWith?commitWith(commit):commit();
+      });
+    },
+  };
+}
+
+/** Public lower API is an admitted async gateway; the raw constructor is private. */
+export async function delegate(
+  ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s?: Strategy,
+): Promise<TaskRecord> {
+  admissionCtx(ctx);
+  const lease=input.admissionLease??beginWorkSync(ctx,{kind:"launch",id:"delegate",label:"Delegating task"});
+  const run=async()=>{
+    const currentNow=admissionCtx(ctx).now;
+    if(input.requestId) {
+      const prior=listTasksWhere(ctx,{updatedSince:currentNow-600}).find(t=>t.requestId===input.requestId&&currentNow-t.createdAt>=0&&currentNow-t.createdAt<=600);
+      if(prior&&(prior.brief.goal!==input.brief.goal||prior.brief.repo!==input.brief.repo)) throw new CoreError("conflict","request_id was already used for a different brief");
+      if(prior) return prior;
+    }
+    const admission=await prepareDelegate(ctx,{...input,admissionLease:lease},spawnFn,s);
+    return admission.commit();
+  };
+  try {return await (input.requestId?withLock(ctx,`delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`,run):run());}
+  finally {finishUnlaunchedWorkSync(ctx,lease);}
+}
+
+function commitDelegate(
   ctx: Ctx, input: DelegateInput, spawnFn: SpawnRunner = spawnRunner, s: Strategy = loadStrategy(ctx),
 ): TaskRecord {
   const lease = input.admissionLease ?? beginWorkSync(ctx, { kind: "launch", id: "delegate", label: "Delegating task" });
@@ -180,7 +296,9 @@ export function delegate(
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
   }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
-  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});
+  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
+    if(!input.workParent)t.origin=input.origin ?? callerParticipant(ctx).id;
+    if(input.messaging)t.messaging=input.messaging;});
   if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});
   if (input.retryOf) updateTask(ctx, task.id, t => { t.retryOf = input.retryOf; });

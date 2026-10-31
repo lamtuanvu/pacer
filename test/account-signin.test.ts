@@ -1,3 +1,6 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { accountEvidenceScope } from "../src/evidence/scope";
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
@@ -6,10 +9,16 @@ import { callOp } from "../src/api/ops";
 import { list, signin } from "../src/core/accounts";
 import { loadStrategy } from "../src/config/strategy";
 import { readAccountUsage } from "../src/usage";
-import * as codex from "../src/usage/codex";
-import * as codexLive from "../src/usage/codex-live";
+import * as usageBroker from "../src/plugins/usage-broker";
+const actualBroker = usageBroker.readPluginUsage;
+function mockCodexReader() {
+  const reading = mock<typeof actualBroker>();
+  spyOn(usageBroker, "readPluginUsage").mockImplementation((ctx, cfg, account, refresh) => cfg.id === "codex"
+    ? reading(ctx, cfg, account, refresh) : actualBroker(ctx, cfg, account, refresh));
+  return reading;
+}
 import { markAuthFailed, readAuthFailures } from "../src/usage/auth";
-import { fakeCtx } from "./helpers";
+
 
 function configured() {
   const ctx = fakeCtx();
@@ -26,7 +35,7 @@ test("a Codex usage authentication failure signs out the account until a success
   const home = join(ctx.home, "codex team's home");
   mkdirSync(home, {recursive: true}); writeFileSync(join(home, "auth.json"), "{}");
   utimesSync(join(home, "auth.json"), ctx.now - 3600, ctx.now - 3600);
-  const read = spyOn(codex, "readCodex").mockResolvedValue({windows: [], capturedAt: null, stale: false, error: "401 Unauthorized"});
+  const read = mockCodexReader().mockResolvedValue({windows: [], capturedAt: null, stale: false, error: "401 Unauthorized"});
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(readAuthFailures(ctx)).toEqual({codex: ctx.now});
   read.mockResolvedValue({windows: [], capturedAt: ctx.now + 61, stale: false, source: "session-log"});
@@ -41,7 +50,7 @@ test("auth patterns are case insensitive and unrelated usage failures preserve t
     markAuthFailed(ctx, "codex", message);
     expect(readAuthFailures(ctx).codex).toBe(ctx.now);
   }
-  spyOn(codex, "readCodex").mockResolvedValue({windows: [], capturedAt: null, stale: false, error: "network unavailable"});
+  mockCodexReader().mockResolvedValue({windows: [], capturedAt: null, stale: false, error: "network unavailable"});
   await readAccountUsage(ctx, loadStrategy(ctx).accounts.codex, []);
   expect(readAuthFailures(ctx).codex).toBe(ctx.now);
   markAuthFailed(ctx, "personal", "network unavailable");
@@ -91,8 +100,9 @@ test("account.signin supports headless fallback, validates targets and refuses e
 
 test("a cached successful reading cannot erase a newer attempt's auth failure", async () => {
   const ctx = configured();
-  const read = spyOn(codex, "readCodex").mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
-  const live = spyOn(codexLive, "readCodexLive").mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  const initial = ctx.now;
+  let fresh = false;
+  const read = mockCodexReader().mockImplementation(async () => ({windows: [], capturedAt: fresh ? ctx.now : initial, stale: false}));
   const account = loadStrategy(ctx).accounts.codex;
   await readAccountUsage(ctx, account, []);
   ctx.now += 1;
@@ -100,10 +110,9 @@ test("a cached successful reading cannot erase a newer attempt's auth failure", 
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(read).toHaveBeenCalledTimes(1);
   await readAccountUsage(ctx, account, [], true);
-  expect(read).toHaveBeenCalledTimes(1);
-  expect(live).toHaveBeenCalledTimes(1);
+  expect(read).toHaveBeenCalledTimes(2);
   expect(readAuthFailures(ctx).codex).toBe(ctx.now);
-  ctx.now += 1; live.mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  ctx.now += 1; fresh = true;
   await readAccountUsage(ctx, account, [], true);
   expect(readAuthFailures(ctx)).toEqual({});
 });

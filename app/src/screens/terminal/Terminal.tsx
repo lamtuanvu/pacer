@@ -160,7 +160,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   if (!available) return <Page width="full" embedded={embedded}><EmptyState title="Built-in terminal needs a newer Pacer service." description="Update Pacer, then reload this page." /></Page>;
   return <Page width="full" embedded={embedded} className="pc-workspace-terminal" onKeyDownCapture={event => {
     if ((event.metaKey || event.ctrlKey) && (event.key === "\\" || event.key.toLowerCase() === "f" && !(event.target as HTMLElement).closest(".pc-terminal-view"))) { event.preventDefault(); event.stopPropagation(); if (event.key.toLowerCase() === "f") command("find"); else split(); }
-    if (event.key === "Escape") setMenu(null);
+    if (event.key === "Escape" && menu) { event.preventDefault(); event.stopPropagation(); closeMenu(); }
   }}>
     {!embedded && <h1>Terminal</h1>}
     {dialogs.dialog}

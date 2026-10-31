@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CASES, type ConformanceCase, prepareHome } from "./cases";
-import { HostSession } from "./host";
+import { HostSession,publishTaskFixtureEvent } from "./host";
 import { installFixture } from "./install";
 import { installKeychainStub } from "../scripts/live/keychain";
 
@@ -35,8 +35,9 @@ export async function runCase(c: ConformanceCase, hostArgv: string[], root: stri
     await c.run({
       home, pluginsDir,
       install: (name, overrides) => installFixture(name, pluginsDir, overrides),
-      host: async () => { const s = new HostSession(hostArgv, env); sessions.push(s); return await s.start(); },
+      host: async options => { const s = new HostSession(hostArgv, env); sessions.push(s); return await s.start(options); },
       sleep: ms => Bun.sleep(ms),
+      publishTaskEvent:id=>publishTaskFixtureEvent(home,id),
     });
   } finally {
     await Promise.all(sessions.map(s => s.close()));

@@ -4,7 +4,7 @@ import { useState } from "preact/hooks";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { accountLabel, accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
-import { accountUsageFreshness, accountBudgetStatus } from "../../../../src/view-model/capacity";
+import { accountUsageFreshness } from "../../../../src/view-model/capacity";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import { Disclosure, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -17,10 +17,12 @@ import type { ConfigData } from "../../model/strategy";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { Stack } from "../../ds/Page";
 import { Button, IconButton, TextAction } from "../../ds/Button";
-import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
+import { accountQuotaLabel, accountObservation, arkcliSignInRequired, type Account } from "../../model/accounts";
 import { useTaskContext } from "../task-shared";
 import { AgentsIntro } from "./Executors";
 import { Feedback, Field, ResourceState, SettingsBoard, useOperation, useResource, useScoped } from "./shared";
+
+import { AccountUsage } from "./AccountUsage";
 
 const agentOf = (account: Account, summary?: AccountSummary) => summary?.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind);
 
@@ -38,21 +40,9 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
   const scoped = useScoped();
   const query = useResource<Account[]>("account.list", {}, initialData),
     action = useOperation(query.reload),
-    { state, api } = useTaskContext();
+    { state } = useTaskContext();
   const [adding, setAdding] = useState(false), [name, setName] = useState(""), [kind, setKind] = useState("codex"),
-    [openActions, setOpenActions] = useState<string | null>(null),
-    [refreshing, setRefreshing] = useState(""), [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
-  const refresh = async (account: string) => {
-    setRefreshing(account); setRefreshStatus(undefined);
-    try {
-      const result = await api.call<{ accounts: { account: string; outcome: string; error?: string | null }[] }>("limits.refresh", { account });
-      setRefreshStatus({ account, message: arkcliRefreshMessage(result, account) });
-      query.reload();
-    } catch (error) {
-      setRefreshStatus({ account, message: error instanceof Error ? error.message : "Usage could not be refreshed." });
-    } finally { setRefreshing(""); }
-  };
-  const refreshButton = (account: string) => <Button size="sm" variant="quiet" busy={refreshing === account} disabled={!!refreshing || !state.connected} onClick={() => void refresh(account)}>Refresh usage<span className="sr-only"> for {account}</span></Button>;
+    [openActions, setOpenActions] = useState<string | null>(null);
   return (
     <SettingsBoard id="accounts" title="Agents" caption="Who plans, who executes, and what each one is allowed to use."
       >
@@ -66,7 +56,15 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
               {query.data?.map(account => {
                 const summary = state.snapshot?.accounts?.find(a => a.name === account.name),
                   readiness = { ...account, signedIn: summary?.signedIn ?? account.signedIn },
-                  freshness = summary && accountUsageFreshness(summary), users = summary?.executors ?? account.runners ?? [],
+                  quotaLabel = accountQuotaLabel(account, summary),
+                  observation = accountObservation(account, summary), usage = observation?.usage, observedAt = usage?.capturedAt,
+                  freshness = usage && accountUsageFreshness(usage), users = summary?.executors ?? account.runners ?? [],
+                  pace = paceStatus(usage?.verdict ?? "unknown"),
+                  status = quotaLabel ? accountStatus({}) : observation?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
+                    : readiness.signedIn === true && usage
+                      ? pace.label === "Usage unknown" && (usage.usedPct != null || usage.spendUsdWeek != null)
+                        ? {...pace, label: freshness ? "Historical usage" : "Usage observed"} : pace
+                      : accountStatus(readiness),
                   hasAction = arkcliSignInRequired(account) || accountNeedsSignIn(readiness),
                   expanded = hasAction && openActions === account.name, actionsId = `account-actions-${encodeURIComponent(account.name)}`;
                 return (
@@ -78,23 +76,24 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     </td>
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
-                      {summary?.usedPct != null && <UsageMeter used={summary.usedPct} pace={summary.pacePct??null} tone={paceStatus(summary.verdict).tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
-                      <div className="u3-muted">{accountUsageWords(summary)}{freshness && ` · ${freshness}`}</div>
+                      {usage?.usedPct != null && <UsageMeter used={usage.usedPct} pace={usage.pacePct??null} tone={paceStatus(usage.verdict).tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
+                      <div className="u3-muted">{quotaLabel ?? accountUsageWords(usage)}{freshness && ` · ${freshness}`}</div>
+                      {!quotaLabel && <div className="u3-muted">{observedAt == null ? "No observation time available" : `Last observed ${clock(observedAt, Date.now()/1000)}${usage?.stale !== false ? " · historical reading" : ""}`}</div>}
                     </td>
                     <td data-label="Status">
-                      <StatusPill status={readiness.signedIn === true && summary ? accountBudgetStatus(summary, state.snapshot?.at) : accountStatus(readiness)} />
-                      {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
+                      <StatusPill status={status} />
                     </td>
                     <td data-label="Used by">
                       {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={executorLabel(id)}><AgentMark agent={markAgent(id, account.name)} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
                     </td>
                     <td data-label="Actions" className={expanded ? "u3-account-actions--open" : undefined}>
+                      <AccountUsage account={account} reload={query.reload} sourceError={observation?.error}/>
                       {hasAction && <>
                         <IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${accountLabel(account)}`} aria-expanded={expanded} aria-controls={actionsId} onClick={() => setOpenActions(expanded ? null : account.name)} />
                         <div id={actionsId} hidden={!expanded}>
                           {arkcliSignInRequired(account) ? (
                             <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>
-                              <Stack space="compact"><p>Sign in to BytePlus in a terminal, then refresh usage here.</p><div><code>arkcli auth login</code></div><div>{refreshButton(account.name)}</div></Stack>
+                              <Stack space="compact"><p>Sign in to BytePlus in a terminal, then check usage here.</p><div><code>arkcli auth login</code></div></Stack>
                             </Disclosure>
                           ) : accountNeedsSignIn(readiness) ? (
                             <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>

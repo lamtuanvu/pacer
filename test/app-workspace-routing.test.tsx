@@ -15,7 +15,9 @@ test('old task tabs select the matching workspace panel',()=>{
  expect(resolveRoute('#/workspace?task=one&panel=notes')).toMatchObject({name:'terminal',id:'one',panel:'notes'});
 });
 test('task titles and explicit session actions have distinct destinations',()=>{
- for(const view of ['task','review']){expect(uiHref({view,id:'one'})).toBe('#/tasks/one');expect(actionRoute({label:'Open',op:'ui.open',params:{view,id:'one'}})).toBe('/tasks/one');}
+ for(const view of ['task','review']){expect(uiHref({view,id:'one'})).toBe('#/tasks/one');expect(actionRoute({label:'Open',op:'ui.open',params:{view,id:'one'}})).toBe('/sessions/one');}
+ expect(uiHref({view:'task',id:'one',tab:'answer'})).toBe('#/tasks/one?tab=answer');
+ expect(actionRoute({label:'Answer',op:'ui.open',params:{view:'task',id:'one',tab:'answer'}})).toBe('/sessions/one/answer');
  expect(uiHref({view:'session',id:'one'})).toBe('#/workspace?task=one');
  expect(actionRoute({label:'Open',op:'ui.open',params:{view:'session',id:'one'}})).toBe('/workspace?task=one&panel=session');
 });

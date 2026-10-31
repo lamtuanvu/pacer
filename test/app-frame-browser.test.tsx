@@ -268,7 +268,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await focused(page, "#pc-terminal-dock");
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
     await page.getByRole("button", { name: "New terminal", exact: true }).click();
-    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).waitFor();
+    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).last().waitFor();
     expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
@@ -280,13 +280,14 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     expect(sizes.pane).toBeLessThanOrEqual(sizes.panes);
     // The terminal itself keeps several lines (about 16px each) once search, status and controls are compacted.
     expect(sizes.term).toBeGreaterThanOrEqual(100);
-    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).getAttribute("aria-selected")).resolves.toBe("true");
+    expect(await dock.getByRole("tab", { name: "Shell", exact: true }).count()).toBe(2);
+    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).last().getAttribute("aria-selected")).resolves.toBe("true");
     await dock.focus();
     await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
     // The terminal route has no dock and no dock control.
-    await page.evaluate(() => { location.hash = "#/terminal"; });
+    await page.evaluate(() => { location.hash = "#/workspace"; });
     await button.waitFor({ state: "detached" });
     await page.keyboard.press("Control+Backquote");
     await page.waitForTimeout(100);
@@ -394,7 +395,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       };
     });
     expect(m.top.h).toBe(36);
-    expect(m.top.pad).toBe("0px 10px 0px 8px");
+    expect(m.top.pad).toBe("0px 10px 0px 84px");
     expect(m.top.bg).toBe(m.top.card);
     expect(m.top.headings).toBe(0); // Settings pages supply the h1; the banner retains its name.
     expect(m.top.label).toBe("Settings");
@@ -409,7 +410,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     expect(m.rail.pad).toBe("8px 0px");
     expect(m.rail.gap).toBe("4px");
     expect(m.rail.item).toEqual([40, 40]);
-    expect(m.rail.bar.slice(0, 3)).toEqual(["2px", "20px", "-6px"]);
+    expect(m.rail.bar.slice(0, 3)).toEqual(["3px", "20px", "-6px"]);
     expect(m.badge.size[1]).toBe(16);
     expect(m.badgeType.slice(0, 3)).toEqual(["11px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
     expect(m.delegate[0]).toContain("pc-btn--secondary");
@@ -434,9 +435,9 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).click();
     await page.getByRole("region", { name: "Terminal panel" }).waitFor();
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
-    // A route without panels or dock offers no toggles; narrow layouts keep their own chrome.
-    await page.evaluate(() => { location.hash = "#/terminal"; });
-    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled));
+    // Workspace owns its two side panels; its terminal dock toggle stays disabled.
+    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.waitForFunction(() => { const buttons = [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")]; return buttons.length === 3 && !buttons[0]!.disabled && buttons[1]!.disabled && !buttons[2]!.disabled; });
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
     await page.setViewportSize({ width: 767, height: 800 });
@@ -548,7 +549,7 @@ browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls'
       await open(page,built,'#/');
       expect(await page.locator('.pc-planner').getAttribute('href')).toBe('#/settings/planner');
       expect(await page.locator('.pc-statusbar__work').getAttribute('href')).toBe('#/tasks');
-      await page.getByRole('link',{name:'Terminal panel (Ctrl+`)'}).click();
+      await page.getByRole('button',{name:'Toggle terminal panel (Ctrl+`)'}).click();
       await page.locator('#pc-terminal-dock').waitFor();
       const geometry=await page.evaluate(()=>{
         const rect=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
@@ -575,19 +576,21 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await open(page, built, "#/tasks/t-20261011-100000-abc123");
-    const trigger = page.getByRole("link", { name: "Terminal panel (Ctrl+`)" });
+    await open(page, built, "#/settings");
+    const trigger = page.getByRole("link", { name: "Workspace", exact: true });
     const active = page.locator('.pc-rail__item.on').first();
     const activeBackground = await active.evaluate(el => getComputedStyle(el).backgroundColor);
-    expect(await active.evaluate(el => getComputedStyle(el, "::before").width)).toBe("2px");
+    expect(await active.evaluate(el => getComputedStyle(el, "::before").width)).toBe("3px");
     await active.hover();
     expect(await active.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(activeBackground);
+    const inactiveBackground = await trigger.evaluate(el => getComputedStyle(el).backgroundColor);
     await trigger.hover();
-    expect(await trigger.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(activeBackground);
+    expect(await trigger.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(inactiveBackground);
+    expect(await trigger.getAttribute("aria-current")).toBeNull();
     const bubble = page.getByRole("tooltip");
     await bubble.waitFor({ state: "visible" });
     expect(await bubble.evaluate(el => el.parentElement === document.body)).toBe(true);
-    expect(await bubble.locator("kbd").textContent()).toBe("Ctrl+`");
+    expect(await bubble.textContent()).toBe("Workspace");
     const measure = () => bubble.evaluate(el => {
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);

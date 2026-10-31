@@ -152,13 +152,33 @@ async function repoGit(ctx: Ctx, path: string, args: string[]) {
  catch { markPathUnreachable(path); throw new CoreError("invalid_input",`repo folder is not responding: ${path}`); }
 }
 
+/** Picker metadata only: strict identity/dispatch checks never use this cache. */
+export function createRepoBranchReader(now: () => number = () => performance.now()) {
+ const entries = new Map<string, { expires: number; pending: boolean; promise: Promise<string[]> }>();
+ return async (ctx: Ctx, path: string): Promise<string[]> => {
+  const key = JSON.stringify([ctx.pacerHome, path]);
+  let entry = entries.get(key);
+  if (!entry || !entry.pending && now() >= entry.expires) {
+   // Bound the lifetime from admission, including slow reads; failures are never retained.
+   const expires = now() + 2000;
+   let replacement: { expires: number; pending: boolean; promise: Promise<string[]> };
+   const discard = () => { if (entries.get(key) === replacement) entries.delete(key); };
+   const promise = (async () => {
+    const current = await repoGit(ctx, path, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const all = await repoGit(ctx, path, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]);
+    if (all.code !== 0 || ![0, 1].includes(current.code)) discard();
+    return [...new Set([...(current.code === 0 ? [current.stdout.trim()] : []), ...(all.code === 0 ? all.stdout.trim().split("\n") : [])].filter(Boolean))].slice(0, 50);
+   })().catch(error => { discard(); throw error; }).finally(() => { replacement.pending = false; });
+   entry = replacement = { expires, pending: true, promise };
+   entries.set(key, entry);
+   while (entries.size > 128) entries.delete(entries.keys().next().value!);
+  }
+  return [...await entry.promise];
+ };
+}
+const readRepoBranches = createRepoBranchReader();
 export async function listReposWithBranches(ctx: Ctx): Promise<(RepoRef & {branches:string[]})[]> {
- return Promise.all(listRepos(ctx).map(async ref=>{
-  const current=await repoGit(ctx,ref.path,["symbolic-ref","--quiet","--short","HEAD"]);
-  const all=await repoGit(ctx,ref.path,["for-each-ref","--format=%(refname:short)","refs/heads/"]);
-  const branches=[...new Set([...(current.code===0?[current.stdout.trim()]:[]),...(all.code===0?all.stdout.trim().split("\n"):[])].filter(Boolean))].slice(0,50);
-  return {...ref,branches};
- }));
+ return Promise.all(listRepos(ctx).map(async ref => ({ ...ref, branches: await readRepoBranches(ctx, ref.path) })));
 }
 
 export async function addRepo(ctx: Ctx, path: string): Promise<RepoRef> {

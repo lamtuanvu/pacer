@@ -1,12 +1,13 @@
+import type { RefObject } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 
 /** Measured viewport adapter; CSS owns appearance and the token-derived gutter. */
-export function useAnchoredMenu(open: unknown) {
+export function useAnchoredMenu(open: unknown, anchorRef?: RefObject<HTMLElement>) {
   const menuRoot = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!open || !menuRoot.current) return;
     const element = menuRoot.current;
-    const anchor = element.parentElement!;
+    const anchor = anchorRef?.current ?? element.parentElement!;
     const position = () => {
       const rect = anchor.getBoundingClientRect();
       const viewport = document.documentElement;
@@ -24,6 +25,6 @@ export function useAnchoredMenu(open: unknown) {
     window.addEventListener("scroll", position, true);
     const observer = new ResizeObserver(position); observer.observe(anchor); observer.observe(element);
     return () => { observer.disconnect(); window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
-  }, [open]);
+  }, [open, anchorRef]);
   return menuRoot;
 }

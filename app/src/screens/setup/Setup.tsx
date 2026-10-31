@@ -1,3 +1,4 @@
+import { policyWords } from "../../../../src/view-model/words";
 import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { SetupChecklist, SetupItem } from '../../../../src/setup/checklist';
 import type { AgentDetection } from '../../../../src/install/detection';
@@ -125,7 +126,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
   return <Page width="full" className="pc-setup">
-    <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
+    <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
     <div className="pc-setup-layout">
       <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
         const done = checklist.items.find(i => i.id === id)?.status === 'done';

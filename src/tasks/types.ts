@@ -146,8 +146,11 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 }
 
 /** Commit a running task's changes are counted from: the new worktree's base, or the in-place start commit. */
-export function progressBase(t: Pick<TaskRecord, "run" | "baseSha" | "baseBranch" | "startSha">): string | null {
-  return t.run?.mode === "new" ? t.baseSha ?? t.baseBranch ?? null : t.run?.mode === "current" ? t.startSha ?? null : null;
+export function progressBase(t: Pick<TaskRecord, "run" | "placement" | "baseSha" | "baseBranch" | "startSha">): string | null {
+  // Orca owns its terminal and has no direct RunRef. Its resolved placement
+  // carries the same baseline semantics as a direct attempt.
+  const mode = t.run?.mode ?? t.placement?.mode;
+  return mode === "new" ? t.baseSha ?? t.baseBranch ?? null : mode === "current" ? t.startSha ?? null : null;
 }
 
 export interface RunnerHandover {
@@ -165,6 +168,7 @@ export interface RunRef {
   interactionMode?: InteractionMode;
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
+  turnResume?: "replayed";
   host?: string;
   remoteDir?: string;
   remoteWorktree?: string;
@@ -262,6 +266,17 @@ export interface TaskRecord {
   backend?: string;
   attemptStartedAt?: number;
   dismissed?: boolean;
+  /** Participant that started this task when it has no work parent: "human" or "external:<key>". */
+  origin?: string;
+  /**
+   * Set while a message turn is queued or running; cleared when the run ends. `session` is the native session captured
+   * when the turn started; `replay` launches fresh with the brief and the thread after a failed resume.
+   */
+  pendingTurn?: { id: string; executor: string; at: number; session?: { id: string; source: "header" | "assigned" | "lookup" }; replay?: boolean };
+  /** Closed for messaging by its parent; no more turns. */
+  msgClosed?: boolean;
+  /** Per-tree guardrail override given at delegate time; read from the tree's root task. */
+  messaging?: import("../messaging/types").MessagingOverride;
   retryOf?: string;
   retriedBy?: string;
   force?: boolean;

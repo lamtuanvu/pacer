@@ -6,9 +6,13 @@ import { withLock } from "../core/lock";
 import { getLevel, type NotificationLevel } from "../core/notify";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { OutboxEvent } from "../link/envelope";
-import { publish } from "../link/publish";
+import { publish, type PublishReport } from "../link/publish";
 import type { Ctx } from "../types";
-import { postFallback } from "./fallback";
+import { pluginRegistry } from "../plugins";
+import { appendPluginLog } from "../plugins/host";
+import { notifierResources } from "../plugins/notifier-resources";
+import { notificationResult } from "../plugins/notifier-protocol";
+import { CoreError } from "../core/errors";
 
 export interface NotifyData { key: string; title: string; body: string; actions: Action[]; url: string; client_id?: string }
 export type DeliveryLedger = Record<string, number>;
@@ -33,10 +37,47 @@ export function toNotify(items: AttentionItem[], level: NotificationLevel, ledge
   });
 }
 export interface DispatchDeps {
-  publish?: typeof publish;
-  postFallback?: typeof postFallback;
+  publish?: (ctx: Ctx, events: OutboxEvent[]) => Promise<PublishReport>;
+  /** Enabled notifier ids; always tried in id order. */
+  notifiers?: string[];
+  deliver?: (pluginId: string, data: NotifyData) => Promise<boolean>;
   /** Transition envelopes add mode changes and settled tasks at level all. */
   events?: OutboxEvent[];
+}
+function warnNotifier(ctx: Ctx, id: string, message: string): void {
+  try { appendPluginLog(ctx, id, "warn", message); } catch { /* A failed diagnostic cannot stop notification retries. */ }
+}
+const clip = (text: string, max: number) => text.length <= max ? text : text.slice(0, max - 1) + "…";
+async function deliverWithPlugins(ctx: Ctx, full: NotifyData, deps: DispatchDeps): Promise<boolean> {
+  // The notifier protocol bounds title and body; clip so long attention text is still delivered once.
+  const data = { ...full, title: clip(full.title, 256), body: clip(full.body, 2048) };
+  let ids: string[];
+  try {
+    ids = [...(deps.notifiers ?? pluginRegistry(ctx).findAll(ctx, "notifier"))].sort();
+  } catch {
+    warnNotifier(ctx, "pacer-notify", "notifier discovery failed");
+    return false;
+  }
+  for (const id of ids) {
+    try {
+      let delivered: unknown;
+      if (deps.deliver) delivered = await deps.deliver(id, data);
+      else {
+        const message = { key: data.key, title: data.title, body: data.body, url: data.url };
+        const result = await pluginRegistry(ctx).call(ctx, id, "notifier.deliver", message, {
+          resources: notifierResources(process.platform, data.title, data.body), deadlineMs: 5000,
+        });
+        const parsed = notificationResult.safeParse(result);
+        if (!parsed.success) throw new CoreError("plugin_refused", "notifier returned an invalid delivery result");
+        delivered = parsed.data.delivered;
+      }
+      if (typeof delivered !== "boolean") throw new CoreError("plugin_refused", "notifier returned an invalid delivery result");
+      if (delivered === true) return true;
+    } catch {
+      warnNotifier(ctx, id, "notifier.deliver failed");
+    }
+  }
+  return false;
 }
 export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], deps: DispatchDeps = {}): Promise<OutboxEvent[]> {
   return withLock(ctx, "notifications", async () => {
@@ -64,7 +105,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
         const report = await (deps.publish ?? publish)(ctx, [event]);
         delivered = report.transports.includes("outbox");
         if (delivered) sent.push(event);
-      } else delivered = await (deps.postFallback ?? postFallback)(data.title, data.body, ctx);
+      } else delivered = await deliverWithPlugins(ctx, data, deps);
       if (delivered) {
         ledger[key] = ctx.now;
         writeJsonAtomic(path, ledger);

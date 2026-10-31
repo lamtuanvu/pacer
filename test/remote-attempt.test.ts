@@ -66,6 +66,9 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(prompt).toBe(readFileSync(join(task.run!.remoteDir!, "stdin"), "utf8"));
   expect(prompt).toContain(`commit there`);
   expect(prompt.split("Do not commit, push").length - 1).toBe(1);
+  expect(prompt).toContain(".pacer-question");
+  expect(prompt).not.toContain("pacer msg send");
+  expect(prompt).not.toContain("pacer ask");
   expect(readFileSync(f.sshLog, "utf8")).not.toContain(f.goal);
   expect(existsSync(join(f.hostHome, "pwned"))).toBe(false);
   expect(task.worktree).toBe(`box:${task.run!.remoteWorktree}`);

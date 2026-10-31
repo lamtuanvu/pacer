@@ -16,6 +16,11 @@ const usage={total:1200,measuredAttempts:1,partialAttempts:0,unknownAttempts:0,l
 const decision={attempt:1,selectedCandidateId:'["codex",{"kind":"default"}]',proposal:{state:"ranked",step:"capable-with-headroom",choices:[{id:'["codex",{"kind":"default"}]',reason:"available"},{id:'["agy",{"kind":"default"}]',reason:"busy"}]}};
 const attempts=[{executor:"codex",startedAt:now-120,endedAt:now-60,tokens:{total:1200,coverage:"measured"}}];
 const task={...detail,fullTitle:"",routing:(scenario==="routing-only"?{...detail.routing,chosen:"codex",why:"available",skipped:[{executor:"agy",reason:"busy"}]}:scenario==="no-candidates"?null:detail.routing) as TaskDetail["routing"],id:"trace-root",title:scenario==="long"?"A very long root task title with enough words to verify that the trace heading wraps naturally within the viewport without hiding the review actions or pushing content outside the application canvas":"Browser-validate the Client Node PWA drop",state:scenario==="running"?"running":"done",review:null,resolved:null,retriedBy:null,dismissed:false,work:{rootId:"trace-root",parentId:null,depth:0},startedAt:now-150,endedAt:now-30,updatedAt:now-30,attempts,tokens:usage,files:[{path:"result.ts",added:214,removed:37}],derived:{files:"ready"},timeline:[{at:now-150,text:"queued"},{at:now-60,text:"acceptance passed"},{at:now-30,text:"done"}],acceptance:{cmd:"bun run test:e2e --project=pwa && bun run lint",state:"passed",durationS:161,summary:"48 tests"}};
+if(scenario?.startsWith('files-')) {
+ task.files=[];
+ task.derived.files=scenario==='files-zero'?'ready':'unavailable';
+ if(scenario==='files-running-unavailable')task.state='running';
+}
 task.fullTitle=task.title;
 if(scenario==='failed'){task.state='failed';task.acceptance.state='failed';}
 if(scenario==='stopped')task.state='stopped';

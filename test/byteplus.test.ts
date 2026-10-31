@@ -1,7 +1,10 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { monthBefore, readByteplus } from "../src/usage/byteplus";
 import type { RunFn } from "../src/types";
-import { fakeCtx } from "./helpers";
+
 
 const ARK = JSON.stringify({
   items: [{

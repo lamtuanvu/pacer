@@ -50,6 +50,17 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     } else if (t.state === "running" && t.progress?.phase === "idle") {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
     }
+    // An unanswered task question already raises the "question" item above.
+    const legacyQuestion = t.state === "needs_input" && !!t.question && t.question.answer === undefined && !t.retriedBy;
+    if (t.messages?.unreadForHuman && !t.dismissed && !legacyQuestion) {
+      const q = t.messages.question, n = t.messages.unreadForHuman;
+      // A reviewed or stopped task takes no more messages (messaging isClosed), so its question can only be read.
+      const answerable = !!q && !t.review && t.state !== "stopped";
+      add("message", t.id, t.goal, q ? q.text.slice(0, 200) : `${n} unread message${n === 1 ? "" : "s"}`, [
+        // A question lands on the task's answer composer; other messages only open the task.
+        { ...(answerable ? open("Answer", { view: "task", id: t.id, tab: "answer" }) : open("Open task", { view: "task", id: t.id })), style: "primary" },
+      ], { ...extra, severity: q ? "blocked" : "decide", since: q?.at ?? t.updatedAt, raisedAt: q?.at ?? t.updatedAt });
+    }
   }
   for (const a of input.accounts) if (a.signedIn === false && input.executors.some(e=>e.account===a.name && e.enabled)) {
     add("account_signin",a.name,`Sign in to ${executorName(a.agent)}`,"Account is signed out",[{label:"Sign in",op:"account.signin",params:{name:a.name}},...input.executors.filter(e=>e.account===a.name&&e.enabled&&e.rank!=="planner").map(e=>({label:"Disable",op:"runner.set",params:{id:e.id,enabled:false}}))],{account:a.name});

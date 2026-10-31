@@ -82,15 +82,15 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
   await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
   await expect(more.getAttribute("aria-expanded")).resolves.toBe("true");
   await more.focus();
-  for(const control of [first,more]){const size=await control.boundingBox();expect(size!.height).toBeGreaterThanOrEqual(36);expect(size!.width).toBeGreaterThanOrEqual(36);}
+  for(const control of [first,more]){const size=await control.boundingBox();expect(size!.height).toBeGreaterThanOrEqual(44);expect(size!.width).toBeGreaterThanOrEqual(44);}
   await page.keyboard.press("Escape");
   await expect(more.getAttribute("aria-expanded")).resolves.toBe("false");
   expect(await viewer.isVisible()).toBe(true);
-  // The search field keeps room for a query beside the 36 px buttons.
+  // The search field keeps room for a query beside 44 px touch targets.
   await viewer.getByRole("button",{name:"Search",exact:true}).click();
   const field=await viewer.getByRole("textbox",{name:"Search file"}).boundingBox();
   expect(field!.width).toBeGreaterThan(150);
-  for(const name of ["Next match","Match case","Close search"]){const b=await viewer.getByRole("button",{name}).boundingBox();expect(b!.width).toBeGreaterThanOrEqual(36);}
+  for(const name of ["Next match","Match case","Close search"]){const b=await viewer.getByRole("button",{name}).boundingBox();expect(b!.width).toBeGreaterThanOrEqual(44);}
   await viewer.getByRole("button",{name:"Close search"}).click();
   // Source and Preview stretch the full width for touch.
   const tabs=await viewer.getByRole("tablist",{name:"File view"}).boundingBox(),head=await viewer.locator(".pc-file-viewer__head").boundingBox();
@@ -309,21 +309,22 @@ browserTest("the viewer matches the design board: flush container, header band, 
   const names=await viewer.locator(".pc-file-viewer__head button").evaluateAll(buttons=>buttons.map(button=>button.getAttribute("aria-label")));
   expect(names).toEqual(["Search","Copy path","Back to terminal"]);
   for(const label of ["Search","Copy path"])expect(await measure(viewer,`button[aria-label="${label}"]`)).toMatchObject({width:28,height:28,radius:"6px"});
-  expect(await measure(viewer,".pc-file-viewer__back")).toMatchObject({height:32,padding:"0px 6px 0px 8px",radius:"6px"});
+  expect(await measure(viewer,".pc-file-viewer__back")).toMatchObject({height:28,padding:"0px 6px 0px 8px",radius:"6px"});
   expect(await measure(viewer,".pc-file-viewer__back svg")).toMatchObject({width:14,height:14});
   expect(await measure(viewer,".pc-file-viewer__back .pc-kbd")).toMatchObject({height:18,padding:"0px 5px 0px 5px",radius:"4px",size:"11px"});
   expect(await measure(viewer,".pc-file-viewer__glyph")).toMatchObject({width:26,height:26,radius:"6px"});
   expect(await measure(viewer,".pc-file-viewer__title strong")).toMatchObject({size:"14px"});
   // Path row: worktree in muted ink, a plain 20px Line chip and a Session running chip with a 6px good dot.
   expect(await viewer.locator(".pc-file-viewer__path").innerText()).toBe("validate/pwa-drop / src/huge.ts");
-  expect(await measure(viewer,".pc-file-viewer__workspace")).toMatchObject({color:"rgb(113, 113, 122)"});
+  expect(await measure(viewer,".pc-file-viewer__workspace")).toMatchObject({color:await page.evaluate(() => {const probe=document.createElement("span");probe.style.color="var(--ink-muted)";document.body.append(probe);const colour=getComputedStyle(probe).color;probe.remove();return colour;})});
   const chips=viewer.locator(".pc-file-viewer__chip");
   expect(await chips.allInnerTexts()).toEqual(["Line 2500","Session running"]);
-  expect(await measure(viewer,".pc-file-viewer__chip")).toMatchObject({height:20,radius:"5px",size:"12px",background:"rgb(244, 244, 245)",color:"rgb(82, 82, 91)"});
+  // FileViewer.dc.html .chip specifies a 6px corner radius.
+  expect(await measure(viewer,".pc-file-viewer__chip")).toMatchObject({height:20,radius:"6px",size:"12px",background:"rgb(244, 244, 245)",color:"rgb(82, 82, 91)"});
   expect(await measure(viewer,".pc-file-viewer__dot")).toMatchObject({width:6,height:6,background:"rgb(21, 128, 61)"});
   // Code: 12.5px / 20px mono, 44px right-aligned gutter with 14px padding, linked line tinted with a bold number.
   expect(await measure(viewer,".pc-file-viewer__line")).toMatchObject({size:"12.5px",line:"20px",height:20});
-  expect(await measure(viewer,".pc-file-viewer__number")).toMatchObject({width:44,padding:"0px 14px 0px 0px",color:"rgb(113, 113, 122)"});
+  expect(await measure(viewer,".pc-file-viewer__number")).toMatchObject({width:44,padding:"0px 14px 0px 0px",color:await page.evaluate(() => {const probe=document.createElement("span");probe.style.color="var(--ink-muted)";document.body.append(probe);const colour=getComputedStyle(probe).color;probe.remove();return colour;})});
   expect(await measure(viewer,".pc-file-viewer__line--selected")).toMatchObject({background:"rgb(219, 234, 254)"});
   const selected=await viewer.locator(".pc-file-viewer__line--selected .pc-file-viewer__number").evaluate(element=>({weight:getComputedStyle(element).fontWeight,align:getComputedStyle(element).textAlign}));
   expect(Number(selected.weight)).toBeGreaterThanOrEqual(600);expect(selected.align).toBe("right");
@@ -380,7 +381,7 @@ browserTest("loading, missing, unsupported, Markdown Preview and HTML states fol
   viewer=await open(page,1200,"src/gone.ts");
   await viewer.getByText("The agent printed src/gone.ts:4, but there is no file at that path in validate/pwa-drop.",{exact:false}).waitFor();
   await viewer.getByText(/^Checked \d\d:\d\d:\d\d · paths outside the workspace are never opened$/).waitFor();
-  expect(await measure(viewer,".pc-file-viewer__state-icon")).toMatchObject({width:40,height:40,radius:"10px"});
+  expect(await measure(viewer,".pc-file-viewer__state-icon")).toMatchObject({width:40,height:40,radius:"12px"});
   expect(await viewer.locator(".pc-file-viewer__foot").count()).toBe(0);
   await viewer.getByRole("button",{name:"Back to terminal"}).click();
   viewer=await open(page,1200,"dist/engine.wasm");
@@ -394,6 +395,6 @@ browserTest("loading, missing, unsupported, Markdown Preview and HTML states fol
   await note.waitFor();
   await viewer.getByText("Sandboxed frame · separate origin · no scripts · no network · no access to pacer").waitFor();
   expect(await measure(viewer,".pc-file-viewer__banner")).toMatchObject({background:"rgb(219, 234, 254)"});
-  expect(await measure(viewer,".pc-file-viewer__preview")).toMatchObject({radius:"10px"});
+  expect(await measure(viewer,".pc-file-viewer__preview")).toMatchObject({radius:"12px"});
  }finally{await page.close()}
 },30_000);

@@ -6,7 +6,7 @@ import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
 import { ApiError, type BrowserApi } from "../data/api";
-import { createQuery, dedupeQuery, type QueryState } from "../data/query";
+import { queryCacheFor, type QueryState } from "../data/query";
 import { draftStorage } from "../model/draft";
 import { taskHref } from "../model/tasks";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
@@ -27,35 +27,38 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);
-    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), state.activity.filter(entry => entry.taskId === id)]);
+    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), task?.messages, state.activity.filter(entry => entry.taskId === id)]);
   }
   return JSON.stringify(state.invalidations);
 }
 export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = false, enabled = true) {
   const { api, state } = useTaskContext();
-  const [published, setResult] = useState<{ key: string; state: QueryState<T> }>();
-  const [version, reload] = useState(0);
+  const [published, setResult] = useState<{ api: BrowserApi; key: string; state: QueryState<T> }>();
   const serialized = JSON.stringify(params);
   const invalidation = queryRevision(state, op, params);
-  const query = useMemo(() => createQuery<T>((op, params) => dedupeQuery(api, (op, params) => api.call<T>(op, params), op, params), (state, key) => setResult({ state, key }), keepPreviousData), [api, keepPreviousData]);
+  const query = useMemo(() => queryCacheFor(api, (op, params) => api.call(op, params)).createQuery<T>((state, key) => setResult({ api, state, key }), keepPreviousData), [api, keepPreviousData]);
   useEffect(() => () => query.dispose(), [query]);
-  const last = useRef<{ query: typeof query; key: string; connected: boolean; version: number }>();
+  const last = useRef<{ query: typeof query; key: string; connected: boolean; connectionRevision: number }>();
   useEffect(() => {
     if (!enabled) return;
     const key = JSON.stringify([op, serialized, revision]);
     const immediate = !last.current || last.current.query !== query || last.current.key !== key
-      || last.current.connected !== state.connected || last.current.version !== version;
+      || last.current.connected !== state.connected || last.current.connectionRevision !== state.connectionRevision;
     const update = () => {
-      last.current = { query, key, connected: state.connected, version };
-      query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, version]));
+      last.current = { query, key, connected: state.connected, connectionRevision: state.connectionRevision };
+      query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, state.connectionRevision]));
     };
-    // Initial selection and manual reload are immediate. Event bursts settle once.
+    // Initial selection and reconnects are immediate. Event bursts settle once.
     if (immediate) { update(); return; }
     const timer = setTimeout(update, 150);
     return () => clearTimeout(timer);
-  }, [query, op, serialized, revision, invalidation, state.connected, version, enabled]);
-  const result = published?.key === JSON.stringify([op, serialized]) ? published.state : { loading: true, ...(keepPreviousData && published && JSON.parse(published.key)[0] === op ? { data: published.state.data } : {}) };
-  return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => reload(v => v + 1) };
+  }, [query, op, serialized, revision, invalidation, state.connected, state.connectionRevision, enabled]);
+  const sameClient = published?.api === api;
+  const result = sameClient && published.key === JSON.stringify([op, serialized]) ? published.state : {
+    loading: true,
+    ...(keepPreviousData && sameClient && JSON.parse(published.key)[0] === op ? { data: published.state.data } : {}),
+  };
+  return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => { if (enabled) query.refresh(); } };
 }
 /** Delay refresh feedback so fast reads do not blink. No animation is required. */
 export function useDelayedBusy(pending: boolean) {

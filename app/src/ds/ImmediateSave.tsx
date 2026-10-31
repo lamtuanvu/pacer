@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Disclosure, Range } from "./Controls";
 
 /** Plain public reasons; retain transport/diagnostic detail only in the disclosure. */
@@ -38,17 +38,33 @@ export function saveError(error: unknown): { message: string; detail: string } {
 }
 
 /** One immediate save boundary per control. Synchronous locking also blocks duplicate events before render. */
-export function ImmediateSave<T>({ value, save, children }: {
+export function ImmediateSave<T>({ value, save, children, focusableWhileBusy = false }: {
+  focusableWhileBusy?: boolean;
   value: T; save: (value: T) => Promise<unknown> | unknown;
   children: (value: T, change: (value: T) => void, busy: boolean) => ComponentChildren;
 }) {
   const [local, setLocal] = useState<{ value: T; baseline: T }>();
   const [busy, setBusy] = useState(false), [saved, setSaved] = useState(false), [error, setError] = useState<ReturnType<typeof saveError>>();
   const pending = useRef(false), timer = useRef<ReturnType<typeof setTimeout>>(), alive = useRef(true);
+  const control = useRef<HTMLDivElement>(null), invoking = useRef<HTMLElement>();
+  useLayoutEffect(() => {
+    const target = invoking.current;
+    if (busy || !target) return;
+    const active = target.ownerDocument.activeElement;
+    if (!target.isConnected || (active !== target.ownerDocument.body && active !== target)) {
+      invoking.current = undefined;
+      return;
+    }
+    if (target.matches(':disabled,[aria-disabled="true"]') || target.closest("[inert]")) return;
+    target.focus();
+    invoking.current = undefined;
+  });
   const displayed = local && (busy || Object.is(local.baseline, value)) ? local.value : value;
   useEffect(() => { alive.current = true; return () => { alive.current = false; clearTimeout(timer.current); }; }, []);
   const change = async (next: T) => {
     if (pending.current) return;
+    const active = control.current?.ownerDocument.activeElement;
+    invoking.current = active && active instanceof HTMLElement && control.current?.contains(active) ? active : undefined;
     pending.current = true; clearTimeout(timer.current); setSaved(false); setError(undefined); setBusy(true);
     setLocal({ value: next, baseline: value });
     try {
@@ -60,7 +76,7 @@ export function ImmediateSave<T>({ value, save, children }: {
     } finally { pending.current = false; if (alive.current) setBusy(false); }
   };
   return <div className="pc-immediate-save">
-    <div className="pc-immediate-save__line"><div className="pc-immediate-save__control" aria-busy={busy} inert={busy || undefined}>{children(displayed, next => void change(next), busy)}</div><span className="pc-immediate-save__status" role="status" aria-live="polite">{saved && <><span aria-hidden="true">✓</span> Saved</>}</span></div>
+    <div className="pc-immediate-save__line"><div ref={control} className="pc-immediate-save__control" aria-busy={busy} inert={!focusableWhileBusy && busy || undefined}>{children(displayed, next => void change(next), busy)}</div><span className="pc-immediate-save__status" role="status" aria-live="polite">{saved && <><span aria-hidden="true">✓</span> Saved</>}</span></div>
     {error && <div className="pc-immediate-save__error"><p role="alert">{error.message}</p><Disclosure summary="Technical details"><code>{error.detail}</code></Disclosure></div>}
   </div>;
 }

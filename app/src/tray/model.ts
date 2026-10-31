@@ -1,5 +1,6 @@
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { clock } from "../../../src/view-model/time";
+import { policyCaption } from "../../../src/view-model/words";
 import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
@@ -9,13 +10,28 @@ import type { ExecutorRow } from "../../../src/api/read-model/types";
 import { capacity, needsYou, running, counts } from "../../../src/view-model/selectors";
 
 export { displayTitle as shortTitle } from "../../../src/view-model/titles";
+/**
+ * Tray routes are checked by the native shell (`logic::route`): no query string, and task views use the
+ * `/sessions/<id>` form, which the app redirects to the task view. `/sessions/<id>/answer` opens it with the answer box focused.
+ */
+export const taskRoute = (id: string, answer = false) => answer ? `/sessions/${encodeURIComponent(id)}/answer` : `/sessions/${encodeURIComponent(id)}`;
 export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
   if (view === "session" && typeof id === "string") return `/workspace?task=${encodeURIComponent(id)}&panel=session`;
-  if ((view === "task" || view === "review") && typeof id === "string") return `/tasks/${encodeURIComponent(id)}`;
+  if ((view === "task" || view === "review") && typeof id === "string") return taskRoute(id, view === "task" && action.params.tab === "answer");
   if (view === "settings" && typeof section === "string") return settingsPath(section);
-  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/tasks", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
+  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/sessions", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
+}
+/** Plain reason and next step for a tray action that did not work. */
+export function actionError(error: unknown): string {
+  const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const plain = !reason || /^invalid route$/i.test(reason.trim()) ? "pacer could not open that" : reason.trim().replace(/\.+$/, "");
+  return `${plain}. Try again, or open pacer to finish there.`;
+}
+/** A failed row action's message shows only while that row is still listed; general failures always show. */
+export function visibleFailure(failure: { message: string; item?: string } | null, attention: Array<{ id: string }> | undefined): string {
+  return failure && (!failure.item || !!attention?.some(item => item.id === failure.item)) ? failure.message : "";
 }
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** Compact capacity values never invent an unknown usage percentage. */
@@ -52,7 +68,7 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
   const queued = tasks.filter(t => t.state === "queued").sort((a, b) => (a.queue?.position ?? Infinity) - (b.queue?.position ?? Infinity) || (a.queue?.since ?? a.updatedAt) - (b.queue?.since ?? b.updatedAt));
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
-  return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
+  return { policy: policyCaption(snapshot.policy), update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot).filter(row => row.rank !== "planner" && row.id !== snapshot.planner?.runner) };
 }
 

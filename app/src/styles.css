@@ -188,9 +188,11 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-dispatch__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-dispatch--narrow .pc-dispatch-split__half+.pc-dispatch-split__half{border-left:0;border-top:1px solid var(--line)}
 .pc-dispatch__controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
-.pc-dispatch__title{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 auto;min-width:0}
+/* The title column grows from a fixed basis, not its text width, so a long policy caption wraps inside it and the controls keep the row. */
+.pc-dispatch__title{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 var(--size-240);min-width:0}
 .pc-dispatch__title>h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight)}
 .pc-dispatch__live{display:inline-flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-dispatch__policy{font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 /* Planner budget and the next decision: one bordered section split in two halves, as on the board. */
 .pc-dispatch-split{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);overflow:hidden}
 .pc-dispatch-split__half{flex:1 1 var(--size-340);min-width:0;display:flex;flex-direction:column;gap:var(--space-2\.5);padding:var(--space-5) var(--space-6)}
@@ -323,7 +325,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 /* Plugin entries stay in Settings on narrow screens: at most eight 44px targets, including Setup. */
 .pc-bottom-bar>*{min-width:var(--size-44);flex:0 0 var(--size-44)}
 .pc-bottom-bar .pc-rail__item{max-width:100%;min-width:var(--size-44);min-height:var(--size-44);padding:0}
-.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%}
+/* The narrow header lives inside this scroller; native focus and scrollIntoView must clear it. */
+.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%;scroll-padding-top:var(--pc-work-header-height, 0px)}
 .pc-app--narrow .pc-topbar{flex-wrap:nowrap;position:sticky;min-height:var(--size-60);height:auto;padding:var(--space-2) var(--space-3);gap:var(--space-2)}
 .pc-app--narrow .pc-topbar h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--type-headline-size)}
 .pc-app--narrow .pc-topbar .pc-planner{display:inline-flex;gap:var(--space-1);flex:none}
@@ -400,6 +403,9 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-executor-name .muted,.pc-setup-choice .muted{font-size:var(--type-caption-size)}
 .pc-setup-diff{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);background:var(--surface-card)}
 @media(max-width:767px){.pc-setup-layout{grid-template-columns:minmax(0,1fr)}.pc-setup-header{padding:var(--space-4);flex-wrap:wrap}.pc-setup-rail{position:static;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-3)}.pc-setup-rail ol{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-setup-rail li{padding:var(--space-2)}.pc-setup-version{margin:var(--space-3)}.pc-setup-panel{padding:var(--space-5)}.pc-setup-executors li{grid-template-columns:var(--size-20) var(--size-32) minmax(0,1fr)}.pc-setup-executors .pc-pill{grid-column:3}.pc-setup-move{grid-column:3;justify-content:flex-start}}
+/* Leave room for the fixed narrow navigation when Tab reveals a code preview. */
+.pc-app--narrow .pc-setup .pc-code-scroll{scroll-margin-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
+html:has(.pc-app--narrow .pc-setup){scroll-padding-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
 .sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-panel{position:sticky;top:var(--frame-top);max-height:calc(100vh - var(--frame-top));overflow:auto;align-self:flex-start}

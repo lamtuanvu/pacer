@@ -77,6 +77,15 @@ prerequisites, `bash -lc` execution, setup, transfer and failure recovery.
 
 ## Pacing and routing
 
+### Plugin policy
+
+The optional `plugins.policy.mode` controls what happens when an enabled policy plugin fails or returns an invalid decision. `open` is the default and lets the host continue using its ordinary validation and routing rules. `closed` refuses the affected policy decision; it also refuses while a granted, enabled policy plugin cannot load (its update needs a new grant, its manifest is unreadable or incompatible, or its folder is gone). Disable or remove such a plugin to stop the refusal. In `open` mode each ignored failure writes a `policy` warning to the activity log. A valid plugin veto is enforced in either mode. A policy may only restrict: a delegate amendment that chooses, changes or clears the executor, or moves placement anywhere but a new worktree, is treated as a failed decision. The policy status in the API, CLI, TUI and app shows this mode and the count of enabled policy plugins; reading status does not start them. Installed plugin grants and the policy protocol are described in [plugin-protocol.md](plugin-protocol.md).
+
+```yaml
+plugins:
+  policy: {mode: closed}
+```
+
 Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-first`. Priority follows `order`, whose default is `[codex, cursor, agy, opencode]` filtered to configured providers; `opencode` expands to OpenCode-routed candidates. Expiring capacity moves forward, ahead-of-pace usage moves back and unknown usage moves down one place. Other policies score pace, remaining capacity or usage tiers. The planner, unavailable CLIs and blocked/broken executors are excluded from routing.
 
 `planner_reserve` defaults to 15 percentage points (valid 0–99). `ahead_threshold` and `behind_threshold` default to 10 and -10 percentage points. Planner verdicts produce relaxed, normal, strict or emergency mode; see the [mode table](../README.md#how-it-works).
@@ -103,6 +112,12 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 `execution.idle_after_min` defaults to 10: without output or file changes, the task becomes idle and emits an alert. `execution.idle_fail_min` defaults to 30: continued inactivity stops the task. Both accept whole minutes from 1 to 1440, and `idle_fail_min` must exceed `idle_after_min`.
 
 Classification defaults to deterministic `rules`. Optional adapters are `ollama` (an OpenAI-compatible chat endpoint, default `http://127.0.0.1:1234/v1`) and `jev`. Decisions are `task_kind`, `difficulty`, `guard` and `result_check`; each can set `use` and `min_confidence` (default 0.6). Errors, timeouts and low confidence fall back to rules. Keep defaults unless you intend to configure and evaluate an adapter.
+
+The three adapters run in the bundled `pacer-classify` plugin. The host keeps decision policy, shadowing and decision logs. Inspect its state with `pacer plugin list` or `pacer plugin doctor pacer-classify`. Disabling the plugin makes its adapters unavailable, including the rules adapter used for policy fallback; the host has no built-in classifier implementation.
+
+Network requests use the selected adapter's captured destination and secret reference. The host resolves the key immediately before an authorized request; keys are not sent to the plugin. Changes to the effective adapter configuration retire the previous plugin generation before new calls use the replacement. Host-issued aliases preserve configured key names that cannot be represented directly by the plugin reference grammar; the alias map stays in the owning host call.
+
+`classifier.timeout_ms` remains a positive finite call budget, including startup and queue time. Each network request additionally follows the plugin HTTP contract: its timeout must be a positive integer no greater than 120,000 ms. Fractional or larger network timeouts are rejected before network access, without rounding or clamping; normal decision-policy fallback then applies. This is a network-adapter limit introduced by the plugin boundary, not a restriction on pure rules classification or configuration parsing.
 
 ```yaml
 classifier:

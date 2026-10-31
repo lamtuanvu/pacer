@@ -1,3 +1,4 @@
+import { exerciseSettings } from './settings';
 import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -12,8 +13,9 @@ import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
                                   start isolated service and disposable repo; ui seeds sample data;
+                                  plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
@@ -26,9 +28,10 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   inspect and control sandbox UI
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
+  settings --id <id>              exercise fixed file-only settings save/reject/restore (seeded sandbox)
   integrations --id <id>          exercise fixed private integration refresh fixtures
-  updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
-  repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
+  updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
+  repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   env                             print sandbox export lines
@@ -148,6 +151,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "updater") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
     await exerciseUpdater(loadSession(id));
+    return 0;
+  }
+  if (command === "settings") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live settings --id <id>");
+    await exerciseSettings(loadSession(id));
     return 0;
   }
   // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.

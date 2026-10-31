@@ -56,7 +56,7 @@ Comfortable (`normal`) is the default for new installs and existing installs wit
 | `ListRowLink` | Native anchor attributes and children | Capacity and tray running rows with a single destination. Never put another control inside it. Session replay uses the DS `pc-row-destination`/`pc-list-row--stretch` contract to expand a single link target without nesting controls. |
 | `SelectableRow`, `ChoiceCard`, `FilterChip` | Button props plus optional `selected`; existing aria-pressed/current supported | Review queue/files, Add Executor choices and repo filters. Selection stays controlled by the caller. Choices use buttons and pressed state, not invented tab semantics. |
 | `CountBadge` | Numeric `count`, optional accessible unit `label` (defaults to work items) | Repository filter chips and finder rows. Neutral filled badge with tabular figures; selected chips inherit the chip contrast pair. Counts remain non-interactive and separate from status pills. |
-| `SearchPicker` | Trigger `label`, `searchLabel`, `placeholder`, `emptyLabel`, controlled `value`, `{value,label,description?,count?,searchText?}` options, `onChange` and optional `align` (`end` by default; `start` for pickers in a settings row) | Repository finder on Dispatch and Review, and the repository field on plugin settings pages; the desktop trigger is 32px tall with a centred, decorative 12px DS chevron-down, secondary ink and a `space-1` label gap (touch targets retain their shared size); searches every registered repo, including those with zero work. Trigger-anchored menu on its preferred edge that switches alignment when that side would overflow the viewport and fills the row below 560px. Native buttons expose pressed state, the search field receives focus, arrows/Home/End move among results, and Escape/selection return focus. Tab departure and outside pointer dismiss without stealing focus. Search resets on dismissal; filtered empty text is a polite status. Menu rows inherit normal/compact/touch density. |
+| `SearchPicker` | Trigger `label`, `searchLabel`, `placeholder`, `emptyLabel`, controlled `value`, `{value,label,description?,count?,searchText?}` options, `onChange` and optional `align` (`end` by default; `start` for pickers in a settings row) | Repository finder on Dispatch and Review, and the repository field on plugin settings pages; the desktop trigger is 32px tall with a text label and secondary ink (touch targets retain their shared size); searches every registered repo, including those with zero work. Trigger-anchored menu on its preferred edge that switches alignment when that side would overflow the viewport and fills the row below 560px. Native buttons expose pressed state, the search field receives focus, arrows/Home/End move among results, and Escape/selection return focus. Tab departure and outside pointer dismiss without stealing focus. Search resets on dismissal; filtered empty text is a polite status. Menu rows inherit normal/compact/touch density. |
 | `CommandMenu` | `label`, `placeholder`, controlled `query`/`onQueryChange`, optional `prefix` badge, `scopes`/`scope`/`onScope`, `groups: {title, options: {id,label,ranges?,sub?,icon?,leading?,pill?,keys?}[]}[]`, optional `empty: {title,description}`, `enterHint`, `onActiveChange`, `notice`, `modEnterHint`/`modEnterSoon`/`modEnterKeys`, `hints`, `returnFocus`, `onPick(id, {keepOpen}?)`, `onClose` | The ⌘K / Ctrl-K command menu (`shell/CommandPalette.tsx`), opened from the top-bar search. A native modal `dialog` (640 px, 72 px from the top, 14 px radius) holding a `role=combobox` input (`aria-expanded`, `aria-controls` the grouped listbox, `aria-activedescendant` the active option); focus never leaves the input and the row's bottom border turns to the focus colour. ArrowUp/Down wrap, Home/End jump to the first/last option, Enter picks, ⌘↵/Ctrl-↵ picks and keeps the menu open (only where `modEnterHint` says what it does, the `>` commands mode), Tab/Shift-Tab step the scope tabs (`role=tablist` of `role=tab` buttons with `aria-selected` and `aria-controls` the listbox, shown only while searching; a scope with no matches falls back to All and a single scope lists every match), Enter during IME composition is ignored, Escape, ⌘K/Ctrl-K or a backdrop click close it and focus returns to `returnFocus()` (the trigger that opened it, since WebKit does not focus a button on click) or the previously focused element. Matched label text renders in `mark` (underlined, `type-match-strong`). Groups use `role=group`; an empty result shows a polite status above the listbox with fallback options. Mobile (<560px) drops key caps, wraps the scope tabs and long labels (so a matched part of a path stays visible) and keeps the one-line subtitles (the repository of a file). Key caps are the registry's keys: ⌘ ⌃ ⌥ symbols on macOS, Ctrl/Alt elsewhere. Search data comes only from the snapshot and the command registry (UI-13); `?` ask stays off until the assistant exists. Agents and machines share the Agents scope; Files come from the read-only `files.search` operation when the service has it (debounced; the Files tab and group show matched path ranges in `type-match-strong`, the repository as the subtitle (with "changed by …" when a running task changed the file; no pill, as on the board), and `notice` says in plain words which repositories could not be searched or that the list was cut short); a file a running task changed opens that task, and any other file (no repository-scoped viewer exists yet) copies its repo-relative path on Enter, with the footer saying "copy path". ⌘↵ "open beside" is shown in search and recent modes with a "Coming soon" label (`modEnterSoon`; plain text with a visible "Coming soon" pill, since `aria-disabled` on a role-less span is not valid ARIA; the key does nothing) until a right panel exists. The mode `prefix` badge describes the combobox (`aria-describedby`); the caller strips the typed `>` so the input shows only the text after the chip, and `onBackspaceEmpty` (ignored on key repeat) lets Backspace in an empty input remove the chip. Cmd+A (macOS) or Ctrl+A selects the input text itself, so it works in a webview without an Edit menu. |
 | `SegmentedControl`, `Tabs` | Label, controlled value, `{value,label,disabled?}` options and onChange; SegmentedControl optional `describedBy` links visible explanatory text such as a disabled reason; Tabs additionally requires stable id | Settings switches, Session views and the Dispatch period switch. SegmentedControl is a labelled group of pressed buttons whose labels stay on one line. Tabs owns tablist/selected/controls/roving tabIndex and ArrowLeft/Right/Home/End; the consumer renders matching labelled tabpanels. Disabled tabs are skipped. |
 | `SidePanel` | `side="left\|right"`, `label`, controlled `open`, `onToggle(open)`, optional `bar` (default true), `wide`, `contentToggle`, children | Settings navigation (left, default open, `usePanelState("settings")`). Open: an `aside` landmark named by `label`, a quiet `panel-left`/`panel-right` IconButton named "Hide <label>" with `aria-expanded="true"` and `aria-controls` pointing at the content, then the scrollable content. Closed: only a 40px strip with "Show <label>" and `aria-expanded="false"`; the content is not rendered. The open and closed toggles are different elements, so focus moves to the new toggle when the old one had it or when collapsing removed the focused element. Left reuses the 200px settings width, right uses `size-320`. The shell owns sticky positioning and hides side panels below 768px, as the settings panel was before; narrow layouts never use it. Ctrl-b toggles the left panel when one is shown, and is not registered below 768px. Presentational; consumers own persistence. `bar={false}` is for a panel whose toggle lives elsewhere (the Session screen's title bar): the open panel has no toggle strip and a closed one renders nothing, so the owner's toggle must carry `aria-expanded` and `aria-controls="pc-side-panel-right"`. `wide` uses the 272px Sessions-list width with an inset divider that preserves the content width; its closed strip remains 40px. `bar={false} contentToggle` keeps that closed strip while the owner renders a toggle inside the unpadded content, with id `pc-side-panel-left-toggle`, accessible name "Hide Sessions", `aria-expanded` and `aria-controls="pc-side-panel-left"`. Focus returns to that toggle on reopening when the strip toggle had focus. The Sessions navigator owns its 38px head row (padding 0 8px 0 14px) and list inset (0 8px 12px), with 256px cards. Consumers: Settings (left), the Session screen (Sessions list left, session details right). |
@@ -425,7 +425,7 @@ the narrow layout retains the shared touch minimum height. It preserves
 the default menu keyboard and focus behavior; App Workspace Terminal uses it.
 App Plugins composes DS Icon, Pill, Switch (small) and confirmation Dialog; its
 service-owned list uses 32px lane tiles, 8px tile radius, 12px gaps, 12px/16px row
-padding and a 10px list radius. The plugin glyph uses the nearest 16px token to
+padding and a 12px list radius via the DS `radius-lg` token. The plugin glyph uses the nearest 16px token to
 the board's 17px glyph. Plugin data and grant flow stay in the lazy settings chunk.
 The rows form a labelled Plugins list. During changes and reloads, switches use
 `aria-disabled` with the shared Checkbox/Switch disabled opacity, preserving
@@ -435,7 +435,7 @@ Reload errors leave the last loaded list and inline operation feedback visible.
 
 ### ActionMenu
 
-`ActionMenu({ label, items: [{ label, onSelect }] })` is the compact overflow menu used by Plugins cards. Its DS Button trigger uses the three-circle `more` SVG icon, measures 32px on desktop, and honours `--control-touch` on coarse pointers and narrow screens. It owns its trigger, menu semantics, arrow/Home/End navigation, Escape/outside dismissal and return focus. Enter/Space use native buttons; Tab closes the menu and continues through the page. Styles load with its lazy consumer through an adopted stylesheet. It is authored in-repo, with no upstream dependency. SettingsNav items may set `plugin: true` to show a text marker, included in their accessible name as “, plugin”.
+`ActionMenu({ label, items: [{ label, onSelect }] })` is the compact overflow menu used by Plugins cards. Its DS `IconButton geometry="board"` trigger uses the three-circle `more` SVG icon, measures 28×28px with 6px corners on desktop, and retains 44×44px targets through `--control-touch` on coarse pointers and narrow screens. It owns its trigger, menu semantics, arrow/Home/End navigation, Escape/outside dismissal and return focus. Enter/Space use native buttons; Tab closes the menu and continues through the page. Styles load with its lazy consumer through an adopted stylesheet. It is authored in-repo, with no upstream dependency. SettingsNav items may set `plugin: true` to show a text marker, included in their accessible name as “, plugin”.
 
 ### Tray board composition
 
@@ -525,10 +525,12 @@ Settings-specific component styles live in `screens/settings/settings.css` to ke
 
 Machines uses auto-fit cards with a 440px minimum, bounded by the container. Its board SettingRows use a label track capped at 240px, a flexible control track with a 220px floor, 20px gap and 12px block padding. Rows stack below 420px of the card body. ChoicePickers are 220px wide, capped by their control track after rows stack. At 456px of content the label track shrinks to 216px to fit the picker and 20px gap. Account policy labels, bare Takes work switch labels, and settings text actions keep at least 44px touch height on narrow or coarse-pointer layouts. The new 130px and 90px table dimensions are provisional local tokens.
 
+Accounts composes per-account Check usage controls from Button, Stack, Dialog and Disclosure. A compact result/progress line replaces the full JobProgress panel; provider guidance and deduplicated diagnostics share one initially collapsed, account-labelled Usage check details disclosure. AccountUsage opts out of useOperation job toasts; other consumers retain their existing notifications. Consent uses the shared dialog’s cancel-first focus, Escape dismissal and focus return. Running jobs are scoped to the account; status updates use polite live regions. No shared primitive API or upstream provenance changes.
+
 Accounts uses six board grid tracks: Account, Sign-in (130px), Quota (at least
-160px), Status (150px), Used by, and actions (32px). At container widths up to
-760px, every cell remains visible in labelled cards. More actions appears only
-for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
+160px), Status (150px), Used by, and actions (180px). At container widths up to
+960px, every cell remains visible in labelled cards. More actions appears only
+for accounts with existing sign-in or Ark CLI sign-in help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
@@ -611,6 +613,11 @@ The frame's assistant clearance adapters expose measured dock height through
 `--pc-assistant-header-height` (nonnegative CSS pixels). AppFrame owns these
 read-only layout measurements; the open launcher clamps below that header.
 Neither channel accepts user input or changes the closed launcher's spacing.
+The same frame observer exposes the measured top bar inside the narrow work
+scroller as `--pc-work-header-height`. That scroller uses it only for
+`scroll-padding-top`, so native focus and nearest scrolling clear the sticky
+header without changing inline panel layout or content spacing. The checker
+allows only the exact measured height assignment, with zero when absent.
 
 Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.
 
@@ -700,6 +707,15 @@ accessible names and portal tooltips. Selection and task navigation are sibling
 controls. The current task starts expanded. Recent results, active tasks and tasks
 needing review remain available, with the shared status vocabulary and tints.
 
+The shared workbench canvas (`pc-main--workbench`) removes page and assistant
+launcher insets and lets desktop workspace content fill the space above the status
+bar. Narrow layouts retain page scrolling. The terminal strip uses `Tabs`
+`variant="terminal"` and sibling `pc-terminal-tab-kill` controls for the board's
+30px strip (31px including its divider). `IconButton geometry="panel"` owns
+the 24px panel tool with a 15px glyph and retains the shared touch minimum on
+coarse pointers; Workspace's New panel trigger consumes it. The top bar wraps panel identity onto its own narrow row so search,
+session actions and New task remain pointer-reachable without horizontal panning.
+
 The middle uses shared `Tabs` for session, shell, file, diff and earlier-attempt
 panels. Tabs retain mounted terminals when switched; closing a panel closes its
 view, leaving the underlying session available. Arrow keys, Home and End follow
@@ -707,6 +723,14 @@ the shared tab-strip behavior. `+` opens a shell in the selected worktree, the
 interactive agent chooser, or the existing bounded file viewer. New interactive
 sessions currently create a separate task through `session.create`; the chooser
 states this service limitation and preserves the selected worktree and brief.
+The menu and dialog call this **New task in this worktree**, and the submit action
+is **Create task and start session**. The menu uses the shared `useAnchoredMenu`
+viewport adapter, remeasuring on scroll, viewport and panel resize; Escape restores
+the trigger, arrows/Home/End move between items, and outside clicks dismiss it.
+Session read failures replace loading skeletons with the service error and a
+**Retry session** action. Ended metadata reads **Ended · read-only**; unavailable
+repository or branch values introduce no empty separators. These are compositions
+of existing primitives; no upstream source or dependency is added.
 Earlier-attempt panels show metadata because the current service has no replay
 operation for a selected historical attempt.
 
@@ -788,8 +812,13 @@ All former loading-state calls use `Skeleton`; refresh-only indicators were remo
 asynchronous `save(next)` callback, and a render callback `(value, change, busy)`.
 It owns optimistic state, synchronous duplicate-input locking, rollback, and a
 polite checkmarked Saved notice lasting two seconds. A false result cancels
-without a notice. The busy control dims to .65 and is inert; controls also receive
-`busy` for native disabling. Errors appear immediately below the control with
+without a notice. The busy control dims to .65 and is inert by default; controls
+also receive `busy` for native disabling. `focusableWhileBusy` keeps the boundary
+focusable for plugin enable switches, whose consumers use `aria-disabled` and
+reject pending input while preserving the checked value. Synchronous save locking
+remains active in either mode. After settlement, focus returns to the invoking
+control only once it is enabled, connected and no other control has taken focus.
+Errors appear immediately below the control with
 plain public copy and collapsed technical details. Presentation and spacing use
 shared tokens; success uses the 12px caption token and good foreground token.
 Callers supply an accessible name. Keyboard semantics remain those of the wrapped
@@ -873,6 +902,8 @@ Desktop geometry uses generated tokens; live status respects reduced motion.
 Workspace control glyphs (`take-over`, `hand-back`, `stop-session`) follow the approved
 board 26 SVG paths. Board IconButton geometry has no border and uses a 16px glyph.
 
+Plugin settings removal and reorder actions use the shared `IconButton geometry="board"` contract: 28px on desktop, 44px on coarse pointers and narrow screens, 6px corners. This follows the SettingsPluginPage board's `.ib` rule; its ordered rows have 8px vertical padding plus borders (46px on desktop). Empty reorder slots retain the same width. File-viewer Search and Copy actions keep the FileViewer board's 28px desktop square, with 44px narrow/coarse targets.
+
 ### Terminal palette and authoritative geometry
 
 `terminal-*` color tokens in `tokens.local.json` own the dark terminal surface,
@@ -890,3 +921,12 @@ available for explicit Take control. Handback preserves the renderer and output.
 terminal retains its status, Screen reader control, errors and reconnect action.
 Followers scroll at normal font size and retain PTY
 dimensions; only a visible controller fits/resizes. No upstream provenance changes.
+
+### Command menu elevation
+
+The command menu uses `shadow-command` in both themes, preserving the CommandMenu
+board's two-layer 24px/64px and 2px/6px elevation geometry. Shadow pigment is fixed
+black, like the Workspace menu and Answer sheet boards, rather than `ink`: text
+ink becomes light in dark mode and produces a glow. The border and surface still
+follow theme tokens. Semantics, keyboard behavior, density and consumers are
+unchanged; `CommandPalette` remains the production consumer.

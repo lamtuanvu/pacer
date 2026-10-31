@@ -1,3 +1,4 @@
+import { scheduleDeadline } from "../deadline";
 import type { ClassifierConfig } from "../config/classifier";
 import type { Ctx } from "../types";
 import { appendDecision, loggedState, newDecisionId } from "./log";
@@ -13,16 +14,16 @@ export class TimeoutError extends Error {
 }
 
 export async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelDeadline: (() => void) | undefined;
   try {
     return await Promise.race([
       p,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new TimeoutError(label, ms)), ms);
+        cancelDeadline = scheduleDeadline(Date.now() + ms, () => reject(new TimeoutError(label, ms)));
       }),
     ]);
   } finally {
-    clearTimeout(timer);
+    cancelDeadline?.();
   }
 }
 

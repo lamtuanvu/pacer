@@ -1,8 +1,7 @@
 .pc-workspace{display:flex;flex:1;min-height:0;min-width:0;height:100%;overflow:hidden}
 .pc-workspace-center{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
-.pc-workspace-panels{display:flex;align-items:center;min-height:var(--size-36);border-bottom:1px solid var(--line);background:var(--surface-card);padding:0 var(--space-1)}
-.pc-workspace-panels>.pc-tabs{flex:1;min-width:0;overflow:auto;white-space:nowrap}.pc-workspace-panels .pc-selection-item{display:flex;flex:none;align-items:center}.pc-workspace-panels .pc-selection-item>.pc-btn{height:var(--size-36);border-radius:0;white-space:nowrap;font-size:var(--type-caption-size)}
-.pc-workspace-panels .pc-icon-button{width:var(--size-24);height:var(--size-24);min-height:0}
+.pc-workspace-panels{display:flex;align-items:center;min-height:var(--size-30);flex:none;border-bottom:1px solid var(--line);background:var(--surface-card);padding:0 var(--space-1)}
+.pc-workspace-panels>.pc-tabs{flex:0 1 auto;min-width:0;white-space:nowrap}
 .pc-workspace-content{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:auto}
 .pc-workspace-content>.pc-terminal-view{flex:1;min-height:0}.pc-workspace-content .pc-terminal-frame{display:flex;flex-direction:column;flex:1;min-height:0;border:0;border-radius:0}.pc-workspace-content .pc-terminal-pane{height:100%;flex:1;min-height:0}
 .pc-workspace-list{display:flex;flex-direction:column;gap:var(--space-2);padding:0 var(--space-2) var(--space-2);overflow:auto;min-height:0;font-size:var(--type-body-size)}
@@ -32,8 +31,8 @@
 .pc-workspace-task__body{display:flex;flex-direction:column;gap:var(--size-14);padding:var(--space-2) var(--space-4) var(--space-4)}
 .pc-workspace-task h2{margin:0;font-size:var(--type-caption-size);font-weight:var(--type-headline-weight);line-height:var(--type-body-line)}.pc-workspace-task p{margin:0;white-space:pre-wrap}.pc-workspace-task section{display:flex;flex-direction:column;gap:var(--space-1\.5)}
 .pc-workspace-file.pc-btn{justify-content:flex-start;gap:var(--space-2);padding:var(--space-1\.5) 0;border:0;height:auto;font-family:var(--font-mono);font-size:var(--type-caption-size)}.pc-workspace-file>span:first-child{flex:1;min-width:0;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
-.pc-workspace-panel-details{display:flex;align-items:center;gap:var(--space-2);min-width:0;max-width:var(--size-440)}.pc-workspace-panel-details>div{display:flex;flex-direction:column;min-width:0;gap:0}.pc-workspace-panel-details b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--type-caption-size);line-height:var(--type-caption-line)}.pc-workspace-panel-details span{font-size:var(--type-label-size);line-height:var(--type-label-line);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media(max-width:1100px){.pc-workspace{overflow:auto;flex-direction:column}.pc-workspace-list{max-height:30vh;flex:none}.pc-workspace-center{min-height:50vh;flex:none}.pc-workspace-task{height:auto}}
+.pc-workspace-panel-details{display:flex;align-items:center;gap:var(--space-2);min-width:0;max-width:var(--size-440)}.pc-workspace-panel-details>div{flex:1;display:flex;flex-direction:column;min-width:0;gap:0}.pc-workspace-panel-details b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--type-caption-size);line-height:var(--type-caption-line)}.pc-workspace-panel-details>div>span{font-size:var(--type-label-size);line-height:var(--type-label-line);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-workspace--inline{overflow:auto;flex-direction:column}.pc-workspace--inline .pc-workspace-list{max-height:30vh;flex:none}.pc-workspace--inline .pc-workspace-center{min-height:50vh;flex:none}.pc-workspace--inline .pc-workspace-task{height:auto}
 .pc-workspace-content[hidden]{display:none}
 .pc-workspace-task .pc-trace__cost{display:grid}
 .pc-workspace-panels>.pc-tabs{border-bottom:0}
@@ -47,3 +46,6 @@
 /* Leave room for explicit session actions while narrow titles truncate. */
 .pc-app--narrow .pc-topbar__context:has(.pc-workspace-panel-details){flex:1;min-width:0}
 .pc-app--narrow .pc-workspace-panel-details{width:100%;max-width:100%}
+
+/* Identity text yields before the agent mark and canonical status pill. */
+.pc-workspace-panel-details{flex:1;width:100%}.pc-workspace-panel-details>.pc-agent-mark,.pc-workspace-panel-details>.pc-pill{flex:none}

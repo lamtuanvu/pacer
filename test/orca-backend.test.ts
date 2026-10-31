@@ -7,6 +7,7 @@ import {validateStrategy} from "../src/config/strategy";
 import {selectBackend} from "../src/exec/backend";
 import {makeOrcaBackend, type OrcaBackendDeps} from "../src/exec/orca/backend";
 import {createTask, readTask, updateTask} from "../src/tasks/store";
+import { progressBase } from "../src/tasks/types";
 import {fakeCtx} from "./helpers";
 import {bindOrcaWorkSync, beginWorkSync, finishOrcaWorkSync, finishWorkSync, reserveIdle, releaseReservation} from "../src/update/desktop/admission";
 import {loadOrcaState, updateOrcaState} from "../src/exec/orca/state";
@@ -146,11 +147,12 @@ test("an older create reply naming the initial terminal is still closed", async 
   expect(closed).toBeLessThan(x.f.calls.findIndex(a => a[2] === "create" && a.includes("--command")));
 });
 
-test("current placement resolves a worktree id", async () => {
+test("current placement records the start commit and resolves a worktree id", async () => {
   const x = setup([], {worktree: "current"});
   const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "create")).toBe(false);
   expect(out.worktree).toBe(repo);
+  expect(readTask(x.ctx, x.task.id)?.startSha).toBe("a".repeat(40));
   expect(arg(x.f.calls.find(a => a[2] === "worker-start")!, "--worktree")).toBe(`id:repo-1::${repo}`);
 });
 
@@ -1346,6 +1348,20 @@ test("an idle-expired lane keeps its worktree, so its open question can still be
   // The answer starts a new attempt from the lane's worktree head, as before the worker was released.
   updateTask(x.ctx, asked.id, t => { t.brief.repo = mkdtempSync(join(tmpdir(), "pacer-idle-")); });
   const inputs: {brief: {base?: string}}[] = [];
-  await answer(x.ctx, asked.id, "go with B", {}, {delegate: (c, input) => { inputs.push(input); return createTask(c, {brief: input.brief, kind: null, requestedExecutor: "codex", timeoutS: 1}); }});
+  await answer(x.ctx, asked.id, "go with B", {}, {delegate: async (c, input) => { inputs.push(input); const create = () => createTask(c, {brief: input.brief, kind: null, requestedExecutor: "codex", timeoutS: 1}); return input.commitWith ? input.commitWith(create) : create(); }});
   expect(inputs[0]?.brief.base).toBe(LANE_HEAD);
+});
+
+test("answering a kept-alive current checkout preserves its first start commit", async () => {
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})]]);
+  askedLane(x);
+  const asked = updateTask(x.ctx, x.task.id, t => {
+    t.startSha = "b".repeat(40);
+    t.placement = { requested: "current", mode: "current", why: "test" };
+  });
+  const retry = answerOf(x, asked, "continue");
+  await x.backend.runAttempt(x.ctx, x.cfg, retry);
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(0);
+  expect(readTask(x.ctx, retry.id)?.startSha).toBe(asked.startSha);
+  expect(progressBase(readTask(x.ctx, retry.id)!)).toBe(asked.startSha!);
 });

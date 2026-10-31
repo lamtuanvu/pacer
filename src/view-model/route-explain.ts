@@ -60,6 +60,7 @@ const copy: Record<string, (facts: Reason["facts"], labels: ExplainLabels) => st
   tasks_unavailable: () => "Running tasks could not be read, so none were counted.",
   reserved_capacity: () => "Capacity held by running work may change the choice.",
   admission_hooks: () => "Configured admission checks are not run by this preview.",
+  classifier_unavailable: () => "The classifier plugin did not answer, so the task kind is unknown.",
 };
 export function reasonCopy(reason: ExplainReason, labels: ExplainLabels, subjectLabel?: string): string {
   const text = Object.hasOwn(copy, reason.code) ? copy[reason.code]!(reason.facts ?? {}, labels) : "Another condition applies.";
@@ -101,7 +102,7 @@ const severity: Record<ReasonCode, ReasonSeverity> = {
   no_step_matched: "soft", paused: "soft", engine_failed: "hard", override_unavailable: "hard",
   planner_not_measured: "neutral", too_few_samples: "neutral", planner_is_executor: "neutral", cached_preview: "neutral",
   capacity_unmeasured: "soft", default_model_unresolved: "soft", enforcement_unverified: "soft", engine_not_running: "soft",
-  learning_unavailable: "neutral", tasks_unavailable: "soft", reserved_capacity: "soft", admission_hooks: "neutral",
+  learning_unavailable: "neutral", tasks_unavailable: "soft", reserved_capacity: "soft", admission_hooks: "neutral", classifier_unavailable: "soft",
 };
 export function reasonSeverity(code?: string): ReasonSeverity {
   return code && Object.hasOwn(severity, code) ? severity[code as ReasonCode] : "soft";

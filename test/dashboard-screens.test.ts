@@ -39,7 +39,7 @@ describe("executor eligibility survives the screen redesign", () => {
     const text = renderDashboard(s, 80, 40, s.at, {
       noColor: true, data: data(), state: { screen: "settings", section: "accounts", focus: "detail" },
     });
-    expect(text.replace(/\s+/g, " ")).toContain("Stale reading · refresh to use");
+    expect(text.replace(/\s+/g, " ")).toContain("Stale reading · check account usage");
   });
   for (const screen of ["home", "settings"] as const) {
     for (const width of [80, 120]) {
@@ -313,15 +313,18 @@ describe("footer update state agrees with Settings", () => {
     return renderDashboard(s, width, 40, s.at, { theme: PLAIN_THEME, version: "0.0.0-test", ...(update ? { update } : {}) }).split("\n").at(-1)!;
   };
   test("each state has its own words; an unchecked version claims nothing", () => {
-    expect(footer("available")).toContain("pacer 0.0.0-test · update available");
-    expect(footer("current")).toContain("pacer 0.0.0-test · up to date");
-    expect(footer("disabled")).toContain("pacer 0.0.0-test · update checks off");
-    expect(footer("failed")).toContain("pacer 0.0.0-test · update check failed");
-    for (const text of [footer(undefined), footer("unchecked")]) {
+    // Wide enough for every key hint, the policy token, the version and the update state.
+    expect(footer("available", 160)).toContain("pacer 0.0.0-test · update available");
+    expect(footer("current", 160)).toContain("pacer 0.0.0-test · up to date");
+    expect(footer("disabled", 160)).toContain("pacer 0.0.0-test · update checks off");
+    expect(footer("failed", 160)).toContain("pacer 0.0.0-test · update check failed");
+    for (const text of [footer(undefined, 160), footer("unchecked", 160)]) {
       expect(text).toContain("pacer 0.0.0-test");
       expect(text).not.toContain("up to date");
     }
-    expect(footer("disabled", 80)).toContain("update checks off");
+    // At 120 the key hints fill the left; the version gives way before the update state.
+    expect(footer("disabled")).toContain("update checks off");
+    expect(footer("disabled")).toContain("d delegate");
   });
   test("updateState reads the same update.check result Settings shows", () => {
     expect(updateState(undefined)).toBe("unchecked");

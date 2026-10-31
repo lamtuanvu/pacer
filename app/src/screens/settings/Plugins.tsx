@@ -49,7 +49,10 @@ export function PluginsSection() {
           {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}
         </div>
         <span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}</span>
-        <ImmediateSave value={plugin.enabled} save={() => toggle(plugin)}>{(value, change, saving) => <Switch size="sm" aria-label={`Enable ${presentation.name}`} aria-describedby={plugin.error ? errorId : undefined} checked={value} disabled={saving || busy || resource.loading || plugin.state === "refused"} onChange={event => change(event.currentTarget.checked)} />}</ImmediateSave>
+        <ImmediateSave focusableWhileBusy value={plugin.enabled} save={() => toggle(plugin)}>{(value, change, saving) => <Switch size="sm" aria-label={`Enable ${presentation.name}`} aria-describedby={plugin.error ? errorId : undefined} checked={value} disabled={plugin.state === "refused"} aria-disabled={saving || busy || resource.loading || plugin.state === "refused"} onChange={event => {
+          if (saving || busy || resource.loading) { event.currentTarget.checked = value; return; }
+          change(event.currentTarget.checked);
+        }} />}</ImmediateSave>
       </li>;
     })}</ul> : <p className="pc-settings-board__caption">No plugins installed.</p>}
     <span className="pc-settings-board__caption">A plugin can add a settings page, an activity-bar view, a side-panel tab, routing engines or usage readers. Each one is listed here with what it adds.</span>
@@ -68,7 +71,7 @@ export function usePluginToggle(reload: () => void, loading = false) {
   async function toggle(plugin: PluginInfo, control?: HTMLInputElement) {
     if (pending.current || loading || plugin.state === "refused") {
       if (control) control.checked = plugin.enabled;
-      return;
+      return false;
     }
     pending.current = true; setBusy(true);
     try {

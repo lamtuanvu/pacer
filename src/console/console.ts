@@ -13,8 +13,9 @@ import { type CmdData, type ConsoleData, type OutboxEvent } from "../link/envelo
 import { loadStrategy } from "../config/strategy";
 import { spawnRunner, type taskStop } from "../tasks/api";
 import { readTask } from "../tasks/store";
+import { localHuman } from "../messaging/participants";
 export interface ConsoleDeps {
-  delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
+  delegate(ctx: Ctx, input: DelegateInput): Promise<TaskRecord>;
   readTask?: typeof readTask;
   taskStop?: typeof taskStop;
   configuredExecutors?(ctx: Ctx): string[];
@@ -54,7 +55,7 @@ export function consoleCommands(ctx: Ctx, deps: ConsoleDeps, print: (text: strin
       data={...data,path:repo};
     }
     const r = await runMappedCmd(async (op, p) => {
-      try { return await callOp(fresh(), op, p, { spawnRunner, delegate: (c,input) => deps.delegate(c,input) }); }
+      try { return await callOp(fresh(), op, p, { spawnRunner, delegate: (c,input) => deps.delegate(c,input), participant: localHuman(fresh()) }); }
       catch (e) {
         if (e instanceof CoreError && e.code === "unknown_task") throw new CoreError("unknown_task", "unknown task");
         if (data.cmd === "retry" && e instanceof CoreError && e.code === "conflict") {

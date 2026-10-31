@@ -31,6 +31,7 @@ import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
+import { localHuman } from "./messaging/participants";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
@@ -95,7 +96,7 @@ const USAGE = `usage: pacer <command>
   takeover <task-id> [--no-attach]
   attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
-  answer <task-id> "<text>"                       answer a question and retry on the same executor
+  answer <task-id> "<text>"                       answer a question; resumes the session or retries
   send <task-id> "<message>" [--force] [--json]  deliver a message into a running interactive lane's live terminal
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
@@ -323,7 +324,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true},cliDeps.spawnRunner);
+    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
     return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
@@ -431,7 +432,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "answer": {
       try {
         if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
-        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner});
+        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
         return {code:0,out:JSON.stringify(result),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
@@ -493,7 +494,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
           if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
           const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
-          const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
+          const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner),spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
         }
         if(cmd==="dismiss") {
@@ -699,7 +700,10 @@ if (import.meta.main) {
   const r = await main(process.argv.slice(2));
   // Any command that stopped a kept-alive lane (stop, dispatch stop, session end) finishes releasing its worker first.
   await settleLiveReleases();
-  if (r.out) process.stdout.write(r.out.endsWith("\n") ? r.out : `${r.out}\n`);
-  if (r.err) process.stderr.write(r.err.endsWith("\n") ? r.err : `${r.err}\n`);
+  const writes = await Promise.allSettled([
+    ...(r.out ? [Bun.write(Bun.stdout, r.out.endsWith("\n") ? r.out : `${r.out}\n`)] : []),
+    ...(r.err ? [Bun.write(Bun.stderr, r.err.endsWith("\n") ? r.err : `${r.err}\n`)] : []),
+  ]);
+  if (writes.some(result => result.status === "rejected")) process.exit(1);
   if (!r.keepAlive) process.exit(r.code);
 }
