@@ -25,7 +25,7 @@ import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
-import { desktopHost, readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
+import { isDesktop, readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
 import { resetDesktopPageScroll } from "./shell/page-scroll";
 import { NoticeStack } from "./ds/NoticeCard";
 void readRoundedWindowSupport().then(supported => {
@@ -95,7 +95,7 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      registerShellCommands(commands, keys, { go, back: () => history.back(), forward: () => history.forward(), openNewTask, showHelp: () => setHelp(true), apple: isApplePlatform(), desktop: typeof desktopHost().__TAURI__?.core?.invoke === 'function' }),
+      registerShellCommands(commands, keys, { go, back: () => history.back(), forward: () => history.forward(), openNewTask, showHelp: () => setHelp(true), apple: isApplePlatform(), desktop: isDesktop() }),
       // Screens with a "New task" button ask the shell to open the New task composer.
       (() => { const open = () => openNewTask(); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
