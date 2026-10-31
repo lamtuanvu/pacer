@@ -2,7 +2,7 @@
 
 Date: 2026-10-31, revised the same day after independent security, architecture and protocol, and UI and repository reviews. Status: proposed, awaiting the maintainer's approval. Nothing is built.
 Applies to: `src/plugins/**`, `src/api/ops.ts`, `src/api/caller-policy.ts`, `src/core/plugins.ts`, `src/serve/**`, `crates/server/src/serve/**`, `crates/cli/**`, `src/mcp/**`, `src/session/send.ts`, `src/messaging/participants.ts`, `src/attention/**`, `packages/plugin-sdk/**`, `crates/plugin-sdk/**`, `conformance/**`, `plugins/examples/**`, `scripts/plugin-protocol-doc.ts`, `docs/plugin-protocol.md`, `docs/plugin-protocol.schema.json`, `docs/protocol.md`, `app/**`, `desktop/src-tauri/src/**`.
-Decision record: a new ADR that amends [ADR 0010](../decisions/0010-plugin-ui-contributions.md), written once this spec is approved.
+Decision record: [ADR 0016](../decisions/0016-plugin-web-surfaces-and-work-capabilities.md), which amends [ADR 0010](../decisions/0010-plugin-ui-contributions.md).
 Builds on:
 - [plugin system](2026-10-19-plugin-system-design.md) and [plugin host core](2026-10-19-plugin-host-core-design.md)
 - [plugin UI contributions](2026-10-28-plugin-ui-contributions-design.md) and ADR 0010
