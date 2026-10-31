@@ -2,10 +2,11 @@ import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { conversationActivity } from "../session/conversation";
+import { withLock } from "../core/lock";
 import { FrameType, WireDecoder, wire } from "../session/framing";
 import { sessionSocket } from "../session/service";
 import { transcriptReport } from "../session/reports";
-import type { RunState } from "../supervisor/run";
+import { readRun, type RunState } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import { readTask, updateTask } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
@@ -20,7 +21,7 @@ const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
 const INLINE_BYTES = 32 * 1024;
 
-export interface LiveDeps { submitDelayMs?: number; timeoutMs?: number }
+export interface LiveDeps { submitDelayMs?: number; timeoutMs?: number; readState?: (dir: string) => RunState }
 
 const statusMtime = (dir: string): number => { try { return statSync(join(dir, "session-status.json")).mtimeMs / 1000; } catch { return 0; } };
 
@@ -36,6 +37,19 @@ function betweenTurns(t: TaskRecord, s: RunState): boolean {
  * control. Messages are never dropped: a failed delivery puts them back to pending.
  */
 export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunState, deps: LiveDeps = {}): Promise<void> {
+  try { await withLock(ctx, `msg-live-${task.id}`, () => liveTickLocked(ctx, task, run, s, deps), { timeoutMs: 0, staleMs: 10 * 60_000 }); }
+  catch (e) { if (!(e instanceof Error && e.message.includes("timed out waiting for"))) throw e; }
+}
+
+/** Fresh run activity and control: the agent is still between turns and nobody but `pacer` holds the terminal. */
+function stillBetweenTurns(ctx: Ctx, id: string, run: RunRef, deps: LiveDeps): boolean {
+  const t = readTask(ctx, id), s = deps.readState?.(run.dir) ?? readRun(run.dir);
+  return !!t && t.run?.dir === run.dir && !t.liveTurn && !t.run.takeover && t.takeover?.state !== "driving" &&
+    s.alive && !!s.interactive && (!s.controller || s.controller === "pacer") && betweenTurns(t, s);
+}
+
+/** One claim at a time per task, so two ticks never type the same turn. */
+async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunState, deps: LiveDeps): Promise<void> {
   if (run.takeover || run.host || !s.interactive || !s.alive) return;
   const t = readTask(ctx, task.id);
   if (!t || t.run?.dir !== run.dir || t.takeover?.state === "driving") return;
@@ -50,6 +64,8 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
   if (s.controller) return setBlocked(ctx, t, true);
   // Admission is fresh at the point the live driver claims the next turn, including broker nudges.
   if ((await beginTurn(ctx, t.id, undefined, { quiet: true })).delivery !== "live") return;
+  // Admission may have awaited a plugin while the agent started another turn or a viewer took over.
+  if (!stillBetweenTurns(ctx, t.id, run, deps)) return;
   const root = rootOf(ctx, to);
   if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return;
   const turnId = `${t.id}#live.${store.turnsForTask(ctx, t.id) + 1}`;
@@ -65,7 +81,8 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
       writeFileSync(path, body, { mode: 0o600 });
       body = `Read the new messages in ${JSON.stringify(path)} and respond to them.`;
     }
-    const typed = await typeIntoSession(sessionSocket(run.dir), body, deps);
+    const typed = await typeIntoSession(sessionSocket(run.dir), body, deps, () => stillBetweenTurns(ctx, t.id, run, deps));
+    if (typed === "busy") return release(ctx, turnId, messages);
     if (typed === "refused") {
       release(ctx, turnId, messages);
       return setBlocked(ctx, t, true);
@@ -106,8 +123,11 @@ export function finishLiveTurn(ctx: Ctx, t: TaskRecord, spawn?: SpawnRunner): vo
   updateTask(ctx, id, x => { if (x.liveTurn?.id === live.id) delete x.liveTurn; });
 }
 
-/** Take control as viewer `pacer`, paste the body, submit it, and hand control back. "refused": a viewer took control first. */
-async function typeIntoSession(path: string, body: string, deps: LiveDeps): Promise<"typed" | "refused"> {
+/**
+ * Take control as viewer `pacer`, paste the body, submit it, and hand control back. "refused": a viewer took control first;
+ * "busy": with control held, the agent was no longer between turns, so nothing was typed.
+ */
+async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<"typed" | "refused" | "busy"> {
   const timeoutMs = deps.timeoutMs ?? 3000;
   const socket: Socket = createConnection(path);
   const decoder = new WireDecoder();
@@ -139,6 +159,7 @@ async function typeIntoSession(path: string, body: string, deps: LiveDeps): Prom
     let control = await next();
     while (!control.you && control.reason !== "refused" && !control.controller) control = await next();
     if (!control.you) return "refused";
+    if (!stillIdle()) { await send(wire(FrameType.release, {})); return "busy"; }
     await send(wire(FrameType.input, Buffer.from(`${PASTE_START}${body}${PASTE_END}`)));
     // Give the agent's input box a moment to take the paste before it is submitted.
     if (deps.submitDelayMs ?? 150) await Bun.sleep(deps.submitDelayMs ?? 150);

@@ -56,7 +56,7 @@ const state = (s: Partial<RunState> & { status?: string } = {}): RunState => ({
   pid: 1, startedAt: 1, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: 2, interactive: true,
   report: { status: (s.status ?? "turn-ended") as never, summary: "s", at: 1000 }, ...(s.controller ? { controller: s.controller } : {}), ...s,
 });
-const deps = { submitDelayMs: 0 };
+const deps = { submitDelayMs: 0, readState: () => state() };
 
 test("a message to a live conversation is sent as live and typed in while idle with no controller", async () => {
   const { ctx, id, dir, run } = setup();
@@ -101,6 +101,48 @@ test("a 40 KiB body is written to a file and only a short prompt is typed", asyn
   const path = /"([^"]+\.md)"/.exec(bytes)![1]!;
   expect(path.startsWith(dir)).toBe(true);
   expect(readFileSync(path, "utf8")).toContain("x".repeat(40 * 1024));
+});
+
+test("a resumed agent or takeover during admission leaves live messages pending", async () => {
+  for (const change of ["resumed", "takeover"] as const) {
+    const { ctx, id, dir, run } = setup();
+    const session = fakeSession(dir);
+    await session.ready;
+    await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+    const readState = () => {
+      if (change === "takeover") updateTask(ctx, id, t => { t.takeover = { state: "driving" } as typeof t.takeover; });
+      return state({ status: change === "resumed" ? "running" : "turn-ended" });
+    };
+    await liveTick(ctx, readTask(ctx, id)!, run, state(), { ...deps, readState });
+    expect(session.input).toHaveLength(0);
+    expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  }
+});
+
+test("an agent that resumes while pacer takes control gets nothing typed and no hand-back notice", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  let reads = 0;
+  // Idle when the claim is made; running by the time control is held.
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), { ...deps, readState: () => state({ status: reads++ ? "running" : "turn-ended" }) });
+  expect(reads).toBe(2);
+  expect(session.input).toHaveLength(0);
+  for (let i = 0; i < 50 && session.hub.controller; i++) await Bun.sleep(10);
+  expect(session.hub.controller).toBeNull();
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  expect(readTask(ctx, id)!.liveBlocked).toBeUndefined();
+});
+
+test("concurrent live ticks claim one turn and type once", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "once" }, { appAuthenticated: true });
+  await Promise.all([1, 2, 3].map(() => liveTick(ctx, readTask(ctx, id)!, run, state(), deps)));
+  expect(session.input.filter(b => b.toString() === "\r")).toHaveLength(1);
+  expect(readTask(ctx, id)!.liveTurn?.id).toBe(`${id}#live.1`);
 });
 
 test("a viewer holding control blocks delivery and leaves the messages pending", async () => {
