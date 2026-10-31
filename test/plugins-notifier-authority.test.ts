@@ -95,9 +95,10 @@ test("altered arguments, another declared tool, absolute paths and timeout escal
   ];
   for (const changed of variants) await expect(f.request({ argv: changed, timeoutMs: 5000 })).rejects.toMatchObject({ code: "capability_denied" });
   await expect(f.request({ argv, timeoutMs: 5001 })).rejects.toMatchObject({ code: "capability_denied" });
-  for (const override of [{ env: {} }, { cwd: f.ctx.home }, { stdin: "unapproved" }]) {
+  for (const override of [{ env: {} }, { cwd: f.ctx.home }]) {
     await expect(f.request({ ...f.command, ...override })).rejects.toMatchObject({ code: "invalid_input" });
   }
+  await expect(f.request({ ...f.command, stdin: "unapproved" })).rejects.toMatchObject({ code: "capability_denied" });
   expect(f.receipts()).toEqual([]);
   expect((await f.request()).code).toBe(0);
   expect(f.receipts()).toHaveLength(1);

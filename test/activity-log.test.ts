@@ -149,6 +149,36 @@ test("retry, stop, dismiss and rejected reviews log their successful actions", a
   expect(readActivity(ctx, { kinds: ["verdict"] }).entries.map(e => e.text)).toEqual(["Dismissed “Fix parser”", "Rejected “Fix parser”"]);
 });
 
+test("provider stop intent does not emit task_settled before verified exit", async () => {
+  const ctx = await configured();
+  const task = await tasks.delegate(ctx, { brief: { goal: "Stop fixture", repo: ctx.home },
+    executor: "codex" }, () => 1);
+  updateTask(ctx, task.id, current => {
+    current.state = "running";
+    current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct";
+  });
+  expect(tasks.stop(ctx, task.id).state).toBe("running");
+  expect(readActivity(ctx, { kinds: ["task_settled"] }).entries).toHaveLength(0);
+});
+
+test("pump records a provider-owned stop only after its exact exit receipt", async () => {
+  const ctx = await configured();
+  const task = await tasks.delegate(ctx, { brief: { goal: "Stop fixture", repo: ctx.home }, executor: "codex" }, () => 1);
+  const deps: PumpDeps = { status: async c => status(c.now), tasks: () => [tasks.get(ctx, task.id)], publish };
+  await pumpOnce(ctx, deps);
+  updateTask(ctx, task.id, current => {
+    current.state = "stopped";
+    current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct";
+    current.executorExitReceipt = { attempt: 1, providerId: "pacer-exec-direct",
+      dir: "/fixture/run", startedAt: ctx.now, exitCode: 143 };
+  });
+  await pumpOnce({ ...ctx, now: ctx.now + 1 }, deps);
+  expect(readActivity(ctx, { kinds: ["task_settled"] }).entries.map(entry => entry.text))
+    .toEqual(["Stopped “Stop fixture”"]);
+});
+
 test("config writes record one entry without values or secrets", async () => {
   const ctx = await configured();
   await callOp(ctx, "config.set", { key: "pacing.planner_reserve", value: 15 });

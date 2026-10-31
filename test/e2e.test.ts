@@ -9,7 +9,7 @@ function setup(executors: Record<string, string>, strategy: string, inheritedEnv
   const home = tmpDir();
   withLoginIndicators(fakeCtx({ home }));
   const pacerHome = join(home, ".pacer");
-  mkdirSync(pacerHome, { recursive: true });
+  mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
   // These stubs model headless CLIs, so pin the launch mode rather than take the interactive default.
   writeFileSync(join(pacerHome, "strategy.yaml"), `${strategy}execution:\n  launch_mode: headless\n`);
   const bin = join(home, "bin");
@@ -23,7 +23,10 @@ function setup(executors: Record<string, string>, strategy: string, inheritedEnv
   mkdirSync(repo);
   // Routing's login indicator honors CODEX_HOME before HOME. Keep it with the
   // fixture's fake auth file even when the invoking shell selects another account.
-  const env = { ...inheritedEnv, HOME: home, CODEX_HOME: join(home, ".codex"), PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${inheritedEnv.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
+  const env: Record<string, string | undefined> = { ...inheritedEnv, HOME: home, CODEX_HOME: join(home, ".codex"), PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${inheritedEnv.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
+  // The CLI fixture acts as the user, even when the test runner itself is an executor.
+  delete env.PACER_ROLE;
+  delete env.PACER_TASK_ID;
   Bun.spawnSync(["sh", "-c", "git init -q -b main && git remote add origin . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init"], { cwd: repo, env });
   return { repo, env, pacerHome };
 }

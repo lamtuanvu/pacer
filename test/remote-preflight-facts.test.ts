@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hasCommittedWork } from "../src/remote/preflight-facts";
+import { hasCommittedWork } from "../src/remote/committed-work";
 
 const facts = "ancestor=1\ndirty=0\ndirty_files=0\ncommits=2\nemails=1\nsignoffs=1\nhead=abc\n";
 

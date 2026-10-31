@@ -120,6 +120,17 @@ export function strictClaudeLaunch(ctx:Ctx,argv:string[],runDir:string):string[]
   const copy=[...argv];copy.splice(at>=0?at:Math.max(1,copy.length-1),0,"--settings",settings);
   return copy;
 }
+/**
+ * strictClaudeLaunch for a host-written run file: the same settings and argv, without writing. The provider route
+ * publishes the file after its run-directory claim; a test keeps both outputs identical.
+ */
+export function planStrictClaudeLaunch(ctx:Ctx,argv:string[],runDir:string):{argv:string[];file:{name:"strict-claude-settings.json";content:string;mode:0o600}} {
+  const settings=join(runDir,"strict-claude-settings.json");
+  const command=shellCommand([...pacerArgv(ctx.env),"guard","--planner","claude-code"]);
+  const at=argv.indexOf("--");
+  const copy=[...argv];copy.splice(at>=0?at:Math.max(1,copy.length-1),0,"--settings",settings);
+  return {argv:copy,file:{name:"strict-claude-settings.json",content:JSON.stringify({hooks:{PreToolUse:[{matcher:"Agent|Task",hooks:[{type:"command",command,timeout:15}]}]}}),mode:0o600}};
+}
 export function certificateStatus(ctx:Ctx,target:EnforcementTarget,store?:ReadOnlyStore):CertificateStatus {
   const sql="SELECT fingerprint,probed_at,expires FROM enforcement_certificates WHERE target=?";
   const row=store?(store.has("enforcement_certificates")?store.query<{fingerprint:string;probed_at:number;expires:number}>(sql,key(target))[0]:undefined)

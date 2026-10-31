@@ -27,7 +27,7 @@ const number = (s: string | undefined): number | null => s?.trim() && Number.isF
 const size = (file: string) => { try { return statSync(file).size; } catch { return 0; } };
 
 export function ptyWrapper(wrapper: string): string {
-  const converted = wrapper.replace(/^if \[ -f .* & fi$/m, '\"$@\" > /dev/null 2> \"$D/stderr\" &');
+  const converted = wrapper.replace(/^if \[ -f .* & fi$/m, '(umask "$pacer_umask"; exec "$@") > /dev/null 2> "$D/stderr" &');
   if (converted === wrapper) throw new Error("PTY wrapper replacement failed");
   return converted;
 }

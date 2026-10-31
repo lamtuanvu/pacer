@@ -141,6 +141,28 @@ else
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`;
 
+/** Read-only reconciliation after an unreceipted PREPARE; never fetch or create. */
+export const PREPARE_RECOVER_SCRIPT = `checkout="$1"; tag="$2"; task="$3"; base="$4"; attempt="$6"
+GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+cd "$checkout" || exit 1
+worktree="$HOME/.pacer-remote/worktrees/$tag/$task-$attempt"
+[ -d "$worktree" ] && [ ! -L "$worktree" ] || exit 1
+expected_top=$(cd "$worktree" && pwd -P) || exit 1
+expected_common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
+actual_common=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir) || exit 1
+[ "$actual_common" = "$expected_common" ] || exit 1
+actual_top=$(git -C "$worktree" rev-parse --path-format=absolute --show-toplevel) || exit 1
+[ "$actual_top" = "$expected_top" ] || exit 1
+git worktree list --porcelain | grep -Fx "worktree $expected_top" >/dev/null || exit 1
+head=$(git -C "$worktree" rev-parse --verify HEAD) || exit 1
+[ "$head" = "$base" ] || exit 1
+ref=$(git -C "$worktree" symbolic-ref HEAD) || exit 1
+case "$ref" in "refs/heads/pacer/$task"|"refs/heads/pacer/$task-$attempt") ;; *) exit 1 ;; esac
+status=$(git -C "$worktree" status --porcelain --untracked-files=all) || exit 1
+[ -z "$status" ] || exit 1
+printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "\${ref#refs/heads/}"`;
+
 /** Fixed persisted-run observation program; parity with SCRIPTS.REPORT is tested. */
 export const REPORT_SCRIPT = `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
@@ -384,16 +406,25 @@ export function startArgv(sshTarget: string, controlPath: string, args: readonly
   return issuedArgv(sshTarget, controlPath, START_SCRIPT, [...args], completionNonce);
 }
 
+function validPrepareArgs(args: readonly string[]): boolean {
+  return args.length === 6 && !args.some(value => typeof value !== "string" || value.length > 4096 ||
+    /[\u0000-\u001f\u007f]/.test(value)) &&
+    !!(args[0]!.startsWith("/") || args[0]!.startsWith("~/")) &&
+    /^[A-Za-z0-9._-]+-[a-f0-9]{8}$/.test(args[1]!) &&
+    /^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(args[2]!) &&
+    /^[a-f0-9]{40,64}$/.test(args[3]!) && !!args[4] &&
+    /^[1-9][0-9]*$/.test(args[5]!);
+}
+
 export function prepareArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
-  if (args.length !== 6 || args.some(value => typeof value !== "string" || value.length > 4096 ||
-    /[\u0000-\u001f\u007f]/.test(value)) ||
-    !(args[0]!.startsWith("/") || args[0]!.startsWith("~/")) ||
-    !/^[A-Za-z0-9._-]+-[a-f0-9]{8}$/.test(args[1]!) ||
-    !/^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(args[2]!) ||
-    !/^[a-f0-9]{40,64}$/.test(args[3]!) || !args[4] ||
-    !/^[1-9][0-9]*$/.test(args[5]!) || !/^[a-f0-9-]{36}$/.test(completionNonce))
+  if (!validPrepareArgs(args) || !/^[a-f0-9-]{36}$/.test(completionNonce))
     throw Error("invalid host-issued prepare tuple");
   return issuedArgv(sshTarget, controlPath, PREPARE_SCRIPT, [...args], completionNonce);
+}
+
+export function prepareRecoverArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (!validPrepareArgs(args)) throw Error("invalid host-issued prepare recovery tuple");
+  return issuedArgv(sshTarget, controlPath, PREPARE_RECOVER_SCRIPT, [...args]);
 }
 
 export function reportArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

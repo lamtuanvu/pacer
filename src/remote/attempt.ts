@@ -20,36 +20,8 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostPrepare } from "../plugins/host-prepare-issuer";
 import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
 import { probeCodexUsage } from "./usage";
-import { hasCommittedWork } from "./preflight-facts";
-
-const MAX_BUNDLE = 50 * 1024 * 1024;
-/** Preserve binary git bundles across RunFn's text-only output boundary. */
-async function baseBundle(ctx: Ctx, repo: string, taskId: string, baseSha: string): Promise<Uint8Array> {
-  const ref = `refs/pacer/base/${taskId}`;
-  const set = await ctx.run(["git", "-C", repo, "update-ref", ref, baseSha], 10000);
-  if (set.code) throw new Error(set.stderr);
-  try {
-    const proc = Bun.spawn(["git", "-C", repo, "bundle", "create", "-", ref], { env: ctx.env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => proc.kill(), 60000);
-    const stderr = new Response(proc.stderr).text();
-    try {
-      const chunks: Uint8Array[] = []; let bytes = 0;
-      for await (const chunk of proc.stdout) {
-        bytes += chunk.length;
-        if (bytes > MAX_BUNDLE) {
-          proc.kill(); await proc.exited; await stderr;
-          throw new Error("base bundle over 50 MB");
-        }
-        chunks.push(chunk);
-      }
-      const code = await proc.exited, error = await stderr;
-      if (code) throw new Error(error || "base bundle failed");
-      return Buffer.concat(chunks);
-    } finally { clearTimeout(timer); }
-  } finally {
-    await ctx.run(["git", "-C", repo, "update-ref", "-d", ref], 10000);
-  }
-}
+import { baseBundle } from "./base-bundle";
+import { hasCommittedWork } from "./committed-work";
 
 export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, host: HostCfg, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const startedAt = Date.now() / 1000, log = join(tasksDir(ctx), `${task.id}.${cfg.id}.log`);

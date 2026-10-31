@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
+import { CoreError } from "../src/core/errors";
 import { HostLeaseBroker, type HostLeaseProvider } from "../src/plugins/host-lease";
 import { issuePersistedFetch } from "../src/plugins/fetch-issuer";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -167,6 +168,26 @@ test("fetch deadline aborts the effect and discards its late result", async () =
   finish(result);
   await expect(pending).rejects.toMatchObject({ code: "plugin_timeout" });
   expect(discarded).toEqual([result]);
+});
+
+test("fetch reports its own expiry when a nested cancellation wins a delayed timer", async () => {
+  const f = await fixture(20);
+  const pending = f.broker.fetch(f.caller, f.session, f.grant,
+    async () => {
+      // Simulate a busy event loop: nested transport rejection reaches the
+      // broker after its absolute deadline but before its timer callback.
+      const until = Date.now() + 30;
+      while (Date.now() < until) { /* intentional bounded delay */ }
+      throw new CoreError("plugin_unavailable", "owning plugin call ended");
+    }, () => {});
+  await expect(pending).rejects.toMatchObject({ code: "plugin_timeout", message: "host fetch expired" });
+});
+
+test("fetch preserves a nested cancellation before its own deadline", async () => {
+  const f = await fixture(1000);
+  await expect(f.broker.fetch(f.caller, f.session, f.grant,
+    async () => { throw new CoreError("plugin_unavailable", "owning plugin call ended"); }, () => {}))
+    .rejects.toMatchObject({ code: "plugin_unavailable", message: "owning plugin call ended" });
 });
 
 test("fetch discards a result when validation finishes after its deadline", async () => {

@@ -71,6 +71,26 @@ else
   git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
+  PREPARE_RECOVER: `checkout="$1"; tag="$2"; task="$3"; base="$4"; attempt="$6"
+GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+cd "$checkout" || exit 1
+worktree="$HOME/.pacer-remote/worktrees/$tag/$task-$attempt"
+[ -d "$worktree" ] && [ ! -L "$worktree" ] || exit 1
+expected_top=$(cd "$worktree" && pwd -P) || exit 1
+expected_common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
+actual_common=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir) || exit 1
+[ "$actual_common" = "$expected_common" ] || exit 1
+actual_top=$(git -C "$worktree" rev-parse --path-format=absolute --show-toplevel) || exit 1
+[ "$actual_top" = "$expected_top" ] || exit 1
+git worktree list --porcelain | grep -Fx "worktree $expected_top" >/dev/null || exit 1
+head=$(git -C "$worktree" rev-parse --verify HEAD) || exit 1
+[ "$head" = "$base" ] || exit 1
+ref=$(git -C "$worktree" symbolic-ref HEAD) || exit 1
+case "$ref" in "refs/heads/pacer/$task"|"refs/heads/pacer/$task-$attempt") ;; *) exit 1 ;; esac
+status=$(git -C "$worktree" status --porcelain --untracked-files=all) || exit 1
+[ -z "$status" ] || exit 1
+printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "\${ref#refs/heads/}"`,
   QUESTION: `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }

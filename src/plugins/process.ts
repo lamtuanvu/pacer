@@ -1,4 +1,5 @@
 import {pluginMetadata} from "./policy-protocol";
+import {executorRunEvent} from "./executor-protocol";
 import {plannerPreparedResultAllowed} from "./planner-resources";
 import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -139,7 +140,8 @@ export class PluginProcess {
       if (m.method === "$/progress") {
         const params = m.params as { id?: unknown; event?: unknown } | undefined;
         const pending = typeof params?.id === "number" ? this.pending.get(params.id) : undefined;
-        if (!pending?.stream && params?.event && typeof params.event === "object" && !Array.isArray(params.event)) {
+        if (!pending?.stream && params?.event && typeof params.event === "object" && !Array.isArray(params.event)
+          && typeof (params.event as { streamId?: unknown }).streamId === "string") {
           const streamId = (params.event as { streamId?: unknown }).streamId;
           const owning = [...this.pending.entries()].find(([, candidate]) => candidate.stream !== undefined && candidate.stream.streamId === streamId);
           if (owning) {
@@ -149,6 +151,20 @@ export class PluginProcess {
         }
         if (pending?.stream) {
           this.receiveStreamProgress(params!.id as number, pending, params?.event);
+          return;
+        }
+        if (pending?.method === "executor.run") {
+          const parsed = executorRunEvent.safeParse(params?.event);
+          if (!parsed.success || !pending.onProgress) {
+            this.rejectPending(params!.id as number, pending,
+              new CoreError("plugin_refused", "invalid or unhandled executor progress"), true);
+            return;
+          }
+          try { pending.onProgress(parsed.data); }
+          catch (error) {
+            this.rejectPending(params!.id as number, pending,
+              error instanceof CoreError ? error : new CoreError("plugin_refused", "executor progress was refused"), true);
+          }
           return;
         }
         if (pending?.onProgress) {
@@ -345,11 +361,12 @@ export class PluginProcess {
     });
   }
 
-  private rejectPending(id: number, pending: Pending, error: CoreError): void {
+  private rejectPending(id: number, pending: Pending, error: CoreError, cancel = false): void {
     if (this.pending.get(id) !== pending) return;
     // Keep a pending frame's five-second timer alive so an in-flight consumer
     // and acknowledgement waiter also settle after the parent call is gone.
     this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose();
+    if (cancel) this.send({ method: CANCEL_METHOD, params: { id } });
     if (pending.stream?.input) { pending.stream.input.cancelDeadline();
       if (pending.authority) clearDuplexInput(pending.authority, pending.stream.input.seq);
       pending.stream.input.reject(error); pending.stream.input = undefined; }

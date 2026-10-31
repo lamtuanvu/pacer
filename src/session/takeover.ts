@@ -14,11 +14,13 @@ import { stopRun } from "../supervisor/run";
 import { CoreError } from "../core/errors";
 import { validateTaskId } from "./targets";
 
+export const providerOwnedTakeover = "Take over is not yet extracted for provider-owned runs.";
 export const missingSession = (executor: string) => `Take over needs the agent's session id; \`${executor}\` does not report one. Stop the task and retry it interactively instead.`;
 /** Cheap checks only: OpenCode discovery is deferred until the user requests takeover. */
 export function takeoverAvailability(task: TaskRecord): {available: boolean; reason?: string} {
   const run = task.run, agent = parseRunnerId(run?.executor ?? task.executor ?? "")?.agent ?? run?.executor;
   const reason = task.state !== "running" ? "Take over requires a running task."
+    : task.executorProvider === "pacer-exec-direct" ? providerOwnedTakeover
     : run?.host || parseRunnerId(run?.executor ?? "")?.host ? "Take over is not supported for remote runs."
     : (task.backend && task.backend !== "direct") || task.result?.backend === "orca" ? "Take over requires the direct backend."
     : !run ? "Take over requires an active run."

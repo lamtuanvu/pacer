@@ -1,6 +1,7 @@
 import {POLICY_METHODS,POLICY_CAPABILITY_METHODS,POLICY_METHOD_CAPABILITY} from "./policy-protocol";
 import {HOST_RUNNER_METHODS,hostRunnerContribution,hostRunnerStreamId} from "./host-runner-protocol";
 import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
+import { WORKTREE_CAPABILITY_METHODS, WORKTREE_METHOD_CAPABILITY } from "./executor-worktree-protocol";
 import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
 import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
 export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
@@ -28,7 +29,7 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.8.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.9.0";
 /** Release that added the #503 policy redaction metadata and `kind:name` secret references. */
 export const PLUGIN_HARDENING_PROTOCOL_VERSION = "1.8.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
@@ -36,7 +37,7 @@ export const PLUGIN_PROTOCOL_MAJOR = 1;
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "usage.state", "hosts"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "worktree", "usage.state", "hosts"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 /** Extension points and capabilities added in 1.6.0; a manifest that uses one gates on that host. */
 export const M0_EXTENSION_POINTS = ["usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const satisfies readonly ExtensionPoint[];
@@ -87,6 +88,8 @@ export const manifestSchema = z.object({
   const hostRunners = HOSTS_EXTENSION_POINTS.filter(point => m.contributes[point] !== undefined);
   const hostGrants = m.capabilities.filter(c => (HOSTS_CAPABILITIES as readonly string[]).includes(c.name)).map(c => c.name);
   if ((hostRunners.length || hostGrants.length) && !hostFloorAtLeast(m.host, "1.7.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...hostRunners, ...hostGrants].join(", ")} sets host to >=1.7.0` });
+  if (m.capabilities.some(c => c.name === "worktree") && !hostFloorAtLeast(m.host, "1.9.0"))
+    ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with worktree sets host to >=1.9.0" });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
     if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });
@@ -221,6 +224,7 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...PLANNER_CAPABILITY_METHODS,
   ...POLICY_CAPABILITY_METHODS,
   ...SCOPED_CAPABILITY_METHODS,
+  ...WORKTREE_CAPABILITY_METHODS,
   ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
@@ -239,7 +243,7 @@ function isCanonicalBase64(s: string): boolean {
   return s.length % 4 === 0 && Buffer.from(s, "base64").toString("base64") === s;
 }
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...WORKTREE_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;

@@ -49,7 +49,10 @@ export const CMD_SUCCESS: Record<string, (params: Record<string, unknown>, resul
   "strategy.build": (_p,r) => {const v=r as {opened:boolean;command:string};return v.opened?"Session opened in a new terminal":`Run: ${v.command}`;},
   "account.signin": terminalMessage,
   "runner.add": terminalMessage,
-  "task.stop": (_params, result) => `${(result as { task_id: string }).task_id} stopped`,
+  "task.stop": (_params, result) => {
+    const task = result as { task_id: string; state: string; stop_pending?: unknown };
+    return `${task.task_id} ${task.stop_pending && task.state === "running" ? "stop pending" : "stopped"}`;
+  },
   "task.retry": (_params, result) => {
     const r = result as { retry: { task_id: string }; of: { task_id: string } };
     return `${r.retry.task_id} queued (retry of ${r.of.task_id})`;
