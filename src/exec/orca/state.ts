@@ -7,6 +7,8 @@ import { isObj } from "../../util";
 export interface OrcaWorkerEntry {
   dispatchId: string;
   taskId: string;
+  /** The task attempt that started this worker; absent in entries written before 1.10.0. */
+  attempt?: number;
   executor: string;
   worktree: string | null;
   terminal: string | null;
@@ -16,7 +18,12 @@ export interface OrcaGroupEntry { selector: string }
 /** A worktree pacer created through Orca and could not remove before falling back. */
 export interface StrandedWorktree { taskId: string; id: string; path: string; name: string; at: number }
 /** A pacer terminal whose worker-start result was uncertain; a later pass reconciles it. */
-export interface UncertainStart { taskId: string; terminal: string; run: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
+export interface UncertainStart { taskId: string; attempt?: number; terminal: string; run: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
+/**
+ * A worker-start pacer recorded before the effect. Until a dispatch, a refusal or an uncertain record replaces it, the
+ * terminal may hold a worker: a later pass reconciles it like an uncertain start and never starts another.
+ */
+export interface StartIntent { taskId: string; attempt: number; terminal: string; run: string; requestId: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
 /** A pacer-owned terminal whose close returned no receipt proof; a later pass retries the close. */
 export interface UnclosedTerminal { taskId: string; terminal: string; worktreeId?: string; at: number }
 /** Orca's initial terminal handles, recorded before pacer's agent terminal existed: the only terminals a stray sweep may close. */
@@ -26,6 +33,7 @@ export interface RemovedWorktree { id: string; path: string; at: number }
 export interface OrcaState {
   coordinator: string | null; run: string | null; workers: Record<string, OrcaWorkerEntry>;
   stranded: Record<string, StrandedWorktree>; uncertain: Record<string, UncertainStart>; unclosed: Record<string, UnclosedTerminal>;
+  starting: Record<string, StartIntent>;
   /** Pacer-created worktrees whose terminal listing failed, keyed by worktree id; `pacer clean` closes only their recorded initial terminals. */
   strays: Record<string, StrayRisk>;
   removed: Record<string, RemovedWorktree>;
@@ -53,6 +61,7 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     stranded: records<StrandedWorktree>(o.stranded, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")),
     uncertain: records<UncertainStart>(o.uncertain, v => ["taskId", "terminal", "run"].every(k => typeof v[k] === "string")),
     unclosed: records<UnclosedTerminal>(o.unclosed, v => ["taskId", "terminal"].every(k => typeof v[k] === "string")),
+    starting: records<StartIntent>(o.starting, v => ["taskId", "terminal", "run", "requestId"].every(k => typeof v[k] === "string") && Number.isSafeInteger(v.attempt)),
     strays: Object.fromEntries(Object.entries(records<StrandedWorktree & { initial?: unknown }>(o.strays, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")))
       .map(([k, v]) => [k, { ...v, initial: Array.isArray(v.initial) ? v.initial.filter((h): h is string => typeof h === "string") : [] }])),
     removed: records<RemovedWorktree>(o.removed, v => ["id", "path"].every(k => typeof v[k] === "string")),

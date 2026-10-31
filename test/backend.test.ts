@@ -140,6 +140,18 @@ test("interactive runs use Orca when it is wanted and ready, and the builtin PTY
   expect((await selectBackend(ctx, explicit, [fake("orca", async () => false)], "codex")).id).toBe("direct");
 });
 
+test("an unavailable Orca keeps the direct route and names the reason the runner logs", async () => {
+  const explicit = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
+  const notReady = await selectBackend(ctx, explicit, [fake("orca", async () => false)], "codex");
+  expect(notReady).toMatchObject({id: "direct", note: "Orca is unavailable (the runtime or its executor provider is not ready)"});
+  const failed = await selectBackend(ctx, explicit, [fake("orca", async () => { throw Error("pacer-exec-orca is disabled"); })], "codex");
+  expect(failed).toMatchObject({id: "direct", note: "Orca is unavailable (pacer-exec-orca is disabled)"});
+  expect((await selectBackend(ctx, explicit, [], "codex")).note).toBe("Orca is unavailable (no Orca executor provider)");
+  const cursor = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, cursor: {}}}, "test");
+  expect((await selectBackend(ctx, cursor, [fake("orca", async () => true)], "cursor")).note).toBe("unsupported Orca terminal agent (cursor)");
+});
+
 test("headless runs stay direct when Orca is wanted: launch_mode, a runner session and strict managed work", async () => {
   const orca = fake("orca", async () => true), ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
   const headless = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}, execution: {backend: "orca", launch_mode: "headless"}}, "/x");

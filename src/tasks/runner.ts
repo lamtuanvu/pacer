@@ -701,6 +701,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             : ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
               : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
               : runOwnedDirectCurrent(executionCtx, cfg, task));
+          // The routing reason (for example, why Orca was not used) belongs in the attempt log whichever direct owner ran.
+          if (backend?.note && out.attempt.log) try { appendFileSync(out.attempt.log, `direct backend: ${backend.note}\n`); }
+          catch { /* the attempt result stands */ }
         } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
         // The runner's own log is the only place this failure is recorded before the task is lost.
