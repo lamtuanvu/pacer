@@ -39,7 +39,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 
 ### Fixed
+- Collapsing a terminal split restores focus to the retained tab without closing either shell. Unavailable session Changes keep their friendly error and no longer show a successful empty count.
 
+- Wake event subscribers promptly after same-process persisted writes while retaining polling for other writers, batch task-list enrichment, and include untracked files in task-detail change counts.
 - Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
 - Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
 - Resolve interactive agent reports from the authenticated launch run directory, so an overridden `PACER_HOME` no longer prevents completion. Report invalid launch paths, task states, attempts and tokens with actionable errors.

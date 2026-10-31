@@ -19,15 +19,15 @@ function sessionScreen() {
     return { source: await build.outputs[0]!.text(), css };
   })();
 }
-async function openSession(browser: Browser, scenario: Scenario, viewport = { width: 1440, height: 900 }, colorScheme: "light" | "dark" = "light", tokenMode?: string, navigator = false) {
+async function openSession(browser: Browser, scenario: Scenario, viewport = { width: 1440, height: 900 }, colorScheme: "light" | "dark" = "light", tokenMode?: string, navigator = false, diffError?: string) {
   const { source, css } = await sessionScreen();
   const page = await browser.newPage({ viewport, colorScheme });
   await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>session</title><div id="app"></div>' }));
   await page.goto("http://pacer.test/#/tasks/t-0412");
+  await page.evaluate(error => { (window as any).DIFF_ERROR = error; }, diffError);
   await page.evaluate(([css, scenario, tokenMode, navigator]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; (window as any).TOKEN_MODE = tokenMode; (window as any).NAVIGATOR = navigator; }, [css, scenario, tokenMode, navigator] as const);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
   await page.locator(".pc-session-bar").first().waitFor({ state: "attached" });
-  await page.locator(".pc-topbar h1.pc-topbar__heading").waitFor();
   return page;
 }
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 })
@@ -497,3 +497,20 @@ browserTest("session header keeps full status ahead of clipped repository facts"
   await page.close();
  }
 }),60000);
+
+browserTest("unavailable Changes keeps raw errors private and never claims an empty successful diff", async () => withBrowser(async browser => {
+  const raw = "cannot diff: fatal: cannot change to '/private/fixture/worktree': No such file or directory";
+  const page = await openSession(browser, "failed", undefined, "light", undefined, false, raw);
+  const panel = page.getByRole("complementary", {name:"Session details"});
+  await panel.getByRole("tab", {name:/^Changes(?: 0)?$/}).click({timeout: 3000});
+  const alerts = await panel.getByRole("alert").allTextContents();
+  expect(alerts.join(" ")).not.toContain("cannot diff:");
+  expect(alerts.length).toBeGreaterThan(0);
+  expect(await panel.innerText()).not.toContain("/private/fixture/worktree");
+  expect(await panel.getByText("No changes so far.", {exact:true}).count()).toBe(0);
+  expect(await panel.getByRole("tab", {name:"Changes 0",exact:true}).count()).toBe(0);
+  await panel.getByRole("tab", {name:"Details",exact:true}).click();
+  expect(await panel.getByText("No changes so far.", {exact:true}).count()).toBe(0);
+  expect(await panel.getByRole("heading", {name:"Changes · 0 files",exact:true}).count()).toBe(0);
+  await page.close();
+}), 30000);

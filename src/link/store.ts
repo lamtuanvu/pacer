@@ -13,6 +13,17 @@ import { list as listStrategies } from "../strategy/service";
 export const OUTBOX_MAX_BYTES = 1024 * 1024;
 export const OUTBOX_KEEP = 1000;
 export interface OutboxEntry { seq:number; at?:number; envelope:OutboxEvent }
+const outboxListeners = new Map<string, Set<() => void>>();
+/** Process-local wakeup only; readers still poll for writes from other processes. */
+export function subscribeOutbox(ctx: Ctx, listener: () => void): () => void {
+  let listeners = outboxListeners.get(ctx.pacerHome);
+  if (!listeners) outboxListeners.set(ctx.pacerHome, listeners = new Set());
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) outboxListeners.delete(ctx.pacerHome);
+  };
+}
 export function readLatest(ctx:Ctx):LinkSnapshot { return parseSnapshot(readJson<unknown>(latestPath(ctx)))??emptySnapshot(); }
 export function pidAlive(pid:number):boolean { try { process.kill(pid,0); return true; } catch(e) { return (e as NodeJS.ErrnoException).code==="EPERM"; } }
 export function readConsole(ctx:Ctx, alive:(pid:number)=>boolean=pidAlive):ConsoleData|null {
@@ -121,6 +132,7 @@ export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapsh
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
   if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
   if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
+  for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {
   const p=outboxPath(ctx); if(!existsSync(p))return []; const out:OutboxEntry[]=[];

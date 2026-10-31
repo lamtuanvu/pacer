@@ -86,10 +86,10 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  const slots:SessionSlots|undefined=task.data&&{
   title:actions=>actions,
   panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work}
-   count={diff.data ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : 0}
+   count={!diff.error && diff.data && !diff.data.note ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : null}
    readFile={session.data?.attempt != null ? reference=>api.call('session.file.read',{id,attempt:session.data!.attempt!,reference}) : undefined}
-   changes={<><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>{diff.error && <p role="alert">Could not load changes. The worktree may have been removed.</p>}{files}</>}
-   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!} executor={state.snapshot?.accounts?.find(row=>row.executors.includes(task.data!.executor ?? ""))}/><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>
+   changes={<>{diff.error ? <p role="alert">Could not load changes. The worktree may have been removed.</p> : <SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>}{files}</>}
+   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!} executor={state.snapshot?.accounts?.find(row=>row.executors.includes(task.data!.executor ?? ""))}/>{diff.error ? <p role="alert">Could not load changes. The worktree may have been removed.</p> : <SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>}
     <section><SectionHeading as="h3">Acceptance</SectionHeading>{task.data!.acceptance.cmd ? <><code className="pc-session-acceptance">{task.data!.acceptance.cmd}</code><p className="muted">{task.data!.acceptance.state === 'pending' ? 'Runs when the session ends' : task.data!.acceptance.state === 'none' ? 'No checks recorded' : task.data!.acceptance.state === 'passed' ? 'Checks passed' : task.data!.acceptance.state === 'failed' ? 'Checks failed' : 'Checks running'}</p></> : <p className="muted">No acceptance command.</p>}</section>
     {/* A running task's result slot holds only its question composer, so an answer link lands on it (UI-13). */}
     <div className="pc-session-detail-group">{result}{!active && details}</div>{access}</div>}/>,

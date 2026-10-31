@@ -131,7 +131,7 @@ export function SessionHeader({ task, onEnd, busy, actions }: { task: TaskDetail
 /** Side-panel tabs preserve file views independently of Details and Changes. */
 export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0, readFile }: {
   id: string; tab: SessionPanelTab; onTab: (tab: SessionPanelTab) => void; changes: ComponentChildren; details: ComponentChildren; work?: ComponentChildren;
-  count?: number; readFile?: (reference: string) => Promise<SessionFileResult>;
+  count?: number | null; readFile?: (reference: string) => Promise<SessionFileResult>;
 }) {
   const [opened, setOpened] = useState<string[]>([]), [selected, setSelected] = useState<string>();
   const [Viewer, setViewer] = useState<typeof import("./FileViewer")["FileViewer"]>();
@@ -156,7 +156,7 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
     }
   };
   const base = `session-${id}-panel`, current = selected ?? (tab === "work" ? "details" : tab);
-  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: `Changes ${count}` }, ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
+  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: count == null ? "Changes" : `Changes ${count}` }, ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
   return <div className={`pc-session-panel pc-session-panel--board${selected ? " pc-session-panel--file" : ""}`} onClick={event => {
     const path = (event.target as HTMLElement).closest<HTMLElement>("[data-session-file]")?.dataset.sessionFile;
     if (path && readFile) void open(path);
@@ -175,6 +175,8 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
 }
 
 export function SessionFiles({ id, diff, onOpen }: { id: string; diff?: TaskDiff | null; onOpen?: boolean }) {
+  if (!diff) return null;
+  if (diff.note) return <p className="muted">{diff.note}</p>;
   const files: ChangedFile[] = diff ? [...(diff.files ?? parseDiff(diff.patch)), ...diff.untracked.map(path => ({path,added:0,removed:0,status:"added" as const}))] : [];
   return <section><div className="pc-session-files__heading"><SectionHeading as="h3">Changes · {files.length} files</SectionHeading>{files.length > 0 && <a className="pc-text-action" href={`#/tasks/${encodeURIComponent(id)}/review`}>Open diff</a>}</div>
     <ul className="pc-changed-files">{files.map(file => <li className="pc-changed-files__row" key={file.path}>

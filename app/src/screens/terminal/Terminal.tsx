@@ -108,14 +108,20 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       const remaining = tabs.filter(item => item.id !== tab.id);
       setTabs(remaining);
       if (splitId === tab.id) setSplitId(null);
-      if (selected?.id === tab.id) show(remaining.at(-1)?.id);
+      const retainedId = selected?.id === tab.id ? remaining.at(-1)?.id : selected?.id;
+      show(retainedId);
+      requestAnimationFrame(() => document.getElementById(`terminal-${retainedId}-tab`)?.focus());
     } catch (failure) { setError(failure); }
     finally { setBusy(false); }
   };
 
   const split = () => {
     if (!selected) return;
-    if (secondary) { setSplitId(null); return; }
+    if (secondary) {
+      setSplitId(null); show(selected.id);
+      requestAnimationFrame(() => document.getElementById(`terminal-${selected.id}-tab`)?.focus());
+      return;
+    }
     void open(selected.cwd, true);
   };
   const startRename = (tab = selected) => { if (!tab) return; show(tab.id); cancelRename.current = false; setNewTitle(tab.title); setRenaming(true); setMenu(null); };

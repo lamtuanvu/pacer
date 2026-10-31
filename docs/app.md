@@ -151,6 +151,9 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
+Task-detail file counts include both tracked changes and new, untracked files.
+Live events wake connected clients after the service persists them; polling still
+recovers changes written by another process.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when
@@ -248,3 +251,5 @@ prints `pacer not running · pacer serve`.
 The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).
 
 Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
+
+Collapsing a terminal split returns keyboard focus to the retained tab and keeps both shells open. If session changes cannot be loaded, Changes shows the existing friendly error without an empty-file count or a “No changes” success state.
