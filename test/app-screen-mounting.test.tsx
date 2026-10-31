@@ -1,3 +1,4 @@
+import { ImmediateSetting } from "../app/src/screens/settings/ImmediateSetting";
 import { Switch } from "../app/src/ds/Controls";
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
@@ -23,28 +24,28 @@ const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>tr
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
 const renderSettings=(child:any)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}>{child}</ActionContext.Provider></TaskContext.Provider>);
 test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
- expect(html('#/settings')).toContain('Loading settings');
+ expect(html('#/settings')).not.toContain('Loading settings');
  for(const section of SETTINGS_SECTIONS) {
   const page=html(`#/settings/${section}`);
-  expect(page).toContain('Loading settings');
+  expect(page).not.toContain('Loading settings');
   if(section!=='planner')expect(page).not.toContain('id="pacing"');
  }
  // Machines, host detail and Add agent load with the rest of settings, so a route first shows the loading state.
- for(const hash of ['#/settings/hosts','#/settings/hosts/devbox','#/settings/add-executor'])expect(html(hash)).toContain('Loading settings');
+ for(const hash of ['#/settings/hosts','#/settings/hosts/devbox','#/settings/add-executor'])expect(html(hash)).not.toContain('Loading settings');
  expect(html('#/sessions')).toContain('Completed');
- expect(html('#/sessions/t1')).toContain('Loading task');
+ expect(html('#/sessions/t1')).not.toContain('Loading task');
 });
 test('legacy and unknown routes mount the Dispatch home, which loads on demand',()=>{
  for(const path of ['/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
   expect(destination(`#${path}`).name).toBe('dispatch');
-  expect(html(`#${path}`)).toContain('Loading Dispatch…');
+  expect(html(`#${path}`)).not.toContain('Loading Dispatch…');
  }
- expect(html('#/needs-you')).toContain('Loading Needs you…');
- expect(html('#/review/t1')).toContain('Loading task');
+ expect(html('#/needs-you')).not.toContain('Loading Needs you…');
+ expect(html('#/review/t1')).not.toContain('Loading task');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{
  expect(destination('#/settings/add-executor?host=dev%20box')).toMatchObject({name:'add-executor',host:'dev box'});
- expect(html('#/settings/add-executor?host=devbox')).toContain('Loading settings');
+ expect(html('#/settings/add-executor?host=devbox')).not.toContain('Loading settings');
  expect(renderSettings(<AddExecutor host="devbox" initialDraft={{step:'3',account:'team'}}/>)).toContain('devbox · 1 parallel');
 });
 test('host full live sessions switch follows service capability and dispatches both host.set values',()=>{
@@ -53,13 +54,16 @@ test('host full live sessions switch follows service capability and dispatches b
  expect(HostSessionSwitch({alias:'devbox',host:{},run})).toBeNull();
  for(const [session,enabled] of [['recording',true],['full',false]] as const) {
   const node=HostSessionSwitch({alias:'devbox',host:{session},run})!;
-  expect(node.type).toBe(Switch);
-  expect(node.props.checked).toBe(session==='full');
-  expect(node.props['aria-label']).toBe('Full live sessions');
-  node.props.onChange!({currentTarget:{checked:enabled}} as any);
+  expect(node.type).toBe(ImmediateSetting);
+  expect(node.props.operation(enabled)).toMatchObject({op:"host.set",params:{alias:"devbox",session:enabled?"full":"recording"}});
+  const control=node.props.children(node.props.value,(value:boolean)=>{const request=node.props.operation(value);run(request.op,request.params);},false);
+  expect(control.type).toBe(Switch);
+  expect(control.props.checked).toBe(session==='full');
+  expect(control.props['aria-label']).toBe('Full live sessions');
+  control.props.onChange!({currentTarget:{checked:enabled}} as any);
  }
  expect(calls).toEqual([['host.set',{alias:'devbox',session:'full'}],['host.set',{alias:'devbox',session:'recording'}]]);
- expect(renderToString(<HostSessionSwitch alias="devbox" host={{session:'full'}} run={run}/>)).toContain('role="switch"');
+ expect(renderSettings(<HostSessionSwitch alias="devbox" host={{session:'full'}} run={run}/>)).toContain('role="switch"');
 });
 test('session adapter feeds the real brief, acceptance and timeline',()=>{
  const task=detail as unknown as TaskDetail;
@@ -71,4 +75,4 @@ test('session adapter feeds the real brief, acceptance and timeline',()=>{
  expect(sessionRow(task).repo).toBe(task.repo.label);
 });
 
-test("Setup mounts its own screen, loaded as its own chunk", () => { expect(html("#/setup")).toContain("Loading Setup"); });
+test("Setup mounts its own screen, loaded as its own chunk", () => { expect(html("#/setup")).not.toContain("Loading Setup"); });

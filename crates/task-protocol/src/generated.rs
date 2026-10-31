@@ -565,6 +565,9 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///      "type": "string",
 ///      "minLength": 1
 ///    },
+///    "grant": {
+///      "type": "boolean"
+///    },
 ///    "group": {
 ///      "type": "string",
 ///      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
@@ -591,6 +594,27 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///    "messaging": {
 ///      "type": "object",
 ///      "properties": {
+///        "liveness": {
+///          "type": "object",
+///          "properties": {
+///            "escalate_after_s": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 10.0
+///            },
+///            "interval_s": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 10.0
+///            },
+///            "max_nudges": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        },
 ///        "max_turns": {
 ///          "type": "integer",
 ///          "maximum": 10000.0,
@@ -621,6 +645,7 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///                  "human",
 ///                  "external",
 ///                  "launched",
+///                  "broker",
 ///                  "any"
 ///                ]
 ///              },
@@ -709,6 +734,7 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///                  "human",
 ///                  "external",
 ///                  "launched",
+///                  "broker",
 ///                  "any"
 ///                ]
 ///              }
@@ -795,6 +821,8 @@ pub struct TaskDelegateParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<::std::string::String>,
     pub goal: TaskDelegateParamsGoal,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub grant: ::std::option::Option<bool>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub group: ::std::option::Option<TaskDelegateParamsGroup>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -1100,6 +1128,27 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
 ///{
 ///  "type": "object",
 ///  "properties": {
+///    "liveness": {
+///      "type": "object",
+///      "properties": {
+///        "escalate_after_s": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 10.0
+///        },
+///        "interval_s": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 10.0
+///        },
+///        "max_nudges": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "max_turns": {
 ///      "type": "integer",
 ///      "maximum": 10000.0,
@@ -1130,6 +1179,7 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
 ///              "human",
 ///              "external",
 ///              "launched",
+///              "broker",
 ///              "any"
 ///            ]
 ///          },
@@ -1218,6 +1268,7 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
 ///              "human",
 ///              "external",
 ///              "launched",
+///              "broker",
 ///              "any"
 ///            ]
 ///          }
@@ -1235,6 +1286,8 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsKind {
 #[serde(deny_unknown_fields)]
 pub struct TaskDelegateParamsMessaging {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub liveness: ::std::option::Option<TaskDelegateParamsMessagingLiveness>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub max_turns: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub rules: ::std::vec::Vec<TaskDelegateParamsMessagingRulesItem>,
@@ -1242,8 +1295,56 @@ pub struct TaskDelegateParamsMessaging {
 impl ::std::default::Default for TaskDelegateParamsMessaging {
     fn default() -> Self {
         Self {
+            liveness: Default::default(),
             max_turns: Default::default(),
             rules: Default::default(),
+        }
+    }
+}
+///`TaskDelegateParamsMessagingLiveness`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "escalate_after_s": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 10.0
+///    },
+///    "interval_s": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 10.0
+///    },
+///    "max_nudges": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TaskDelegateParamsMessagingLiveness {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub escalate_after_s: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub interval_s: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_nudges: ::std::option::Option<i64>,
+}
+impl ::std::default::Default for TaskDelegateParamsMessagingLiveness {
+    fn default() -> Self {
+        Self {
+            escalate_after_s: Default::default(),
+            interval_s: Default::default(),
+            max_nudges: Default::default(),
         }
     }
 }
@@ -1275,6 +1376,7 @@ impl ::std::default::Default for TaskDelegateParamsMessaging {
 ///        "human",
 ///        "external",
 ///        "launched",
+///        "broker",
 ///        "any"
 ///      ]
 ///    },
@@ -1363,6 +1465,7 @@ impl ::std::default::Default for TaskDelegateParamsMessaging {
 ///        "human",
 ///        "external",
 ///        "launched",
+///        "broker",
 ///        "any"
 ///      ]
 ///    }
@@ -1518,6 +1621,7 @@ impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsMessagingRulesItemExec
 ///    "human",
 ///    "external",
 ///    "launched",
+///    "broker",
 ///    "any"
 ///  ]
 ///}
@@ -1542,6 +1646,8 @@ pub enum TaskDelegateParamsMessagingRulesItemFromKind {
     External,
     #[serde(rename = "launched")]
     Launched,
+    #[serde(rename = "broker")]
+    Broker,
     #[serde(rename = "any")]
     Any,
 }
@@ -1556,6 +1662,7 @@ impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemFromKind {
             Self::Human => f.write_str("human"),
             Self::External => f.write_str("external"),
             Self::Launched => f.write_str("launched"),
+            Self::Broker => f.write_str("broker"),
             Self::Any => f.write_str("any"),
         }
     }
@@ -1567,6 +1674,7 @@ impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemFromKind {
             "human" => Ok(Self::Human),
             "external" => Ok(Self::External),
             "launched" => Ok(Self::Launched),
+            "broker" => Ok(Self::Broker),
             "any" => Ok(Self::Any),
             _ => Err("invalid value".into()),
         }
@@ -2043,6 +2151,7 @@ impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsMessagingRulesItemRepo
 ///    "human",
 ///    "external",
 ///    "launched",
+///    "broker",
 ///    "any"
 ///  ]
 ///}
@@ -2067,6 +2176,8 @@ pub enum TaskDelegateParamsMessagingRulesItemToKind {
     External,
     #[serde(rename = "launched")]
     Launched,
+    #[serde(rename = "broker")]
+    Broker,
     #[serde(rename = "any")]
     Any,
 }
@@ -2081,6 +2192,7 @@ impl ::std::fmt::Display for TaskDelegateParamsMessagingRulesItemToKind {
             Self::Human => f.write_str("human"),
             Self::External => f.write_str("external"),
             Self::Launched => f.write_str("launched"),
+            Self::Broker => f.write_str("broker"),
             Self::Any => f.write_str("any"),
         }
     }
@@ -2092,6 +2204,7 @@ impl ::std::str::FromStr for TaskDelegateParamsMessagingRulesItemToKind {
             "human" => Ok(Self::Human),
             "external" => Ok(Self::External),
             "launched" => Ok(Self::Launched),
+            "broker" => Ok(Self::Broker),
             "any" => Ok(Self::Any),
             _ => Err("invalid value".into()),
         }

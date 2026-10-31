@@ -48,7 +48,42 @@ export type ColorToken =
   | "aurora-3"
   | "ink-on-fill"
   | "shadow-tray-menu-tint"
-  | "answer-scrim";
+  | "answer-scrim"
+  | "assistant-violet"
+  | "assistant-cyan"
+  | "assistant-blue"
+  | "aurora-gradient-1"
+  | "aurora-gradient-2"
+  | "aurora-gradient-3"
+  | "aurora-blob-1"
+  | "aurora-blob-2"
+  | "aurora-blob-3"
+  | "assistant-avatar"
+  | "board-chart-1"
+  | "board-chart-2"
+  | "board-chart-3"
+  | "board-chart-4"
+  | "board-chart-5"
+  | "board-on-series"
+  | "terminal-background"
+  | "terminal-foreground"
+  | "terminal-selection"
+  | "terminal-black"
+  | "terminal-red"
+  | "terminal-green"
+  | "terminal-yellow"
+  | "terminal-blue"
+  | "terminal-magenta"
+  | "terminal-cyan"
+  | "terminal-white"
+  | "terminal-bright-black"
+  | "terminal-bright-red"
+  | "terminal-bright-green"
+  | "terminal-bright-yellow"
+  | "terminal-bright-blue"
+  | "terminal-bright-magenta"
+  | "terminal-bright-cyan"
+  | "terminal-bright-white";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -99,4 +134,39 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
   "shadow-tray-menu-tint": { light: "rgb(9 9 11 / .16)", dark: "rgb(0 0 0 / .55)" },
   "answer-scrim": { light: "color-mix(in srgb, var(--ink) 14%, transparent)", dark: "color-mix(in srgb, var(--ink) 14%, transparent)" },
+  "assistant-violet": { light: "#8b5cf6", dark: "#8b5cf6" },
+  "assistant-cyan": { light: "#06b6d4", dark: "#06b6d4" },
+  "assistant-blue": { light: "#3b82f6", dark: "#3b82f6" },
+  "aurora-gradient-1": { light: "#7c6bd6", dark: "#7c6bd6" },
+  "aurora-gradient-2": { light: "#3fa7b8", dark: "#3fa7b8" },
+  "aurora-gradient-3": { light: "#5b7fd8", dark: "#5b7fd8" },
+  "aurora-blob-1": { light: "#8b7be0", dark: "#8b7be0" },
+  "aurora-blob-2": { light: "#48b3c4", dark: "#48b3c4" },
+  "aurora-blob-3": { light: "#6a8ee0", dark: "#6a8ee0" },
+  "assistant-avatar": { light: "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)", dark: "conic-gradient(from 200deg, #8b5cf6, #06b6d4, #3b82f6, #8b5cf6)" },
+  "board-chart-1": { light: "#4f7a94", dark: "#4f7a94" },
+  "board-chart-2": { light: "#c08a6a", dark: "#c08a6a" },
+  "board-chart-3": { light: "#8b9bd0", dark: "#8b9bd0" },
+  "board-chart-4": { light: "#7f8f6f", dark: "#7f8f6f" },
+  "board-chart-5": { light: "#b9b4a8", dark: "#b9b4a8" },
+  "board-on-series": { light: "#ffffff", dark: "#ffffff" },
+  "terminal-background": { light: "#000000", dark: "#000000" },
+  "terminal-foreground": { light: "#e6edf3", dark: "#e6edf3" },
+  "terminal-selection": { light: "#334155", dark: "#334155" },
+  "terminal-black": { light: "#000000", dark: "#000000" },
+  "terminal-red": { light: "#ff7b72", dark: "#ff7b72" },
+  "terminal-green": { light: "#7ee787", dark: "#7ee787" },
+  "terminal-yellow": { light: "#e3b341", dark: "#e3b341" },
+  "terminal-blue": { light: "#79c0ff", dark: "#79c0ff" },
+  "terminal-magenta": { light: "#d2a8ff", dark: "#d2a8ff" },
+  "terminal-cyan": { light: "#a5d6ff", dark: "#a5d6ff" },
+  "terminal-white": { light: "#d4d4d4", dark: "#d4d4d4" },
+  "terminal-bright-black": { light: "#8b949e", dark: "#8b949e" },
+  "terminal-bright-red": { light: "#ffa198", dark: "#ffa198" },
+  "terminal-bright-green": { light: "#aff5b4", dark: "#aff5b4" },
+  "terminal-bright-yellow": { light: "#f8e3a1", dark: "#f8e3a1" },
+  "terminal-bright-blue": { light: "#a5d6ff", dark: "#a5d6ff" },
+  "terminal-bright-magenta": { light: "#e2c5ff", dark: "#e2c5ff" },
+  "terminal-bright-cyan": { light: "#b3f0ff", dark: "#b3f0ff" },
+  "terminal-bright-white": { light: "#ffffff", dark: "#ffffff" },
 };

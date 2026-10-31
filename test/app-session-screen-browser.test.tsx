@@ -27,7 +27,8 @@ async function openSession(browser: Browser, scenario: Scenario, viewport = { wi
   await page.evaluate(error => { (window as any).DIFF_ERROR = error; }, diffError);
   await page.evaluate(([css, scenario, tokenMode, navigator]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; (window as any).TOKEN_MODE = tokenMode; (window as any).NAVIGATOR = navigator; }, [css, scenario, tokenMode, navigator] as const);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
-  await page.locator(".pc-session-bar").first().waitFor({ state: "attached" });
+  await page.locator(".pc-session-bar").first().waitFor({ state: "attached", timeout: 5000 }).catch(async error => { throw new Error(`${error}; ${await page.locator("body").innerText()}`); });
+  await page.locator(".pc-session-bar h1").waitFor();
   return page;
 }
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 })
@@ -501,7 +502,7 @@ browserTest("session header keeps full status ahead of clipped repository facts"
 browserTest("unavailable Changes keeps raw errors private and never claims an empty successful diff", async () => withBrowser(async browser => {
   const raw = "cannot diff: fatal: cannot change to '/private/fixture/worktree': No such file or directory";
   const page = await openSession(browser, "failed", undefined, "light", undefined, false, raw);
-  const panel = page.getByRole("complementary", {name:"Session details"});
+  const panel = page.locator(".pc-session-panel--board");
   await panel.getByRole("tab", {name:/^Changes(?: 0)?$/}).click({timeout: 3000});
   const alerts = await panel.getByRole("alert").allTextContents();
   expect(alerts.join(" ")).not.toContain("cannot diff:");
@@ -514,3 +515,42 @@ browserTest("unavailable Changes keeps raw errors private and never claims an em
   expect(await panel.getByRole("heading", {name:"Changes · 0 files",exact:true}).count()).toBe(0);
   await page.close();
 }), 30000);
+
+browserTest("Sessions navigator keeps its DOM, scroll and reads when selection changes", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "supervised", { width: 1440, height: 900 }, "light", undefined, true);
+  const scroll = page.locator(".pc-task-nav__scroll");
+  await scroll.waitFor();
+  await page.waitForFunction(() => document.querySelectorAll(".pc-task-nav a").length > 1);
+  await scroll.evaluate(node => {
+    node.style.height = "80px";
+    node.style.flex = "none";
+    node.scrollTop = 40;
+    (window as any).savedNavigator = node;
+    (window as any).savedScroll = node.scrollTop;
+    (window as any).removedNavigator = false;
+    new MutationObserver(() => {
+      if (!(window as any).savedNavigator.isConnected) (window as any).removedNavigator = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const before = (await calls(page)).filter(op => op === "task.list" || op === "dispatch.list").length;
+  const link = page.locator(".pc-task-nav a:not([aria-current='page'])").first();
+  const href = await link.getAttribute("href");
+  // Dispatch the click without Playwright scrolling the row into view first.
+  await link.dispatchEvent("click", { button: 0 });
+  await page.waitForFunction(href => location.hash === href, href);
+  await page.waitForTimeout(400);
+  expect(await scroll.evaluate(node => ({ same: node === (window as any).savedNavigator, scroll: node.scrollTop,
+    expected: (window as any).savedScroll, removed: (window as any).removedNavigator }))).toEqual({ same: true, scroll: 40, expected: 40, removed: false });
+  expect((await calls(page)).filter(op => op === "task.list" || op === "dispatch.list").length).toBe(before);
+  expect(await page.locator(".pc-task-nav [aria-current='page']").getAttribute("href")).toBe(href);
+  if (process.env.PACER_UI_EVIDENCE_DIR) {
+    await page.screenshot({ path: `${process.env.PACER_UI_EVIDENCE_DIR}/sessions-light.png` });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.screenshot({ path: `${process.env.PACER_UI_EVIDENCE_DIR}/sessions-dark.png` });
+  }
+  await page.close();
+  const deepLink = await openSession(browser, "supervised", { width: 1440, height: 900 }, "light", "deep-link", true);
+  await deepLink.locator(".pc-task-nav [aria-current='page']").waitFor();
+  expect(await deepLink.locator(".pc-task-nav [aria-current='page']").count()).toBe(1);
+  await deepLink.close();
+}), 20_000);

@@ -142,8 +142,8 @@ browserTest('new direct quota never shows an older green On pace status', async 
   const original = structuredClone(accounts[0]!);
   const page = await browser.newPage();
   try {
-    accounts[0]!.usageReading = {windows:[{name:'week',usedPct:100,resetsAt:1800003600}],capturedAt:1800000100,stale:false};
-    snapshotAccounts = [{name:'planner',agent:'claude-code',source:'claude',usedPct:20,window:'week',resetsAt:1800003600,capturedAt:1800000000,stale:false,verdict:'ON_PACE',pacePct:30,signedIn:true,executors:[],spendUsdWeek:null,capUsdWeek:null}];
+    accounts[0]!.usageReading = {windows:[{name:'week',usedPct:100,resetsAt:1800003600}],capturedAt:1800000000,stale:false};
+    snapshotAccounts = [{name:'planner',agent:'claude-code',source:'claude',usedPct:20,window:'week',resetsAt:1800003600,capturedAt:1799999900,stale:false,verdict:'ON_PACE',pacePct:30,signedIn:true,executors:[],spendUsdWeek:null,capUsdWeek:null}];
     await page.goto(String(server.url));
     const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
     await row.getByText(/100% of week/).waitFor();
@@ -196,7 +196,7 @@ browserTest('summary-only, direct-only and missing observations render honest st
     await row.getByText(/20% of week/).waitFor();
     expect(await row.locator('[data-label="Status"]').innerText()).toContain('On pace');
     snapshotAccounts = [];
-    accounts[0]!.usageReading = {windows:[{name:'week',usedPct:61,resetsAt:null}],capturedAt:1800000100,stale:false};
+    accounts[0]!.usageReading = {windows:[{name:'week',usedPct:61,resetsAt:null}],capturedAt:1800000000,stale:false};
     await page.goto(String(server.url));
     await row.getByText(/61% of week/).waitFor();
     expect(await row.locator('[data-label="Status"]').innerText()).toContain('Usage observed');
@@ -283,3 +283,50 @@ browserTest('reactive and unmetered quota stays honest with synthetic reader and
     accounts.splice(3,2,...originals); snapshotAccounts=[]; await page.close();
   }
 });
+
+browserTest('expired snapshot quota shows a stale pill instead of its retained green verdict', async () => {
+  const original = structuredClone(accounts[0]!);
+  const page = await browser.newPage();
+  try {
+    delete accounts[0]!.usageReading;
+    snapshotAccounts = [{name:'planner',agent:'claude-code',usedPct:17,window:'week',resetsAt:1800000000,capturedAt:1800000000,stale:false,verdict:'ON_PACE',signedIn:true}];
+    await page.goto(String(server.url));
+    const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
+    await row.getByText(/17% of week/).waitFor();
+    expect(await row.locator('[data-label="Status"]').innerText()).toContain('Stale reading');
+    expect(await row.locator('[data-label="Status"] .pc-pill--good').count()).toBe(0);
+  } finally { accounts[0] = original; snapshotAccounts = []; await page.close(); }
+});
+
+for (const theme of ['light', 'dark']) for (const freshness of ['expired', 'stale', 'unknown', 'aged', 'missing-stale', 'missing-both', 'missing-time', 'fresh']) {
+  browserTest(`Accounts meter describes ${freshness} quota in ${theme}`, async () => {
+    const original = structuredClone(accounts[0]!);
+    const page = await browser.newPage({colorScheme: theme as 'light' | 'dark'});
+    try {
+      await page.addInitScript(theme => {localStorage.setItem('pacer.theme', theme); Date.now = () => 1800000000000;}, theme);
+      delete accounts[0]!.usageReading;
+      snapshotAccounts = [{name:'planner',agent:'claude-code',usedPct:17,window:'week',resetsAt:freshness === 'expired' ? 1800000000 : 1800003600,capturedAt:freshness === 'aged' ? 1799913599 : 1800000000,stale:freshness === 'stale',eligibility:{budget:freshness === 'unknown' ? 'unknown' : 'available',evaluatedAt:1800000000},verdict:'ON_PACE',pacePct:30,signedIn:true}];
+      if (freshness.startsWith('missing')) {
+        if (freshness !== 'missing-time') delete snapshotAccounts[0].stale;
+        if (freshness !== 'missing-stale') delete snapshotAccounts[0].capturedAt;
+      }
+      await page.goto(String(server.url));
+      await page.evaluate(theme => {document.documentElement.dataset.theme = theme;}, theme);
+      const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
+      const meter = row.getByRole('meter');
+      await meter.waitFor();
+      expect(await meter.getAttribute('aria-valuenow')).toBe('17');
+      expect(await meter.getAttribute('aria-valuemin')).toBe('0');
+      expect(await meter.getAttribute('aria-valuemax')).toBe('100');
+      expect(await meter.getAttribute('aria-label')).toContain('usage');
+      const historical = freshness !== 'fresh';
+      expect((await meter.getAttribute('aria-valuetext'))?.includes('historical usage')).toBe(historical);
+      expect(await row.locator('.pc-meter--stale').count()).toBe(historical ? 1 : 0);
+      expect(await meter.locator('.pc-meter__fill--good').count()).toBe(historical ? 0 : 1);
+      expect(await meter.locator('.pc-meter__fill--neutral').count()).toBe(historical ? 1 : 0);
+      expect(await meter.locator('.pc-meter__pace').count()).toBe(historical ? 0 : 1);
+      expect(await row.locator('[data-label="Status"]').innerText()).toContain(historical ? 'Stale reading' : 'On pace');
+      expect(await page.locator('html').getAttribute('data-theme')).toBe(theme);
+    } finally {accounts[0] = original; snapshotAccounts = []; await page.close();}
+  });
+}

@@ -5,6 +5,29 @@ It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
 embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
 pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available for one pacer minor release. The app consumes the read model during this overlap.
 
+## Workspace reads
+
+Long active-panel identities ellipsize within the header; hover the identity or
+metadata for its full text. Status pills remain fully visible in both themes.
+
+Workspace (`#/workspace`) renders task cards from task history and the live
+snapshot. Selecting a task loads its details once; task events refresh those
+details after a short debounce. Open session panels retain their output stream.
+The task page (`#/tasks/<id>`) also follows events rather than polling task details.
+Task pages show the complete display title, with a copy-ID button in the breadcrumb.
+Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero.
+Live agent sessions open watching read-only with explicit secondary **Take control**.
+Followers retain authoritative PTY dimensions, normal-size text and scrolling.
+**Hand back** releases input without clearing output or reclaiming it on reconnect.
+Hidden panels never fit or resize the PTY. Terminal surfaces share a dark palette
+in both app themes, including ANSI colors and a contrast floor for agent text.
+The toolbar uses quiet handback and danger **Stop task** icons. Running
+cards name the agent and recorded phase and show up to two meaningful output lines,
+omitting echoed instructions and shortening home and temporary paths.
+Task file summaries distinguish unavailable changes from a measured empty diff: unavailable
+changes show no added/removed line totals, while measured zero counts remain visible.
+The shared page-control worker checks for remote actions every ten seconds.
+
 ## Open the app
 
 With the background service installed and running:
@@ -70,7 +93,15 @@ tree checks performed when starting work.
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
 attach command appear only for live or recorded terminal sessions.
-Opening a running task in the app takes control of its live Pacer terminal when
+The task overview shows a bounded, read-only terminal preview for built-in
+interactive sessions, using the raw session stream and its authoritative size.
+Text stays at its normal font size in a scrollable viewport, including on narrow
+screens. Focus the output region to scroll with the keyboard. It never takes
+control or resizes the agent, and reconnects after interruptions.
+Headless runs keep a plain output tail; failed checks show their acceptance
+output. Orca sessions link through the workspace to Orca.
+
+Opening a running task in the Session view takes control of its live Pacer terminal when
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
@@ -121,11 +152,13 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
+Dispatch starts with Scope and Inspector closed. Open either from the title-bar panel toggles; each window remembers its own choices across navigation and reloads. With no task selected, Inspector offers the most recently updated running task in the current repository scope as a link to its details.
+
 Dispatch follows the canvas board. Its header holds the page title with a live line
 (connected agents and the last update), the period switch (Today, 7 days or 30
 days; 7 days by default, shown only when the service has task insights), one
 "All repos · N" button that opens the repository menu, and New task, which opens
-the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+the New task composer (shortcut D). Below it:
 Planner budget and Next task goes to in one split section (the planner's pace, its
 week caption with the 5-hour window when its account reports one, the next agent,
 the chain after it ending in the queue, and the active strategy); the period at a
@@ -167,10 +200,14 @@ Attention actions in the native tray open the same task detail route.
 Task-detail file counts include both tracked changes and new, untracked files.
 Live events wake connected clients after the service persists them; polling still
 recovers changes written by another process.
-Running tasks open to the Session view so the agent workspace gets the main pane.
-Changes, Brief and Result are available in the task's view tabs. Opening a live
-session takes control when nobody else holds it; a control action appears when
-another viewer owns the session. Execution status and quality verdict are separate:
+The tray planner header keeps its caption and mode visible at narrow widths; the
+pace label truncates first, with the full status available in its tooltip. Below
+340px, the four task-count columns fit their full captions with compact insets,
+and footer actions use two rows so labels, shortcut hints and controls remain
+visible; the More menu stays above the footer and scrolls within short windows,
+even with a long expanded strategy list. Large count values ellipsize when space
+is tight; count links keep the exact value in their accessible name and tooltip.
+Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. The workspace's **Messages** tab holds the task thread, with an unread badge, a composer that offers **Answer** while a question is open, and stalled or hand-back notices; `#/workspace?task=<id>&panel=messages` opens it, and the task page links there when a conversation stalls or messages are unread. A task a person started that runs as managed work keeps **Answer**, **Accept**, **Reject** and **Send back**; without a session to continue, they fall back to the matching `dispatch.*` steps. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.
@@ -266,3 +303,31 @@ The **Delegate** dialog starts with the active repository filter, an unfinished 
 Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
 
 Collapsing a terminal split returns keyboard focus to the retained tab and keeps both shells open. If session changes cannot be loaded, Changes shows the existing friendly error without an empty-file count or a “No changes” success state.
+
+Task labels use an explicit delegation `title` when provided. Otherwise, pacer
+uses the first sentence or line of the goal, strips Markdown formatting, and
+shortens it to about 80 characters at a word boundary. Unfinished trailing bracket
+groups are omitted. The full execution goal remains in the brief. Selecting a task
+keeps the Sessions navigator, its loaded history and scroll position in place.
+
+The Tasks list keeps its selected-task card inside the content area, after the
+Activity bar, rather than opening Scope and Inspector beside it. The card shows
+linked work, notes and recent activity. At tablet widths it reflows below the
+list, preserving readable task titles. Local task hosts are labelled Local Mac.
+
+New task repository choices show a repository icon, label and current base branch.
+The composer accepts new attachments up to 10 MB per file. Tasks submitted by the
+composer let the planner split work, with at most three concurrent descendants
+and no deadline. Branch names remain assigned by the service at launch; the UI
+shows that limitation. Acceptance checks are user supplied until the service
+exposes repository defaults; Review is not offered as a task kind because the
+service does not accept it.
+
+
+## New task
+
+The initial composer asks for the outcome, repository and success checks, then **Start task**. Tasks default to a new isolated worktree. **Advanced options** retains workspace, base branch, kind, agent and parallel-agent limit choices (default three); drafts keep these choices across reloads. Attachments, file mentions and issue import remain available.
+
+Enabled command checks become the acceptance command and must pass before successful completion. Text checks become instructions in the brief. With no commands configured, the UI makes no automatic verification promise. The route preview names the likely agent, with fallback and budget information under **Routing details**. Unavailable agents are omitted from fallback suggestions. Preview details do not block submission.
+
+Successful creation opens the exact returned task workspace immediately. Submission is deduplicated while pending and retries retain the request ID. On failure the draft remains and focus returns to the outcome field.

@@ -38,8 +38,8 @@ test('task Changes uses the v3 patch field and embedded views do not point to hi
  const html=renderToString(<Session embedded view="changes" data={{...data,changes:{data:changes}}}/>);
  expect(html).toContain('diff --git a/example b/example');expect(html).not.toContain('aria-labelledby="session-t-0415-changes-tab"');expect(html).not.toContain('Session access');
 });
-test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
-test('Sessions list opens each task through its title link',()=>{const html=renderToString(<SessionsList running={{data:[node({id:'t-0415',state:'running'})]}} recent={{data:[node({id:'t-ended',state:'done'})]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/tasks/t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
+test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toBe('');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).not.toContain('Loading brief');});
+test('Sessions list opens each task through its title link',()=>{const html=renderToString(<SessionsList running={{data:[node({id:'t-0415',state:'running'})]}} recent={{data:[node({id:'t-ended',state:'done'})]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/workspace?task=t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/workspace?task=t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
 
 test('read-only terminal exposes size, accessible status and screen reader toggle; control capability gates take',async()=>{
  const { TerminalView, TerminalControls }=await import('../app/src/term/term');
@@ -182,7 +182,7 @@ test('ended task link preserves route query and accessible title', async () => {
  const html=renderToString(<SessionsList recent={{data:[node({id:'ended task',state:'done',title:'Finished task'})]}} query="repo=project"/>);
  expect(html).toContain('pc-task-card__title');
  expect(html).toContain('title="Finished task"');
- expect(html).toContain('href="#/tasks/ended%20task?repo=project"');
+ expect(html).toContain('href="#/workspace?task=ended%20task&amp;repo=project"');
  expect(html).not.toContain('View result');
 });
 

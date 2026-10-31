@@ -31,13 +31,20 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <main style="flex: 999 1 560px; min-width: 0; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box;">
 <header style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
 <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1;"><h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Agents</h1><span class="cap">Who plans, who executes, and what each one is allowed to use.</span></div>
-<x-import component-from-global-scope="Pacer.Button" size="sm">Link an Orca account</x-import>
-<x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary">Add account</x-import>
 </header>
 
-<div role="tablist" aria-label="Agent view" style="display: flex; gap: 4px; border-bottom: 1px solid var(--line);">
+<section aria-label="Planner" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);">
+<dc-import name="AgentMark" mono="Cl" size="32" hint-size="32px,32px"></dc-import>
+<div style="display: flex; flex-direction: column; flex-grow: 1; min-width: 0;"><span style="display: flex; align-items: center; gap: 8px;"><b>Claude Code</b><x-import component-from-global-scope="Pacer.Pill" tone="info">Planner</x-import><x-import component-from-global-scope="Pacer.Pill" tone="good">Connected</x-import></span><span class="cap">Plans and reviews · hooks and status line seen 10 min ago · keeps 10% of its week for review</span></div>
+<x-import component-from-global-scope="Pacer.Button" size="sm">Change planner</x-import>
+</section>
+
+<div style="display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line);">
+<div role="tablist" aria-label="Agent view" style="display: flex; gap: 4px; flex-grow: 1;">
 <a class="tab" role="tab" aria-selected="false" href="SettingsAgents.dc.html">Executors · 5</a>
 <a class="tab" role="tab" aria-selected="true" href="#" style="color: var(--ink); border-bottom-color: var(--ink);">Accounts · 6</a>
+</div>
+<span style="display: flex; gap: 8px; margin-bottom: 4px;"><x-import component-from-global-scope="Pacer.Button" size="sm">Link an Orca account</x-import><x-import component-from-global-scope="Pacer.Button" size="sm" variant="primary">Add account</x-import></span>
 </div>
 
 <div style="display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--surface-card); border: 1px solid var(--line);">

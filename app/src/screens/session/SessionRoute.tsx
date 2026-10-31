@@ -20,6 +20,8 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { parseDiff } from "../../model/diff";
 import { changeConversation } from "../../model/conversation";
 import type { Action } from './types';
+import { LazyThread } from "./LazyThread";
+import { livenessNotice, type LivenessInput } from "../../model/thread";
 import { messageQuestion } from '../../model/task-answer';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
@@ -85,7 +87,8 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
   title:actions=>actions,
-  panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work}
+  panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work} unread={task.data?.messages?.unreadForHuman}
+   messages={<LazyThread id={id} closed={!!task.data?.review||!!task.data?.dismissed||task.data?.state==='stopped'} notice={livenessNotice(task.data as LivenessInput)}/>}
    count={!diff.error && diff.data && !diff.data.note ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : null}
    readFile={session.data?.attempt != null ? reference=>api.call('session.file.read',{id,attempt:session.data!.attempt!,reference}) : undefined}
    changes={<>{diff.error ? <p role="alert">Could not load changes. The worktree may have been removed.</p> : <SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>}{files}</>}

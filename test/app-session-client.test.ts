@@ -44,3 +44,24 @@ test('capabilities.control false refuses take and input even if server grants co
 test('empty resume becomes live on control frame; subsequent output preserves offset',()=>{const f=fixture(false),s=f.sockets[0]!;s.frame({type:'snapshot',outputOffset:12,cols:80,rows:24,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1});s.onclose?.();f.timers[0]!();const resumed=f.sockets[1]!;resumed.onopen?.();resumed.frame({type:'control',you:false,controller:null});expect(f.client.state.status).toBe('live');resumed.output('next');expect(f.writes.at(-1)).toBe('next');resumed.onclose?.();f.timers[1]!();f.sockets[2]!.onopen?.();expect(f.sockets[2]!.json()[0].from).toBe(16);f.client.dispose();});
 test('losing control and a network drop immediately disable input',()=>{const f=fixture(false),s=f.sockets[0]!;s.frame({type:'control',you:true,controller:'app'});expect(f.client.input('a')).toBe(true);s.frame({type:'control',you:false,controller:'cli',reason:'taken'});expect(f.client.input('b')).toBe(false);expect(f.client.state.message).toContain('taken');s.frame({type:'control',you:true,controller:'app'});s.onclose?.();expect(f.client.input('c')).toBe(false);f.client.dispose();});
 test('reconnect delay increases from 500 ms to 5 seconds; dispose cancels it',()=>{const sockets:FakeSocket[]=[],delays:number[]=[],pending:(()=>void)[]=[];let cancelled=false;const c=new SessionClient({url:'ws://localhost',label:'app',cols:80,rows:24,control:false,socket:()=>{const s=new FakeSocket();sockets.push(s);return s;},schedule:(fn,ms)=>{delays.push(ms);pending.push(fn);return ()=>{cancelled=true;};}});c.connect();for(let i=0;i<6;i++){sockets[i]!.onclose?.();pending[i]!();}expect(delays).toEqual([500,1000,2000,4000,5000,5000]);c.dispose();expect(cancelled).toBe(true);});
+
+test('an empty reconnect resume reclaims only an available lease and handback suppresses it', () => {
+ const f=fixture(),s=f.sockets[0]!;
+ s.frame({type:'snapshot',outputOffset:12,cols:80,rows:24,scrollbackAnsi:'history',screenAnsi:'prompt',controller:null,viewers:1});
+ s.frame({type:'control',controller:'app',you:true});s.onclose?.();f.timers[0]!();
+ const resumed=f.sockets[1]!;resumed.onopen?.();resumed.frame({type:'control',controller:null,you:false});
+ expect(resumed.json().filter(frame=>frame.type==='take')).toEqual([{type:'take'}]);
+ resumed.frame({type:'control',controller:'app',you:true});f.client.release();resumed.onclose?.();f.timers[1]!();
+ const handedBack=f.sockets[2]!;handedBack.onopen?.();handedBack.frame({type:'control',controller:null,you:false});
+ expect(handedBack.json().filter(frame=>frame.type==='take')).toEqual([]);f.client.dispose();
+});
+
+test('an explicit take restores reconnect intent after a deliberately read-only attach or handback', async () => {
+ const f=fixture(false),s=f.sockets[0]!;
+ s.frame({type:'snapshot',outputOffset:0,cols:80,rows:24,scrollbackAnsi:'',screenAnsi:'prompt',controller:null,viewers:1});
+ await f.client.take();s.frame({type:'control',controller:'app',you:true});f.client.release();
+ s.frame({type:'control',controller:null,you:false});
+ await f.client.take();s.frame({type:'control',controller:'app',you:true});s.onclose?.();f.timers[0]!();
+ const resumed=f.sockets[1]!;resumed.onopen?.();resumed.frame({type:'control',controller:null,you:false});
+ expect(resumed.json().filter(frame=>frame.type==='take')).toEqual([{type:'take'}]);f.client.dispose();
+});

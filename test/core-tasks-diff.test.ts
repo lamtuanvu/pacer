@@ -124,3 +124,23 @@ test("saved per-file patches retain the larger cap after checkout removal", asyn
   expect(await diff(ctx, task.id)).toEqual(all);
   expect(await diff(ctx, task.id, { path: "large.txt" })).toEqual(single);
 });
+
+for (const mode of ["current", "new"] as const) test(`Orca ${mode} placement excludes earlier branch changes without a direct run`, async () => {
+  const { repo, ctx, task, git } = fixture();
+  git("checkout", "-qb", "feature");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "earlier branch work");
+  const start = Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"]).stdout.toString().trim();
+  writeFileSync(join(repo, "task-only.txt"), "task work\n");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "task work");
+  updateTask(ctx, task.id, t => {
+    t.backend = "orca";
+    t.placement = { requested: mode, mode, why: "test" };
+    t.baseBranch = "main";
+    if (mode === "current") t.startSha = start;
+    else t.baseSha = start;
+  });
+  const result = await diff(ctx, task.id, { summaryOnly: true });
+  expect(result.base).toBe(start);
+  expect(result.files.map(file => file.path)).toEqual(["task-only.txt"]);
+});
