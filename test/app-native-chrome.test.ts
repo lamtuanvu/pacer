@@ -15,6 +15,9 @@ test("every chrome selector is unselectable and uses the arrow cursor", () => {
 test("content inside chrome stays selectable", () => {
   expect(flat).toMatch(/:is\([^)]*code[^)]*input[^)]*textarea[^)]*\[contenteditable[^)]*\)\{[^}]*user-select:text/);
 });
+test("in-app navigation inside chrome uses the arrow cursor", () => {
+  expect(flat).toContain(".pc-settings-nav,.pc-segmented)a{cursor:default}");
+});
 test("nav links and UI images do not drag", () => {
   expect(flat).toContain("-webkit-user-drag:none");
 });
