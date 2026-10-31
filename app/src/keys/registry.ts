@@ -41,6 +41,8 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
         if (!match) return false;
         pending = null; e.preventDefault(); match.run(); return true;
       }
+      // Browsers treat ⌘[ and ⌘] (and their Ctrl twins) inside a text field as text navigation; let them reach the field.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key === "]") && isTextTarget(e.target)) { pending = null; return false; }
       // Mod-k also answers to Cmd, so ⌘K and Ctrl-K are one binding. Mod-b is ⌘B on macOS and Ctrl-b elsewhere, which leaves
       // Ctrl-b (a terminal multiplexer prefix) free for a shell on macOS.
       const letter = e.key.toLowerCase();

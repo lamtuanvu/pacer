@@ -61,6 +61,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Make the app behave like a desktop app instead of a web page: interface chrome is no longer selectable and uses the arrow cursor, the window no longer rubber-bands, navigation links no longer drag, and the webview's own right-click menu appears only in text fields, code, the terminal and selected content. Settings moves from `,` to ⌘, (Ctrl+, elsewhere); ⌘[ and ⌘] go back and forward; in the desktop app ⌘1–4 open the main sections and ⌘F opens find in the visible terminal.
+
 - Policy plugins without a declared and granted `tasks.read` receive an empty delegate `goal` and an opaque `repo`; review notes are omitted. The goal, repository and note hashes are keyed per plugin, changing the meaning of those fields for existing policy plugins. Plugin protocol 1.8.0 adds the negotiated `policyRedactionMetadata` feature for redacted-field lengths and keyed hashes.
 - Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Consecutive empty polls back off from 200 ms to 2 s plus SSH round-trip latency.
 - Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
