@@ -188,7 +188,6 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
-  out.report = plan.note + out.report;
   if (!interactive) {
     if (launch.lastMessageFile && existsSync(launch.lastMessageFile)) {
       const last = readFileSync(launch.lastMessageFile, "utf8").trim().slice(-4000);
@@ -196,6 +195,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     }
     out.attempt.limitHit = detectLimit(cfg.id, out.exec);
   }
+  out.report = plan.note + out.report;
   const durable = inspectOwnedExecutorRun(ctx, task.id, attempt), latest = readTask(ctx, task.id);
   const report = interactive ? readRun(durable.dir).report : null;
   const completion = latest?.executorReportReceipt;
