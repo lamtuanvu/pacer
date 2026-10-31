@@ -15,9 +15,22 @@ test("source never imports the removed Orca plugin", () => {
   expect(offenders).toEqual([]);
 });
 
-test("src/core imports nothing from src/exec/orca", () => {
-  const offenders = files(join(import.meta.dir, "..", "src", "core")).filter((f) => /from\s+["'][^"']*exec\/orca/.test(readFileSync(f, "utf8")));
+test("src/core imports no Orca-specific module (ARCH-4, P8)", () => {
+  // The Orca execution adapter, its host brokers and the bundled plugin are reached only through host-neutral executor interfaces.
+  const orca = /(?:from\s+|import\(\s*)["'][^"']*(?:exec\/orca|plugins\/(?:orca-|executor-orca)|pacer-exec-orca)/;
+  const offenders = files(join(import.meta.dir, "..", "src", "core")).filter((f) => orca.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
+});
+
+test("the bundled Orca executor imports no host code and builds no Orca argv", () => {
+  const plugin = files(join(import.meta.dir, "..", "plugins", "pacer-exec-orca"));
+  expect(plugin.length).toBeGreaterThan(0);
+  for (const f of plugin) {
+    const text = readFileSync(f, "utf8");
+    const imports = [...text.matchAll(/from\s+["']([^"']+)["']/g)].map(m => m[1]!);
+    expect(imports.filter(spec => !["@pacer/plugin", "zod"].includes(spec) && !/^\.\/[\w-]+$/.test(spec))).toEqual([]);
+    expect(text).not.toMatch(/\[\s*["']orca["']\s*,|["'](?:worktree|terminal|orchestration)["']\s*,\s*["'](?:create|show|close|send|worker-start|worker-stop)["']/);
+  }
 });
 
 test("only the plugin host imports the bundled plugin list", () => {

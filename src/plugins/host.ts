@@ -54,7 +54,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   }
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   // capability.secrets.resolve keeps its 1.3.0 assistant contract and needs no owning call; capability.secrets.check does.
-  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree"].includes(name) && method !== "capability.secrets.resolve") {
+  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree", "orca"].includes(name) && method !== "capability.secrets.resolve") {
     if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
     authority.assertGranted(name);
   }
@@ -86,6 +86,8 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     if (!authority || !hostBroker) throw new CoreError("capability_denied", "hosts require an active registry broker");
     return scoped(() => hostBroker(method, parsed.data, authority));
   }
+  // Loaded on use: the Orca broker reaches the task and execution modules that load this host.
+  if (name === "orca") return scoped(async () => (await import("./orca-broker")).answerOrca(authority!, plugin.id, method, parsed.data as Record<string, unknown>));
   if (name === "worktree") return scoped(() => answerWorktree(authority!, method, parsed.data as { taskId: string; attempt: number; baseSha?: string }));
   if (authority && name === "fs.write") {
     if (!transport) throw new CoreError("capability_denied", "file writes require a captured transport envelope");

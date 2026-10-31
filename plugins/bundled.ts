@@ -7,6 +7,7 @@ import type { BundledPlugin } from "../src/plugins/types";
 import { manifest as sshManifest } from "./pacer-ssh/manifest";
 import { manifest as remoteCallerManifest } from "./pacer-remote-caller/index";
 import { manifest as directExecutorManifest } from "./pacer-exec-direct/manifest";
+import { manifest as orcaExecutorManifest } from "./pacer-exec-orca/manifest";
 /** Reference plugins compiled into the pacer binary; installed shadows never replace these IDs. */
 export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerManifest),main:()=>import("./pacer-planners/index")}, { manifest: manifestSchema.parse(endpointManifest), main: () => import("./pacer-endpoints/index") }, { manifest: notifierManifest, main: () => import("./pacer-notify/index") }, { manifest: classifierManifest, main: () => import("./pacer-classify/index") }, {
   manifest: { id: "pacer-usage", version: "0.2.0", publisher: "pacer", host: "^1.6", contributes: { usage: { providers: ["claude-code", "codex", "arkcli", "metered"] } },
@@ -21,4 +22,5 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   main: () => import("./assistant/index"),
 }, { manifest: manifestSchema.parse(sshManifest), main: () => import("./pacer-ssh/index") },
   { manifest: manifestSchema.parse(remoteCallerManifest), main: () => import("./pacer-remote-caller/index") },
-  { manifest: manifestSchema.parse(directExecutorManifest), main: () => import("./pacer-exec-direct/index") }];
+  { manifest: manifestSchema.parse(directExecutorManifest), main: () => import("./pacer-exec-direct/index") },
+  { manifest: manifestSchema.parse(orcaExecutorManifest), main: () => import("./pacer-exec-orca/index") }];
