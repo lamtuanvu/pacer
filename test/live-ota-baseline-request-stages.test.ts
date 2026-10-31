@@ -75,6 +75,9 @@ test("request stage recorder refuses a shared evidence directory and never write
   const evidence = join(root, "evidence");
   mkdirSync(ota, { mode: 0o700 });
   mkdirSync(evidence, { mode: 0o755 });
+  // mkdir's mode is filtered by umask; this refusal needs a genuinely shared directory.
+  chmodSync(evidence, 0o755);
+  expect(statSync(evidence).mode & 0o777).toBe(0o755);
   createBaselineRequestRecorder({ root: ota, uid: process.getuid!() }, () => 1234)("request-arrival");
   expect(existsSync(join(evidence, "baseline-request-stages.json"))).toBe(false);
 });

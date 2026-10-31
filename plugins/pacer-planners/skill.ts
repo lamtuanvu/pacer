@@ -40,7 +40,7 @@ Use \`pacer help\` for stream/file commands. Do not read private task files, cre
 
 ## Brief fields
 
-JSON object: \`goal\` (required string), \`repo\` (absolute path, defaults to cwd),
+JSON object: \`goal\` (required string), \`title\` (optional explicit title, 1–60 characters; stored separately from the goal), \`repo\` (absolute path, defaults to cwd),
 \`kind\`, \`scope\`, \`acceptance\` (verification command), \`acceptance_timeout_min\` (integer 1–120, default 10;
 acceptance deadline in minutes, also \`--acceptance-timeout-min\`; preserved on retry), \`acceptance_pipefail\` (boolean,
 default false), \`constraints\`, \`context\`,

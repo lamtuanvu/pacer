@@ -352,6 +352,7 @@ async function reattachOrcaAttempt(
     t.group = reattach.asked.group;
     t.baseBranch = reattach.asked.baseBranch;
     t.baseSha = reattach.asked.baseSha;
+    t.startSha = reattach.asked.startSha;
     t.placement = reattach.asked.placement;
   });
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { if (s.workers[dispatchId]) s.workers[dispatchId].taskId = task.id; }); });
@@ -541,6 +542,14 @@ async function runOrcaAttempt(
     if (created) await closeStrays(created, initial, "");
     worktree = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
       : p.sub ? join(root, p.sub) : root;
+    if (p.resolved.mode === "current" && !readTask(ctx, task.id)?.startSha) {
+      const head = await ctx.run(["git", "-C", worktree, "rev-parse", "--verify", "-q", "HEAD"], 10_000);
+      const sha = head.stdout.trim();
+      if (head.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
+        throw Error("cannot record the current checkout's start commit");
+      }
+      updateTask(ctx, task.id, t => { t.startSha ??= sha; });
+    }
     const accountEnv = await providerEnv(ctx, cfg);
     if (Object.keys(accountEnv).some(key => key !== "CLAUDE_CONFIG_DIR" && key !== "CODEX_HOME")) {
       throw Error("account environment contains values that cannot be placed in a visible Orca terminal command");

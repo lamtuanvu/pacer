@@ -55,7 +55,7 @@
       "expand": "fill",
       "h": 900,
       "is_interactive": true,
-      "title": "5b · Live session in the built-in terminal",
+      "title": "Retired · 5b · Live session (now 26 · Workspace)",
       "w": 1440,
       "x": 3040,
       "y": 1600
@@ -185,7 +185,7 @@
     "TaskDetail.dc.html": {
       "expand": "fill",
       "h": 1240,
-      "title": "4 · Root task: dispatch trace",
+      "title": "Retired · 4 · Root task (now 25 · Task page)",
       "w": 1440,
       "x": 4560,
       "y": 0,
@@ -307,7 +307,7 @@
     "TaskFailed.dc.html": {
       "expand": "fill",
       "h": 900,
-      "title": "22 · Inspect failures",
+      "title": "Retired · 22 · Inspect failures (now 25c · Task page: failed)",
       "w": 1440,
       "x": 3040,
       "y": 13840,
@@ -317,7 +317,7 @@
       "expand": "fill",
       "h": 900,
       "is_interactive": true,
-      "title": "23 · Review a result",
+      "title": "Retired · 23 · Review a result (now 25 · Task page)",
       "w": 1440,
       "x": 4560,
       "y": 13840
@@ -334,7 +334,7 @@
     "SessionDark.dc.html": {
       "expand": "fill",
       "h": 900,
-      "title": "5d · Live session, dark",
+      "title": "Retired · 5d · Live session, dark (now 26 · Workspace)",
       "w": 1440,
       "x": 1520,
       "y": 15020,
@@ -364,6 +364,50 @@
       "x": 6080,
       "y": 15020,
       "is_interactive": true
+    },
+    "TaskPage.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "w": 1440,
+      "x": 0,
+      "y": 16720,
+      "is_interactive": true,
+      "title": "25 · Task page: understand and decide · review"
+    },
+    "TaskPageRunning.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "w": 1440,
+      "x": 1520,
+      "y": 16720,
+      "is_interactive": true,
+      "title": "25b · Task page: running"
+    },
+    "TaskPageFailed.dc.html": {
+      "expand": "fill",
+      "h": 1240,
+      "w": 1440,
+      "x": 3040,
+      "y": 16720,
+      "is_interactive": true,
+      "title": "25c · Task page: failed"
+    },
+    "Workspace.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "w": 1440,
+      "x": 4560,
+      "y": 16720,
+      "is_interactive": true,
+      "title": "26 · Workspace: tasks with their sessions, open panels, task details"
+    },
+    "Loading.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "w": 1440,
+      "x": 6620,
+      "y": 16720,
+      "title": "27 · Loading: page-shaped skeleton, no spinner text"
     }
   },
   "createdOnFiles": {
@@ -461,7 +505,23 @@
       "w": 460,
       "size": "m",
       "fill": "blue",
-      "text": "Clickable prototype: select 1 · Dispatch and press Play (or open it full window), then click through like the real app.\n\nThe core loop: Needs you (activity bar or Dispatch) → Answer · Inspect failures → Retry · Review → Accept → back to Tasks.\nAlso: New task → Delegate, ⌘K search, the planner chip → Budget, Settings from the activity bar, Terminal → the panel, Live dispatch rows → session or trace.\nThe tray (19) links into the same screens."
+      "text": "Clickable prototype: select 1 · Dispatch and press Play (or open it full window), then click through like the real app.\n\nThe core loop: Needs you (activity bar or Dispatch) → Answer, or the task page (25 review, 25c failed) → Accept / Retry → back to Tasks.\nEvery task title opens its task page; Open workspace / Take over open 26 · Workspace (sessions, panels, task details).\nAlso: New task → Delegate, ⌘K search, the planner chip → Budget, Settings and Workspace from the activity bar.\nThe tray (19) links into the same screens."
+    },
+    "row9": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Task page to decide, workspace to work",
+      "w": 240,
+      "x": 0,
+      "y": 16420
+    },
+    "row9note": {
+      "x": 6080,
+      "y": 16720,
+      "w": 460,
+      "size": "m",
+      "fill": "orange",
+      "text": "Adopted 2026-10-30.\n\nTwo places, one job each.\n\nTask page (25, 25b, 25c): understand and decide. Every task title opens it. Header and state actions stay put (Review: Reject / Accept, Running: Take over, Failed: Retry). Overview: the now card, cost, dispatch trace, acceptance. Open workspace / Take over go to 26.\n\nWorkspace (26), replacing 5b: left, tasks with their sessions nested (agent sessions, your shell, ended attempts); click a session to open it as a panel, click the card to show that task on the right. Middle, tabs of any kind: agent session (following or you drive), shell, file, diff; + opens a shell, a new agent session on this task, or a file. Right, the selected task: Overview (same component as 25), Changes (files open as diff panels), Notes.\n\nRetired: 4, 5b, 5d, 22, 23 (kept for reference, titled Retired). The rail Terminal item is now Workspace; Ctrl+` still toggles the bottom terminal panel."
     }
   },
   "order": [
@@ -507,7 +567,12 @@
     "SessionDark.dc.html",
     "NeedsYouDark.dc.html",
     "States.dc.html",
-    "DispatchNarrow.dc.html"
+    "DispatchNarrow.dc.html",
+    "TaskPage.dc.html",
+    "TaskPageRunning.dc.html",
+    "TaskPageFailed.dc.html",
+    "Workspace.dc.html",
+    "Loading.dc.html"
   ],
   "pages": [],
   "title": "Pacer App Redesign"

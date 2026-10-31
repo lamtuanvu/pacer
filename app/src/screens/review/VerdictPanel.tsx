@@ -38,6 +38,7 @@ export interface VerdictPanelProps {
 export function retryChoiceOptions(options: TaskDetail["retryOptions"]): ChoiceOption[] {
   return options.map(option => ({
     value: option.id,
+    agent: option.id,
     label: `${executorLabel(option.id)} · ${reasonCopy(option.reason)}`,
     disabled: option.state !== "ready",
     reason: option.state !== "ready" ? reasonCopy(option.reason) : undefined,

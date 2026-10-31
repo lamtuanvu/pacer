@@ -24,15 +24,13 @@ test("withdrawing consent is as visible as granting it", () => {
   expect(consentActions("claude1", "granted")[0].variant).toBe(consentActions("claude1", "unasked")[0].variant);
 });
 
-test("dispatcher settings explain the active planner and built-in ladder", () => {
+test("dispatcher intro omits the duplicate setup strip and keeps the built-in ladder separate", () => {
   const html = renderToString(<DispatcherOverview view={{strategy:"default",planner:"claude-code",plannerAccount:"claude1",source:"built-in",config:dispatchConfigSchema.parse({})}} />);
   expect(SETTINGS_PAGES.some(page=>page.id==="dispatcher")).toBe(true);
   expect(SETTINGS_PAGES.some(page=>page.id==="routing"||page.id==="strategies")).toBe(false);
-  expect(html).toContain("Claude Code");
-  expect(html).toContain('aria-label="Current setup"');
-  expect(html).toContain('href="#/settings/planner"');
-  expect(html).toContain("Switch setup");
-  expect(html).toContain("Active saved setup");
+  expect(html).not.toContain('aria-label="Current setup"');
+  expect(html).not.toContain("Active saved setup");
+  expect(html).not.toContain("Planner &amp; pacing");
   expect(html).not.toContain("Repository choices");
   // The ladder itself is shown once, in the guided setup's step 3 (UI-15).
   expect(html).not.toContain("Usable fallback");
@@ -45,7 +43,7 @@ test("dispatcher settings explain the active planner and built-in ladder", () =>
 test("plugin strategy does not present inactive ladder as the active decision engine", () => {
   const config=dispatchConfigSchema.parse({engine:"plugin:custom-choice",engineFallback:"queue"});
   const html=renderToString(<DispatcherOverview view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}}/>);
-  expect(html).toContain("custom");
+  expect(html).not.toContain("Active saved setup");
   expect(html).not.toContain("Capable model with spare capacity");
   const setup=renderToString(<TaskContext.Provider value={{state:{...initialState(),connected:true},api:{call:async()=>({})}} as any}><SetupEditor view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}} eligibility={{kind:"global",rules:[{executors:["codex"]}],available:["codex"]}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
   expect(setup).toContain("If the plugin cannot decide, Pacer queues the work");
@@ -160,11 +158,11 @@ test("route results group choice and matched step in a band and distinguish excl
   expect(queued).not.toContain('Would go to');
 });
 
-test("saved setup rows retain explicit Use actions and mark the active row", () => {
+test("saved setup rows retain explicit Activate actions and mark the active row", () => {
   const rows=[{name:"daily",summary:"Everyday work",active:true},{name:"other",summary:"Other work",active:false}];
   const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
   expect(html).toContain('pc-saved-setups__row--active');
-  expect(html).toContain('aria-label="Use other"');
+  expect(html).toContain('aria-label="Activate other"');
   expect(html).toContain('pc-setup-icon');
 });
 

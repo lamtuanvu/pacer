@@ -80,8 +80,15 @@ export function taskStatus(task: TaskStatusInput): Status {
     if (task.conversation?.activity === "working") return status("Working", "info", "▶");
   }
   const phase = task.progress?.phase ?? task.phase;
-  if (task.state === "running" && phase) return sessionStatus(phase);
+  if (task.state === "running" && phase && Object.hasOwn(sessionStates, phase)) return sessionStatus(phase);
   return Object.hasOwn(taskStates, task.state) ? taskStates[task.state]! : unknownStatus;
+}
+/** Task destinations combine execution, checks and explicit review handoffs. */
+export function taskPageStatus(task: TaskStatusInput & {reviewRequest?: unknown; acceptance?: {state:string}}): Status {
+  if (task.acceptance?.state === "failed" || task.acceptanceState === "failed") return status("Checks failed", "bad", "✕");
+  if (task.review) return taskOutcome(task);
+  if (task.reviewRequest && !task.dismissed && !task.resolved && !task.retriedBy) return status("Waiting for review", "info", "◐");
+  return taskStatus(task);
 }
 export function taskOutcome(task: TaskStatusInput): Status {
   return task.review ? task.review.accepted ? status("Accepted", "good", "✓") : status("Rejected", "bad", "✕")
@@ -150,6 +157,8 @@ export function attentionStatus(item: { kind: string; taskId?: string }, tasks: 
 export const offlineWords = "pacer not running · pacer serve";
 /** The name shown for the machine pacer runs on, wherever a host is named. */
 export const localHostWords = "This Mac";
+/** Task boards distinguish local execution from a named remote host. */
+export const localTaskHostWords = "Local Mac";
 /** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>

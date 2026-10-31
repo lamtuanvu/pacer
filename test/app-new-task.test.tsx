@@ -59,7 +59,7 @@ test("new_task_kind_prefers_the_pick_then_a_valid_detected_kind", () => {
   expect(effectiveKind(draft({ kind: "nonsense" }), explanation({ kind: { value: "nonsense", source: "detected" } }))).toBeNull();
   expect(effectiveKind(draft(), explanation({ kind: { value: "feature", source: "given" } }))).toBeNull();
   const chips = kindChips(draft(), explanation());
-  expect(chips.map(c => c.label)).toEqual(["Feature", "Debug", "Tests", "Docs", "Refactor", "Research"]);
+  expect(chips.map(c => c.label)).toEqual(["Feature", "Debug", "Tests", "Docs", "Refactor"]);
   expect(chips.find(c => c.on)).toMatchObject({ kind: "feature", detected: true });
   // A detected kind outside the board's chips is appended, so the chosen kind is always visible.
   expect(kindChips(draft(), explanation({ kind: { value: "migration", source: "detected" } })).at(-1)).toMatchObject({ kind: "migration", on: true });
@@ -74,7 +74,7 @@ test("new_task_lists_survive_bad_storage", () => {
 // ---- submit payloads -----------------------------------------------------------------------------------------
 
 test("new_task_payload_minimal_goes_to_a_new_worktree", () => {
-  expect(newTaskPayload(draft(), ctx)).toEqual({ goal: "Make remote-support access opt-out.", repo: "econ-v1/node", worktree: "new", source: "ui", request_id: "req-1" });
+  expect(newTaskPayload(draft(), ctx)).toEqual({ goal: "Make remote-support access opt-out.", repo: "econ-v1/node", worktree: "new", dispatch: { allowDelegation: true, maxConcurrent: 3 }, source: "ui", request_id: "req-1" });
 });
 
 test("new_task_payload_carries_every_choice", () => {
@@ -90,7 +90,7 @@ test("new_task_payload_carries_every_choice", () => {
     goal: "Make remote-support access opt-out.", repo: "econ-v1/node", base: "main",
     acceptance: "bun run test && bun run typecheck",
     context: "Done when:\n- Settings copy says it is opt-out\n- Project tests pass (`bun run test`)\n- Typecheck is clean (`bun run typecheck`)\n\nAttached in the pacer app:\n- settings-before.png",
-    scope: "src/remote/access.ts, docs", kind: "feature", executor: "codex#work", worktree: "current", source: "ui", request_id: "req-1",
+    scope: "src/remote/access.ts, docs", kind: "feature", executor: "codex#work", worktree: "current", dispatch: { allowDelegation: true, maxConcurrent: 3 }, source: "ui", request_id: "req-1",
   });
 });
 
@@ -278,4 +278,8 @@ test("routing_uncertainty_and_engine_fallback_are_visible_and_hedged", () => {
     { code: "engine_not_running", outcome: "info", facts: {}, text: "" },
   ] }));
   expect(multipleWarnings.why[0]?.text).toContain("engine is not running");
+});
+
+test("routing_capacity_copy_rounds_percentages", () => {
+  expect(reasonText({ code: "capacity_comfortable", facts: { headroomPct: 46.753, pacePct: 24.44636951446756 } } as never)).toBe("This agent has spare capacity · 47% headroom, pace 24%");
 });

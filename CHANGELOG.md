@@ -4,6 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
+
+- Attribute Orca task diffs to the recorded task base or current-checkout start commit, including committed work without a direct session record. Give the live UI sample its own Git repository so repository discovery cannot escape into the source checkout.
+
+- Open available live workspace sessions interactively and fit the visible pane without an extra takeover click. Occupied sessions keep their controller until confirmed takeover; followers scroll at normal font size. Handback preserves the terminal, hidden tabs never resize it, and available sessions reconnect with control. Terminal colors use a coherent dark palette in both app themes, and workspace toolbar controls share quiet compact styling with danger reserved for ending a session.
+
 ### Added
 
 - Check usage directly from Agents › Accounts for planner and executor accounts, including accounts without an executor. Claude asks consent for a small quota-consuming telemetry task; other providers report fresh, unchanged or failed reads honestly, with reactive and unmetered limitations. Account rows keep progress and failures compact, with provider guidance and technical errors in one expandable Usage check details disclosure and no duplicate job toasts. The planner card links to account usage controls. New v3 operation: `account.usage.check`.
@@ -28,7 +36,22 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Allow acceptance deadlines of 1–120 minutes via `acceptance_timeout_min` / `--acceptance-timeout-min` (default 10), preserve them on retry, and report acceptance timeouts explicitly with a hint to raise the deadline.
 
+- Keep task-page titles complete, expose Open workspace in every state, move copy-ID into the breadcrumb, and show a concise running summary without echoed executor instructions or machine paths.
+
+- Match Workspace task heads and nested sessions to board 26, restore active-panel controls beside search, and prefer live child sessions on opening a task.
+
+- Restore the Tasks board layout and selected-task card, preserve tablet titles, and keep search icons clear of their text. Show repository and branch identity in New task, enforce its 10 MB attachment limit, and align its split-work summary with submitted policy.
+
+- Match Dispatch, Needs you and Insights board spacing, typography, chart colours and mobile containment; retain complete path-safe task titles and readable budget status.
+
+- Align Settings board controls, agent details, account marks, dispatcher setup and plugin actions; distinguish stale and missing budget readings.
+
+- Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
+- Consolidate task destinations into the task page and add Workspace for sessions, shells, files and diffs.
+
 ### Changed
+
+- Replace loading indicators with delayed, accessible page skeletons for tasks, lists, settings and Dispatch; keep loaded content visible during refresh.
 
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
 - Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.6.0 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
@@ -42,6 +65,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep unavailable task file changes distinct from measured zero counts in Overview and the Now card.
+- Keep Workspace panel menus reachable after resizing, fit the workspace canvas to its frame, and keep narrow header controls visible. Long panel identities ellipsize inside the header while status pills retain theme contrast. Ended sessions show read-only metadata, failed session loads offer Retry, and the new-agent flow is accurately labelled as a new task in the selected worktree.
+- Keep the tray planner header contained at narrow widths by truncating the pace label before the planner name, and place footer actions in two rows below 340px so every control remains visible; constrain expanded More menus to the space above the taller footer in short windows, and keep all four count captions fully legible at 260px. Large counts ellipsize with exact values in their accessible names and tooltips; short-window menus retain their top border.
 - Reuse recent screen reads and coalesce identical requests within each app connection; refresh on events, errors and reconnects. Briefly cache repository branch choices to avoid rescanning every registered repository on rapid navigation.
 
 - Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
@@ -53,6 +79,26 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Restore takeover live validation after the fixture and takeover changes merged; the five takeover scenarios had not worked together on main.
 - Give a managed service adopted from a legacy macOS Background registration Standard launch priority, while retaining the original registration exactly for rollback.
 - Bind live accessibility inspection to an owned AX window, stop cyclic observations, and report uncertain native action effects honestly.
+- Render interactive task overview output as a bounded, read-only terminal from the raw PTY session instead of flattening terminal redraws into log lines; keep full-size text in a keyboard-scrollable viewport.
+
+- Preserve complete API task titles even when they match the goal, while legacy briefs still produce clean compact labels.
+
+- Load workspace task details only for the selected task, coalesce duplicate reads and event bursts, and stop polling the task page.
+
+- Preserve board-sized segmented items and subtask chips across device densities, restore usage-popover button padding, and align repository chips and current-task row styling.
+
+- Give immediate Settings changes inline saving, success and rollback feedback; keep Agents tab headers stable and remove the duplicate Dispatcher setup summary.
+
+- Derive readable task labels from Markdown briefs, preserving explicit titles and complete bracket groups; keep the Sessions navigator mounted with its scroll and data when selecting another task.
+
+- Start Dispatch with Scope and Inspector closed, remember their toggles per window, offer the latest running task from an empty inspector, and preserve the ledger’s 9px by 20px row padding in both densities.
+
+- Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
+
+
+- Budget & pacing mode choices update immediately, release holds on Automatic, and restore the previous choice with an inline error when a write fails. Held state no longer inherits the routing-status cache lifetime.
+- Idle settings queries ignore unrelated configuration events; stale snapshots retry with backoff instead of replaying invalidations. Client control and setup polling use bounded intervals without overlapping requests.
+- Terminal scrollbar and truecolor cell styling comply with the existing strict CSP.
 - Align Tasks with its board: short task titles and accessible names with full-text tooltips, a sticky selected-task summary with duration, planner-attributed linked work, notes and a dispatch trace link, measured token totals, and the board’s row geometry and selection colours.
 - Match the 340px tray board: preserve eligible executor usage, omit the planner from a single-line executor strip, group off executors and link overflow, restore attention glyphs, board typography and the planner caption, soften shortcut chips, format upcoming resets by weekday, and wire the desktop Open at login switch to native login items. Review rows use the blue review dot, unmetered executors show a muted dash, off tooltips name the actual state, and tray actions retain 32px targets.
 - Keep command-menu scope tabs visible in recent and command views, match board row styling, prefill an empty New task draft from an unmatched query without reloading or replacing existing work, preserve matches across empty scopes, and show only available keyboard actions. Keep selected subtitles and scope counts readable and use the dark backdrop and shadow tokens.

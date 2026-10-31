@@ -7,7 +7,7 @@ type RouteBase =
   | { name: "new-task" | "dispatch" | "loading" | "setup" | "insights" }
   | { name: "add-executor"; host?: string }
   | { name: "task-failure" | "task-review"; id: string }
-  | { name: "review" | "sessions" | "terminal"; id?: string; view?: "trace" }
+  | { name: "review" | "sessions" | "terminal"; id?: string; view?: "trace"; panel?: string }
   | { name: "settings"; section?: string }
   | { name: "hosts"; alias?: string }
   ;
@@ -19,7 +19,7 @@ export type RouteTarget =
   | { name: "task-failure" | "task-review"; id: string; query?: TargetQuery }
   | { name: "plugin"; plugin: string; id: string; query?: TargetQuery }
   | { name: "new-task" | "dispatch" | "review" | "setup" | "insights"; query?: TargetQuery }
-  | { name: "sessions" | "terminal"; id?: string; view?: "trace"; query?: TargetQuery }
+  | { name: "sessions" | "terminal"; id?: string; view?: "trace"; panel?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
@@ -27,6 +27,7 @@ export const SETTINGS_SECTIONS = ["plugins", "planner", "accounts", "executors",
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
+  workspace: (id?: string, panel?: string) => ({ name: "terminal", id, panel } as const),
   failure: (id: string, query?: TargetQuery) => withTargetQuery({ name: "task-failure", id } as const, query),
   reviewTask: (id: string, query?: TargetQuery) => withTargetQuery({ name: "task-review", id } as const, query),
   insights: (query?: TargetQuery) => withTargetQuery({ name: "insights" } as const, query),
@@ -55,15 +56,15 @@ function mergedQuery(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): Ro
 export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): string {
   let href: string;
   switch (target.name) {
-    case "task-failure": href = `#/tasks/${encodeURIComponent(target.id)}/failure`; break;
-    case "task-review": href = `#/tasks/${encodeURIComponent(target.id)}/review`; break;
+    case "task-failure": href = `#/tasks/${encodeURIComponent(target.id)}`; break;
+    case "task-review": href = `#/tasks/${encodeURIComponent(target.id)}`; break;
     case "insights": href = "#/insights"; break;
     case "plugin": href = `#/plugins/${encodeURIComponent(target.plugin)}/${encodeURIComponent(target.id)}`; break;
     case "dispatch": href = "#/"; break;
     case "review": href = "#/needs-you"; break;
     case "new-task": href = "#/tasks/new"; break;
-    case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}${target.view ? `/${target.view}` : ""}` : "#/tasks"; break;
-    case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
+    case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
+    case "terminal": href = `#/workspace${target.id ? `?task=${encodeURIComponent(target.id)}` : ""}${target.panel ? `${target.id ? "&" : "?"}panel=${encodeURIComponent(target.panel)}` : ""}`; break;
     case "settings": href = target.section?.startsWith("plugins/") ? `#/settings/plugins/${encodeURIComponent(target.section.slice(8))}` : target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
     case "hosts": href = target.alias ? `#/settings/hosts/${encodeURIComponent(target.alias)}` : "#/settings/hosts"; break;
     case "add-executor": href = "#/settings/add-executor"; break;
@@ -86,13 +87,13 @@ export function parentFor(route: Route): RouteTarget | null {
   return null;
 }
 /** Insights retains its recorded in-page title deviation. */
-export function pageOwnsTitle(route: Route): boolean { return route.name === "insights" || route.name === "task-failure" || route.name === "task-review" || (route.name === "sessions" && route.view === "trace"); }
+export function pageOwnsTitle(route: Route): boolean { return route.name === "insights" || route.name === "task-failure" || route.name === "task-review" || (route.name === "sessions" && !!route.id); }
 export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   if (route.name === "task-failure") return "Inspect failures";
   if (route.name === "task-review") return "Review result";
   if (route.name === "new-task") return "New task";
   if (route.name === "sessions" && route.id) return "Task";
-  if (route.name === "terminal") return "Terminal";
+  if (route.name === "terminal") return "Workspace";
   if (route.name === "hosts" && route.alias) return "Host";
   if (route.name === "insights") return "Insights";
   if (route.name === "plugin") return pluginTitle;
@@ -143,9 +144,16 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
     if (query.scope) target.set("scope", query.scope);
     return { redirect: `#/tasks/${answer[1]}?${target}` };
   }
-  const route = match(path);
+  const oldTask = /^\/tasks\/([^/]+)(?:\/(trace|review|failure))?$/.exec(path);
+  if (oldTask && oldTask[1] !== "new" && decode(oldTask[1]!) !== null) {
+    const tab = params.get("tab");
+    if (tab && ["session", "changes", "brief"].includes(tab)) return {redirect: withQuery(`#/workspace?task=${oldTask[1]}&panel=${tab === "session" ? "session" : tab === "brief" ? "notes" : "changes"}`, query)};
+    if (oldTask[2]) return {redirect: withQuery(`#/tasks/${oldTask[1]}`, query)};
+  }
+  if (/^\/terminal(?:\/[^/]+)?$/.test(path)) return {redirect: withQuery(`#/workspace${path.slice(10) ? `?task=${path.slice(10)}` : ""}`,query)};
+  const route = path === "/workspace" ? {name:"terminal" as const, id:params.get("task") ?? undefined, panel:params.get("panel") ?? undefined} : match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
-  const interactiveArea = interactiveEntry && (route.name === "dispatch" || route.name === "sessions");
+  const interactiveArea = interactiveEntry && (route.name === "dispatch" || route.name === "sessions" || route.name === "terminal");
   if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);

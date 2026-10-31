@@ -5,6 +5,31 @@ It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
 embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
 pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available for one pacer minor release. The app consumes the read model during this overlap.
 
+## Workspace reads
+
+Long active-panel identities ellipsize within the header; hover the identity or
+metadata for its full text. Status pills remain fully visible in both themes.
+
+Workspace (`#/workspace`) renders task cards from task history and the live
+snapshot. Selecting a task loads its details once; task events refresh those
+details after a short debounce. Open session panels retain their output stream.
+The task page (`#/tasks/<id>`) also follows events rather than polling task details.
+Task pages show the complete display title, with a copy-ID button in the breadcrumb.
+Open workspace is available in every state; ended sessions open read-only.
+Opening an available live built-in session immediately acquires control and fits
+its PTY to the visible pane. If another viewer owns control, the session opens
+read-only at its authoritative dimensions, with normal-size text and scrolling.
+**Take over** asks before replacing that viewer; **Hand back** releases input
+without clearing output or automatically reclaiming control on reconnect. Hidden
+panels never fit or resize the PTY. Terminal surfaces use the same dark palette in
+both app themes, including ANSI colors and a contrast floor for agent text.
+The compact toolbar uses quiet icon buttons; only **End session** uses danger tone. Running
+cards name the agent and recorded phase and show up to two meaningful output lines,
+omitting echoed instructions and shortening home and temporary paths.
+Task file summaries distinguish unavailable changes from a measured empty diff: unavailable
+changes show no added/removed line totals, while measured zero counts remain visible.
+The shared page-control worker checks for remote actions every ten seconds.
+
 ## Open the app
 
 With the background service installed and running:
@@ -70,7 +95,15 @@ tree checks performed when starting work.
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
 attach command appear only for live or recorded terminal sessions.
-Opening a running task in the app takes control of its live Pacer terminal when
+The task overview shows a bounded, read-only terminal preview for built-in
+interactive sessions, using the raw session stream and its authoritative size.
+Text stays at its normal font size in a scrollable viewport, including on narrow
+screens. Focus the output region to scroll with the keyboard. It never takes
+control or resizes the agent, and reconnects after interruptions.
+Headless runs keep a plain output tail; failed checks show their acceptance
+output. Orca sessions link through the workspace to Orca.
+
+Opening a running task in the Session view takes control of its live Pacer terminal when
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
@@ -121,11 +154,13 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
+Dispatch starts with Scope and Inspector closed. Open either from the title-bar panel toggles; each window remembers its own choices across navigation and reloads. With no task selected, Inspector offers the most recently updated running task in the current repository scope as a link to its details.
+
 Dispatch follows the canvas board. Its header holds the page title with a live line
 (connected agents and the last update), the period switch (Today, 7 days or 30
 days; 7 days by default, shown only when the service has task insights), one
 "All repos · N" button that opens the repository menu, and New task, which opens
-the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+the New task composer (shortcut D). Below it:
 Planner budget and Next task goes to in one split section (the planner's pace, its
 week caption with the 5-hour window when its account reports one, the next agent,
 the chain after it ending in the queue, and the active strategy); the period at a
@@ -164,6 +199,13 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
+The tray planner header keeps its caption and mode visible at narrow widths; the
+pace label truncates first, with the full status available in its tooltip. Below
+340px, the four task-count columns fit their full captions with compact insets,
+and footer actions use two rows so labels, shortcut hints and controls remain
+visible; the More menu stays above the footer and scrolls within short windows,
+even with a long expanded strategy list. Large count values ellipsize when space
+is tight; count links keep the exact value in their accessible name and tooltip.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when
@@ -261,3 +303,22 @@ prints `pacer not running · pacer serve`.
 The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).
 
 Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
+
+Task labels use an explicit delegation `title` when provided. Otherwise, pacer
+uses the first sentence or line of the goal, strips Markdown formatting, and
+shortens it to about 80 characters at a word boundary. Unfinished trailing bracket
+groups are omitted. The full execution goal remains in the brief. Selecting a task
+keeps the Sessions navigator, its loaded history and scroll position in place.
+
+The Tasks list keeps its selected-task card inside the content area, after the
+Activity bar, rather than opening Scope and Inspector beside it. The card shows
+linked work, notes and recent activity. At tablet widths it reflows below the
+list, preserving readable task titles. Local task hosts are labelled Local Mac.
+
+New task repository choices show a repository icon, label and current base branch.
+The composer accepts new attachments up to 10 MB per file. Tasks submitted by the
+composer let the planner split work, with at most three concurrent descendants
+and no deadline. Branch names remain assigned by the service at launch; the UI
+shows that limitation. Acceptance checks are user supplied until the service
+exposes repository defaults; Review is not offered as a task kind because the
+service does not accept it.

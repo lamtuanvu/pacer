@@ -52,6 +52,8 @@ browserTest(
       viewport: { width: 1440, height: 900 },
     });
     await page.goto(server.url.toString());
+    await page.getByRole("button", { name: "Toggle left panel", exact: true }).click();
+    await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
     const scope = page.getByRole("complementary", { name: "Scope" });
     const inspector = page.getByRole("complementary", { name: "Inspector" });
     await scope.getByRole("link", { name: /acme\/api/ }).waitFor();
@@ -67,9 +69,12 @@ browserTest(
       .getByText("Split the settings page into sections", { exact: true })
       .waitFor();
     await page.getByRole("button", { name: "Clear selection" }).click();
-    await inspector
-      .getByText("Select a task to inspect its routing and details.")
-      .waitFor();
+    await inspector.getByText("Select a task to see its details.").waitFor();
+    const before = await page.evaluate(() => (window as any).panelCalls.filter((row: any) => row.op === "task.get").length);
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (window as any).panelCalls.filter((row: any) => row.op === "task.get").length)).toBe(before);
+    expect(await inspector.getByText("Loading task…").count()).toBe(0);
+    expect(await inspector.getByRole("link", { name: "Add SSH keepalive to remote runs" }).getAttribute("href")).toContain("#/tasks/t-0420");
     await page.getByRole("button", { name: "Select another task" }).click();
     await inspector.getByRole("tab", { name: "Task", exact: true }).focus();
     await page.keyboard.press("ArrowRight");
@@ -113,25 +118,35 @@ browserTest(
 browserTest(
   "top bar toggles persist independently for Dispatch and Tasks across reload",
   async () => {
-    const page = await browser.newPage({
+    const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     });
+    const page = await context.newPage();
     await page.goto(server.url.toString());
+    await page.getByRole("heading", { name: "Dispatch" }).waitFor();
+    expect(await page.getByRole("complementary", { name: "Scope" }).count()).toBe(0);
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).panelCalls.filter((row: any) => row.op === "task.get"))).toEqual([]);
+    await page.getByRole("button", { name: "Toggle left panel", exact: true }).click();
+    await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
+    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    await page.reload();
     await page.getByRole("complementary", { name: "Scope" }).waitFor();
-    await page
-      .getByRole("button", { name: "Toggle left panel", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Toggle Inspector", exact: true })
-      .click();
-    expect(
-      await page.getByRole("complementary", { name: "Scope" }).count(),
-    ).toBe(0);
+    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    const otherWindow = await page.context().newPage();
+    await otherWindow.goto(server.url.toString());
+    await otherWindow.getByRole("heading", { name: "Dispatch" }).waitFor();
+    expect(await otherWindow.getByRole("complementary", { name: "Scope" }).count()).toBe(0);
+    expect(await otherWindow.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    await otherWindow.close();
+    await page.getByRole("button", { name: "Toggle left panel", exact: true }).click();
+    await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
     await page.evaluate(() => {
       location.hash = "#/tasks";
     });
-    await page.getByRole("complementary", { name: "Scope" }).waitFor();
-    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    await page.getByRole("heading", { name: "Tasks", exact: true }).waitFor();
+    expect(await page.getByRole("complementary", { name: "Scope" }).count()).toBe(0);
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
     await page.evaluate(() => {
       location.hash = "#/";
     });
@@ -154,6 +169,7 @@ browserTest(
       viewport: { width: 1440, height: 900 },
     });
     await page.goto(`${server.url}?no-settings`);
+    await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
     const inspector = page.getByRole("complementary", { name: "Inspector" });
     await inspector.getByRole("tab", { name: /Plugin 0/ }).waitFor();
     expect(
@@ -166,3 +182,22 @@ browserTest(
     await page.close();
   },
 );
+
+browserTest("unselected and empty task snapshots never issue task reads", async () => {
+  for (const query of ["unselected", "no-tasks"]) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+      await page.goto(`${server.url}?${query}`);
+      await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
+      const inspector = page.getByRole("complementary", { name: "Inspector" });
+      await inspector.getByText("Select a task to see its details.").waitFor();
+      if (query === "unselected") {
+        // Fixture order is reversed: choose by update time, never by list position.
+        expect(await inspector.getByRole("link", { name: "Add SSH keepalive to remote runs" }).getAttribute("href")).toBe("#/tasks/t-0420");
+      } else expect(await inspector.getByRole("link").count()).toBe(0);
+      await page.waitForTimeout(100);
+      expect(await page.evaluate(() => (window as any).panelCalls.filter((row: any) => row.op === "task.get"))).toEqual([]);
+      expect(await inspector.getByText("Loading task…").count()).toBe(0);
+    } finally { await page.close(); }
+  }
+});
