@@ -32,13 +32,15 @@ function ownsRun(ctx: Ctx, taskId: string, owner: RunRef): boolean {
     task.run?.startedAt === owner.startedAt && task.run?.executor === owner.executor;
 }
 
-function privateDirectory(path: string, fd: number): void {
+/** Run directories must be private; the pacer home only needs to be closed to writes by others (`mask` 0o022),
+ *  because it is created under the ambient umask and is commonly 0755. */
+function privateDirectory(path: string, fd: number, mask = 0o077): void {
   let linked: Stats;
   try { linked = lstatSync(path); }
   catch { throw new CoreError("conflict", "executor run directory is unavailable"); }
   const opened = fstatSync(fd);
   if (!linked.isDirectory() || !opened.isDirectory() || linked.dev !== opened.dev || linked.ino !== opened.ino ||
-    (opened.mode & 0o077) !== 0 ||
+    (opened.mode & mask) !== 0 ||
     (process.getuid?.() !== undefined && opened.uid !== process.getuid()))
     throw new CoreError("conflict", "executor run directory is not private or changed");
 }
@@ -56,7 +58,7 @@ export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, rec
   const taskDir = join(runs, taskId);
   const attemptDir = join(taskDir, String(attempt));
   try {
-    privateDirectory(ctx.pacerHome, homeFd);
+    privateDirectory(ctx.pacerHome, homeFd, 0o022);
     const openChild = (parent: number, name: string, path: string, existing: boolean): number => {
       try { native.mkdirAt(parent, name, 0o700); }
       catch (error) {
@@ -75,7 +77,7 @@ export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, rec
     const taskFd = openChild(runsFd, taskId, taskDir, true);
     openChild(taskFd, String(attempt), attemptDir, recover);
     // Resolve every path again after creation; a replaced ancestor cannot become the persisted run owner.
-    privateDirectory(ctx.pacerHome, homeFd);
+    privateDirectory(ctx.pacerHome, homeFd, 0o022);
     privateDirectory(runs, runsFd);
     privateDirectory(taskDir, taskFd);
     privateDirectory(attemptDir, opened[opened.length - 1]!);
