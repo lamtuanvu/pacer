@@ -4,7 +4,7 @@ import { useState } from "preact/hooks";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { accountLabel, accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
-import { accountUsageFreshness } from "../../../../src/view-model/capacity";
+import { accountBudgetStatus, accountUsageFreshness } from "../../../../src/view-model/capacity";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import { Disclosure, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -63,7 +63,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                   status = quotaLabel ? accountStatus({}) : observation?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
                     : readiness.signedIn === true && usage
                       ? pace.label === "Usage unknown" && (usage.usedPct != null || usage.spendUsdWeek != null)
-                        ? {...pace, label: freshness ? "Historical usage" : "Usage observed"} : pace
+                        ? {...pace, label: freshness ? "Historical usage" : "Usage observed"} : accountBudgetStatus(usage, state.snapshot?.at)
                       : accountStatus(readiness),
                   hasAction = arkcliSignInRequired(account) || accountNeedsSignIn(readiness),
                   expanded = hasAction && openActions === account.name, actionsId = `account-actions-${encodeURIComponent(account.name)}`;

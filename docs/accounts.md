@@ -445,3 +445,5 @@ sign-in, the service checks usage every 15 seconds for up to ten minutes.
 Account evidence is stored by account source identity. Replacing an account home or source does not reuse its previous evidence. Availability, quota and spending signals have separate timestamps. See [execution eligibility](executors.md#execution-eligibility-and-evidence) for freshness and recovery rules.
 
 Changing an OpenCode provider also changes that identity. Changing a weekly cap keeps authentication and execution restrictions, but percentages calculated under the previous cap no longer constrain routing. An uncapped metered account needs no budget evidence; a successful usage reading can confirm availability. Missing or malformed costs stay unknown, and retained spending after a failed refresh is labelled historical even when the account has no cap.
+
+Accounts keep measured usage visible after it ages or its window resets, but label its retained pacing status **Stale reading** rather than current pace. New direct observations without a service pacing verdict still show **Usage observed** or **Historical usage**.

@@ -130,7 +130,7 @@ test('a passed host connection check cannot make an executor Ready',()=>{
 test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
  const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
- const s={...state,snapshot:{...state.snapshot,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
+ const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
  for(const label of ['Stale reading','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
@@ -142,6 +142,23 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for Codex · empty</span></summary>');
  expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
  expect(html).not.toContain('CODEX_HOME=');expect(html).not.toContain('<details open');
+});
+
+test('Accounts never present stale measured usage as current pace', () => {
+ const now = 1_800_000_000;
+ const accounts = [{name:'team',kind:'codex',signedIn:true}];
+ const current = {name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:now+3600,capturedAt:now,stale:false,verdict:'ON_PACE',signedIn:true};
+ for (const [overrides, label] of [
+  [{}, 'On pace'],
+  [{resetsAt:now}, 'Stale reading'],
+  [{capturedAt:now-86401}, 'Stale reading'],
+  [{stale:true}, 'Stale reading'],
+  [{eligibility:{budget:'unknown'}}, 'Stale reading'],
+ ] as const) {
+  const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{...current,...overrides}]}});
+  expect(html).toMatch(new RegExp(`data-label="Status"><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+  expect(html).toContain('17% of week');
+ }
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{

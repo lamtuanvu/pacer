@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
+
 - Attribute Orca task diffs to the recorded task base or current-checkout start commit, including committed work without a direct session record. Give the live UI sample its own Git repository so repository discovery cannot escape into the source checkout.
 
 - Open available live workspace sessions interactively and fit the visible pane without an extra takeover click. Occupied sessions keep their controller until confirmed takeover; followers scroll at normal font size. Handback preserves the terminal, hidden tabs never resize it, and available sessions reconnect with control. Terminal colors use a coherent dark palette in both app themes, and workspace toolbar controls share quiet compact styling with danger reserved for ending a session.

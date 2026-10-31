@@ -283,3 +283,17 @@ browserTest('reactive and unmetered quota stays honest with synthetic reader and
     accounts.splice(3,2,...originals); snapshotAccounts=[]; await page.close();
   }
 });
+
+browserTest('expired snapshot quota shows a stale pill instead of its retained green verdict', async () => {
+  const original = structuredClone(accounts[0]!);
+  const page = await browser.newPage();
+  try {
+    delete accounts[0]!.usageReading;
+    snapshotAccounts = [{name:'planner',agent:'claude-code',usedPct:17,window:'week',resetsAt:1800000000,capturedAt:1800000000,stale:false,verdict:'ON_PACE',signedIn:true}];
+    await page.goto(String(server.url));
+    const row = page.locator('tr').filter({has:page.getByRole('button',{name:'Check usage for planner',exact:true})});
+    await row.getByText(/17% of week/).waitFor();
+    expect(await row.locator('[data-label="Status"]').innerText()).toContain('Stale reading');
+    expect(await row.locator('[data-label="Status"] .pc-pill--good').count()).toBe(0);
+  } finally { accounts[0] = original; snapshotAccounts = []; await page.close(); }
+});
