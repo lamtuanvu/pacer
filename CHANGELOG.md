@@ -65,7 +65,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 
 ### Fixed
+- Collapsing a terminal split restores focus to the retained tab without closing either shell. Unavailable session Changes keep their friendly error and no longer show a successful empty count.
 
+- Wake event subscribers promptly after same-process persisted writes while retaining polling for other writers, batch task-list enrichment, and include untracked files in task-detail change counts.
 - Keep unavailable task file changes distinct from measured zero counts in Overview and the Now card.
 - Keep Workspace panel menus reachable after resizing, fit the workspace canvas to its frame, and keep narrow header controls visible. Long panel identities ellipsize inside the header while status pills retain theme contrast. Ended sessions show read-only metadata, failed session loads offer Retry, and the new-agent flow is accurately labelled as a new task in the selected worktree.
 - Keep the tray planner header contained at narrow widths by truncating the pace label before the planner name, and place footer actions in two rows below 340px so every control remains visible; constrain expanded More menus to the space above the taller footer in short windows, and keep all four count captions fully legible at 260px. Large counts ellipsize with exact values in their accessible names and tooltips; short-window menus retain their top border.

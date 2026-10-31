@@ -476,3 +476,26 @@ browserTest('workspace header contains full identity, status and actions at inte
   }
  } finally { await browser.close(); }
 }, 30000);
+
+
+browserTest('workspace unavailable Changes never claims a successful empty file count', async () => {
+ const result = await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ expect(result.success).toBe(true);
+ const css = (await buildApp()).find(f=>f.path==='app.css')!.text;
+ const browser = await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  const page = await browser.newPage({viewport:{width:1440,height:900}});
+  page.setDefaultTimeout(3000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/?mode=unavailablechanges#/workspace?task=workspace-task&panel=changes');
+  await page.addStyleTag({content:css});
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  const panel = page.getByRole('complementary',{name:'Task',exact:true});
+  await panel.getByRole('tab',{name:'Changes',exact:true}).click();
+  await panel.getByText('Changes unavailable. The worktree could not be read.',{exact:true}).waitFor();
+  expect(await panel.getByRole('tab',{name:'Changes',exact:true}).getAttribute('aria-selected')).toBe('true');
+  expect(await panel.innerText()).not.toMatch(/0 files|No changed files recorded|No changes so far/);
+  await panel.getByRole('tab',{name:'Overview',exact:true}).click();
+  expect(await panel.innerText()).not.toMatch(/0 files|\+0|−0/);
+ } finally {await browser.close();}
+},15000);

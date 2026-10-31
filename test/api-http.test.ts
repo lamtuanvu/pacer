@@ -238,3 +238,67 @@ for (const major of [2, 3]) test(`v${major} clients receive pause, resume and ex
     .map(frame => JSON.parse(frame.match(/^data: (.+)$/m)![1]!));
   expect(data).toEqual([state, {removed:true}, state, {removed:true}]);
 });
+
+test("persisted same-process events wake SSE promptly despite a long fallback interval", async () => {
+  for (const version of [2, 3]) {
+    const ctx = fakeCtx();
+    const response = await handleV2(new Request(`http://localhost/v${version}/events`), { getCtx: () => ctx, tailMs: 60_000 });
+    const reader = response.body!.getReader(), decoder = new TextDecoder();
+    await reader.read(); // connected, with the initial empty replay already complete
+    const started = performance.now();
+    const pending = reader.read();
+    await publish(ctx, [{ type: "alert", data: { key: `wake-${version}`, level: "info", title: "Persisted wakeup", body: "", at: ctx.now } }]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const chunk = await Promise.race([pending, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 500); })]);
+      expect(chunk).not.toBeNull();
+      expect(decoder.decode(chunk!.value)).toContain("Persisted wakeup");
+      expect(performance.now() - started).toBeLessThan(500);
+    } finally { clearTimeout(timer); await reader.cancel(); }
+  }
+});
+
+test("SSE coalesces persisted bursts, isolates homes and stops reading after cancellation", async () => {
+  const events = await import("../src/api/events");
+  const { spyOn } = await import("bun:test");
+  const ctx = fakeCtx(), other = fakeCtx(), reads = spyOn(events, "eventsSince");
+  const response = await handleV2(new Request("http://localhost/v3/events"), { getCtx: () => ctx, tailMs: 60_000 });
+  const reader = response.body!.getReader();
+  try {
+    await reader.read();
+    reads.mockClear();
+    const event = (seq: number) => ({ seq, envelope: { type: "alert" as const, data: { key: `burst-${seq}`, level: "info" as const, title: `Burst ${seq}`, body: "", at: ctx.now } } });
+    appendOutbox(other, [event(1)]);
+    await Promise.resolve();
+    expect(reads.mock.calls.length).toBe(0);
+    appendOutbox(ctx, [event(1)]);
+    appendOutbox(ctx, [event(2)]);
+    appendOutbox(ctx, [event(3)]);
+    expect(reads.mock.calls.length).toBe(0); // wakeup cannot reenter persistence
+    await Promise.resolve();
+    expect(reads.mock.calls.length).toBe(1);
+    let text = "";
+    while (!text.includes("Burst 3")) text += new TextDecoder().decode((await reader.read()).value);
+    expect([...text.matchAll(/event: notify/g)]).toHaveLength(3);
+    await reader.cancel();
+    reads.mockClear();
+    appendOutbox(ctx, [event(4)]);
+    await Promise.resolve();
+    expect(reads.mock.calls.length).toBe(0);
+  } finally { await reader.cancel(); reads.mockRestore(); }
+});
+
+test("SSE fallback discovers writes that bypass process-local notification", async () => {
+  const { appendFileSync } = await import("node:fs");
+  const { outboxPath } = await import("../src/link/paths");
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [{ seq: 1, envelope: { type: "alert", data: { key: "initial", level: "info", title: "Initial", body: "", at: ctx.now } } }]);
+  const response = await handleV2(new Request("http://localhost/v2/events?since=1"), { getCtx: () => ctx, tailMs: 20 });
+  const reader = response.body!.getReader();
+  try {
+    await reader.read();
+    appendFileSync(outboxPath(ctx), JSON.stringify({seq:2,envelope:{type:"alert",data:{key:"external",level:"info",title:"External write",body:"",at:ctx.now}}}) + "\n");
+    const chunk = await reader.read();
+    expect(new TextDecoder().decode(chunk.value)).toContain("External write");
+  } finally { await reader.cancel(); }
+});

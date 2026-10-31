@@ -24,6 +24,25 @@ export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  const counts=unreadCounts(ctx,"human",records.map(t=>t.id));
  return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts));
 }
+/** Preserve task.list's per-task label scope, sharing registry reads and label work. */
+export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
+ if (!records.length) return [];
+ const registered = listRepos({...ctx,readOnly:true});
+ const counts = unreadCounts(ctx,"human",records.map(t=>t.id));
+ const labels = new Map<string, Map<string,string>>();
+ const legacyRepos = new Map<string, ApiTask["repo"]>();
+ return records.map(t => {
+  let repo = t.repo ?? legacyRepos.get(t.brief.repo);
+  if (!repo) {
+   repo = registeredRepo(ctx,t.brief.repo) ?? {...repoFor(ctx,t.brief.repo),identityUnverified:true as const};
+   legacyRepos.set(t.brief.repo,repo);
+  }
+  const key = JSON.stringify([repo.key,repo.path]);
+  let names = labels.get(key);
+  if (!names) { names = labelsFor([...registered,repo]); labels.set(key,names); }
+  return apiTask(ctx,{...t,repo},names,counts);
+ });
+}
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
  return rows.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);

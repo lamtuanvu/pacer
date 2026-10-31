@@ -21,6 +21,7 @@ const calls:string[]=[];(window as any).workspaceCalls=calls;
 const task={...fixture,question:null as {text:string;at:number;answer?:string}|null,id:'workspace-task',title:'Inspect workspace session',goal:'Inspect workspace session',state:'running',executor:'codex',updatedAt:Date.now()/1000,progress:{phase:'working'},review:null,reviewRequest:null,worktree:'/tmp/disposable-worktree'};
 if(mode==='queued')Object.assign(task,{state:'queued',executor:null,attempts:[],worktree:null,startedAt:null,queue:{reason:'paused'},derived:{files:'ready'}});
 if(mode==='stopped')Object.assign(task,{state:'stopped',attempts:[],summary:null,acceptance:{state:'none'},derived:{files:'unavailable'}});
+if(mode==='unavailablechanges')Object.assign(task,{state:'done',files:[],derived:{files:'unavailable'}});
 if(mode==='failedretry')Object.assign(task,{state:'failed',review:null,acceptance:{state:'failed',cmd:'bun test',tail:'Check failed'}});
 if(mode==='managedquestion')Object.assign(task,{state:'needs_input',work:{rootId:'workspace-task',parentId:null,depth:0},question:{text:'Which repository branch should I use?',at:1}});
 if(mode==='question')Object.assign(task,{state:'needs_input',question:{text:'Which repository branch should I use?',at:1}});

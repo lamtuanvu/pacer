@@ -137,7 +137,11 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
   if (hit?.key === key && Date.now() - hit.at < 5000) return hit.value;
   const knownBranch = task.run?.remoteBranch ?? (task.run?.mode === "new" ? `pacer/${task.id}` : null);
   const value = Promise.all([
-    diff(ctx, task.id, {summaryOnly: true}).then(r => ({files: r.files, filesState: "ready" as const})).catch(() => ({files: [], filesState: "unavailable" as const})),
+    diff(ctx, task.id, {summaryOnly: true}).then(r => {
+      const files = new Map(r.files.map(file => [file.path, file]));
+      for (const path of r.untracked) if (!files.has(path)) files.set(path, {path, status: "added", added: 0, removed: 0, binary: false});
+      return {files: [...files.values()], filesState: "ready" as const};
+    }).catch(() => ({files: [], filesState: "unavailable" as const})),
     knownBranch ? Promise.resolve({branch: knownBranch, branchState: "ready" as const})
       : boundedGitRead(ctx.run, ["git", "-C", worktree, "branch", "--show-current"]).then(r => ({branch: r.code === 0 ? r.stdout.trim() || null : null, branchState: r.code === 0 ? "ready" as const : "unavailable" as const})).catch(() => ({branch: null, branchState: "unavailable" as const})),
   ]).then(([files, branch]) => ({...files, ...branch}));

@@ -70,10 +70,24 @@ browserTest("terminal page creates, selects, renames, splits and closes tabs wit
     await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(1);
     await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
     await expect(page.getByRole("region",{name:/Terminal:/}).count()).resolves.toBe(2);
+    const countBeforeCollapse = await page.evaluate(() => (globalThis as any).terminalTest.records.length);
+    await page.getByRole("separator", {name:"Resize terminal split"}).focus();
+    await page.keyboard.press("Meta+Backslash");
+    await page.waitForFunction(() => document.querySelectorAll('[role="region"][aria-label^="Terminal:"]').length === 1);
+    await expect(page.getByRole("tab", {name:"Build",exact:true}).evaluate(node => document.activeElement === node)).resolves.toBe(true);
+    await expect(page.evaluate(() => (globalThis as any).terminalTest.records.length)).resolves.toBe(countBeforeCollapse);
+    await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
+    await page.waitForFunction(() => document.querySelectorAll('[role="region"][aria-label^="Terminal:"]').length === 2);
+    const countBeforeButtonCollapse = await page.evaluate(() => (globalThis as any).terminalTest.records.length);
+    await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
+    await page.waitForFunction(() => document.activeElement?.id.endsWith("-tab") && document.activeElement.textContent === "Build");
+    expect(await page.getByRole("region",{name:/Terminal:/}).count()).toBe(1);
+    expect(await page.evaluate(() => (globalThis as any).terminalTest.records.length)).toBe(countBeforeButtonCollapse);
     await page.getByRole("button",{name:"Kill Build"}).click();
     await page.getByRole("heading",{name:/close terminal/i}).waitFor();
     await page.getByRole("button",{name:"Stop and close"}).click();
     await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(0);
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "tab" && document.activeElement.getAttribute("aria-selected") === "true");
   }finally{await browser.close();}
 }, 30_000);
 
