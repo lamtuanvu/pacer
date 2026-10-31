@@ -1,5 +1,6 @@
 /** The dashboard controller: holds state, reads through the API client, runs effects and draws frames. */
 import { ApiError, type ApiClient } from "../api/client";
+import { withManagedFallback, type ManagedStep } from "../view-model/managed-root";
 import type { Action } from "../attention/types";
 import { emptySnapshot } from "../link/envelope";
 import type { ClientSnapshot, ClientTask } from "../view-model/snapshot";
@@ -15,6 +16,8 @@ import { updateState, type UpdateState } from "./screens/common";
 import type { SessionPreparation } from "../session/capabilities";
 import { agentInfo } from "../view-model/agents";
 import { machineStep, type MachineKey } from "./screens/settings";
+import type { Message } from "../messaging/types";
+import { threadMessages, type ThreadDetail } from "./screens/thread";
 
 export interface ControllerDeps {
   client: ApiClient;
@@ -51,7 +54,7 @@ export class Dashboard {
   /** When the last successful snapshot read finished. */
   private readAt: number | undefined;
   theme: TerminalTheme;
-  data: { history?: DashData["history"]; details: Map<string, Resource<TaskDetail> & { stamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
+  data: { history?: DashData["history"]; details: Map<string, Resource<ThreadDetail> & { stamp?: string; threadStamp?: string }>; settings: SettingsData } = { details: new Map(), settings: {} };
   /** `untilRead` keeps the message until the next successful read, then for the usual 5 s. */
   private message?: { text: string; tone: StatusTone; until: number; untilRead?: boolean };
   private frame = 0;
@@ -139,8 +142,25 @@ export class Dashboard {
       if (current && (current.loading || current.stamp === stamp && (!current.value?.work || current.value.state!=="running"))) continue;
       this.data.details.set(id, { ...current, loading: true, stamp });
       this.track(this.deps.client.call<TaskDetail>("task.get", { id })
-        .then(async value => { if(value.work&&this.supports("dispatch.tree")){try{value.workTree=await this.deps.client.call<NonNullable<TaskDetail["workTree"]>>("dispatch.tree",{id});}catch{}}this.data.details.set(id, { value, stamp }); })
+        .then(async value => { if(value.work&&this.supports("dispatch.tree")){try{value.workTree=await this.deps.client.call<NonNullable<TaskDetail["workTree"]>>("dispatch.tree",{id});}catch{}}const before=this.data.details.get(id);this.data.details.set(id, { ...before, value: { ...value, messages: threadMessages(before?.value) }, stamp, loading:false }); })
         .catch(error => { this.data.details.set(id, { ...this.data.details.get(id), loading: false, stamp, error: errorOf(error) }); }));
+    }
+    if (this.supports("msg.log")) for (const id of view.needs ?? []) {
+      const task = this.snapshot.tasks.find(t => t.id === id);
+      const seq = this.snapshot.seq;
+      const current = this.data.details.get(id);
+      const last = threadMessages(current?.value)?.value?.at(-1)?.id ?? "";
+      const stamp = `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}:${seq}:${last}`;
+      if (current?.threadStamp === stamp || threadMessages(current?.value)?.loading) continue;
+      const value = current?.value ?? { id, state: task?.state ?? "unknown" };
+      this.data.details.set(id, { ...current, value: { ...value, messages: { ...threadMessages(value), loading: true } }, threadStamp: stamp });
+      this.track(this.deps.client.call<{ messages: Message[] }>("msg.log", { task: id })
+        .then(result => { const before = this.data.details.get(id); if (!before) return;
+          this.data.details.set(id, { ...before, value: { ...before.value!, messages: { value: result.messages } }, threadStamp: `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}:${seq}:${result.messages.at(-1)?.id ?? ""}` });
+        })
+        .catch(error => { const before = this.data.details.get(id); if (!before) return;
+          this.data.details.set(id, { ...before, value: { ...before.value!, messages: { value: threadMessages(before.value)?.value, error: errorOf(error) } } });
+        }));
     }
     if (screen === "settings") for (const key of view.settingsNeeds ?? []) {
       if (this.settingsLoaded.has(key)) continue;
@@ -216,7 +236,7 @@ export class Dashboard {
       case "history-more": this.loadHistory(this.data.history?.value?.next??undefined); return;
       case "navigate": this.navigate(effect.screen, effect.id, effect.section); return;
       case "local": this.report(effect.label); await effect.run(); return;
-      case "action": await this.call(effect.action); return;
+      case "action": await this.call(effect.action, effect.fallback); return;
       case "attach": await this.attach(effect.id, effect.target); return;
       case "handoff": {
         if (!this.deps.handoff) { this.report(`Run: pacer ${effect.argv.join(" ")}`); return; }
@@ -233,7 +253,7 @@ export class Dashboard {
     }
   }
 
-  private async call(action: Action) {
+  private async call(action: Action, fallback?: ManagedStep[]) {
     try {
       // A conversation's progress can advance its revision while its end/resume
       // confirmation is open. Fetch the current revision just before the write.
@@ -242,7 +262,8 @@ export class Dashboard {
         const current = await this.deps.client.call<{ rev: number }>("task.get", { id: params.id });
         params = { ...params, expect_rev: current.rev };
       }
-      const result = await this.deps.client.call<Record<string, unknown> | null>(action.op, params);
+      const call = (op: string, p: Record<string, unknown>) => this.deps.client.call<Record<string, unknown> | null>(op, p);
+      const result = (fallback ? await withManagedFallback(call, { op: action.op, params }, fallback) : await call(action.op, params)) as Record<string, unknown> | null;
       this.report(action.op === "config.set" && typeof result?.warning === "string" ? result.warning : successCopy(action, result), action.op === "config.set" && typeof result?.warning === "string" ? "warn" : "good");
       if (action.op === "task.review") this.afterReview(String(action.params.id));
     } catch (error) {
@@ -273,7 +294,11 @@ export class Dashboard {
     } catch (error) { this.reportError(error); }
   }
 
+  /** messaging.grants.user_started_tasks, read when the delegate prompt opens. */
+  private userGrants: boolean | undefined;
   private delegate() {
+    if (this.supports("msg.policy")) void this.deps.client.call<{ config?: { grants?: { user_started_tasks?: string } } }>("msg.policy", {})
+      .then(p => { this.userGrants = p.config?.grants?.user_started_tasks !== "off"; }, () => { this.userGrants = undefined; });
     const scope = this.state.scope ? this.snapshot.repos?.find(r => r.key === this.state.scope)?.path : undefined;
     const repoDefault = scope ?? this.deps.cwd;
     this.state = { ...this.state, overlay: { kind: "prompt", value: "", spec: {
@@ -282,7 +307,15 @@ export class Dashboard {
         title: "Delegate a task", label: "Repository path", value: repoDefault, required: "Choose a repository.",
         submit: repo => ({ type: "prompt", prompt: {
           title: "Delegate a task", label: "Work type (optional)", help: `One of: ${KINDS.join(", ")}`,
-          submit: kind => ({ type: "action", action: { label: "Delegated", op: "task.delegate", params: { goal, repo, source: "ui", ...(kind ? { kind } : {}) } } }),
+          submit: kind => {
+            const params = { goal, repo, source: "ui", ...(kind ? { kind } : {}) };
+            // Offered only when the service turns user-started grants on; omitting grant follows that default.
+            if (!this.userGrants) return { type: "action", action: { label: "Delegated", op: "task.delegate", params } };
+            return { type: "prompt", prompt: {
+              title: "Delegate a task", label: "Can coordinate sub-agents (y/n)", value: "y", help: "Yes lets the task start and message its own sub-agents.",
+              submit: answer => ({ type: "action", action: { label: "Delegated", op: "task.delegate", params: { ...params, ...(/^n/i.test(answer.trim()) ? { grant: false } : {}) } } }),
+            } };
+          },
         } }),
       } }),
     } } };

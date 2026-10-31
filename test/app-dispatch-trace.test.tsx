@@ -13,18 +13,18 @@ import type { TaskDetail } from "../src/core/task-detail";
 describe("dispatch trace", () => {
   test("trace and review deep links preserve task identity and scope", () => {
     const target = routes.trace("task /1", { repo: "repo" });
-    expect(hrefFor(target)).toBe("#/tasks/task%20%2F1/trace?repo=repo");
+    expect(hrefFor(target)).toBe("#/tasks/task%20%2F1?repo=repo");
     const resolved = resolveRoute(hrefFor(target));
-    expect(resolved).toMatchObject({name:"sessions", id:"task /1", view:"trace", query:{repo:"repo"}});
+    expect(resolved).toMatchObject({name:"sessions", id:"task /1", query:{repo:"repo"}});
     if ("name" in resolved) expect(pageOwnsTitle(resolved)).toBe(true);
-    expect(resolveRoute("#/tasks/task%20%2F1/review")).toMatchObject({name:"task-review",id:"task /1"});
+    expect(resolveRoute("#/tasks/task%20%2F1/review")).toEqual({redirect:"#/tasks/task%20%2F1"});
     expect(resolveRoute("#/tasks/%XX/trace")).toMatchObject({name:"dispatch"});
   });
   test("Tasks aside trace link retains the active repo filter", () => {
     const route:Route={name:"sessions",query:{repo:"team/repo",scope:null}};
     const node={id:"root",title:"Root task",agents:[],state:{tone:"good",label:"Completed",live:false},attention:"none"} as unknown as TaskNodeView;
     const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as BrowserApi}}><NavigationProvider route={route} location={{hash:"#/tasks",replace(){}}}><TaskAside node={node} position="Root task" href={id=>`#/tasks/${id}`} viewHref={id=>`#/tasks/${id}`}/></NavigationProvider></TaskContext.Provider>);
-    expect(html).toContain('href="#/tasks/root/trace?repo=team%2Frepo"');
+    expect(html).toContain('href="#/tasks/root?repo=team%2Frepo"');
   });
   test("unmeasured tokens stay unknown and partial totals retain coverage", () => {
     expect(tokenValue(undefined)).toBe("Not recorded");

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { policyText } from "../src/install/policy";
+import { policyText } from "../plugins/pacer-planners/policy";
 import { isDevArgv, pacerArgv, validateInstallArgv } from "../src/install/self";
 
 const planners = [
@@ -87,6 +87,6 @@ test("transient worktree commands are refused unless PACER_BIN overrides them", 
 });
 
 test("placement guidance lives in the installed skill",async()=>{
- const {PACER_SKILL}=await import("../src/install/skill");
+ const {PACER_SKILL}=await import("../plugins/pacer-planners/skill");
  for(const phrase of ["uncommitted", "read-only", "installed dependencies", "parallel", "exploratory/risky", "worktree_reason", "auto"])expect(PACER_SKILL).toContain(phrase);
 });

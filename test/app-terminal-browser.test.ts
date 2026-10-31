@@ -1,3 +1,4 @@
+import { xtermCsp } from "../app/xterm-csp";
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { fakeCtx } from "./helpers";
 
 const executable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : chromium.executablePath());
 test.skipIf(!existsSync(executable))("real xterm retains monospace geometry and ANSI styling under the production CSP", async () => {
-  const build = await Bun.build({entrypoints: [join(import.meta.dir, "fixtures/terminal-style.ts")], target: "browser"});
+  const build = await Bun.build({plugins: [xtermCsp], entrypoints: [join(import.meta.dir, "fixtures/terminal-style.ts")], target: "browser"});
   if (!build.success) throw new AggregateError(build.logs);
   const js = await build.outputs[0]!.text();
   const response = appRoute(new Request("http://localhost/app/"), fakeCtx());
@@ -23,6 +24,8 @@ test.skipIf(!existsSync(executable))("real xterm retains monospace geometry and 
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const page = await browser.newPage();
+    const violations: string[] = [];
+    page.on("console", message => { if (message.text().includes("Content Security Policy")) violations.push(message.text()); });
     await page.goto(`http://127.0.0.1:${server.port}/`);
     await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
     // xterm's write callback acknowledges parsing, not the next DOM paint.
@@ -38,11 +41,9 @@ test.skipIf(!existsSync(executable))("real xterm retains monospace geometry and 
     expect(style.font).toContain("monospace");
     expect(style.whiteSpace).toBe("pre");
     expect(style.colored).toContain("rgb(204, 0, 0)");
-    expect(style.nonceStyles).toBe(2);
-    // xterm6's optional scrollbar stylesheet uses window.document rather than
-    // documentOverride. It remains blocked; never relax CSP to authorize it.
-    expect(style.blocked).toHaveLength(1);
-    expect(style.blocked[0]?.css).toStartWith(".xterm .xterm-scrollable-element > .scrollbar > .slider");
-    expect(style.blocked[0]?.blocked).toBe(true);
+    expect(style.nonceStyles).toBe(3);
+    expect(style.blocked).toEqual([]);
+    expect(violations).toEqual([]);
+    expect(await page.locator('.xterm-rows').evaluate(node => [...node.querySelectorAll('span')].some(span => span.textContent?.includes('truecolor') && getComputedStyle(span).color === 'rgb(17, 123, 231)'))).toBe(true);
   } finally {await browser.close(); server.stop(true);}
 }, 30000);

@@ -62,3 +62,17 @@
 .pc-trace__circle--current{background:var(--info-bg);color:var(--info-fg)}
 .pc-trace__circle--failed{background:var(--bad-bg);color:var(--bad-fg)}
 .pc-trace__acceptance-result{display:flex;align-items:center;gap:var(--space-1\.5)}
+.pc-task-now{border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden}
+.pc-task-now--info{background:var(--info-bg)}.pc-task-now--bad{background:var(--bad-tint);border-color:var(--bad-line)}.pc-task-now--warn{background:var(--warn-tint);border-color:var(--warn-line)}
+.pc-task-now__body{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);padding:var(--space-3\.5) var(--size-18)}
+.pc-task-now__body>div{flex:1 1 var(--size-320);min-width:0;display:flex;flex-direction:column;gap:var(--space-half)}
+.pc-task-now__circle{background:var(--surface-page)}
+.pc-task-now__output{margin:0;padding:var(--space-2\.5) var(--size-18);border-top:1px solid var(--line);white-space:pre-wrap;overflow:auto;max-height:var(--size-240);color:var(--ink-secondary);line-height:var(--type-code-line)}
+.pc-task-now--compact{border-radius:var(--radius-md)}.pc-task-now--compact .pc-task-now__body{padding:var(--space-2\.5) var(--space-3)}.pc-task-now--compact .pc-trace__circle{display:none}.pc-task-now--compact .pc-task-now__output{display:none}
+.pc-trace__cost--compact{grid-template-columns:1fr 1fr;border-radius:var(--radius-md)}.pc-trace__cost--compact>div{padding:var(--space-2) var(--space-2\.5);border-bottom:1px solid var(--line)}.pc-trace__cost--compact strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line)}
+.pc-trace__token-row{min-width:0;display:grid;grid-template-columns:var(--size-10) var(--size-20) minmax(0,1fr) auto auto}.pc-trace__token-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pc-trace__token-row>b{white-space:nowrap}
+.pc-task-acceptance{display:flex;flex-direction:column;gap:var(--space-2)}
+
+.pc-task-now__terminal{min-width:0;border-top:1px solid var(--line);background:var(--surface-page)}
+.pc-task-now__terminal .pc-terminal-pane{height:var(--size-320);overflow:auto}
+.pc-task-now__terminal .pc-terminal-frame{border:0;border-radius:0}

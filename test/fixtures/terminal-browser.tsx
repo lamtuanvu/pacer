@@ -3,6 +3,7 @@ import {useEffect,useState} from "preact/hooks";
 import {TerminalScreen} from "../../app/src/screens/terminal/Terminal";
 import {TaskContext} from "../../app/src/screens/task-shared";
 import {NavigationProvider} from "../../app/src/navigation";
+import {resolveRoute} from "../../app/src/router";
 import {initialState} from "../../app/src/data/store";
 import {ApiError} from "../../app/src/data/api";
 import type {TerminalRecord} from "../../src/terminal/workspace";
@@ -28,10 +29,13 @@ const api={
 const state={...initialState(),connected:true,features:{readModel:true,ops:new Set(["terminal.create"])}};
 function App(){
   const [hash,setHash]=useState(location.hash);
+  const [open,setOpen]=useState(true);
+  const embedded=location.hash.includes("embedded");
   useEffect(()=>{const update=()=>setHash(location.hash);addEventListener("hashchange",update);return()=>removeEventListener("hashchange",update);},[]);
-  const id=hash.match(/^#\/terminal\/([^?]+)/)?.[1];
+  const resolved=resolveRoute(hash);
+  const id="name" in resolved && resolved.name==="terminal" ? resolved.id : undefined;
   const route={name:"terminal" as const,id,query:{repo:null,scope:null}};
-  return <NavigationProvider route={route}><TaskContext.Provider value={{api:api as any,state}}><TerminalScreen id={id} query={route.query}/></TaskContext.Provider></NavigationProvider>;
+  return <NavigationProvider route={route}><TaskContext.Provider value={{api:api as any,state}}>{embedded && <button onClick={()=>setOpen(!open)}>Toggle panel</button>}{open && <TerminalScreen embedded={embedded} id={id} query={route.query}/>}</TaskContext.Provider></NavigationProvider>;
 }
 (globalThis as any).terminalTest={setCreateError(value:string){createError=value;},records};
 render(<App/>,document.getElementById("root")!);

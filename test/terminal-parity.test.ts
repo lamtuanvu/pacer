@@ -100,13 +100,16 @@ for (const agent of ["claude-code", "codex", "cursor", "agy", "opencode"] as Age
 }
 
 test("strict managed work runs with the certified service environment, not the login shell's PATH or account folder", async () => {
+  const serviceUmask = process.umask();
+  // Always differ from the inherited service mask, including when the test runner uses 077.
+  const profileUmask = serviceUmask === 0o077 ? "027" : "077";
   const root = tmpDir(), serviceBin = join(root, "service-bin"), profileBin = join(root, "profile-bin"), dump = join(root, "dump");
   for (const dir of [serviceBin, profileBin, dump]) mkdirSync(dir);
   for (const [bin, which] of [[serviceBin, "service"], [profileBin, "profile"]]) {
     writeFileSync(join(bin, "claude"), `#!/bin/sh\necho ${which} > ${JSON.stringify(join(dump, "binary"))}\n/usr/bin/env -0 > ${JSON.stringify(join(dump, "env"))}\numask > ${JSON.stringify(join(dump, "umask"))}\n`);
     chmodSync(join(bin, "claude"), 0o755);
   }
-  const shell = fakeLoginShell(root, `export PATH="${profileBin}:$PATH" PROFILE_ONLY=from-profile CLAUDE_CONFIG_DIR="${join(root, "profile-claude")}"\numask 077`);
+  const shell = fakeLoginShell(root, `export PATH="${profileBin}:$PATH" PROFILE_ONLY=from-profile CLAUDE_CONFIG_DIR="${join(root, "profile-claude")}"\numask ${profileUmask}`);
   const ctx = fakeCtx();
   ctx.env = {PATH: `${serviceBin}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_ENFORCEMENT_MODE: "strict", CLAUDE_CONFIG_DIR: join(root, "planner-claude")};
   const task = createTask(ctx, {brief: {goal: "Strict check", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 30});
@@ -119,7 +122,9 @@ test("strict managed work runs with the certified service environment, not the l
   expect(env.PROFILE_ONLY).toBeUndefined();
   // The certified folder of the default account: the service's own default, neither the profile's nor the planner's.
   expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
-  expect(readFileSync(join(dump, "umask"), "utf8").trim()).not.toBe("0077");
+  const agentUmask = Number.parseInt(readFileSync(join(dump, "umask"), "utf8").trim(), 8);
+  expect(agentUmask).toBe(serviceUmask);
+  expect(agentUmask).not.toBe(Number.parseInt(profileUmask, 8));
   const run = readTask(ctx, task.id)!.run!;
   expect(JSON.parse(readFileSync(join(run.dir, "environment.json"), "utf8"))).toEqual({source: "service", reason: "strict delegation enforcement runs with the certified service environment"});
   expect(out.report).toContain("executor environment: login shell not used (strict delegation enforcement runs with the certified service environment)");

@@ -16,7 +16,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
    await page.addScriptTag({content:source});
    await page.locator(".pc-trace__subtask").waitFor();
    expect(await page.getByRole("heading",{name:"Dispatch trace",exact:true}).count()).toBe(1);
-   expect(await page.getByRole("link",{name:"Accept result"}).getAttribute("href")).toBe("#/tasks/trace-root/review");
+   expect(await page.getByRole("button",{name:"Accept result"}).count()).toBe(1);
    expect(await page.locator(".pc-trace__cost>div").count()).toBe(4);
    expect(await page.locator(".pc-trace__candidate").count()).toBe(2);
    expect(await page.locator(".pc-trace__candidate-head").innerText()).toContain("capable with spare capacity");
@@ -25,6 +25,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     const title=document.querySelector(".pc-trace h1")!,circle=document.querySelector(".pc-trace__circle")!;
     return {font:getComputedStyle(title).fontSize,weight:getComputedStyle(title).fontWeight,circle:circle.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth};
    });
+   expect(await page.locator('.pc-trace h1').innerText()).toBe('A very long root task title with enough words to verify that the trace heading wraps naturally within the viewport without hiding the review actions or pushing content outside the application canvas');
    expect(geometry).toEqual({font:"28px",weight:"650",circle:26,overflow:false});
    const design=await page.evaluate(()=>{
     const style=(selector:string)=>getComputedStyle(document.querySelector(selector)!);
@@ -46,8 +47,8 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
    for (const [selector,background,foreground] of [[".pc-trace__circle--done","--good-bg","--good-fg"],[".pc-trace__circle--current","--info-bg","--info-fg"],[".pc-trace__acceptance-result .pc-trace__state",null,"--good-fg"]] as const) {
     expect(await page.locator(selector).first().evaluate((el,{background,foreground})=>{const probe=document.createElement("span");probe.style.color=`var(${foreground})`;if(background)probe.style.backgroundColor=`var(${background})`;el.append(probe);const actual=getComputedStyle(el),expected=getComputedStyle(probe);const match=actual.color===expected.color && (!background || actual.backgroundColor===expected.backgroundColor);probe.remove();return match;},{background,foreground})).toBe(true);
    }
-   await page.getByRole("link",{name:"Accept result"}).focus();
-   expect(await page.evaluate(()=>document.activeElement?.matches("a.pc-btn--primary"))).toBe(true);
+   await page.getByRole("button",{name:"Accept result"}).focus();
+   expect(await page.evaluate(()=>document.activeElement?.matches("button.pc-btn--primary"))).toBe(true);
    await page.close();
   }
   for(const scenario of ["running","error","tree-error","null-proposal","routing-only","no-candidates","root-only"]){
@@ -70,9 +71,85 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     expect(await page.locator(".pc-trace__card").first().innerText()).toContain("Planning and review tokens: Not recorded");
    }
    else if(scenario==="null-proposal"){await page.locator(".pc-trace__steps").waitFor();expect(await page.locator(".pc-trace__steps").innerText()).toContain("Dispatch decision recorded");expect(await page.locator(".pc-trace__candidates").innerText()).toContain("No alternatives were recorded for this step.");expect(await page.locator(".pc-trace__candidates").innerText()).not.toContain("capable with spare capacity");}
-   else if(scenario==="running"){await page.locator(".pc-trace").waitFor();expect(await page.getByRole("link",{name:"Accept result"}).count()).toBe(0);}
+   else if(scenario==="running"){await page.locator(".pc-trace").waitFor();expect(await page.getByRole("button",{name:"Accept result"}).count()).toBe(0);}
    else{await page.getByRole("alert").waitFor();expect(await page.getByRole("alert").innerText()).toContain(scenario==="error"?"Task read failed":"Trace read failed");}
    await page.close();
   }
  }finally{await browser.close();}
 },30000);
+
+
+browserTest('running task page does not poll task detail or session while idle',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json'});
+ expect(result.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  const page=await browser.newPage();
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/?scenario=running#/tasks/trace-root');
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  await page.locator('.pc-trace').waitFor();
+  await page.waitForTimeout(500);
+  const before=await page.evaluate(()=>(window as any).traceCalls.length);
+  await page.clock.install();
+  await page.clock.runFor(30000);
+  const calls=await page.evaluate(()=>(window as any).traceCalls as string[]);
+  expect(calls.length-before).toBeLessThanOrEqual(5);
+  expect(calls.filter(op=>op==='task.get')).toHaveLength(1);
+  expect(calls.filter(op=>op==='task.session')).toHaveLength(1);
+ } finally {await browser.close();}
+},30000);
+
+browserTest('task header keeps workspace access in every state and copy ID in the breadcrumb',async()=>{
+ const build=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',minify:true});
+ const source=await build.outputs[0]!.text();
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  for(const state of ['review','running','failed','accepted','stopped']) {
+   const page=await browser.newPage({viewport:{width:1440,height:900}});
+   await page.route('http://pacer.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+   await page.goto(`http://pacer.test/?scenario=${state}#/tasks/trace-root`);
+   await page.addScriptTag({content:source});
+   await page.locator('.pc-trace__header').waitFor();
+   const actions=page.locator('.pc-trace__actions');
+   expect(await actions.getByRole('link',{name:'Open workspace',exact:true}).getAttribute('href')).toBe('#/workspace?task=trace-root');
+   expect(await actions.getByRole('button',{name:'Copy task ID'}).count()).toBe(0);
+   expect(await page.getByRole('navigation',{name:'Breadcrumb'}).getByRole('button',{name:'Copy task ID'}).count()).toBe(1);
+   if(state==='running') {
+    await actions.getByRole('link',{name:'Take over',exact:true}).waitFor();
+    expect(await actions.locator('a,button').allTextContents()).toEqual(['Open workspace','Stop','Take over']);
+   }
+   await page.close();
+  }
+ }finally {await browser.close();}
+});
+
+browserTest('task Overview distinguishes unavailable file changes from a measured empty diff',async()=>{
+ const build=await Bun.build({entrypoints:['test/fixtures/trace-browser.tsx'],target:'browser',minify:true});
+ expect(build.success).toBe(true);
+ const source=await build.outputs[0]!.text();
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/trace/trace.css'].map(p=>Bun.file(p).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  for(const scenario of ['files-unavailable','files-running-unavailable','files-zero']) {
+   const page=await browser.newPage({viewport:{width:1440,height:900}});
+   await page.route('http://pacer.test/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><style>${css}</style><div id="app"></div>`}));
+   await page.goto(`http://pacer.test/?scenario=${scenario}#/tasks/trace-root`);
+   await page.addScriptTag({content:source});
+   await page.locator('.pc-trace__cost').waitFor();
+   const changed=await page.locator('.pc-trace__cost>div').last().innerText();
+   const now=await page.getByRole('region',{name:'Now',exact:true}).innerText();
+   if(scenario==='files-zero') {
+    expect(changed).toContain('0 files');
+    expect(changed).toContain('+0 −0');
+    expect(now).toContain('0 files changed');
+   } else {
+    expect(changed).toContain('Not recorded');
+    expect(changed).not.toMatch(/[+−]0/);
+    expect(now).toContain('File changes unavailable');
+    expect(now).not.toContain('0 files');
+   }
+   await page.close();
+  }
+ }finally {await browser.close();}
+});

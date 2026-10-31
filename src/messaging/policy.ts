@@ -4,6 +4,7 @@ import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import { isTop, participantKind, relation, rootOf, taskOf } from "./participants";
 import { countSentSince } from "./store";
+import { readProjectMessaging } from "./project-policy";
 import { parseMessagingConfig, type MessagingConfig, type MsgKind, type Rule } from "./types";
 
 // Lives in types.ts so the strategy loader can parse config without an import cycle.
@@ -19,19 +20,25 @@ export const DEFAULT_RULES: Rule[] = [
   { effect: "allow", from_kind: "external", relation: ["child"] },
 ];
 
-type Layered = Rule & { layer: "tree" | "global" | "default" };
-export function effectivePolicy(ctx: Ctx, o: { repo?: string; root?: string } = {}): { config: MessagingConfig; rules: Layered[] } {
+type Layered = Rule & { layer: "tree" | "project" | "global" | "default" };
+export function effectivePolicy(ctx: Ctx, o: { repo?: string; root?: string } = {}): { config: MessagingConfig; rules: Layered[]; projectError?: string } {
   let config: MessagingConfig;
   try { config = loadStrategy(ctx).messaging ?? parseMessagingConfig(undefined); } catch { config = parseMessagingConfig(undefined); }
   const rootTask = o.root && taskOf(o.root) ? readTask(ctx, taskOf(o.root)!) : null;
   const tree = rootTask?.messaging;
+  const project = readProjectMessaging(ctx);
+  const repo = rootTask?.repo?.key ?? o.repo;
+  const projectEntry = repo && Object.hasOwn(project.data.projects, repo) ? project.data.projects[repo] : undefined;
+  if (projectEntry?.max_turns) config = { ...config, tree: { ...config.tree, max_turns: projectEntry.max_turns } };
+  if (projectEntry?.liveness) config = { ...config, liveness: { ...config.liveness, ...projectEntry.liveness } };
   if (tree?.max_turns) config = { ...config, tree: { ...config.tree, max_turns: tree.max_turns } };
   const rules: Layered[] = [
     ...(tree?.rules ?? []).map(r => ({ ...r, layer: "tree" as const })),
+    ...(projectEntry?.rules ?? []).map(r => ({ ...r, layer: "project" as const })),
     ...config.rules.map(r => ({ ...r, layer: "global" as const })),
     ...(config.defaults ? DEFAULT_RULES.map(r => ({ ...r, layer: "default" as const })) : []),
   ];
-  return { config, rules };
+  return { config, rules, ...(project.error ? { projectError: project.error } : {}) };
 }
 
 const kindOk = (want: string | undefined, p: string) => !want || want === "any" || participantKind(p) === want;

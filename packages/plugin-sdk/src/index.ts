@@ -1,8 +1,9 @@
 export * from "./ui";
 import {EventCallbacks,EVENT_TYPES,isPolicyEvent} from "./event-callbacks";
-export {POLICY_OBSERVATIONS_FEATURE} from "./policy";
+export {POLICY_OBSERVATIONS_FEATURE,POLICY_REDACTION_METADATA_FEATURE} from "./policy";
 import {POLICY_OBSERVATIONS_FEATURE,type ObservationClient,type PolicyEvent} from "./policy";
 export type {PolicyBeforeParams,PolicyDecision,PolicyVerdict,PolicyEventType,PolicyTaskState,PolicyTask,PolicyEvent,ObservationClient} from "./policy";
+import {POLICY_REDACTION_METADATA_FEATURE} from "./policy";
 import { createFileSystem } from "./fs";
 import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
 import { createHosts } from "./hosts";
@@ -282,7 +283,8 @@ export async function serve(o: ServeOptions): Promise<void> {
             || feature === "httpBodyChunks" && minor >= 2
             || feature === "fileWriteChunks" && minor >= 4
             || feature === "plannerInstallTransactions" && minor >= 4
-            || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 6) : [];
+            || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 6
+            || feature === POLICY_REDACTION_METADATA_FEATURE && minor >= 8) : [];
         negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;

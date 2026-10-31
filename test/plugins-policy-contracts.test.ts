@@ -311,3 +311,15 @@ test("opposing reserved key presence is forbidden even when its token is invalid
       not: {},
     });
 });
+
+test("the SDK negotiates policyRedactionMetadata only at protocol 1.8.0 and later", async () => {
+  const { serve } = await import("@pacer/plugin");
+  for (const [protocol, expected] of [["1.7.0", ["policyObservations"]], ["1.8.0", ["policyObservations", "policyRedactionMetadata"]]] as const) {
+    const out: any[] = [];
+    async function* input() {
+      yield JSON.stringify({ jsonrpc: "2.0", id: 1, method: "plugin.hello", params: { protocol, features: ["policyObservations", "policyRedactionMetadata"], config: {}, grants: [] } });
+    }
+    await serve({ manifest: { id: "fx", version: "1.0.0", publisher: "t", host: "^1" }, input: input(), write: (l) => out.push(JSON.parse(l)) });
+    expect(out[0].result.features).toEqual([...expected]);
+  }
+});

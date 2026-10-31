@@ -2325,7 +2325,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessReadRunOutputResultStdo
 ///            "properties": {
 ///              "secretRef": {
 ///                "type": "string",
-///                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///              }
 ///            },
 ///            "additionalProperties": false
@@ -2524,7 +2524,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsEnvKey {
 ///      "properties": {
 ///        "secretRef": {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -2554,7 +2554,7 @@ impl ::std::convert::From<&Self> for CapabilityProcessSpawnParamsEnvValue {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -4525,7 +4525,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///              "type": "object",
 ///              "additionalProperties": {
 ///                "type": "string",
-///                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///              },
 ///              "propertyNames": {
 ///                "type": "string",
@@ -4847,7 +4847,7 @@ impl ::std::convert::From<&Self> for ExecutorRunParams {
 ///      "type": "object",
 ///      "additionalProperties": {
 ///        "type": "string",
-///        "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///        "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///      },
 ///      "propertyNames": {
 ///        "type": "string",
@@ -5088,7 +5088,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsVariant0EffectSecretEnv
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -7568,11 +7568,15 @@ fn validate_string_8<T>(
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
-        ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$").unwrap()
+        ::regress::Regex::new(
+                "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$",
+            )
+            .unwrap()
     });
     if PATTERN.find(value).is_none() {
         return Err(
-            "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\"".into(),
+            "doesn't match pattern \"^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$\""
+                .into(),
         );
     }
     Ok(construct(value.to_string()))

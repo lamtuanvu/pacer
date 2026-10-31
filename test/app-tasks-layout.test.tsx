@@ -27,7 +27,7 @@ test('Tasks rows open the task directly without repeated control actions',()=>{
  const html=renderToString(<SessionsList recent={{data:[view(task)]}}/>);
  expect(html).toContain(`>${taskHeading(task.fullTitle!)}</a>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
- expect(html).toContain(`href="#/tasks/ended"`);
+ expect(html).toContain(`href="#/workspace?task=ended"`);
  expect(html).not.toContain('Take over');
  expect(html).not.toContain('View result');
  expect(view({...task,fullTitle:undefined}).title).toBe(task.title!);
@@ -40,8 +40,8 @@ test('Task navigator identifies the selected task and preserves the repo filter'
  expect(html).not.toContain('pc-task-card');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
- expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
- expect(html).toContain('href="#/tasks/ended?repo=lamtuanvu%2Fpacer"');
+ expect(html).toContain('href="#/workspace?task=running-task&amp;repo=lamtuanvu%2Fpacer"');
+ expect(html).toContain('href="#/workspace?task=ended&amp;repo=lamtuanvu%2Fpacer"');
  expect(html).not.toContain('All tasks');
 });
 
@@ -82,13 +82,13 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[32,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
-   // Tasks rows use the board's 600 weight for both selected and unselected titles.
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[36,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
+   // Selected and unselected root titles retain the same board weight.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
    // The board fills the content area beside the 52px activity rail; the tree and aside share a row.
-   expect(geometry.width).toBe(width-52-(scopeOpen?248:0));
-   expect(geometry.left).toBe(52+(scopeOpen?248:0));
-   expect(await page.locator('.pc-tasks-page__title').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+(scopeOpen?248:0)+32);
+   expect(geometry.width).toBe(width-52);
+   expect(geometry.left).toBe(52);
+   expect(await page.locator('.pc-tasks-page__title').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+32);
    expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
@@ -159,12 +159,8 @@ test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and st
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
    if(width<560){expect(contentEdge).toBeGreaterThanOrEqual(16);expect(contentEdge).toBeLessThan(width);}
-   else expect(contentEdge).toBe(52+(width>=768?248:0)+32);
-   if(width>=768){
-    // Removing Scope restores the shared 32px content gutter beside the rail.
-    await page.locator('aside[aria-label="Scope"]').evaluate(n=>n.remove());
-    expect(await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+32);
-   }
+   else expect(contentEdge).toBe(52+32);
+   expect(await page.locator('aside[aria-label="Scope"]').count()).toBe(0);
    if(width<560){
     expect(await page.locator('.pc-dispatch h1').count()).toBe(0);
     expect(await page.locator('.pc-topbar h1').textContent()).toBe('Dispatch');
@@ -177,7 +173,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and st
     expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",32]);
    }
    expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
-   expect(await page.locator(".pc-attn-card").first().evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.borderRadius,s.gap,s.fontSize,s.lineHeight]})).toEqual(["12px","10px","10px","13px","19px"]);
+   expect(await page.locator(".pc-attn-card").first().evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.borderRadius,s.gap,s.fontSize,s.lineHeight]})).toEqual(["12px","12px","10px","13px","19px"]);
    expect(await page.locator(".pc-live-dispatch>.pc-card-section__head").evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.gap]})).toEqual(["14px 20px","12px"]);
    expect(await page.locator(".pc-dispatch-decision").first().evaluate(n=>{const s=getComputedStyle(n);return [s.borderTopWidth,s.borderRadius,s.backgroundColor]})).toEqual(["1px","0px","rgba(0, 0, 0, 0)"]);
    expect(await page.locator(".pc-dispatch-decision").first().evaluate(n=>getComputedStyle(n).padding)).toBe("9px 20px");

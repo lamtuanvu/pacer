@@ -23,7 +23,7 @@ const fixture={shellEscapes:()=>shellEscapes,conflictNext:()=>{conflictNext=true
 Object.assign(window,{executorFixture:fixture});
 const api={call:async(op:string,p:any)=>{
  if(op==='runner.settings.get')return structuredClone(settings);
- if(op==='runner.remove'){fixture.remove();return {}; }
+ if(op==='runner.remove'){if(fail)throw new Error('Service unavailable');fixture.remove();return {}; }
  if(op==='runner.settings.save'){
   writes++;
   if(fail){if(hold)await new Promise<void>(resolve=>{release=resolve;});throw new Error('Service unavailable');}

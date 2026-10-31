@@ -241,7 +241,7 @@ test("grant MCP lists messaging tools", async () => {
 });
 
 test("planner MCP resolves the same participant as the CLI and delegate records it as origin", async () => {
-  for (const [env, want] of [[{ CODEX_THREAD_ID: "th" }, "external:codex"], [{ PACER_PLANNER_SESSION: "p1" }, "external:p1"], [{}, "external:mcp"]] as const) {
+  for (const [env, want] of [[{ CODEX_THREAD_ID: "th" }, "external:codex:th"], [{ PACER_PLANNER_SESSION: "p1" }, "external:p1"], [{}, "external:mcp"]] as const) {
     const { ctx, call, client } = await connect();
     Object.assign(ctx.env, env);
     const d = await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" });

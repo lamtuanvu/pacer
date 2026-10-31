@@ -1,3 +1,12 @@
+import { DensityContext } from '../../app/src/ds/Density';
+import { TextInput } from '../../app/src/ds/Controls';
+import { IconButton } from '../../app/src/ds/Button';
+import { ListRow } from '../../app/src/ds/Patterns';
+import { Layout } from '../../app/src/shell/Layout';
+import { NavigationProvider } from '../../app/src/navigation';
+import { resolveRoute, type Route } from '../../app/src/router';
+import { followSavedTheme } from '../../app/src/theme';
+import snapshot from './ui/snapshot.json';
 import { NotificationProvider } from '../../app/src/data/notification-context';
 import { render } from 'preact';
 import { SettingsGeneral } from '../../app/src/screens/settings/General';
@@ -15,4 +24,7 @@ const call: BrowserApi['call'] = async <T,>(op: string, params: unknown) => {
 };
 const api = {call} as BrowserApi;
 const runner = createActionRunner({call,waitFor:async()=>true,refetch:()=>{},navigate:hash=>{location.hash=hash;}});
-render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><SettingsGeneral section="app"/></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);
+followSavedTheme();
+const route = resolveRoute('#/settings/app') as Route;
+const state = { ...initialState(), connected: true, snapshot: snapshot as any };
+render(<NavigationProvider route={route}><TaskContext.Provider value={{state,api}}><ActionContext.Provider value={runner}><NotificationProvider><Layout route={route} state={state} title="Settings"><SettingsGeneral section="app"/><ListRow content="Density sample row" actions={<IconButton icon="plus" aria-label="Density sample action"/>}/><DensityContext.Provider value="touch"><TextInput aria-label="Touch sample input"/><ListRow content="Touch sample row"/></DensityContext.Provider></Layout></NotificationProvider></ActionContext.Provider></TaskContext.Provider></NavigationProvider>, document.getElementById('root')!);

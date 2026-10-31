@@ -33,6 +33,40 @@ test("owned context injects only exact captured environment and cwd into actual 
     expect(JSON.stringify(f.authority.resources)).not.toContain("owned-injected-credential");
   } finally { delete process.env.SPAWN_CONTEXT_AMBIENT; }
 });
+test("legacy pinned commands receive only the host's minimal environment", async () => {
+  const ctx=fakeCtx({env:{HOME:process.env.HOME,PATH:process.env.PATH,SPAWN_CONTEXT_AMBIENT:"private"}});
+  homes.push(ctx.home);
+  const script=join(ctx.home,"legacy-env.js");
+  writeFileSync(script,"console.log(JSON.stringify({home:process.env.HOME,ambient:process.env.SPAWN_CONTEXT_AMBIENT}))");
+  ctx.which=name=>name==="legacy-tool"?process.execPath:null;
+  const authority=createCallAuthority(ctx,{reads:[],commands:[{argv:["legacy-tool",script],timeoutMs:5000}],stores:[]},{deadlineMs:Date.now()+10000,grants:["process.spawn"]});
+  owners.push(authority);prepareSpawnAuthority(authority);
+  const result=await answerSpawn(authority,["legacy-tool"],{argv:["legacy-tool",script],timeoutMs:5000}) as {stdout:string};
+  expect(JSON.parse(result.stdout)).toEqual({home:process.env.HOME});
+});
+test("legacy consumers receive only their required ambient variables",async()=>{
+  const ambient={HOME:"/tmp/home",PATH:process.env.PATH,DBUS_SESSION_BUS_ADDRESS:"unix:path=/bus",DISPLAY:":1",WAYLAND_DISPLAY:"wayland-0",XDG_RUNTIME_DIR:"/run/user/1",HTTPS_PROXY:"http://proxy",http_proxy:"http://lower",NO_PROXY:"localhost",SSL_CERT_FILE:"/tmp/ca",NODE_EXTRA_CA_CERTS:"/tmp/node-ca",ARK_PROFILE:"work",ARK_REGION:"region",ARK_API_KEY:"fixture-key",PRIVATE_TOKEN:"hidden"};
+  const ctx=fakeCtx({env:ambient});homes.push(ctx.home);
+  const script=join(ctx.home,"env-consumer.js");writeFileSync(script,"console.log(JSON.stringify(process.env))");
+  ctx.which=()=>process.execPath;
+  for(const name of ["notify-send","arkcli","opencode","generic-tool"]){
+    const authority=createCallAuthority(ctx,{reads:[],commands:[{argv:[name,script],timeoutMs:5000}],stores:[]},{deadlineMs:Date.now()+10000,grants:["process.spawn"]});
+    owners.push(authority);prepareSpawnAuthority(authority);
+    const result=await answerSpawn(authority,[name],{argv:[name,script],timeoutMs:5000}) as {stdout:string};
+    const env=JSON.parse(result.stdout);
+    expect(env.PRIVATE_TOKEN).toBeUndefined();
+    expect(env.DBUS_SESSION_BUS_ADDRESS).toBe(name==="notify-send"?ambient.DBUS_SESSION_BUS_ADDRESS:undefined);
+    expect(env.DISPLAY).toBe(name==="notify-send"?ambient.DISPLAY:undefined);
+    expect(env.WAYLAND_DISPLAY).toBe(name==="notify-send"?ambient.WAYLAND_DISPLAY:undefined);
+    expect(env.XDG_RUNTIME_DIR).toBe(name==="notify-send"?ambient.XDG_RUNTIME_DIR:undefined);
+    expect(env.HTTPS_PROXY).toBe(["arkcli","opencode"].includes(name)?ambient.HTTPS_PROXY:undefined);
+    expect(env.http_proxy).toBe(["arkcli","opencode"].includes(name)?ambient.http_proxy:undefined);
+    expect(env.SSL_CERT_FILE).toBe(["arkcli","opencode"].includes(name)?ambient.SSL_CERT_FILE:undefined);
+    expect(env.ARK_PROFILE).toBe(name==="arkcli"?ambient.ARK_PROFILE:undefined);
+    expect(env.ARK_REGION).toBe(name==="arkcli"?ambient.ARK_REGION:undefined);
+    expect(env.ARK_API_KEY).toBe(name==="arkcli"?ambient.ARK_API_KEY:undefined);
+  }
+});
 test("altered vector/context and undeclared scopes deny before credential lookup or child effects", async () => {
   const f = fixture();
   for (const params of [

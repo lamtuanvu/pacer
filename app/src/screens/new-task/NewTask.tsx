@@ -1,19 +1,19 @@
-import { useFrame } from "../../shell/slots";
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
 import { agentInfo } from "../../../../src/view-model/agents";
-import { modeWords, paceStatus } from "../../../../src/view-model/words";
+import { paceStatus } from "../../../../src/view-model/words";
 import { AgentMark } from "../../ds/AgentMark";
 import { AttachmentPicker } from "../../ds/AttachmentTray";
 import { Button, TextAction } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { CheckRow, DrillRow, FileChip, OptionRow, RadioCard, RadioChip, RadioGroup, Sheet, ValueBox } from "../../ds/Composer";
+import { CheckRow, DrillRow, FileChip, OptionRow, RadioCard, RadioChip, RadioGroup, Sheet } from "../../ds/Composer";
 import { Disclosure, Field, TextArea, TextInput } from "../../ds/Controls";
 import { Dialog } from "../../ds/Dialog";
 import { Icon } from "../../ds/icons";
 import { Kbd } from "../../ds/Kbd";
-import { Page, PageTitle } from "../../ds/Page";
-import { Card, LoadingState } from "../../ds/Patterns";
+import { Page } from "../../ds/Page";
+import { Card, Skeleton } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { IssuePicker } from "./IssuePicker";
@@ -28,7 +28,7 @@ import {
   agentOptions, blankNewTask, kindChips, newTaskPayload, NEW_TASK_DRAFT_KEY, readChecks, readMentions, routeCard, savedNote, submitState,
   WORKSPACES, writeChecks, writeMentions, effectiveKind, retainedIssueSource, type AcceptanceCheck, type NewTaskDraft,
 } from "../../model/new-task";
-import { taskHref, type TaskSummary } from "../../model/tasks";
+import { type TaskSummary } from "../../model/tasks";
 import { hrefFor, routes, type RouteQuery } from "../../router";
 import { NARROW_MEDIA, activeRepo, useMedia } from "../../shell/narrow";
 import { isApplePlatform } from "../../keys/registry";
@@ -109,7 +109,7 @@ export function NewTask({ query }: { query: RouteQuery }) {
   const routing = useQuery<Routing>("routing.route", draft.repo ? { repo: draft.repo } : {});
   const accounts = useQuery<Account[]>("account.list", {});
   const preview = useRoutePreview({ repo: draft.repo, goal: draft.request, kind: draft.kind, executor: draft.executor });
-  const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }));
+  const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }), { bytes: 10_000_000, label: "10 MB" });
   const action = useAction();
   const [issuePicker, setIssuePicker] = useState(false);
   const [failure, setFailure] = useState<unknown>();
@@ -136,10 +136,10 @@ export function NewTask({ query }: { query: RouteQuery }) {
     setFailure(undefined);
     void action.run<TaskSummary>("task.delegate", params, task => {
       try { localStorage.setItem("pacer.delegate.last-repo", JSON.stringify({ repo: next.repo })); } catch { /* storage unavailable */ }
-      clear(); location.hash = hrefFor(routes.tasks(), query);
+      location.hash = hrefFor(routes.workspace(task.task_id), query); clear();
     });
   };
-  useEffect(() => { if (action.error) setFailure(action.error); }, [action.error]);
+  useEffect(() => { if (action.error) { setFailure(action.error); document.getElementById("nt-request")?.focus(); } }, [action.error]);
   const cancel = () => { location.hash = hrefFor(routes.dispatch(), query); };
 
   const props: ViewProps = { canImportIssue: state.features.ops.has("issue.import"), onIssue: () => setIssuePicker(true), draft, set, base, repo, choices, preview, card, routing: routing.data, accounts: accounts.data ?? [], uploads, checks, mentions, submit, failure, apple, planner, mode: state.snapshot?.mode?.mode ?? planner?.mode ?? "", lastRepo: lastRepo(), onDelegate: delegate, onSave: save, onCancel: cancel, note: savedNote(savedAt, now, failed), onUseWorktree: () => { set({ workspace: "worktree" }); setFailure(undefined); } };
@@ -206,7 +206,7 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
       {p.canImportIssue && <Button variant="quiet" size="sm" className="pc-request-box__tool" onClick={p.onIssue} aria-label="From an issue" disabled={!p.repo}><Icon name="issue" /><span className="pc-request-box__tool-word">From an issue</span></Button>}
       {p.canImportIssue && !p.repo && <span className="pc-caption">Choose a repository to import an issue</span>}
       <span className="grow" />
-      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 25 MiB per file"}</span>
+      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 10 MB per file"}</span>
     </div>
   </div>;
 }
@@ -226,7 +226,7 @@ function KindField({ p }: { p: ViewProps }) {
 function WorkspaceChoices({ p }: { p: ViewProps }) {
   return <RadioGroup label="Where it runs" className="pc-new-task__workspaces">
     {WORKSPACES.map(w => <RadioCard key={w.id} checked={(p.draft.workspace || "worktree") === w.id} onSelect={() => p.set({ workspace: w.id })} title={w.title} tag={w.tag}
-      sub={w.id === "current" && p.repo ? `Writes to ${p.repo.path} directly` : w.sub} />)}
+      sub={w.id === "current" && p.repo ? `Writes to ${p.repo.label} directly` : w.sub} />)}
   </RadioGroup>;
 }
 
@@ -239,7 +239,7 @@ function Checks({ p }: { p: ViewProps }) {
     setText(""); setCommand(""); setAdding(false);
   };
   return <div className="pc-new-task__checks">
-    {!p.checks.length && !adding && <span className="pc-caption pc-new-task__checks-empty">No checks yet. Add a command such as <code>bun run test</code> to make it required.</span>}
+    {!p.checks.length && !adding && <span className="pc-caption pc-new-task__checks-empty">No automatic checks configured. Add a command such as <code>bun run test</code> to require it before completion.</span>}
     {p.checks.map(check => <CheckRow key={check.id} checked={check.on} label={check.text} detail={check.command && check.command !== check.text ? check.command : undefined} source="Added by you"
       onToggle={() => write(p.checks.map(c => c.id === check.id ? { ...c, on: !c.on } : c))}
       actions={<Button variant="quiet" size="sm" aria-label={`Remove check: ${check.text}`} className="pc-icon-button" onClick={() => write(p.checks.filter(c => c.id !== check.id))}><Icon name="close" /></Button>} />)}
@@ -255,10 +255,10 @@ function AgentChoices({ p }: { p: ViewProps }) {
   const options = agentOptions(p.routing, row => routingStatus(row as never), p.accounts);
   const plannerAgent = p.planner?.agent ?? "claude-code";
   return <RadioGroup label="Agent for this task" className="pc-new-task__agents">
-    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={20} labelled={false} />}
+    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={16} labelled={false} />}
       title="Let pacer decide" sub="Recommended · uses your dispatcher setup" pill={{ label: "Default", tone: "neutral" }} />
     {options.map(option => <OptionRow key={option.executor} checked={p.draft.executor === option.executor} disabled={!option.available}
-      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={option.agent} size={20} labelled={false} />}
+      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={agentKey(markAgent(option.executor)) ?? "opencode"} size={16} labelled={false} />}
       title={option.name} sub={option.sub} pill={option.pill} />)}
   </RadioGroup>;
 }
@@ -267,21 +267,23 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
   const { preview, card } = p;
   if (preview.empty) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Describe the task to see where it goes</span><span className="pc-caption">pacer picks the agent from the kind, each agent's budget, and your dispatcher setup.</span></div>;
   if (preview.unavailable) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Routing preview isn't available</span><span className="pc-caption">This pacer service can't explain routes yet. pacer still picks the agent from your dispatcher setup when you delegate.</span></div>;
-  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <LoadingState label="Checking where it goes…" />;
+  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <Skeleton layout="rows" label="Checking where it goes…" />;
   const reasons = <ul className={compact ? "pc-route-card__why pc-caption" : "pc-route-card__why"}>{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}>{!compact && <span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span>}<span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>;
   return <>
     {card.lead ? <div className="pc-route-card__lead">
       <AgentMark agent={card.lead.agent} size={compact ? 32 : 36} />
-      <div className="pc-route-card__who"><span className="pc-route-card__name">{card.lead.name}</span>{compact ? reasons : <span className="pc-caption">{card.lead.step}</span>}</div>
+      <div className="pc-route-card__who"><span className="pc-route-card__name">{card.lead.name}</span><span className="pc-caption">Likely agent · confirmed at start</span></div>
       <Pill tone={card.lead.pill.tone}>{card.lead.pill.label}</Pill>
     </div> : <span className="pc-route-card__name">{card.status.label}</span>}
-    {(!compact || !card.lead) && reasons}
-    {!compact && card.then.length > 0 && <div className="pc-route-card__then">
+    {(card.status.tone === "bad" || card.status.label === "Waits in queue") && reasons}
+    <Disclosure summary="Routing details">{reasons}<span className="pc-caption">{card.lead?.step}</span><PlannerRow p={p}/>
+    {card.then.length > 0 && <div className="pc-route-card__then">
       <span className="pc-caption">If it can't:</span>
       {card.then.map(n => <span key={n.executor} className={`pc-route-card__fallback${n.excluded ? " pc-route-card__fallback--excluded" : ""}`} title={n.reason ?? undefined} tabIndex={n.excluded ? 0 : undefined}>
         <AgentMark agent={n.agent} size={18} labelled={false} />{n.name}{n.excluded && <span className="sr-only">, not available: {n.reason}</span>}
       </span>)}
     </div>}
+    </Disclosure>
     {preview.error && <span className="pc-caption">May be out of date: {errorWords(preview.error)}</span>}
   </>;
 }
@@ -298,17 +300,6 @@ function PlannerRow({ p }: { p: ViewProps }) {
   </div>;
 }
 
-function StrictNotice({ p }: { p: ViewProps }) {
-  const mode = p.mode.toLowerCase();
-  if (mode !== "strict" && mode !== "emergency") return null;
-  const name = p.planner ? agentInfo(p.planner.agent).name : "The planner";
-  const ahead = p.planner?.deltaPts && p.planner.deltaPts > 0 ? `${Math.round(p.planner.deltaPts)} points ahead of pace. ` : "";
-  return <Card className="pc-card--warn pc-new-task__notice">
-    <span aria-hidden="true" className="pc-new-task__notice-glyph pc-new-task__notice-glyph--warn">◐</span>
-    <span className="pc-new-task__notice-text"><span className="pc-new-task__notice-title">{name} is in {modeWords(mode)} mode</span><span className="pc-caption">{ahead}Planning stays short. It still starts now.</span><TextAction className="pc-new-task__notice-link" href={hrefFor(routes.settings("planner"))}>Budget &amp; pacing</TextAction></span>
-  </Card>;
-}
-
 function FailureNotice({ p }: { p: ViewProps }) {
   if (!p.failure) return null;
   return <div role="alert"><Card className="pc-card--bad pc-new-task__notice">
@@ -320,8 +311,8 @@ function FailureNotice({ p }: { p: ViewProps }) {
 }
 
 function RepoPicker({ p, id }: { p: ViewProps; id?: string }) {
-  return <ChoicePicker id={id} className="pc-new-task__pick" searchable value={p.draft.repo} placeholder="Choose a repository…"
-    options={p.choices.map(r => ({ value: r.key, label: r.label, description: r.branches?.[0] }))} onValueChange={value => p.set({ repo: value, base: "", executor: "" })} />;
+  return <ChoicePicker id={id} variant="repository" className="pc-new-task__pick" searchable value={p.draft.repo} placeholder="Choose a repository…"
+    options={p.choices.map(r => ({ value: r.key, label: r.label, description: r.key === p.draft.repo ? p.base : r.branches?.[0] }))} onValueChange={value => p.set({ repo: value, base: "", executor: "" })} />;
 }
 const repoHelp = (p: ViewProps) => {
   const others = Math.max(0, p.choices.length - 1);
@@ -329,14 +320,12 @@ const repoHelp = (p: ViewProps) => {
 };
 
 function NewTaskPage(p: ViewProps) {
-  const frame = useFrame();
-  const overrideOpen = !!p.draft.executor;
   return <Page width="full" className="pc-new-task">
     <header className="pc-new-task__header">
       <div className="pc-new-task__intro">
         <TextAction className="pc-new-task__crumb" href={hrefFor(routes.tasks())}>Tasks ›</TextAction>
         <h1 className="pc-page-title pc-new-task__title">New task</h1>
-        <span className="pc-caption">Describe the outcome. pacer plans it, sends it to the best available agent, and checks the result before you see it.</span>
+        <span className="pc-caption">Describe the outcome and choose how to check success.</span>
       </div>
       <span className="pc-caption pc-new-task__saved" aria-live="polite">{p.note}</span>
       <Button onClick={p.onSave}>Save draft</Button>
@@ -348,7 +337,7 @@ function NewTaskPage(p: ViewProps) {
         <div className="pc-new-task__field">
           <label htmlFor="nt-request" className="pc-new-task__label">What should get done?</label>
           <RequestBox p={p} rows={6} />
-          <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. pacer turns it into acceptance checks you can edit below." : ""}</span>
+          <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. Add success checks below when needed." : ""}</span>
         </div>
         <div className="pc-new-task__pair">
           <div className="pc-new-task__field">
@@ -356,41 +345,28 @@ function NewTaskPage(p: ViewProps) {
             <RepoPicker p={p} id="nt-repo" />
             <span className="pc-caption">{repoHelp(p)}</span>
           </div>
-          <div className="pc-new-task__field">
-            <span className="pc-new-task__label" id="nt-branch-label">Branch name</span>
-            <ValueBox aria-labelledby="nt-branch-label" role="group" meta="Auto"><span className="mono">pacer/…</span></ValueBox>
-            <span className="pc-caption">Made from the request; edit it if you like</span>
-          </div>
         </div>
-        <fieldset className="pc-new-task__fieldset">
-          <legend className="pc-new-task__label">Where it runs</legend>
-          <WorkspaceChoices p={p} />
-        </fieldset>
-        <KindField p={p} />
         <div className="pc-new-task__field">
-          <span className="pc-new-task__label-row"><span className="pc-new-task__label">Acceptance checks</span><span className="pc-caption">Must pass before the result reaches you</span></span>
+          <span className="pc-new-task__label-row"><span className="pc-new-task__label">Success checks</span><span className="pc-caption">Enabled commands must pass; text checks guide the agent</span></span>
           <Checks p={p} />
         </div>
-        <Disclosure className="pc-new-task__more" summary={<>More options <span className="pc-caption pc-new-task__label-note">· base branch {p.base || "current"}</span></>}>
-          <div className="pc-new-task__more-body">
+        <Disclosure className="pc-new-task__more" summary="Advanced options">
+          <div className="pc-new-task__more-body"><WorkspaceChoices p={p}/><KindField p={p}/><AgentChoices p={p}/><Field label="Maximum parallel agents" help="Limit parallel delegated work for this task (1–32)."><TextInput type="number" min="1" max="32" value={p.draft.maxConcurrent} onInput={e=>p.set({maxConcurrent:e.currentTarget.value})}/></Field><span className="pc-caption">Branch assigned at start.</span>
             <Field label="Base branch" help="The new worktree starts from this branch.">
               <ChoicePicker value={p.base} options={(p.repo?.branches ?? []).map(b => ({ value: b, label: b }))} placeholder="Current branch" onValueChange={value => p.set({ base: value })} />
             </Field>
           </div>
         </Disclosure>
       </section>
-      {frame?.details?.open !== false && <aside aria-label="Where this task goes" className="pc-new-task__aside">
+      {<aside aria-label="Where this task goes" className="pc-new-task__aside">
         <section className="pc-route-card" aria-label="Will go to">
           <div className="pc-route-card__body">
             <span className="pc-route-card__head"><span className="pc-label">Will go to</span><span className="pc-caption" aria-live="polite">{p.card && !p.preview.error && !p.preview.empty ? "Updated as you type" : ""}</span></span>
             <RouteBody p={p} />
           </div>
-          <PlannerRow p={p} />
+
         </section>
-        <StrictNotice p={p} />
-        <Disclosure className="pc-new-task__override" open={overrideOpen} summary={<>Send to a specific agent <span className="pc-caption pc-new-task__label-note">· this task only</span></>}>
-          <AgentChoices p={p} />
-        </Disclosure>
+
         <div className="pc-new-task__submit">
           <Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} busy={false} onClick={p.onDelegate} aria-keyshortcuts={p.apple ? "Meta+Enter" : "Control+Enter"}>
             {p.submit.label}<Kbd>{p.apple ? "⌘↵" : "Ctrl+↵"}</Kbd>
@@ -409,7 +385,6 @@ function NewTaskSheet(p: ViewProps) {
   const kind = effectiveKind(p.draft, p.preview.fresh);
   const agent = p.draft.executor ? agentOptions(p.routing, row => routingStatus(row as never), p.accounts).find(a => a.executor === p.draft.executor)?.name ?? p.draft.executor : "Let pacer decide";
   const titles: Record<SheetName, string> = { repo: "Repository", workspace: "Where it runs", kind: "Kind", checks: "Acceptance checks", agent: "Agent" };
-  const plannerText = p.card ? [`Planner ${p.card.planner.cost}`, p.card.planner.note].filter(Boolean).join(" · ") : `Planner: not measured yet${p.planner?.usedPct == null ? "" : ` · week ${Math.round(p.planner.usedPct)}%`}`;
   return <Sheet title="New task" close={p.onCancel} className="pc-new-task-sheet"
     action={<Button variant="ghost" size="sm" onClick={p.onSave}>Save draft</Button>}
     footer={<><Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} onClick={p.onDelegate}>{p.submit.label}</Button><span className="pc-caption pc-new-task__submit-note">{p.submit.disabled ? p.submit.note : p.failure ? p.submit.note : `Starts in ${p.draft.workspace === "current" ? "the current checkout" : "a new worktree"} on ${p.repo?.label ?? ""}`}</span></>}>
@@ -422,17 +397,17 @@ function NewTaskSheet(p: ViewProps) {
       </div>
       <section aria-label="Where this task goes" className="pc-route-card pc-route-card--compact">
         <div className="pc-route-card__body"><span className="pc-label">Will go to</span><RouteBody p={p} compact /></div>
-        {p.planner && !p.preview.empty && <span className="pc-caption pc-ellipsis pc-route-card__compact-planner" title={plannerText}>{plannerText}</span>}
+
       </section>
-      <StrictNotice p={p} />
+
       <div className="pc-new-task-sheet__rows">
         <DrillRow label="Repository" onClick={() => setOpen("repo")} value={<>{p.repo?.label ?? "Choose a repository"} {p.base && <span className="mono pc-new-task-sheet__muted">{p.base}</span>}</>} />
-        <DrillRow label="Where it runs" onClick={() => setOpen("workspace")} value={WORKSPACES.find(w => w.id === (p.draft.workspace || "worktree"))!.title} />
+        <Disclosure summary="Advanced options"><DrillRow label="Where it runs" onClick={() => setOpen("workspace")} value={WORKSPACES.find(w => w.id === (p.draft.workspace || "worktree"))!.title} />
         <DrillRow label="Kind" onClick={() => setOpen("kind")} value={kind ? <>{kind.value.charAt(0).toUpperCase() + kind.value.slice(1)} {kind.detected && <span className="pc-caption">· detected</span>}</> : "Not set"} />
-        <DrillRow label="Acceptance checks" onClick={() => setOpen("checks")} value={p.checks.length ? `${on} of ${p.checks.length} on` : "None yet"} />
-        <DrillRow label="Agent" onClick={() => setOpen("agent")} value={agent} />
+
+        <DrillRow label="Agent" onClick={() => setOpen("agent")} value={agent} /><Field label="Maximum parallel agents"><TextInput type="number" min="1" max="32" value={p.draft.maxConcurrent} onInput={e=>p.set({maxConcurrent:e.currentTarget.value})}/></Field></Disclosure>
+        <DrillRow label="Success checks" onClick={() => setOpen("checks")} value={p.checks.length ? `${on} of ${p.checks.length} on` : "No automatic checks"} />
       </div>
-      <span className="pc-caption">Each row opens its own sheet with the same choices as the desktop form.</span>
     </div>
     {open && <Dialog title={titles[open]} close={() => setOpen(null)}>
       <div className="pc-new-task-sheet__choice">

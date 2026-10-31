@@ -188,6 +188,29 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   }
 }
 
+/** A human-managed root with no strict-ready route can run unmanaged before any child exists. */
+async function unmanageUnreachableRoot(ctx: Ctx, strategy: Strategy, task: TaskRecord, routable: string[]): Promise<boolean> {
+  const work = getWork(ctx, task.id);
+  if (!work || work.parentId || work.options.delegationEnforcement !== "strict" || task.origin !== "human" || task.interactionMode === "conversation" || !routable.length) return false;
+  const db = dispatchDatabase(ctx);
+  const hasChildren = () => !!db.query<{n:number},[string]>("SELECT 1 AS n FROM work_nodes WHERE parent_id=? LIMIT 1").get(task.id);
+  if (hasChildren()) return false;
+  const repo = task.repo?.path ?? task.brief.repo, reasons: string[] = [];
+  for (const runner of new Set(routable)) {
+    const reason = await enforcementExclusion({...ctx, now: Date.now()/1000}, strategy, runner, repo);
+    if (!reason) return false;
+    reasons.push(`${runner}: ${reason}`);
+  }
+  const removed = db.transaction(() => {
+    if (hasChildren()) return false;
+    for (const table of ["work_reservations", "work_decisions", "work_waits", "work_grants", "enforcement_tokens", "work_nodes"]) db.query(`DELETE FROM ${table} WHERE task_id=?`).run(task.id);
+    db.query("DELETE FROM work_events WHERE root_id=?").run(task.id);
+    return true;
+  }).immediate();
+  if (removed) updateTask(ctx, task.id, t => { t.managedSkip = {reason:"refused",detail:reasons.join("; "),at:Date.now()/1000}; });
+  return removed;
+}
+
 async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{claimed:boolean}): Promise<TaskRecord> {
   let started = false;
   const initial=readTask(ctx,id);
@@ -271,6 +294,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       let decision: DispatchPreview | undefined;
       let dispatchCandidates: Candidate[] = [];
       let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>> | undefined;
+      let routableCandidates: string[] = [];
       const work = getWork(ctx,id);
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
@@ -311,6 +335,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
+        routableCandidates = ranking.ranked.map(e => e.id);
         if (work) {
           decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates,new Set(policyExcluded.keys()));
           if (decision.proposal?.state === "ranked") {
@@ -368,7 +393,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // with the cumulative runner exclusions before reserving anything.
         // Every repeat removes at least one current candidate; no policy-count cap.
         if(work&&Object.keys(routeAdmission.excludedBy).length) {i--;continue;}
-        let policyChanged = false;
+        let policyChanged = false, unmanaged = false;
         await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
           routeAdmission!.revalidate();
           requirePolicyIdentity(ctx, repo);
@@ -420,6 +445,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           const machineHeld = freshStart && [...full].some(e => !tried.has(e) && !!localMachineGuard(s, e));
           if (work && !pick && !paused && !machineHeld) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
+            if(!expired && await unmanageUnreachableRoot(ctx,s,task,routableCandidates)){unmanaged=true;return;}
             const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
@@ -456,6 +482,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           });
           if(pick) routeAdmission!.checkpoint(task);
         }));
+        if (unmanaged) { task = readTask(ctx, id)!; i--; continue; }
         if (policyChanged) {
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
           i--; continue;
@@ -630,6 +657,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           releaseDispatch(ctx,id);
           updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
           return finish(ctx,id,{status:"failed",executor:pick,model:null,files:"",report:`${pick}: ${reason}`,backend:"direct"});
+        }
+        if(reason && await unmanageUnreachableRoot(ctx,s,task,routableCandidates)){
+          task=updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
+          i--;continue;
         }
         if(reason){
           releaseDispatch(ctx,id);

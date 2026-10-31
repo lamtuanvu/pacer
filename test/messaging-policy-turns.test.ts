@@ -1,16 +1,22 @@
 // A continuation turn passes fresh project policy admission, as a new attempt does (ADR 0015).
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { policyGateFixture } from "./fixtures/policy-host";
-import { tmpDir } from "./helpers";
+import { gitRepo, realRun, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { sendMessage } from "../src/messaging/send";
 import * as store from "../src/messaging/store";
+import { writeProjectStrategy } from "../src/config/project-strategies";
+import { loadStrategy } from "../src/config/strategy";
+import { resolveRepo } from "../src/core/repos";
+import { projectReferences } from "../src/engine/project-routing";
+import * as projectPolicy from "../src/core/project-policy";
+import { deliver } from "../src/messaging/turns";
 
 /** A task that finished on codex with a resumable session, under a policy plugin that allows everything so far. */
-function settled() {
-  const f = policyGateFixture({ verdict: "allow" });
+function settled(repo = tmpDir()) {
+  const f = policyGateFixture({ verdict: "allow" }, 0, repo);
   writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ ...f.config, providers: { "claude-code": {}, codex: {}, cursor: {} } }));
   const t = createTask(f.ctx, { brief: { goal: "the original brief", repo: f.repo }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(f.ctx, t.id, x => {
@@ -39,7 +45,10 @@ test("a still-admitted executor resumes its own session after delegate and route
   expect(f.spawned).toEqual([f.id]);
   const calls = f.decisions();
   expect(calls.map(c => c.decision)).toEqual(["delegate", "route"]);
-  expect(calls[0]!.input).toMatchObject({ goal: "the original brief", requestedExecutor: "codex" });
+  expect(calls[0]!.input).toMatchObject({ goal: "", requestedExecutor: "codex" });
+  expect(calls[0]!.input).not.toHaveProperty("goalLength");
+  expect(calls[0]!.input).not.toHaveProperty("goalHash");
+  expect(calls[0]!.input.repo).not.toBe(f.repo);
   expect(calls[1]!.input).toEqual({ taskId: f.id, candidates: ["codex", "cursor"] });
 });
 
@@ -53,6 +62,27 @@ test("an executor policy now excludes reroutes the turn to an admitted one that 
   expect(t.pendingTurn?.session).toBeUndefined();
   expect(t.requestedExecutor).toBe("cursor");
   expect(f.spawned).toEqual([f.id]);
+});
+
+test("a changed project selection excludes the prior executor from a continuation", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
+  const r = await f.send("continue on selected executor");
+  expect(r.hold).toBeUndefined();
+  expect(r.delivery).toBe("turn_started");
+  expect(readTask(f.ctx, f.id)?.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+  expect(f.decisions().at(-1)?.input.candidates).toEqual(["cursor"]);
+});
+
+test("a changed project selection with no runnable candidate holds the continuation", async () => {
+  const f = settled(gitRepo());
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
+  updateTask(f.ctx, f.id, t => { t.repo = repo; });
+  // A selected runner reference removed from the strategy leaves the task pending.
+  await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
+  const r = await f.send("wait for selected runner");
+  expect(r.delivery).toBe("held");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
 });
 
 test("a policy veto holds the turn: messages stay pending, the task keeps its result, and the sender learns why", async () => {
@@ -86,6 +116,81 @@ test("no admitted executor holds the turn with the excluding plugin named", asyn
   expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
 });
 
+/** Restrict the task's repository (a Git repository, so its identity is verified) to these executors through its project strategy. */
+async function restrict(f: ReturnType<typeof settled>, ids: string[]) {
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
+  updateTask(f.ctx, f.id, x => { x.repo = repo; });
+  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ids), 0);
+}
+
+test("a project that allows only the excluded executor holds the turn and keeps the task's result", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex"]);
+  f.policy({ verdict: "allow" }, { verdict: "amend", amend: { exclude: ["codex"] } });
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("held");
+  expect(r.hold).toEqual({ reason: "No executor is admitted for this task's next turn (excluded by plugin fx-policy)", plugin: "fx-policy" });
+  // Project policy forbids cursor, so the route plugin never saw it.
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["codex"] });
+  expect(f.spawned).toEqual([]);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.state).toBe("done");
+  expect(t.pendingTurn).toBeUndefined();
+  expect(t.requestedExecutor).toBeNull();
+  expect(t.result?.report).toBe("first report");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["also handle X"]);
+  expect(store.inbox(f.ctx, "human").filter(m => m.from === `task:${f.id}`).map(m => m.body)).toEqual([expect.stringContaining("[held] Messages to task")]);
+});
+
+test("a project that forbids every turn executor holds the turn without asking the route plugin", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
+  // The only allowed executor is no longer configured, so nothing project policy allows can run the turn.
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ ...f.config, providers: { "claude-code": {}, codex: {} } }));
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("held");
+  expect(r.hold?.reason).toContain("project policy allows");
+  expect(f.decisions().map(c => c.decision)).toEqual(["delegate"]);
+  expect(readTask(f.ctx, f.id)!.result?.report).toBe("first report");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
+});
+
+test("a project that forbids the prior executor reroutes the turn to the allowed one", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["cursor"]);
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("turn_started");
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["cursor"] });
+  expect(readTask(f.ctx, f.id)!.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+});
+
+test("a project that allows two executors reroutes an excluded one to the other, which replays", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex", "cursor"]);
+  f.policy({ verdict: "allow" }, { verdict: "amend", amend: { exclude: ["codex"] } });
+  const r = await f.send("also handle X");
+  expect(r.delivery).toBe("turn_started");
+  expect(f.decisions().find(c => c.decision === "route")!.input).toEqual({ taskId: f.id, candidates: ["codex", "cursor"] });
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+  expect(t.requestedExecutor).toBe("cursor");
+  expect(f.spawned).toEqual([f.id]);
+});
+
+test("a live continuation checks fresh delegate and route policy before delivery", async () => {
+  const f = settled();
+  const dir = readTask(f.ctx, f.id)!.run!.dir;
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  updateTask(f.ctx, f.id, x => { x.state = "running"; x.interactionMode = "conversation"; });
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  const held = await f.send("check Y");
+  expect(held).toMatchObject({ delivery: "held", hold: { reason: "repository frozen", plugin: "fx-policy" } });
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["check Y"]);
+  f.policy({ verdict: "allow" });
+  expect((await f.send("and Z")).delivery).toBe("live");
+  expect(f.decisions().at(-1)).toMatchObject({ decision: "route", input: { taskId: f.id, candidates: ["codex"] } });
+});
+
 test("task.answer under a veto falls back to the legacy retry, which policy refuses as it refuses a new delegation", async () => {
   const f = settled();
   // The legacy answer starts from the asking executor's checkout.
@@ -111,4 +216,89 @@ test("message events stay v3-only, and the app names a policy hold's reason", as
   const { answerDeliveryWords } = await import("../src/view-model/words");
   expect(answerDeliveryWords("held", { reason: "repository frozen" })).toBe("Answer held, not delivered yet: project policy holds this task (repository frozen). The question stays open.");
   expect(answerDeliveryWords("held")).toContain("a messaging rule needs your confirmation first");
+});
+
+test("an answer that policy holds leaves the question unread and the task's question open", async () => {
+  const f = settled();
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  const r = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  expect(r.delivery).toBe("held");
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBeUndefined();
+  // Admitted again, the next answer reaches the turn and reads the question.
+  f.policy({ verdict: "allow" });
+  const again = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  expect(again.delivery).toBe("turn_started");
+  expect(store.getMessage(f.ctx, question.id)?.readAt).not.toBeNull();
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
+});
+
+test("project policy that changes during queue admission on every retry holds the turn and reopens the answered question", async () => {
+  const f = settled(gitRepo());
+  await restrict(f, ["codex", "cursor"]);
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  // Each admission sees a project that allows only codex; each queue commit then sees one that allows only cursor.
+  let reads = 0;
+  const real = projectPolicy.projectSnapshot;
+  const spy = spyOn(projectPolicy, "projectSnapshot").mockImplementation((ctx, s, key) => {
+    const snap = real(ctx, s, key);
+    return { ...snap, selection: { ...snap.selection!, executors: reads++ % 2 ? ["cursor"] : ["codex"] } };
+  });
+  try {
+    const r = await sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt", requestId: "req-1" }, { appAuthenticated: true, spawnRunner: () => 1 });
+    expect(r.delivery).toBe("held");
+    expect(r.hold?.reason).toContain("Project policy changed while this task's next turn was admitted");
+    expect(reads).toBe(6);
+  } finally { spy.mockRestore(); }
+  expect(f.decisions().filter(c => c.decision === "route")).toHaveLength(3);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.state).toBe("done");
+  expect(t.pendingTurn).toBeUndefined();
+  expect(t.question).toEqual({ text: "which file?", at: f.ctx.now });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.body)).toEqual(["same.txt"]);
+  expect(store.inbox(f.ctx, "human").filter(m => m.from === `task:${f.id}` && m.kind === "report").map(m => m.body)).toEqual([expect.stringContaining("[held] Messages to task")]);
+});
+
+test("a policy-held answer replayed with its request id stays open while held, then answers the question once policy allows", async () => {
+  const f = settled();
+  updateTask(f.ctx, f.id, x => { x.question = { text: "which file?", at: f.ctx.now }; });
+  const question = store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: `task:${f.id}`, to: "human", kind: "question", body: "which file?", replyTo: null, requestId: null }).message;
+  const answer = () => sendMessage(f.ctx, { to: `task:${f.id}`, kind: "answer", replyTo: question.id, body: "same.txt", requestId: "req-1" }, { appAuthenticated: true, spawnRunner: () => 1 });
+  f.policy({ verdict: "veto", reason: "repository frozen" });
+  expect((await answer()).delivery).toBe("held");
+  // Replayed while still held: the same message, still held, the question still open and unread.
+  const held = await answer();
+  expect(held).toMatchObject({ duplicate: true, delivery: "held", hold: { reason: expect.stringContaining("repository frozen") } });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).toBeNull();
+  expect(readTask(f.ctx, f.id)!.question).toEqual({ text: "which file?", at: f.ctx.now });
+  // Replayed after policy allows: the turn resumes the same session with the answer recorded and the question read.
+  f.policy({ verdict: "allow" });
+  const again = await answer();
+  expect(again).toMatchObject({ duplicate: true, delivery: "turn_started" });
+  expect(again.message.id).toBe(held.message.id);
+  const t = readTask(f.ctx, f.id)!;
+  expect(t.question?.answer).toBe("same.txt");
+  expect(t.pendingTurn).toMatchObject({ executor: "codex", session: { id: "sid-1", source: "header" } });
+  expect(store.getMessage(f.ctx, question.id)?.readAt).not.toBeNull();
+  expect(store.pendingFor(f.ctx, `task:${f.id}`).map(m => m.id)).toEqual([held.message.id]);
+  // A further replay, once a turn took the answer, reports it queued and changes nothing.
+  store.claimPending(f.ctx, `task:${f.id}`, t.pendingTurn!.id);
+  expect((await answer()).delivery).toBe("queued");
+  expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
+});
+
+test("a broker delivery uses the project selection, as a send does", async () => {
+  const f = settled(gitRepo());
+  const repo = await resolveRepo({ ...f.ctx, run: realRun }, f.repo);
+  updateTask(f.ctx, f.id, t => { t.repo = repo; });
+  store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: "broker", to: `task:${f.id}`, kind: "nudge", body: "nudge", replyTo: null, requestId: "nudge:1" });
+  await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
+  expect((await deliver(f.ctx, `task:${f.id}`, () => 1)).delivery).toBe("held");
+  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ["cursor"]), 1);
+  expect((await deliver(f.ctx, `task:${f.id}`, () => 1)).delivery).toBe("turn_started");
+  expect(readTask(f.ctx, f.id)?.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
 });

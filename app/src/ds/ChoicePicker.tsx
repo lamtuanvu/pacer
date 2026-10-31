@@ -1,12 +1,17 @@
 import { forwardRef } from 'preact/compat';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Button } from './Button';
+import { AgentMark } from './AgentMark';
+import { Icon } from './icons';
+import { agentKey, markAgent } from '../../../src/view-model/agents';
 import { classNames as classes } from './classNames';
 import { useDensity } from './Density';
 
 export interface ChoiceOption {
   value: string;
   label: string;
+  /** Vendor identity (agent or runner id); decorative in both trigger and options. */
+  agent?: string;
   disabled?: boolean;
   reason?: string;
   description?: string;
@@ -14,6 +19,7 @@ export interface ChoiceOption {
 
 export interface ChoicePickerProps {
   sizing?: "content";
+  variant?: "repository";
   value: string;
   options: readonly ChoiceOption[];
   onValueChange(value: string): void;
@@ -29,10 +35,17 @@ export interface ChoicePickerProps {
   'aria-label'?: string;
 }
 
+function ChoiceLabel({ agent, label, className }: { agent?: string; label: string; className: string }) {
+  const text = <span className={className}>{label}</span>;
+  return agent === undefined ? text : <span className="pc-choice-picker__identity">
+    <AgentMark agent={agentKey(markAgent(agent)) ?? 'opencode'} size={16} labelled={false} />{text}
+  </span>;
+}
+
 /** Controlled single-choice field; the trigger is the labeled and focusable control. */
 export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(function ChoicePicker({
   value, options, onValueChange, placeholder = 'Choose…', searchable,
-  required, disabled, name, id, className, sizing, ...aria
+  required, disabled, name, id, className, sizing, variant, ...aria
 }, ref) {
   const generated = useId();
   const density = useDensity();
@@ -150,7 +163,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     if (target.bottom > container.bottom) box.scrollTop += target.bottom - container.bottom;
     else if (target.top < container.top) box.scrollTop -= container.top - target.top;
   }, [open, active, query]);
-  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, sizing === "content" && "pc-choice-picker--content", className)}>
+  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, variant && `pc-choice-picker--${variant}`, sizing === "content" && "pc-choice-picker--content", className)}>
     <Button ref={(node: HTMLButtonElement | null) => {
       trigger.current = node;
       if (typeof ref === 'function') ref(node);
@@ -158,7 +171,8 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     }} id={id} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined}
       aria-required={required || undefined} {...aria} onClick={() => open ? close() : begin()}
       onKeyDown={onKeyDown as never} className="pc-choice-picker__trigger">
-      <span className="pc-choice-picker__value">{selected?.label ?? placeholder}</span>
+      {variant === "repository" ? <span className="pc-choice-picker__identity"><Icon name="repo" /><strong className="pc-choice-picker__value">{selected?.label ?? placeholder}</strong>{selected?.description && <span className="pc-choice-picker__branch" title={selected.description}>{selected.description}</span>}</span>
+        : <ChoiceLabel agent={selected?.agent} label={selected?.label ?? placeholder} className="pc-choice-picker__value" />}
       <span className="pc-choice-picker__chevron" aria-hidden="true" />
     </Button>
     {open && <span data-room={roomToken} className={classes('pc-choice-picker__popover', placement === 'above' && 'pc-choice-picker__popover--above')}
@@ -173,7 +187,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
           aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
           className={classes('pc-choice-picker__option', index === active && 'pc-choice-picker__option--active')}
           onPointerMove={() => { if (!option.disabled) setActive(index); }} onClick={() => choose(option)}>
-          <span className="pc-choice-picker__option-label">{option.label}</span>
+          <ChoiceLabel agent={option.agent} label={option.label} className="pc-choice-picker__option-label" />
           {(option.description || option.reason) && <small>{option.reason ?? option.description}</small>}
         </span>)}
         {!visible.length && <span className="pc-choice-picker__empty">No matching choices</span>}

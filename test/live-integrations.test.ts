@@ -1,10 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { liveRoot, saveSession, type Session } from "../scripts/live/core";
-import { integrationsFixtureRoot } from "../scripts/live/integrations";
+import type { Session } from "../scripts/live/core";
+import { liveTestCheckout } from "./live-checkout";
 import { main } from "../scripts/live/cli";
 import { refusal } from "../scripts/live/guard";
+const checkout = liveTestCheckout();
+const { liveRoot, saveSession } = await import(`${checkout}/scripts/live/core.ts`) as typeof import("../scripts/live/core");
+const { integrationsFixtureRoot } = await import(`${checkout}/scripts/live/integrations.ts`) as typeof import("../scripts/live/integrations");
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function session(): Session {

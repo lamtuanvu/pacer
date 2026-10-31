@@ -7,7 +7,7 @@ import { clock } from "../../../../src/view-model/time";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { TextArea } from "../../ds/Controls";
 import { Dialog } from "../../ds/Dialog";
-import { LoadingState, SegmentedControl, SelectableRow } from "../../ds/Patterns";
+import { Skeleton, SegmentedControl, SelectableRow } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { useActions } from "../../data/action-context";
 import { hrefFor, routes, type RouteQuery } from "../../router";
@@ -57,7 +57,7 @@ export function ResultPage({id, query, failure}: ResultPageProps) {
     void api.call<WorkResult>("dispatch.tree", {id}).then(value => {if (active) {setTree(value); setTreeError(undefined);}}).catch(error => {if (active) setTreeError(error);});
     return () => {active = false;};
   }, [api, id, task.data?.rev, !!task.data?.work]);
-  if (!task.data) return <div className="pc-result-page">{task.error ? <><ErrorMessage error={task.error}/><Button onClick={task.reload}>Try again</Button></> : <LoadingState label="Loading result…"/>}</div>;
+  if (!task.data) return <div className="pc-result-page">{task.error ? <><ErrorMessage error={task.error}/><Button onClick={task.reload}>Try again</Button></> : <Skeleton layout="task" label="Loading result…"/>}</div>;
   return <div className={`pc-result-page${failure ? " pc-result-page--failure" : ""}`}><ErrorMessage error={task.error ?? treeError}/>{failure
     ? <Failure task={task.data} query={query} reload={task.reload} tree={tree}/>
     : <ReviewResult task={task.data} query={query} reload={task.reload} tree={tree}/>}</div>;
@@ -109,7 +109,7 @@ function ReviewResult({task, query, reload, tree}: {task: TaskDetail; query: Rou
     <section className="pc-result-summary" aria-labelledby="report-heading"><h2 id="report-heading">What the agents report</h2><div className="pc-result-report">{task.summary ?? "No summary provided."}</div></section>
     <div className="pc-result-changes"><nav className="pc-result-files" aria-label="Changed files"><span className="pc-result-label">Changed · {task.files.length} files</span>{task.files.map(item => <SelectableRow key={item.path} className="pc-result-file" selected={path === item.path} onClick={() => {setSelected(item.path); setFileError(undefined);}}><span className="pc-result-mono pc-result-filepath" title={item.path}>{item.path}</span><span className="pc-result-good pc-result-mono">{item.binary ? "bin" : `+${item.added}`}</span>{item.removed > 0 && <span className="pc-result-bad pc-result-mono">−{item.removed}</span>}</SelectableRow>)}{!task.files.length && <span className="pc-result-caption">No changed files recorded.</span>}</nav>
       <section className="pc-result-diff" aria-label={path ? `Diff of ${path}` : "Changes"}><div className="pc-result-diff-header"><span className="pc-result-mono pc-result-filepath" title={path}>{path ?? "No file selected"}</span>{path && <><SegmentedControl variant="result" label="Diff layout" value={layout} options={[{value:"unified",label:"Unified"},{value:"split",label:"Split"}]} onChange={setLayout}/>{canOpen && <Button variant="quiet" size="sm" busy={opening} onClick={() => void openFile()}>Open file</Button>}</>}</div>
-        <ErrorMessage error={diff.error ?? fileError}/>{diff.loading && !diff.data ? <LoadingState label="Loading diff…"/> : path && diff.data ? <Diff path={path} patch={diff.data.patch} binary={task.files.find(f => f.path === path)?.binary} truncated={diff.data.truncated} note={diff.data.note} layout={layout === "split" ? "split" : "unified"}/> : <p className="pc-result-caption">No diff available.</p>}
+        <ErrorMessage error={diff.error ?? fileError}/>{diff.loading && !diff.data ? <Skeleton layout="rows" label="Loading diff…"/> : path && diff.data ? <Diff path={path} patch={diff.data.patch} binary={task.files.find(f => f.path === path)?.binary} truncated={diff.data.truncated} note={diff.data.note} layout={layout === "split" ? "split" : "unified"}/> : <p className="pc-result-caption">No diff available.</p>}
       </section></div>
     {file && <Dialog title={file.path} close={() => setFile(undefined)}><pre className="pc-result-mono pc-code-scroll">{file.text}</pre></Dialog>}
   </>;

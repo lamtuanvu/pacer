@@ -388,7 +388,7 @@ impl<'de> ::serde::Deserialize<'de> for MsgLogParamsTask {
 ///      "properties": {
 ///        "from": {
 ///          "type": "string",
-///          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///        },
 ///        "grant": {
 ///          "type": "boolean"
@@ -406,7 +406,7 @@ impl<'de> ::serde::Deserialize<'de> for MsgLogParamsTask {
 ///        },
 ///        "to": {
 ///          "type": "string",
-///          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -451,7 +451,7 @@ impl ::std::default::Default for MsgPolicyParams {
 ///  "properties": {
 ///    "from": {
 ///      "type": "string",
-///      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///      "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///    },
 ///    "grant": {
 ///      "type": "boolean"
@@ -469,7 +469,7 @@ impl ::std::default::Default for MsgPolicyParams {
 ///    },
 ///    "to": {
 ///      "type": "string",
-///      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///      "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -492,7 +492,7 @@ pub struct MsgPolicyParamsCheck {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///  "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///}
 /// ```
 /// </details>
@@ -513,16 +513,17 @@ impl ::std::convert::From<MsgPolicyParamsCheckFrom> for ::std::string::String {
 impl ::std::str::FromStr for MsgPolicyParamsCheckFrom {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
+            || {
                 ::regress::Regex::new(
-                    "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
+                    "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
                 )
                 .unwrap()
-            });
+            },
+        );
         if PATTERN.find(value).is_none() {
             return Err(
-                "doesn't match pattern \"^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
+                "doesn't match pattern \"^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
                     .into(),
             );
         }
@@ -635,7 +636,7 @@ impl ::std::convert::TryFrom<&str> for MsgPolicyParamsCheckKind {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///  "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///}
 /// ```
 /// </details>
@@ -656,16 +657,17 @@ impl ::std::convert::From<MsgPolicyParamsCheckTo> for ::std::string::String {
 impl ::std::str::FromStr for MsgPolicyParamsCheckTo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
+            || {
                 ::regress::Regex::new(
-                    "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
+                    "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
                 )
                 .unwrap()
-            });
+            },
+        );
         if PATTERN.find(value).is_none() {
             return Err(
-                "doesn't match pattern \"^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
+                "doesn't match pattern \"^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
                     .into(),
             );
         }
@@ -867,7 +869,7 @@ impl<'de> ::serde::Deserialize<'de> for MsgReadParamsIdsItem {
 ///    },
 ///    "to": {
 ///      "type": "string",
-///      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///      "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -1138,7 +1140,7 @@ impl<'de> ::serde::Deserialize<'de> for MsgSendParamsRequestId {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+///  "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
 ///}
 /// ```
 /// </details>
@@ -1159,16 +1161,17 @@ impl ::std::convert::From<MsgSendParamsTo> for ::std::string::String {
 impl ::std::str::FromStr for MsgSendParamsTo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
+            || {
                 ::regress::Regex::new(
-                    "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
+                    "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$",
                 )
                 .unwrap()
-            });
+            },
+        );
         if PATTERN.find(value).is_none() {
             return Err(
-                "doesn't match pattern \"^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
+                "doesn't match pattern \"^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$\""
                     .into(),
             );
         }

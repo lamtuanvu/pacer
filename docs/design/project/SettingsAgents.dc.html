@@ -33,7 +33,6 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <main style="flex: 999 1 520px; min-width: 0; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box;">
 <header style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
 <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1;"><h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 650;">Agents</h1><span class="cap">Who plans, who executes, and what each one is allowed to use.</span></div>
-<a href="SettingsAddAgent.dc.html" style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 8px; background: var(--ink); color: var(--ink-on-ink); font-weight: 600; text-decoration: none;">Add agent</a>
 </header>
 
 <section aria-label="Planner" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card);">
@@ -42,9 +41,12 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <x-import component-from-global-scope="Pacer.Button" size="sm">Change planner</x-import>
 </section>
 
-<div role="tablist" aria-label="Agent view" style="display: flex; gap: 4px; border-bottom: 1px solid var(--line);">
+<div style="display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line);">
+<div role="tablist" aria-label="Agent view" style="display: flex; gap: 4px; flex-grow: 1;">
 <button class="tab" role="tab" aria-selected="true" type="button" style="color: var(--ink); border-bottom-color: var(--ink);">Executors · 5</button>
 <a class="tab" role="tab" aria-selected="false" href="SettingsAccounts.dc.html" style="text-decoration: none; display: inline-flex; align-items: center;">Accounts · 6</a>
+</div>
+<a href="SettingsAddAgent.dc.html" class="pc-btn pc-btn--primary pc-btn--sm" style="text-decoration: none; color: var(--ink-on-ink); margin-bottom: 4px;">Add agent</a>
 </div>
 
 <section aria-label="Executors" style="border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">

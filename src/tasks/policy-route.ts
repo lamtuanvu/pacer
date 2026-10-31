@@ -12,6 +12,7 @@ interface RouteAdmissionOptions {
   contextFingerprint: () => string;
   signal?: AbortSignal;
   deadline?: number;
+  budgetDeadline?: number;
 }
 /** Policy never runs under slot/task locks. Revalidate under selection/launch locks. */
 export async function authorizeRoute(ctx:Ctx,id:string,candidates:readonly string[],options:RouteAdmissionOptions) {
@@ -36,7 +37,7 @@ export async function authorizeRoute(ctx:Ctx,id:string,candidates:readonly strin
   const {applyPolicy}=await import("../plugins/policy");
   current();
   let receipt:Awaited<ReturnType<typeof applyPolicy>>;
-  try {receipt=await applyPolicy(ctx,"route",{taskId:id,candidates:[...candidates]},{contextFingerprint:capture,signal:options.signal,deadline:options.deadline});}
+  try {receipt=await applyPolicy(ctx,"route",{taskId:id,candidates:[...candidates]},{contextFingerprint:capture,signal:options.signal,deadline:options.deadline,budgetDeadline:options.budgetDeadline});}
   catch(error){current();throw error;}
   current();
   if(receipt.params.decision!=="route") throw new CoreError("invalid_input","Invalid route policy receipt");

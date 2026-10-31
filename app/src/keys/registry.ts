@@ -34,7 +34,13 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.defaultPrevented || e.altKey || opts.blocked?.()) return false;
+      if (e.defaultPrevented || opts.blocked?.()) return false;
+      if (e.altKey) {
+        const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+        const match = mod && !e.shiftKey ? active().find(s => s.keys === `Alt-Mod-${e.key.toLowerCase()}`) : undefined;
+        if (!match) return false;
+        pending = null; e.preventDefault(); match.run(); return true;
+      }
       // Mod-k also answers to Cmd, so ⌘K and Ctrl-K are one binding. Mod-b is ⌘B on macOS and Ctrl-b elsewhere, which leaves
       // Ctrl-b (a terminal multiplexer prefix) free for a shell on macOS.
       const letter = e.key.toLowerCase();

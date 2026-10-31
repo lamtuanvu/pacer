@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { installPlanner } from "../src/install";
 import { uninstallPlanner } from "../src/install/uninstall";
 import { runDoctor } from "../src/install/doctor";
-import { PACER_SKILL } from "../src/install/skill";
+import { PACER_SKILL } from "../plugins/pacer-planners/skill";
 import { readManifest } from "../src/install/manifest";
 import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER, snapshot } from "./install-helpers";
@@ -71,5 +71,5 @@ test('skill teaches filtered operation discovery instead of embedding the full c
 });
 
 test('skill teaches the messaging loop', () => {
-  for (const text of ['pacer msg inbox --wait', 'pacer msg send <task> "<text>" --wait', '--answer <message-id>', '--send-back --note', '--retry-on <executor>', 'pacer msg log <task>', 'pacer msg close <task>', 'pacer msg read <message-id>', 'use `pacer session io` only for a live interactive terminal']) expect(PACER_SKILL).toContain(text);
+  for (const text of ['pacer msg inbox --wait', 'pacer msg send <task> "<text>" --wait', '--answer <message-id>', '--send-back --note', '--retry-on <executor>', 'pacer msg log <task>', 'pacer msg close <task>', 'pacer msg read <message-id>', 'Stop and UserPromptSubmit hooks', 'pacer msg policy --project <repo-path>', 'pacer delegate --no-grant', 'use `pacer session io` only for a live interactive terminal']) expect(PACER_SKILL).toContain(text);
 });

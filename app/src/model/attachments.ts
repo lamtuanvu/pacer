@@ -29,6 +29,7 @@ export function useAttachments(
   api: BrowserApi,
   draftId: string,
   onDraft: (id: string) => void,
+  limit?: { bytes: number; label: string },
 ) {
   const [items, setItems] = useState<Upload[]>([]),
     [error, setError] = useState("");
@@ -99,6 +100,7 @@ export function useAttachments(
       },
     ]);
     try {
+      if (limit && file.size > limit.bytes) throw new Error(`Attachment exceeds ${limit.label}`);
       const draft = await ensureDraft();
       const value = await response<{
         id: string;

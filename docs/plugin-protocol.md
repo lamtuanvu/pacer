@@ -16,6 +16,8 @@ The `executor` point defines `contributes.executor.backends: ["direct"]` and `ex
 
 Protocol 1.7.0 adds the `hostRunner` point. It names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Every fixed-script SSH operation pacer runs on an SSH host goes through these grants and the bundled `pacer-ssh` provider; there is no direct-SSH fallback. A manifest that contributes `hostRunner`, `remoteCaller` or `executor`, or declares `hosts`, sets `host` to `>=1.7.0`. Only the bundled `pacer-ssh` and `pacer-remote-caller` plugins may contribute `hostRunner` or `remoteCaller`; the host refuses an installed plugin that contributes either.
 
+Protocol 1.8.0 adds the issue #503 hardening wire fields. A policy without declared and granted `tasks.read` receives an empty goal and opaque repository key on delegate, and no free-text note on review. Lengths and per-plugin keyed hashes are supplied for the redacted fields only when both peers negotiate `policyRedactionMetadata`; older peers receive the legacy shape with sensitive fields omitted. The master key is stored privately under `state/policy-hmac.key`; deleting it rotates the digests. Secret references use `kind:name`; legacy `endpoint/name` remains accepted.
+
 Protocol 1.9.0 adds `executor.run`, `executor.stop` and `executor.sessionState`, the consented `worktree` capability, the `capability.process` run methods (`claimRun`, `startRun`, `pollRun`, `readRunOutput`, `completeReportedRun`, `stopRun`, `inspectRun`, `outputChunk`) and the `capability.hosts` owned-run methods (`prepareOwned`, `claimOwned`, `startOwned`, `pollOwned`, `readOwnedOutput`, `stopOwned`, `transferOwned`). A manifest that declares `worktree` sets `host` to `>=1.9.0`. The bundled `pacer-exec-direct` provider owns production direct attempts: local pipe and interactive runs in place or in a task worktree, message turns, strict managed work, same-task retries, restart reattachment and configured remote pipe runs. `executor.run` carries only the host-selected task revision, attempt and run-directory version 1. The host resolves the launch (mode, environment, native session, strict guard and interactive settings), pins the executable and working directory, and issues each worktree, claim, start, observation, completion, stop and transfer effect as a one-use grant bound to the calling task and attempt. Launch files are written only after the empty run-directory claim; owned remote start needs the call that prepared the run, and a resumed call may only observe its exact persisted run. When the provider owns a route its refusal leaves the task unavailable or pending, with no built-in fallback. Conversations, remote full/PTY and interactive sessions, remote managed work, new placement outside a Git repository and further attempts of a task started on the built-in owner are not yet extracted and still run on the built-in direct owner. Take over is not yet extracted either: a provider-owned run reports it unavailable and keeps running, while runs on the built-in owner keep take over.
 
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
@@ -1974,6 +1976,7 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "job",
         "notify",
         "message",
+        "liveness",
         "machine",
         "assistant",
         "discovery.found"
@@ -4758,6 +4761,21 @@ Params:
               "minLength": 1,
               "maxLength": 4096
             },
+            "goalLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "goalHash": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "repoKey": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
             "kind": {
               "anyOf": [
                 {
@@ -4889,6 +4907,16 @@ Params:
             "note": {
               "type": "string",
               "maxLength": 4096
+            },
+            "noteLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "noteHash": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
             },
             "kind": {
               "anyOf": [
@@ -6116,7 +6144,7 @@ Params:
               },
               "additionalProperties": {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               }
             },
             "detached": {
@@ -7090,7 +7118,7 @@ Params:
       "anyOf": [
         {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         },
         {
           "type": "null"
@@ -7217,7 +7245,7 @@ Params:
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                 },
                 {
                   "type": "null"
@@ -7289,7 +7317,7 @@ Params:
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               },
               {
                 "type": "null"
@@ -7377,7 +7405,7 @@ Result:
       },
       "additionalProperties": {
         "type": "string",
-        "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+        "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
       }
     }
   },
@@ -7417,7 +7445,7 @@ Params:
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
             },
             {
               "type": "null"
@@ -7484,7 +7512,7 @@ Params:
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               },
               {
                 "type": "null"
@@ -7573,7 +7601,7 @@ Params:
     },
     "configRef": {
       "type": "string",
-      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [
@@ -10549,6 +10577,7 @@ Params:
           "job",
           "notify",
           "message",
+          "liveness",
           "machine",
           "assistant",
           "discovery.found"
@@ -11103,7 +11132,7 @@ Params:
             "properties": {
               "secretRef": {
                 "type": "string",
-                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
               }
             },
             "required": [
@@ -12988,7 +13017,7 @@ Params:
       "properties": {
         "secretRef": {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         },
         "scheme": {
           "default": "Bearer",
@@ -13080,7 +13109,7 @@ Params:
   "properties": {
     "ref": {
       "type": "string",
-      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [
@@ -13361,7 +13390,7 @@ Result:
 
 ### `capability.secrets.resolve`
 
-Resolve the key of the endpoint account the user chose for the assistant. Any other reference is refused.
+Resolve the key of the endpoint account the user chose for the assistant. endpoint/<id> remains accepted for compatibility.
 
 Params:
 
@@ -13372,7 +13401,7 @@ Params:
   "properties": {
     "ref": {
       "type": "string",
-      "pattern": "^endpoint\\/[a-z0-9][a-z0-9-]*$"
+      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
     }
   },
   "required": [
