@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFixtureBundleMetadata } from "../scripts/live/ota-bundle-metadata";
@@ -11,9 +11,12 @@ function fixture(run: (app: string, path: string) => void): void {
   mkdirSync(resources, { recursive: true });
   const path = join(resources, "pacer-release.json");
   writeFileSync(path, '{"version":"0.2.4"}', { mode: 0o644 });
+  // Public metadata must stay public even when the test runner uses umask 077.
+  chmodSync(path, 0o644);
   try { run(app, path); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 test("signed public bundle metadata accepts 0644 without weakening private evidence", () => fixture((app, path) => {
+  expect(statSync(path).mode & 0o7777).toBe(0o644);
   expect(readFixtureBundleMetadata(app)).toBe(readFileSync(path, "utf8"));
   expect(() => privateFixtureBytes(path, 65536)).toThrow();
 }));
