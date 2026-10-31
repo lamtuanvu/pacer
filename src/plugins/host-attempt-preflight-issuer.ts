@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, mappedRepoForPath, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -38,7 +39,7 @@ function snapshot(ctx: Ctx, taskId: string, attempt: number) {
 export function issueConfiguredHostAttemptPreflight(ctx: Ctx, taskId: string,
   attempt: number): ConfiguredHostAttemptPreflightGrant {
   const current = snapshot(ctx, taskId, attempt);
-  const alias = current.run.host!, hostFingerprint = JSON.stringify(current.host);
+  const alias = current.run.host!, hostFingerprint = driftFingerprint(current.host, [mappedRepoForPath(current.host, current.run.remoteWorktree!) ?? ""]);
   const args = Object.freeze([current.run.remoteWorktree!, current.run.baseSha!, current.run.remoteBranch!]);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "PREFLIGHT", args: [...args], timeoutMs: 60_000, maxBytes: 65_536 });
@@ -56,7 +57,7 @@ export function validateConfiguredHostAttemptPreflight(ctx: Ctx, grant: Configur
   if (attempt === undefined) return deny();
   const current = snapshot(ctx, saved.taskId, attempt);
   if (current.task.rev !== saved.taskRev || JSON.stringify(current.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint || current.run.host !== saved.alias ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false || current.run.host !== saved.alias ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "PREFLIGHT" || grant.resource.timeoutMs !== 60_000 ||
     grant.resource.maxBytes !== 65_536 || grant.resource.args.length !== 3 ||

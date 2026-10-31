@@ -8,6 +8,7 @@ interface Job { start: () => void; cancel: (reason: CoreError) => void }
 /** Bound transient concurrency without renewing queued requests' original clocks. */
 export class CallAdmission {
   private active = 0;
+  get activeCount(): number { return this.active; }
   /** `label` names the pool in the refusal; a zero queue refuses as soon as every slot is busy. */
   constructor(private readonly limit = 8, private readonly queueLimit = 32, private readonly label = "plugin registry call") {}
   private readonly queued: Job[] = [];

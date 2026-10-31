@@ -12,10 +12,9 @@ import { createTask, updateTask } from "../src/tasks/store";
 import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
 import { issueConfiguredHostSessionFiles, consumeConfiguredHostSessionFiles } from "../src/plugins/host-session-files-issuer";
 import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
-import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
 import { issueConfiguredHostBinaryUpload, consumeConfiguredHostBinaryUpload } from "../src/plugins/host-binary-upload-issuer";
-import { issueConfiguredHostStart, consumeConfiguredHostStart } from "../src/plugins/host-start-issuer";
+import { issueConfiguredHostStart, consumeConfiguredHostStart, validateConfiguredHostStartState } from "../src/plugins/host-start-issuer";
 import { issueConfiguredHostRuntimeProbe, consumeConfiguredHostRuntimeProbe } from "../src/plugins/host-runtime-probe-issuer";
 import { pluginRegistry, shutdownPlugins } from "../src/plugins";
 import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
@@ -185,81 +184,60 @@ test("READ_FROM refuses malformed or over-range provider hex", async () => {
   }
 });
 
-test("SESSION_SOCKET discovers only the configured persisted run and consumes its grant once", async () => {
-  const { ctx, remote, local } = setup();
-  const { createServer } = await import("node:net");
-  const { socketPath } = await import("../src/session/host");
-  const path = socketPath(remote), server = createServer();
-  mkdirSync(remote, { recursive: true });
-  if (path !== join(remote, "session.sock")) writeFileSync(join(remote, "session.sock.path"), path);
-  try {
-    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
-    await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
-      session: "a".repeat(32), script: "SESSION_SOCKET", args: [remote], timeoutMs: 60_000, maxBytes: 4096,
-    })).rejects.toMatchObject({ code: "capability_denied" });
-    const grant = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
-    const result = await pluginRegistry(ctx).sessionSocketConfiguredHost(ctx, grant);
-    expect(result).toMatchObject({ code: 0, stdout: path, timedOut: false });
-    await expect(pluginRegistry(ctx).sessionSocketConfiguredHost(ctx, grant))
-      .rejects.toMatchObject({ code: "capability_denied" });
-    const stale = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
-    const taskId = remote.split("/").at(-2)!;
-    updateTask(ctx, taskId, task => { task.state = "queued"; });
-    expect(() => consumeConfiguredHostSessionSocket(ctx, stale)).toThrow();
-    expect(() => issueConfiguredHostSessionSocket(ctx, "box", remote, join(local, "wrong"))).toThrow();
-  } finally { server.close(); }
-});
-
-test("disabled SSH provider refuses SESSION_SOCKET without a direct fallback", async () => {
-  const { ctx, remote, local, log } = setup();
-  const { RemoteSession } = await import("../src/remote/session");
-  const { Duplex } = await import("node:stream");
-  const registry = pluginRegistry(ctx);
-  await registry.disable(ctx, "pacer-ssh");
-  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
-  const grant = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
-  await expect(registry.sessionSocketConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
-  const bridge = new RemoteSession(ctx, host, remote, local);
-  const socket = new Duplex({ read() {}, write(_data, _encoding, done) { done(); } });
-  const closed = new Promise<void>(resolve => socket.once("close", resolve));
-  bridge.accept(socket as unknown as import("node:net").Socket);
-  await closed;
-  await bridge.close();
-  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
-});
-
-test("a remote session refuses viewers beyond its cap and admits one after another leaves", async () => {
+test("remote viewer admission reports the per-run refusal to the client", async () => {
   const { ctx, remote, local } = setup();
   enableFull(ctx);
   const { RemoteSession, MAX_SESSION_VIEWERS } = await import("../src/remote/session");
-  const { Duplex } = await import("node:stream");
+  const { admitRemoteViewer } = await import("../src/remote/viewer-admission");
+  const { createConnection } = await import("node:net");
+  const { socketPath } = await import("../src/session/host");
   const registry = pluginRegistry(ctx), original = registry.streamConfiguredHost.bind(registry);
-  let opened = 0;
-  registry.streamConfiguredHost = async (_ctx, _grant, _onBytes, signal) => {
-    opened++;
-    const done = new Promise<{ code: number; bytes: number }>((_resolve, reject) =>
-      signal.addEventListener("abort", () => reject(Error("viewer ended")), { once: true }));
-    return { sendInput: async () => {}, done };
-  };
+  registry.streamConfiguredHost = async (_ctx, _grant, _onBytes, signal) => ({
+    sendInput: async () => {}, done: new Promise<{ code: number; bytes: number }>((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(Error("viewer ended")), { once: true })),
+  });
   const bridge = new RemoteSession(ctx, host, remote, local);
-  const viewer = () => new Duplex({ read() {}, write(_data, _encoding, done) { done(); } });
+  const sockets: import("node:net").Socket[] = [];
   try {
-    const held = Array.from({ length: MAX_SESSION_VIEWERS }, viewer);
-    for (const socket of held) bridge.accept(socket as unknown as import("node:net").Socket);
-    for (let i = 0; i < 100 && opened < MAX_SESSION_VIEWERS; i++) await Bun.sleep(10);
-    expect(opened).toBe(MAX_SESSION_VIEWERS);
-    const extra = viewer();
-    const refused = new Promise<Error>(resolve => extra.once("error", resolve));
-    bridge.accept(extra as unknown as import("node:net").Socket);
-    expect((await refused).message).toContain(`already has ${MAX_SESSION_VIEWERS} viewers`);
-    expect(extra.destroyed).toBe(true);
-    expect(opened).toBe(MAX_SESSION_VIEWERS);
-    const left = new Promise<void>(resolve => held[0]!.once("close", resolve));
-    held[0]!.destroy(); await left;
-    bridge.accept(viewer() as unknown as import("node:net").Socket);
-    for (let i = 0; i < 100 && opened <= MAX_SESSION_VIEWERS; i++) await Bun.sleep(10);
-    expect(opened).toBe(MAX_SESSION_VIEWERS + 1);
-  } finally { await bridge.close(); registry.streamConfiguredHost = original; }
+    await bridge.listen();
+    const connect = async () => {
+      const socket = createConnection(socketPath(local));
+      await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+      sockets.push(socket);
+      return { socket, reason: await admitRemoteViewer(socket) };
+    };
+    for (let n = 0; n < MAX_SESSION_VIEWERS; n++) expect((await connect()).reason).toBeNull();
+    expect((await connect()).reason).toContain(`already has ${MAX_SESSION_VIEWERS} viewers`);
+    const { attachSession } = await import("../src/session/attach");
+    await expect(attachSession(local)).rejects.toThrow(`already has ${MAX_SESSION_VIEWERS} viewers`);
+    sockets[0]!.destroy();
+    await Bun.sleep(20);
+    expect((await connect()).reason).toBeNull();
+  } finally { for (const socket of sockets) socket.destroy(); await bridge.close(); registry.streamConfiguredHost = original; }
+});
+
+test("remote viewer admission reports exhausted shared stream capacity", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  const { RemoteSession } = await import("../src/remote/session");
+  const { admitRemoteViewer } = await import("../src/remote/viewer-admission");
+  const { createConnection } = await import("node:net");
+  const { socketPath } = await import("../src/session/host");
+  const registry = pluginRegistry(ctx);
+  const releases = Array.from({ length: 4 }, () => registry.reserveSessionViewer());
+  expect(releases.every(Boolean)).toBe(true);
+  const bridge = new RemoteSession(ctx, host, remote, local);
+  let socket: import("node:net").Socket | undefined;
+  try {
+    await bridge.listen();
+    socket = createConnection(socketPath(local));
+    await new Promise<void>((resolve, reject) => { socket!.once("connect", resolve); socket!.once("error", reject); });
+    expect(await admitRemoteViewer(socket)).toBe("session viewer stream capacity exhausted");
+  } finally {
+    socket?.destroy();
+    releases.forEach(release => release?.());
+    await bridge.close();
+  }
 });
 
 test("BINARY check is issued only for one persisted run and exact content hash", async () => {
@@ -429,6 +407,25 @@ test("START grant binds the persisted run and private input exactly once", () =>
   expect(() => consumeConfiguredHostStart(ctx, stale)).toThrow();
 });
 
+test("START pins its checkout mapping without pinning unrelated host settings", () => {
+  const { ctx, remote, local, home } = setup();
+  const strategy = (path: string, tasks: number) => `planner: claude-code
+providers: {claude-code: {}}
+hosts:
+  box:
+    ssh: box-ssh
+    max_tasks: ${tasks}
+    repos: {example.com/o/r: ${path}}
+`;
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy(home, 2));
+  const grant = issueConfiguredHostStart(ctx, "box", remote, local,
+    [remote, home, "pipe", "--", "sh", "-c", "exit 0"], Buffer.from("__PACER_STDIN__\nprompt"));
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy(home, 7));
+  expect(() => validateConfiguredHostStartState(ctx, grant)).not.toThrow();
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy(join(home, "other"), 7));
+  expect(() => validateConfiguredHostStartState(ctx, grant)).toThrow();
+});
+
 test("START refuses private stdin beyond its 50 MiB bound before SSH", () => {
   const { ctx, remote, local, home, log } = setup();
   const args = [remote, home, "pipe", "--", "sh", "-c", "cat"];
@@ -486,6 +483,33 @@ ${command}`), { mode: 0o755 });
   expect(await started).toHaveProperty("error");
   expect(existsSync(join(remote, "pid"))).toBe(false);
 }, 10_000);
+
+test("unrelated host edits keep START alive while SSH target drift cancels it", async () => {
+  for (const targetChanged of [false, true]) {
+    const { ctx, io, remote, home } = setup();
+    const marker = join(home, "start-held"), ssh = ctx.which("ssh")!, source = readFileSync(ssh, "utf8");
+    const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+    writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"start.error"*) printf held > ${JSON.stringify(marker)}; sleep 1 ;;
+esac
+${command}`), { mode: 0o755 });
+    const started = io.start(["sh", "-c", "exit 0"], home, {}, "prompt");
+    for (let attempt = 0; attempt < 100 && !existsSync(marker); attempt++) await Bun.sleep(20);
+    expect(existsSync(marker)).toBe(true);
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code
+providers: {claude-code: {}}
+hosts:
+  box:
+    ssh: ${targetChanged ? "replacement-ssh" : "box-ssh"}
+    max_tasks: 7
+    repos: {example.com/other/repo: /other/repo}
+`);
+    const result = await started;
+    if (targetChanged) expect(result).toHaveProperty("error");
+    else expect(result).toHaveProperty("pid");
+  }
+}, 15_000);
 
 test("START SSH child uses the sandbox context environment", async () => {
   const { ctx, io, home } = setup();
@@ -1112,6 +1136,7 @@ test.skipIf(!await canListen())("full viewer streams through bundled SESSION_PIP
     socket.on("data",bytes=>frames.push(...decoder.push(Buffer.from(bytes))));
     socket.write(wire(FrameType.hello,{v:1,client:"cli",label:"remote viewer"}));
     await wait(()=>frames.some(f=>f.type===FrameType.snapshot));
+    writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n    max_tasks: 7\n    repos: {example.com/other/repo: /other/repo}\n");
     expect(JSON.parse(frames.find(f=>f.type===FrameType.snapshot)!.data.toString()).screenAnsi).toBe(record.snapshot().screenAnsi);
     socket.write(wire(FrameType.take,{}));await wait(()=>frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you===true));
     socket.write(wire(FrameType.input,Buffer.from("input 🦊")));socket.write(wire(FrameType.size,{cols:80,rows:24}));
@@ -1119,7 +1144,10 @@ test.skipIf(!await canListen())("full viewer streams through bundled SESSION_PIP
     socket.write(wire(FrameType.release,{}));await wait(()=>hub.controller===null);
     expect(readFileSync(log,"utf8")).toContain("socket exec pipe");
     expect(readFileSync(log,"utf8")).not.toContain("-O forward");
-    socket.destroy();await wait(()=>hub.size===0);
+    writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: replacement-ssh\n    session: full\n    max_tasks: 7\n");
+    await wait(()=>socket!.destroyed);
+    await wait(()=>hub.size===0);
+    enableFull(ctx);
     frames.length=0;socket=createConnection(socketPath(local));const nextDecoder=new WireDecoder();
     socket.on("data",bytes=>frames.push(...nextDecoder.push(Buffer.from(bytes))));
     await new Promise<void>((resolve,reject)=>{socket!.once("connect",resolve);socket!.once("error",reject);});
@@ -1148,13 +1176,6 @@ test("native recording observation failures are retried as unreachable",async()=
     ? {code:0,stdout:"__PACER_BEGIN__\nsession=builtin\npid=1\nalive=1\n",stderr:""}
     : {code:1,stdout:"",stderr:"rotation changed"}});
   await expect(new RemoteRunIO(ctx,host,"~/run",tmpDir()).read()).rejects.toBeInstanceOf(Unreachable);
-});
-
-test("socket discovery waits for an actual remote socket",async()=>{
-  const {ctx,remote,local}=setup();
-  mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.sock.path"),join(remote,"missing.sock"));
-  const result=await pluginRegistry(ctx).sessionSocketConfiguredHost(ctx,issueConfiguredHostSessionSocket(ctx,"box",remote,local));
-  expect(result.code).not.toBe(0);
 });
 
 test("native mirrors transfer only appended log bytes and changed retained files",async()=>{

@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -44,7 +45,7 @@ export function issueConfiguredHostReadFrom(ctx: Ctx, alias: string, remoteDir: 
   localDir: string, stream: "stdout" | "stderr" | "session.raw" | "session.log" | "session.log.1" | "session.ckpt" | "session.state" | "last.md",
   offset: number, length: number): ConfiguredHostReadFromGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir, stream, offset, length);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "READ_FROM", args: [...current.args], timeoutMs: 60_000, maxBytes: 524_288 });
   Object.freeze(resource.args);
@@ -62,7 +63,7 @@ export function validateConfiguredHostReadFrom(ctx: Ctx, grant: ConfiguredHostRe
     saved.args[1]!, Number(saved.args[2]), Number(saved.args[3]));
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "READ_FROM" || grant.resource.timeoutMs !== 60_000 ||
     grant.resource.maxBytes !== 524_288 || grant.resource.args.length !== saved.args.length ||

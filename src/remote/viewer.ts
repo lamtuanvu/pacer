@@ -9,6 +9,9 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
 import type { RemoteRecording } from "./recording";
 
+export const emptyViewerPollDelay = (emptyReads: number): number =>
+  Math.min(2000, 200 * 2 ** Math.max(0, emptyReads - 1));
+
 /** Local protocol endpoint for a remote mirror; accepts hello only, never input/control. */
 export class RemoteViewer {
   private server?: Server;
@@ -90,6 +93,7 @@ export class RemoteViewer {
     this.controller = controller;
     process.once("exit",this.onExit);
     this.streaming=(async()=>{
+      let emptyReads = 0;
       try {
         while (!controller.signal.aborted) {
           const offset = await this.serial(async()=>this.mirror.offset);
@@ -101,14 +105,16 @@ export class RemoteViewer {
           if (result.timedOut || result.code !== 0) throw new Error(result.stderr || `remote read exited ${result.code}`);
           const bytes = Buffer.from(result.stdout, "hex");
           if (!bytes.length) {
+            emptyReads++;
             await new Promise<void>(resolve=>{
-              const timer = setTimeout(()=>{controller.signal.removeEventListener("abort", cancel);resolve();}, 200);
+              const timer = setTimeout(()=>{controller.signal.removeEventListener("abort", cancel);resolve();}, emptyViewerPollDelay(emptyReads));
               const cancel = () => {clearTimeout(timer);resolve();};
               controller.signal.addEventListener("abort", cancel, {once:true});
               if (controller.signal.aborted) cancel();
             });
             continue;
           }
+          emptyReads = 0;
           await this.serial(async()=>{
             if (controller.signal.aborted || this.mirror.offset !== offset) return;
             this.send(await this.mirror.output(bytes));

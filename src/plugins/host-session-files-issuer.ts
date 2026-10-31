@@ -1,5 +1,6 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
-import { loadStrategy } from "../config/strategy";
+import { cachedStrategy } from "./host-drift";
 import { CoreError } from "../core/errors";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
@@ -28,7 +29,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string) 
   const taskId = match[2]!, task = readTask(ctx, taskId), run = task?.run;
   if (!task || !run || run.host !== alias || run.mode !== "new" ||
     run.remoteDir !== remoteDir || run.dir !== localDir || run.attempt !== Number(match[3])) return deny();
-  const host = loadStrategy(ctx).hosts[alias];
+  const host = cachedStrategy(ctx).hosts[alias];
   if (!host || host.session !== "full") return deny();
   return { taskId, task, host };
 }
@@ -37,7 +38,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string) 
 export function issueConfiguredHostSessionFiles(ctx: Ctx, alias: string, remoteDir: string,
   localDir: string): ConfiguredHostSessionFilesGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "SESSION_FILES", args: [remoteDir], timeoutMs: 60_000, maxBytes: 16_384 });
   Object.freeze(resource.args);
@@ -54,7 +55,7 @@ export function validateConfiguredHostSessionFiles(ctx: Ctx, grant: ConfiguredHo
   const current = snapshot(ctx, saved.alias, saved.remoteDir, saved.localDir);
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "SESSION_FILES" || grant.resource.timeoutMs !== 60_000 ||
     grant.resource.maxBytes !== 16_384 || grant.resource.args.length !== 1 ||

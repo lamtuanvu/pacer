@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { createHash } from "node:crypto";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
@@ -43,7 +44,7 @@ export function issueConfiguredHostBinaryUpload(ctx: Ctx, alias: string, remoteD
   if (!(bytes instanceof Uint8Array) || bytes.length < 1 || bytes.length > 128 * 1024 * 1024) return deny();
   const hash = createHash("sha256").update(bytes).digest("hex");
   const current = snapshot(ctx, alias, remoteDir, localDir, hash);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host, [], true);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "BINARY", args: [hash, "upload"], timeoutMs: 300_000, maxBytes: 4096 });
   Object.freeze(resource.args);
@@ -61,7 +62,7 @@ export function validateConfiguredHostBinaryUploadState(ctx: Ctx, grant: Configu
   const current = snapshot(ctx, saved.alias, saved.remoteDir, saved.localDir, saved.hash);
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "BINARY" || grant.resource.timeoutMs !== 300_000 ||
     grant.resource.maxBytes !== 4096 || grant.resource.args.length !== 2 ||

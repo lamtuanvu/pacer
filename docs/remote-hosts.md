@@ -118,7 +118,7 @@ or the provider becomes unavailable, that poll waits for a consistent snapshot;
 it does not retry over direct SSH. A partially published local recording is
 restored on the next observation after an interruption.
 An attached read-only PTY viewer reads at most 256 KiB at a time through the
-same bundled SSH provider. After an empty read it waits about 200 ms before
+same bundled SSH provider. After consecutive empty reads it backs off from 200 ms to 2 s before
 checking again, in addition to SSH round-trip time. Detaching cancels the
 pending read; reconnecting resumes from the committed recording cursor. A
 disabled or failing provider does not trigger a direct SSH tail.
@@ -129,8 +129,8 @@ chunks. Detaching or losing the provider closes that viewer connection, and
 reconnecting opens a fresh stream. An idle viewer stays connected through
 short empty polls. No direct SSH forwarding or exec fallback follows a plugin
 refusal. A run accepts at most two attached viewers, and at most four viewers
-stream at once across all runs; pacer closes an extra viewer's connection
-immediately. Viewer streams never use the plugin call slots that reachability,
+stream at once across all runs; web clients receive an HTTP refusal before
+upgrade, and CLI attach prints the reason. Viewer streams never use the plugin call slots that reachability,
 usage and run polling need.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 After a nonzero agent exit, pacer checks for committed work through the bundled
@@ -184,7 +184,7 @@ An unreachable host is excluded from routing with `host box unreachable`, and
 routing can fall through to the next runner. Reachability is cached for 60
 seconds. The bundled remote caller probes the configured alias through the
 fixed SSH provider; if either plugin is disabled or unavailable, the host is
-reported unreachable until the plugin is restored or the cache expires. There
+reported with the specific plugin reason until that plugin is restored. There
 is no direct SSH retry for routing reachability. Missing repository mappings,
 current placement and `max_tasks` also
 exclude remote runners with a reason.

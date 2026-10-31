@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute } from "node:path";
 import { repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
@@ -48,11 +49,11 @@ export async function issueConfiguredHostClone(ctx: Ctx, alias: string, repo: st
   const remotePath = Object.hasOwn(host.repos, local.key) ? host.repos[local.key] : undefined;
   if (!expected || expected.alias !== alias || expected.key !== local.key ||
     expected.path !== remotePath || expected.origin !== local.origin ||
-    expected.hostFingerprint !== JSON.stringify(host)) return deny();
+    expected.hostFingerprint !== driftFingerprint(host, [remotePath ?? ""], true)) return deny();
   if (!remotePath || !(isAbsolute(remotePath) || remotePath.startsWith("~/")) ||
     remotePath.length > 4096 || /[\u0000-\u001f\u007f]/.test(remotePath)) return deny();
   const args = Object.freeze([remotePath, "clone", local.origin]);
-  const hostFingerprint = JSON.stringify(host);
+  const hostFingerprint = driftFingerprint(host, args, true);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "CHECK_REPO", args: [...args], timeoutMs: 50_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -65,7 +66,7 @@ export async function validateConfiguredHostClone(ctx: Ctx, grant: ConfiguredHos
   const saved = issued.get(grant);
   if (!saved || saved.home !== ctx.pacerHome) return deny();
   const host = loadStrategy(ctx).hosts[saved.alias];
-  if (!host || host.paused || JSON.stringify(host) !== saved.hostFingerprint ||
+  if (!host || host.paused || matchesHostFingerprint(host, saved.hostFingerprint) === false ||
     host.repos[saved.key] !== saved.args[0] || grant.resource.alias !== saved.alias ||
     grant.resource.hostFingerprint !== saved.hostFingerprint || grant.resource.script !== "CHECK_REPO" ||
     grant.resource.timeoutMs !== 50_000 || grant.resource.maxBytes !== 65_536 ||

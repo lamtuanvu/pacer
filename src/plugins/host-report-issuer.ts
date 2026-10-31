@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -37,7 +38,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string) 
 export function issueConfiguredHostReport(ctx: Ctx, alias: string, remoteDir: string,
   localDir: string): ConfiguredHostReportGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "REPORT", args: [remoteDir], timeoutMs: 60_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -54,7 +55,7 @@ export function validateConfiguredHostReport(ctx: Ctx, grant: ConfiguredHostRepo
   const current = snapshot(ctx, saved.alias, saved.remoteDir, saved.localDir);
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "REPORT" || grant.resource.timeoutMs !== 60_000 ||
     grant.resource.maxBytes !== 65_536 || grant.resource.args.length !== 1 ||

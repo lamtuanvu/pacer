@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { realpathSync } from "node:fs";
@@ -71,7 +72,7 @@ export async function issueConfiguredHostPrepare(ctx: Ctx, alias: string, taskId
   if (!(bundle instanceof Uint8Array) || bundle.length > MAX_BUNDLE) return deny();
   const current = await snapshot(ctx, alias, taskId, baseSha, branch);
   const args = Object.freeze(current.args);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host, current.args, true);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "PREPARE", args: [...args], timeoutMs: 60_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -88,7 +89,7 @@ export async function validateConfiguredHostPrepare(ctx: Ctx, grant: ConfiguredH
   if (!saved || saved.home !== ctx.pacerHome) return deny();
   const current = await snapshot(ctx, grant.resource.alias, saved.taskId, saved.args[3]!, saved.args[4]!);
   if (current.task.brief.repo !== saved.repo || current.task.rev !== saved.taskRev ||
-    JSON.stringify(current.task) !== saved.taskFingerprint || JSON.stringify(current.host) !== saved.hostFingerprint ||
+    JSON.stringify(current.task) !== saved.taskFingerprint || matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     current.url !== saved.origin || current.args.length !== saved.args.length ||
     current.args.some((value, index) => value !== saved.args[index]) ||
     grant.resource.hostFingerprint !== saved.hostFingerprint || grant.resource.script !== "PREPARE" ||

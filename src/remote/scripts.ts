@@ -197,11 +197,6 @@ case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 binary=$(cat "$D/session.binary") || exit 1
 if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
 exec "$binary" _session "socket:$path"`,
-  SESSION_SOCKET: `D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
-[ -S "$path" ] || exit 1
-printf '%s' "$path"`,
   START: `D="$1"; cwd="$2"; mode="$3"; shift 3
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
 case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac

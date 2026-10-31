@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostClone } from "../src/plugins/host-clone-issuer";
 import { loadStrategy } from "../src/config/strategy";
+import { hostFingerprint } from "../src/plugins/host-drift";
 import { controlDir } from "../src/remote/ssh";
 import { fakeCtx, realRun, folderPlugins } from "./helpers";
 import { releaseReservation, reserveIdle } from "../src/update/desktop/admission";
@@ -34,7 +35,7 @@ test("host clone grant pins one fixed SSH effect and preserves uncertain complet
       env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
       which: name => name === "ssh" ? ssh : null });
     const snapshot = { alias: "box", key: "example.invalid/acme/repo", path: "/remote/repo",
-      origin: "https://example.invalid/acme/repo.git", hostFingerprint: JSON.stringify(loadStrategy(ctx).hosts.box) };
+      origin: "https://example.invalid/acme/repo.git", hostFingerprint: hostFingerprint(loadStrategy(ctx).hosts.box, ["/remote/repo"], true) };
     await registry.enable(ctx, "pacer-ssh", true);
     await expect(registry.call(ctx, "pacer-ssh", "hostRunner.run", {
       session: "a".repeat(32), script: "CHECK_REPO", args: ["/remote/repo", "clone", "https://example.invalid/acme/repo.git"],

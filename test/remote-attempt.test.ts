@@ -184,7 +184,7 @@ test("disabled SSH provider fails PREPARE without direct SSH fallback", async ()
   const before = existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "";
   const result = await runAttempt(f.ctx, f.cfg, f.task);
   expect(result.exec.code).toBe(1);
-  expect(result.exec.stderr).toContain("host box unreachable");
+  expect(result.exec.stderr).toContain("SSH host runner plugin pacer-ssh is disabled");
   expect(existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "").toBe(before);
 }, 60000);
 

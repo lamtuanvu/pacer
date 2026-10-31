@@ -2,10 +2,10 @@ import { z } from "zod";
 
 /** Fixed IDs name reviewed scripts; they are never remote shell text. */
 export const HOST_RUNNER_SCRIPTS = [
-  "CODEX_USAGE", "PROBE", "CHECK_REPO", "SET_IDENTITY", "ECHO_STDIN",
-  "PREPARE", "PREPARE_RECOVER", "QUESTION", "QUESTION_CLEAR", "PREFLIGHT", "BUNDLE_OUT",
-  "CLEAN", "BINARY", "SESSION_FILES", "SESSION_PIPE", "SESSION_SOCKET",
-  "START", "REPORT", "READ_FROM", "FOLLOW", "STOP",
+  "CODEX_USAGE", "PROBE", "CHECK_REPO", "SET_IDENTITY",
+  "PREPARE", "PREPARE_RECOVER", "QUESTION", "PREFLIGHT", "BUNDLE_OUT",
+  "CLEAN", "BINARY", "SESSION_FILES", "SESSION_PIPE",
+  "START", "REPORT", "READ_FROM", "STOP",
 ] as const;
 export const hostRunnerScript = z.enum(HOST_RUNNER_SCRIPTS);
 export const hostRunnerContribution = z.object({ kinds: z.tuple([z.literal("ssh")]) }).strict();
@@ -26,7 +26,7 @@ const byteCount = z.number().int().nonnegative().max(50 * 1024 * 1024);
 const request = z.object({ session: hostRunnerSession, script: hostRunnerScript, args: scriptArgs, timeoutMs: deadline }).strict();
 const exitCode = z.number().int().min(0).max(255);
 
-/** Staged transport contract only. No host callers or forwarding capability are added here. */
+/** Host runner contract used by the bundled SSH provider and host-issued calls. */
 export const HOST_RUNNER_METHODS = {
   "hostRunner.check": { description: "Check a configured SSH host without opening a persistent session.",
     // Additive transport fields: only the host registry may issue these snapshots.

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, sessionPipeArgv, SESSION_PIPE_SCRIPT, startArgv, START_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionPipeArgv, SESSION_PIPE_SCRIPT, startArgv, START_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -228,17 +228,6 @@ test("SSH output reader pins the fixed hex range and rejects path or size expans
     [...args.slice(0, 3), "262145", "hex"], [...args.slice(0, 4), "text"],
     [args[0]!, "stdout", 0 as unknown as string, "1", "hex"],
   ]) expect(() => readFromArgv(host.ssh, "/tmp/private/cm-%C", bad)).toThrow();
-});
-
-test("SSH session socket discovery pins the fixed persisted-run script", () => {
-  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
-  const args = ["/remote/.pacer-remote/runs/t-20261026-120000-abcd/1"];
-  expect(SESSION_SOCKET_SCRIPT).toBe(SCRIPTS.SESSION_SOCKET);
-  expect(sessionSocketArgv(host.ssh, "/tmp/private/cm-%C", args))
-    .toEqual(sshArgv(ctx, host, SCRIPTS.SESSION_SOCKET, args).map(arg =>
-      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
-  expect(() => sessionSocketArgv(host.ssh, "/tmp/private/cm-%C", ["../run"])).toThrow();
-  expect(() => sessionSocketArgv(host.ssh, "/tmp/private/cm-%C", ["/run\nother"])).toThrow();
 });
 
 test("SSH binary check pins the content-addressed read-only action", () => {
@@ -476,7 +465,6 @@ test("SSH provider rejects unissued operations and foreign sessions before spawn
   for (const invalid of [
     { ...request, script: "CLEAN" }, { ...request, script: "REPORT", args: ["~/run"] },
     { ...request, script: "READ_FROM", args: ["/run", "secrets", "0", "1", "hex"] },
-    { ...request, script: "SESSION_SOCKET", args: ["~/run"] },
     { ...request, script: "BINARY", args: ["a".repeat(64), "upload"] },
     { ...request, args: ["--anything"] },
     { ...request, script: "PREPARE", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"] },

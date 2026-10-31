@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
@@ -60,7 +61,7 @@ export async function issueConfiguredHostClean(ctx: Ctx, alias: string, taskId: 
   const force = o.force === true;
   const current = await snapshot(ctx, alias, taskId, force);
   if (current.received !== expectedReceived) return deny();
-  const hostFingerprint = JSON.stringify(current.host), args = Object.freeze(current.args);
+  const hostFingerprint = driftFingerprint(current.host, [current.args[2]!]), args = Object.freeze(current.args);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "CLEAN", args: [...args], timeoutMs: 50_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -77,7 +78,7 @@ export async function validateConfiguredHostClean(ctx: Ctx, grant: ConfiguredHos
   const current = await snapshot(ctx, saved.alias, saved.taskId, saved.force);
   if (current.task.rev !== saved.taskRev || JSON.stringify(current.task.run) !== saved.runFingerprint ||
     current.task.brief.repo !== saved.repo || current.origin !== saved.origin ||
-    JSON.stringify(current.host) !== saved.hostFingerprint || current.received !== saved.received ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false || current.received !== saved.received ||
     current.args.length !== saved.args.length || current.args.some((arg, index) => arg !== saved.args[index]) ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "CLEAN" || grant.resource.timeoutMs !== 50_000 ||

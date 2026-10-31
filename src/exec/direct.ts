@@ -27,6 +27,7 @@ import { claudeResultFromStream, captureClaudeStreamUsageFile } from "../usage/c
 import { readAccountUsage } from "../usage";
 import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
+import { hasCommittedWork } from "../remote/committed-work";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
 import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
@@ -631,7 +632,7 @@ async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecor
     // A refused issuance is a failed preflight: keep the result without transferring.
     const preflight = await Promise.resolve().then(() => pluginRegistry(ctx).preflightConfiguredHostAttempt(ctx,
       issueConfiguredHostAttemptPreflight(ctx, task.id, run.attempt))).catch(() => null);
-    if (!preflight || preflight.code || preflight.timedOut || Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0) === 0) return result;
+    if (!preflight || preflight.code || preflight.timedOut || !hasCommittedWork(preflight.stdout)) return result;
   }
   // A runner may die after transfer but before recording the attempt. Reuse the
   // review worktree only when its branch matches the recorded transfer.

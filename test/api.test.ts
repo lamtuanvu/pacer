@@ -193,21 +193,22 @@ test("stop kills the executor's grandchild too", async () => {
     computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
       providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }] }),
     runAttempt: async (_c, cfg, task, onSpawn) => {
-      const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 15_000, onSpawn });
+      const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 20_000, onSpawn });
       return { exec, report: "killed", attempt: { executor: cfg.id, model: null, startedAt: 0, endedAt: 0, exitCode: exec.code, timedOut: exec.timedOut, limitHit: false, log: "" } };
     },
     verifyRepo: async () => ({ files: "" }),
   });
   let pid = 0;
   try {
-    const readyBy = Date.now() + 5_000;
-    while ((!readTask(ctx, t.id)?.childPid || !existsSync(pidFile) || !readFileSync(pidFile, "utf8").trim()) && Date.now() < readyBy) await Bun.sleep(10);
+    // The attempt spawns only after the task-kind decision, which starts a classifier plugin; wait for it, not a fixed time.
+    for (const end = Date.now() + 15_000; Date.now() < end && (!readTask(ctx, t.id)?.childPid || !existsSync(pidFile) || !readFileSync(pidFile, "utf8").trim());) await Bun.sleep(5);
     expect(readTask(ctx, t.id)?.childPid).toBeGreaterThan(0);
     pid = Number(readFileSync(pidFile, "utf8"));
     expect(pid).toBeGreaterThan(0);
     taskStop(ctx, t.id);
     const r = await running;
-    await Bun.sleep(300);
+    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    for (const end = Date.now() + 5000; Date.now() < end && alive();) await Bun.sleep(20);
     expect(() => process.kill(pid, 0)).toThrow();
     expect(r.state).toBe("stopped");
     expect(r.result?.status).toBe("stopped");

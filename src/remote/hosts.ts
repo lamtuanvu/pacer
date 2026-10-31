@@ -13,7 +13,8 @@ import { listTasks, listTasksWhere, listActiveAndRecentTasks } from "../tasks/st
 import { TERMINAL_STATES } from "../tasks/types";
 import type { Ctx } from "../types";
 import { openInTerminal } from "../terminal/open";
-import { readHostReachability } from "./eligibility";
+import { pluginAvailabilityReason, readHostReachability } from "./eligibility";
+import { hostFingerprint as driftFingerprint } from "../plugins/host-drift";
 import { sshAliases } from "./ssh-config";
 import { SCRIPTS } from "./scripts";
 import { transferred } from "./transfer";
@@ -163,9 +164,11 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
     else steps?.fail(name, detail);
   };
   steps?.start("ssh");
-  const probe = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias).catch(() => null);
+  const unavailable = pluginAvailabilityReason(ctx);
+  const probe = unavailable ? null : await pluginRegistry(ctx).checkConfiguredHost(ctx, alias).catch(() => null);
   if (!probe?.ok) {
-    for (const name of names) add(name, false, name === "ssh" ? "unreachable" : "skipped");
+    const reason = unavailable ?? pluginAvailabilityReason(ctx) ?? "unreachable";
+    for (const name of names) add(name, false, name === "ssh" ? reason : "skipped");
     return finish();
   }
   add("ssh", true);
@@ -256,7 +259,7 @@ export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptio
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   if (o.clone !== false) {
     const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
-      hostFingerprint: JSON.stringify(host) };
+      hostFingerprint: driftFingerprint(host, [path], true) };
     const preview = o[SETUP_CLONE_PREVIEW];
     if (preview && (preview.alias !== snapshot.alias || preview.key !== snapshot.key ||
       preview.path !== snapshot.path || preview.origin !== snapshot.origin ||
@@ -309,7 +312,7 @@ export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confir
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
-    hostFingerprint: JSON.stringify(host) };
+    hostFingerprint: driftFingerprint(host, [path], true) };
   const exists = await checkoutExists(ctx, alias, path);
   const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
   const clone = !exists && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
