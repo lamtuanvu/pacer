@@ -1,3 +1,4 @@
+import { cachedStrategy, hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import {ReadOwner} from "./read-owner";
 import {EventSubscription} from "./event-subscription";
 import {answerTaskCapability} from "./task-capability";
@@ -6,7 +7,7 @@ import type { PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
 import { BUNDLED } from "../../plugins/bundled";
-import { loadStrategy, MissingStrategyError } from "../config/strategy";
+import { EMPTY_PLUGINS, loadStrategy, MissingStrategyError } from "../config/strategy";
 import { validateClassifier, type ClassifierConfig } from "../config/classifier";
 import { classifierCredentialBindings, classifierPluginConfig, classifierSnapshot } from "./classifier-config";
 import type { AdapterId } from "../classify/types";
@@ -55,7 +56,6 @@ import { consumeConfiguredHostReport, validateConfiguredHostReport, type Configu
 import { consumeConfiguredHostSessionFiles, validateConfiguredHostSessionFiles, type ConfiguredHostSessionFilesGrant } from "./host-session-files-issuer";
 import { consumeConfiguredHostAttemptPreflight, validateConfiguredHostAttemptPreflight, type ConfiguredHostAttemptPreflightGrant } from "./host-attempt-preflight-issuer";
 import { consumeConfiguredHostReadFrom, validateConfiguredHostReadFrom, type ConfiguredHostReadFromGrant } from "./host-read-from-issuer";
-import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket, type ConfiguredHostSessionSocketGrant } from "./host-session-socket-issuer";
 import { consumeConfiguredHostSessionStream, validateConfiguredHostSessionStream, type ConfiguredHostSessionStreamGrant } from "./host-session-stream-issuer";
 import { consumeConfiguredHostBinaryCheck, validateConfiguredHostBinaryCheck, type ConfiguredHostBinaryCheckGrant } from "./host-binary-check-issuer";
 import { consumeConfiguredHostRuntimeProbe, validateConfiguredHostRuntimeProbe, type ConfiguredHostRuntimeProbeGrant } from "./host-runtime-probe-issuer";
@@ -77,7 +77,6 @@ const HOST_SESSION_FILES_ISSUER = Symbol("host-session-files-issuer");
 const HOST_ATTEMPT_PREFLIGHT_ISSUER = Symbol("host-attempt-preflight-issuer");
 const HOST_CALL_PREFLIGHT_ISSUER = Symbol("host-call-preflight-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
-const HOST_SESSION_SOCKET_ISSUER = Symbol("host-session-socket-issuer");
 const HOST_SESSION_STREAM_ISSUER = Symbol("host-session-stream-issuer");
 const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
 const HOST_RUNTIME_PROBE_ISSUER = Symbol("host-runtime-probe-issuer");
@@ -90,7 +89,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export type SurfaceKind = "activity" | "panelTabs" | "settings" | "status";
 export interface SurfaceInfo { plugin: string; surface: SurfaceKind; id: string; title: string; icon: string | null; context: "global" | "task"; visible: boolean; state: PluginState }
 const KINDS: SurfaceKind[] = ["activity", "panelTabs", "settings", "status"];
@@ -145,12 +144,21 @@ export class PluginRegistry {
   private readonly admission = new CallAdmission();
   // Full-session viewer streams have no deadline; they run in their own pool so they can never hold the shared call slots.
   private readonly streamAdmission = new CallAdmission(SESSION_STREAM_SLOTS, 0, "session viewer stream");
+  private pendingViewerAdmissions = 0;
+  reserveSessionViewer(): (() => void) | null {
+    if (this.streamAdmission.activeCount + this.pendingViewerAdmissions >= SESSION_STREAM_SLOTS) return null;
+    this.pendingViewerAdmissions++;
+    let released = false;
+    return () => { if (!released) { released = true; this.pendingViewerAdmissions--; } };
+  }
   private readonly refusedShadows = new Set<string>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
 
   private hostGeneration(ctx: Ctx, e: Entry): string {
-    const cfg = pluginsConfig(ctx);
+    let cfg = EMPTY_PLUGINS;
+    try { cfg = cachedStrategy(ctx).plugins ?? EMPTY_PLUGINS; }
+    catch (error) { if (!(error instanceof MissingStrategyError)) throw error; }
     return JSON.stringify({ manifest: e.manifest, config: cfg.config[e.id] ?? {}, grant: e.bundled ? null : cfg.installed[e.id] ?? null });
   }
 
@@ -171,7 +179,7 @@ export class PluginRegistry {
       (target.account !== undefined && !Object.hasOwn(host.accounts, target.account)))
       throw new CoreError("capability_denied", "host check target is not configured");
     const home = target.account === undefined ? undefined : host.accounts[target.account]!.home;
-    const fingerprint = JSON.stringify(host);
+    const fingerprint = driftFingerprint(host, [target.repo, home].filter((value): value is string => value !== undefined));
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
     if (providers.length !== 1 || providers[0] !== "pacer-ssh")
@@ -189,8 +197,8 @@ export class PluginRegistry {
     const argv = sshArgv(ctx, host, target.repo === undefined && home === undefined ? SCRIPTS.PROBE : SCRIPTS.CHECK_REPO,
       home !== undefined ? [home, "home"] : target.repo === undefined ? [] : [target.repo, "check"]);
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === fingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, fingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777) &&
@@ -222,7 +230,7 @@ export class PluginRegistry {
     await consumeConfiguredHostClone(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || host.paused || JSON.stringify(host) !== hostFingerprint)
+    if (!host || host.paused || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured clone host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -239,8 +247,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -294,7 +302,7 @@ export class PluginRegistry {
     await consumeConfiguredHostClean(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured cleanup host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -311,8 +319,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -366,7 +374,7 @@ export class PluginRegistry {
     consumeConfiguredHostStop(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured stop host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -383,8 +391,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -438,7 +446,7 @@ export class PluginRegistry {
     const input = await consumeConfiguredHostPrepare(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured prepare host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -455,8 +463,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -512,7 +520,7 @@ export class PluginRegistry {
     const input = consumeConfiguredHostStart(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured start host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -530,8 +538,8 @@ export class PluginRegistry {
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
       try { validateConfiguredHostStartState(ctx, grant); } catch { return false; }
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -587,7 +595,7 @@ export class PluginRegistry {
     const input = consumeConfiguredHostBinaryUpload(ctx, grant);
     const { alias, args, hostFingerprint } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured binary upload host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -605,8 +613,8 @@ export class PluginRegistry {
     const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
     const active = () => {
       try { validateConfiguredHostBinaryUploadState(ctx, grant); } catch { return false; }
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -662,7 +670,7 @@ export class PluginRegistry {
     consumeConfiguredHostAttemptPreflight(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured attempt preflight host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -680,8 +688,8 @@ export class PluginRegistry {
     const controlPath = join(directory, "cm-%C");
     const active = () => {
       try { validateConfiguredHostAttemptPreflight(ctx, grant); } catch { return false; }
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -723,7 +731,7 @@ export class PluginRegistry {
     consumeConfiguredHostReport(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured report host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -740,8 +748,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C");
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -783,7 +791,7 @@ export class PluginRegistry {
     consumeConfiguredHostSessionFiles(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured session files host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -800,8 +808,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C");
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -843,7 +851,7 @@ export class PluginRegistry {
     consumeConfiguredHostReadFrom(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured read host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -860,8 +868,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C");
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -910,7 +918,7 @@ export class PluginRegistry {
     consumeConfiguredHostSessionStream(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured session host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -928,8 +936,8 @@ export class PluginRegistry {
     const controlPath = join(directory, "cm-%C"), streamId = randomUUID();
     const active = () => {
       validateConfiguredHostSessionStream(ctx, grant);
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -983,72 +991,12 @@ export class PluginRegistry {
     }, done };
   }
 
-  /** Discover the socket for one persisted full remote run through the bundled provider. */
-  async sessionSocketConfiguredHost(ctx: Ctx, grant: ConfiguredHostSessionSocketGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
-    consumeConfiguredHostSessionSocket(ctx, grant);
-    const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
-    const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
-      throw new CoreError("capability_denied", "configured session host changed");
-    const providers = this.findAll(ctx, "hostRunner", contribution =>
-      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
-    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
-      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
-    const provider = this.entries.get(providers[0]!)!;
-    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
-      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
-    const directory = controlDir(ctx), original = lstatSync(directory);
-    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
-      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
-      throw new CoreError("capability_denied", "SSH control directory is not private");
-    const controlPath = join(directory, "cm-%C");
-    const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
-        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
-        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
-    };
-    if (!active()) throw new CoreError("capability_denied", "configured session snapshot changed");
-    const controller = new AbortController();
-    const cancel = () => controller.abort(new CoreError("capability_denied", "configured session retired"));
-    signal?.addEventListener("abort", cancel, { once: true });
-    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
-    watch.unref();
-    let session: string | undefined;
-    try {
-      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
-        { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
-      session = opened.session;
-      validateConfiguredHostSessionSocket(ctx, grant);
-      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session retired");
-      const argv = sshArgv(ctx, host, SCRIPTS.SESSION_SOCKET, [...args]);
-      if (!argv.includes(`ControlPath=${controlPath}`) || !active())
-        throw new CoreError("capability_denied", "configured session SSH path changed");
-      const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
-        ctx, provider.id, "hostRunner.run",
-        { session, script: "SESSION_SOCKET", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
-          resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_SESSION_SOCKET_ISSUER]: true });
-      validateConfiguredHostSessionSocket(ctx, grant);
-      if (!active()) throw new CoreError("capability_denied", "configured session host changed after observation");
-      return result;
-    } finally {
-      clearInterval(watch); signal?.removeEventListener("abort", cancel);
-      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
-    }
-  }
-
   /** Probe the platform of one persisted remote run through the bundled provider. */
   async probeConfiguredHostRuntime(ctx: Ctx, grant: ConfiguredHostRuntimeProbeGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
     consumeConfiguredHostRuntimeProbe(ctx, grant);
-    const { alias, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
+    const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured runtime probe host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -1066,8 +1014,8 @@ export class PluginRegistry {
     const controlPath = join(directory, "cm-%C");
     const active = () => {
       try { validateConfiguredHostRuntimeProbe(ctx, grant); } catch { return false; }
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -1109,7 +1057,7 @@ export class PluginRegistry {
     consumeConfiguredHostBinaryCheck(ctx, grant);
     const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || JSON.stringify(host) !== hostFingerprint)
+    if (!host || matchesHostFingerprint(host, hostFingerprint) === false)
       throw new CoreError("capability_denied", "configured binary host changed");
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -1126,8 +1074,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C");
     const active = () => {
-      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && JSON.stringify(current) === hostFingerprint &&
+      const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && matchesHostFingerprint(current, hostFingerprint) &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
@@ -1285,8 +1233,10 @@ export class PluginRegistry {
       !caller.manifest?.capabilities.some(capability => capability.name === "hosts") ||
       this.hostGeneration(authority.ctx, caller) !== lease.callerGeneration)
       throw new CoreError("capability_denied", "host caller generation retired");
-    const host = loadStrategy(authority.ctx).hosts[lease.alias];
-    if (!host || host.paused || host.ssh !== lease.sshTarget || JSON.stringify(host) !== lease.hostFingerprint)
+    const host = cachedStrategy(authority.ctx).hosts[lease.alias];
+    const scoped = this.hostCallerIdentity.get(authority)?.resource;
+    const matches = host && (scoped ? matchesHostFingerprint(host, lease.hostFingerprint) : JSON.stringify(host) === lease.hostFingerprint);
+    if (!host || host.paused || host.ssh !== lease.sshTarget || !matches)
       throw new CoreError("capability_denied", "host alias changed or is unavailable");
     const provider = this.entries.get(lease.provider.id);
     if (!provider || !ENABLED.has(provider.state) || provider.process !== lease.provider.process ||
@@ -1391,8 +1341,9 @@ export class PluginRegistry {
       (globalThis.process.getuid && controlDirectoryEntry.uid !== globalThis.process.getuid()))
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(controlDirectory, "cm-%C");
+    const scoped = this.hostCallerIdentity.get(authority)?.resource;
     return this.hostLeases.open(authority, {
-      alias, sshTarget: host.ssh, controlPath, hostFingerprint: JSON.stringify(host),
+      alias, sshTarget: host.ssh, controlPath, hostFingerprint: scoped?.hostFingerprint ?? JSON.stringify(host),
       callerProcess, callerGeneration,
       provider: { id: provider.id, generation: providerGeneration, process,
         invoke: async (providerMethod, input, deadlineAt, signal) => {
@@ -1987,9 +1938,6 @@ export class PluginRegistry {
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "READ_FROM" &&
       !options[HOST_READ_FROM_ISSUER])
       throw new CoreError("capability_denied", "remote read requires host-owned issuance");
-    if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "SESSION_SOCKET" &&
-      !options[HOST_SESSION_SOCKET_ISSUER])
-      throw new CoreError("capability_denied", "remote session socket requires host-owned issuance");
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "PROBE" &&
       !options[HOST_RUNTIME_PROBE_ISSUER] && !options[HOST_CALL_PROBE_ISSUER])
       throw new CoreError("capability_denied", "remote runtime probe requires host-owned issuance");

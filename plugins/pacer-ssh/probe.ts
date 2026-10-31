@@ -278,13 +278,6 @@ else
 fi
 printf '%s\\n' "$file"`;
 
-/** Fixed persisted-run socket discovery; parity with SCRIPTS.SESSION_SOCKET is tested. */
-export const SESSION_SOCKET_SCRIPT = `D="$1"
-case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
-[ -S "$path" ] || exit 1
-printf '%s' "$path"`;
-
 /** Fixed full-session socket bridge; parity with SCRIPTS.SESSION_PIPE is checked. */
 export const SESSION_PIPE_SCRIPT = `# socket exec pipe: use the uploaded runtime, without extra host dependencies.
 D="$1"
@@ -426,13 +419,6 @@ export function readFromArgv(sshTarget: string, controlPath: string, args: reado
     !Number.isSafeInteger(Number(args[2]) + Number(args[3])) || args[4] !== "hex")
     throw Error("invalid host-issued output range");
   return issuedArgv(sshTarget, controlPath, READ_FROM_SCRIPT, [...args]);
-}
-
-export function sessionSocketArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
-  if (args.length !== 1 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
-    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
-    throw Error("invalid host-issued session run directory");
-  return issuedArgv(sshTarget, controlPath, SESSION_SOCKET_SCRIPT, [...args]);
 }
 
 export function sessionPipeArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

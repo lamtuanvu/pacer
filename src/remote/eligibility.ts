@@ -16,31 +16,37 @@ export function readHostReachability(ctx: Ctx, host: HostCfg): Reading | null {
 }
 const memory = new Map<string, Record<string, Reading>>();
 const inFlight = new Map<string, Promise<boolean>>();
-const targetKey = (host: HostCfg) => createHash("sha256").update(JSON.stringify(host)).digest("hex");
+const targetKey = (host: HostCfg) => createHash("sha256").update(JSON.stringify([host.alias, host.ssh])).digest("hex");
 const fresh = (ctx: Ctx, host: HostCfg, r: Reading | undefined): r is Reading =>
   !!r && r.target === targetKey(host) && typeof r.reachable === "boolean" && Number.isFinite(r.at) && ctx.now >= r.at && ctx.now - r.at < 60;
 
-function pluginsAvailable(ctx: Ctx): boolean {
+export function pluginAvailabilityReason(ctx: Ctx): string | null {
   try {
     const registry = pluginRegistry(ctx);
-    return registry.find(ctx, "remoteCaller", () => true) === "pacer-remote-caller" &&
-      JSON.stringify(registry.findAll(ctx, "hostRunner", contribution =>
-        Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh")) ===
-      JSON.stringify(["pacer-ssh"]);
-  } catch { return false; }
+    const entries = registry.list(ctx);
+    for (const [id, label] of [["pacer-remote-caller", "SSH remote caller"], ["pacer-ssh", "SSH host runner"]]) {
+      const entry = entries.find(item => item.id === id);
+      if (!entry) return `${label} plugin ${id} is unavailable`;
+      if (!["idle", "starting", "ready"].includes(entry.state))
+        return `${label} plugin ${id} is ${entry.state}${entry.error ? `: ${entry.error}` : ""}`;
+    }
+    return null;
+  } catch (error) { return `SSH plugin availability check failed: ${String(error)}`; }
 }
 
-async function probeReachability(ctx: Ctx, host: HostCfg): Promise<boolean> {
+async function probeReachability(ctx: Ctx, host: HostCfg): Promise<boolean | null> {
   try {
-    const snapshot = JSON.stringify(host);
-    if (JSON.stringify(loadStrategy(ctx).hosts[host.alias]) !== snapshot) return false;
+    const snapshot = targetKey(host);
+    const current = loadStrategy(ctx).hosts[host.alias];
+    if (!current || targetKey(current) !== snapshot) return false;
     const registry = pluginRegistry(ctx);
     const caller = registry.find(ctx, "remoteCaller", () => true);
-    if (caller !== "pacer-remote-caller") return false;
+    if (caller !== "pacer-remote-caller") return null;
     const result = await registry.call<{ reachable: boolean }>(ctx, caller,
       "remoteCaller.reachability", { alias: host.alias }, { deadlineMs: 30_000 });
-    return result.reachable && JSON.stringify(loadStrategy(ctx).hosts[host.alias]) === snapshot;
-  } catch { return false; }
+    const after = loadStrategy(ctx).hosts[host.alias];
+    return result.reachable && !!after && targetKey(after) === snapshot;
+  } catch { return pluginAvailabilityReason(ctx) ? null : false; }
 }
 
 function recordReachability(ctx: Ctx, host: HostCfg, ok: boolean): Reading {
@@ -55,7 +61,7 @@ function recordReachability(ctx: Ctx, host: HostCfg, ok: boolean): Reading {
 
 async function reachable(ctx: Ctx, host: HostCfg): Promise<boolean> {
   // A healthy cached SSH target does not authorize routing after its plugin is disabled.
-  if (!pluginsAvailable(ctx)) return false;
+  if (pluginAvailabilityReason(ctx)) return false;
   const file = join(ctx.pacerHome, "cache", "hosts.json");
   const cached = memory.get(file)?.[host.alias];
   if (fresh(ctx, host, cached)) return cached.reachable;
@@ -69,8 +75,8 @@ async function reachable(ctx: Ctx, host: HostCfg): Promise<boolean> {
   if (pending) return pending;
   const probe = (async () => {
     const ok = await probeReachability(ctx, host);
-    recordReachability(ctx,host,ok);
-    return ok;
+    if (ok !== null && !pluginAvailabilityReason(ctx)) recordReachability(ctx,host,ok);
+    return ok === true;
   })();
   inFlight.set(key, probe);
   try { return await probe; } finally { inFlight.delete(key); }
@@ -86,7 +92,11 @@ export async function remoteExclusion(
   if (!alias) return null;
   const host = s.hosts[alias];
   if (host.paused) return `${alias} paused`;
+  const unavailable = pluginAvailabilityReason(ctx);
+  if (unavailable) return unavailable;
   const up = await (deps.reachable ? deps.reachable(host).catch(() => false) : reachable(ctx, host));
+  const lostProvider = pluginAvailabilityReason(ctx);
+  if (lostProvider) return lostProvider;
   if (!up) return `host ${alias} unreachable`;
   if (!task) return null;
   const origin = await ctx.run(["git", "-C", task.repo, "remote", "get-url", "origin"], 10_000).catch(() => null);
@@ -108,8 +118,12 @@ export async function probeHosts(ctx: Ctx, deps: HostProbeDeps = {}): Promise<{a
   const strategy=(deps.strategy??loadStrategy)(ctx);
   const hosts=Object.values(strategy.hosts).filter(h=>!h.paused&&Object.values(strategy.runners).some(r=>r.host===h.alias&&r.enabled!==false));
   return Promise.all(hosts.map(async host=>{
-    const ok=await (deps.reachable?deps.reachable(host):probeReachability(ctx,host)).catch(()=>false);
-    const reading=recordReachability(ctx,host,ok);
-    return {alias:host.alias,reachable:ok,failures:reading.failures??0};
+    if (!deps.reachable && pluginAvailabilityReason(ctx))
+      return {alias:host.alias,reachable:false,failures:readHostReachability(ctx,host)?.failures??0};
+    const ok=await (deps.reachable?deps.reachable(host):probeReachability(ctx,host)).catch(()=>null);
+    if (!deps.reachable && (ok === null || pluginAvailabilityReason(ctx)))
+      return {alias:host.alias,reachable:false,failures:readHostReachability(ctx,host)?.failures??0};
+    const reading=recordReachability(ctx,host,ok === true);
+    return {alias:host.alias,reachable:ok === true,failures:reading.failures??0};
   }));
 }

@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -39,7 +40,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string, 
 export function issueConfiguredHostStop(ctx: Ctx, alias: string, remoteDir: string,
   localDir: string, graceSeconds: number): ConfiguredHostStopGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir, graceSeconds);
-  const hostFingerprint = JSON.stringify(current.host), args = Object.freeze(current.args);
+  const hostFingerprint = driftFingerprint(current.host), args = Object.freeze(current.args);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "STOP", args: [...args], timeoutMs: (graceSeconds + 10) * 1000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -55,7 +56,7 @@ export function validateConfiguredHostStop(ctx: Ctx, grant: ConfiguredHostStopGr
   const current = snapshot(ctx, saved.alias, saved.args[0]!, saved.localDir, Number(saved.args[1]));
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     current.args.length !== saved.args.length || current.args.some((arg, index) => arg !== saved.args[index]) ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "STOP" || grant.resource.timeoutMs !== (Number(saved.args[1]) + 10) * 1000 ||

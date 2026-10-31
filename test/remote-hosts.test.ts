@@ -79,7 +79,7 @@ test("host diagnostics use the issued SSH provider for connectivity and tool fac
   await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
   const before = readFileSync(log, "utf8");
   const failed = await hosts.check(ctx, "box", { repo });
-  expect(failed.checks[0]).toMatchObject({ name: "ssh", ok: false, detail: "unreachable" });
+  expect(failed.checks[0]).toMatchObject({ name: "ssh", ok: false, detail: "SSH host runner plugin pacer-ssh is disabled" });
   expect(readFileSync(log, "utf8")).toBe(before);
 });
 
@@ -128,6 +128,20 @@ test("host checks never retry direct SSH after the provider is disabled mid-chec
   expect(checked.checks.find(c => c.name === "ssh")).toMatchObject({ ok: true });
   expect(checked.checks.find(c => c.name === "account homes")).toMatchObject({ ok: false });
   expect(checked.checks.find(c => c.name === "checkout github.com/o/r")).toMatchObject({ ok: false });
+});
+
+test("host check names either disabled SSH plugin", async () => {
+  for (const [id, detail] of [
+    ["pacer-ssh", "SSH host runner plugin pacer-ssh is disabled"],
+    ["pacer-remote-caller", "SSH remote caller plugin pacer-remote-caller is disabled"],
+  ]) {
+    const { ctx, repo } = await fixture();
+    await pluginRegistry(ctx).disable(ctx, id);
+    expect((await hosts.check(ctx, "box", { repo })).checks[0]).toMatchObject({ name: "ssh", ok: false, detail });
+    const cli = await main(["host", "check", "box", "--repo", repo], ctx);
+    expect(cli.code).toBe(1);
+    expect(cli.out).toContain(`FAIL ssh: ${detail}`);
+  }
 });
 
 test("setup and consent prechecks use only the issued read-only checkout command", async () => {

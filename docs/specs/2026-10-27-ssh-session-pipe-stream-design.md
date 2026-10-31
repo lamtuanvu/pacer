@@ -21,4 +21,6 @@ The provider sends stdout as `$/progress` events with a stream ID, monotonically
 3. Switch `RemoteSession` to the host-issued stream, removing direct forwarding and direct exec paths only after session snapshot, control, resize, reconnect and cancellation tests pass.
 4. Exercise a disposable real SSH full-session viewer through the guarded live harness; record remote task completion and any unexercised failure paths separately.
 
-The bridge must retain its existing read-only viewer and control semantics. The current direct path remains active until the replacement is reviewed and validated; a partially implemented transport does not claim SP08 completion.
+The bridge must retain its existing read-only viewer and control semantics. The direct path was superseded by the bundled stream transport before 1.7.0.
+
+The private stream acknowledgement messages are bundled-only transport details; installed plugins cannot serve `hostRunner` or `remoteCaller`.

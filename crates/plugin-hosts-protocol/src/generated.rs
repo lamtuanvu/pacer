@@ -418,7 +418,6 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsOpenResultSession {
 ///        "BINARY",
 ///        "SESSION_FILES",
 ///        "SESSION_PIPE",
-///        "SESSION_SOCKET",
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
@@ -521,7 +520,6 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsRunParamsArgsItem {
 ///    "BINARY",
 ///    "SESSION_FILES",
 ///    "SESSION_PIPE",
-///    "SESSION_SOCKET",
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
@@ -567,8 +565,6 @@ pub enum CapabilityHostsRunParamsScript {
     SessionFiles,
     #[serde(rename = "SESSION_PIPE")]
     SessionPipe,
-    #[serde(rename = "SESSION_SOCKET")]
-    SessionSocket,
     #[serde(rename = "START")]
     Start,
     #[serde(rename = "REPORT")]
@@ -598,7 +594,6 @@ impl ::std::fmt::Display for CapabilityHostsRunParamsScript {
             Self::Binary => f.write_str("BINARY"),
             Self::SessionFiles => f.write_str("SESSION_FILES"),
             Self::SessionPipe => f.write_str("SESSION_PIPE"),
-            Self::SessionSocket => f.write_str("SESSION_SOCKET"),
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
@@ -622,7 +617,6 @@ impl ::std::str::FromStr for CapabilityHostsRunParamsScript {
             "BINARY" => Ok(Self::Binary),
             "SESSION_FILES" => Ok(Self::SessionFiles),
             "SESSION_PIPE" => Ok(Self::SessionPipe),
-            "SESSION_SOCKET" => Ok(Self::SessionSocket),
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
@@ -1571,7 +1565,6 @@ pub struct HostRunnerCloseResult {
 ///        "BINARY",
 ///        "SESSION_FILES",
 ///        "SESSION_PIPE",
-///        "SESSION_SOCKET",
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
@@ -1668,7 +1661,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerFetchParamsArgsItem {
 ///    "BINARY",
 ///    "SESSION_FILES",
 ///    "SESSION_PIPE",
-///    "SESSION_SOCKET",
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
@@ -1714,8 +1706,6 @@ pub enum HostRunnerFetchParamsScript {
     SessionFiles,
     #[serde(rename = "SESSION_PIPE")]
     SessionPipe,
-    #[serde(rename = "SESSION_SOCKET")]
-    SessionSocket,
     #[serde(rename = "START")]
     Start,
     #[serde(rename = "REPORT")]
@@ -1745,7 +1735,6 @@ impl ::std::fmt::Display for HostRunnerFetchParamsScript {
             Self::Binary => f.write_str("BINARY"),
             Self::SessionFiles => f.write_str("SESSION_FILES"),
             Self::SessionPipe => f.write_str("SESSION_PIPE"),
-            Self::SessionSocket => f.write_str("SESSION_SOCKET"),
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
@@ -1769,7 +1758,6 @@ impl ::std::str::FromStr for HostRunnerFetchParamsScript {
             "BINARY" => Ok(Self::Binary),
             "SESSION_FILES" => Ok(Self::SessionFiles),
             "SESSION_PIPE" => Ok(Self::SessionPipe),
-            "SESSION_SOCKET" => Ok(Self::SessionSocket),
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
@@ -2266,7 +2254,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerOpenResultSession {
 ///        "BINARY",
 ///        "SESSION_FILES",
 ///        "SESSION_PIPE",
-///        "SESSION_SOCKET",
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
@@ -2375,7 +2362,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunParamsArgsItem {
 ///    "BINARY",
 ///    "SESSION_FILES",
 ///    "SESSION_PIPE",
-///    "SESSION_SOCKET",
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
@@ -2421,8 +2407,6 @@ pub enum HostRunnerRunParamsScript {
     SessionFiles,
     #[serde(rename = "SESSION_PIPE")]
     SessionPipe,
-    #[serde(rename = "SESSION_SOCKET")]
-    SessionSocket,
     #[serde(rename = "START")]
     Start,
     #[serde(rename = "REPORT")]
@@ -2452,7 +2436,6 @@ impl ::std::fmt::Display for HostRunnerRunParamsScript {
             Self::Binary => f.write_str("BINARY"),
             Self::SessionFiles => f.write_str("SESSION_FILES"),
             Self::SessionPipe => f.write_str("SESSION_PIPE"),
-            Self::SessionSocket => f.write_str("SESSION_SOCKET"),
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
@@ -2476,7 +2459,6 @@ impl ::std::str::FromStr for HostRunnerRunParamsScript {
             "BINARY" => Ok(Self::Binary),
             "SESSION_FILES" => Ok(Self::SessionFiles),
             "SESSION_PIPE" => Ok(Self::SessionPipe),
-            "SESSION_SOCKET" => Ok(Self::SessionSocket),
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),
@@ -2758,7 +2740,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunResultStdout {
 ///        "BINARY",
 ///        "SESSION_FILES",
 ///        "SESSION_PIPE",
-///        "SESSION_SOCKET",
 ///        "START",
 ///        "REPORT",
 ///        "READ_FROM",
@@ -2865,7 +2846,6 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsArgsItem {
 ///    "BINARY",
 ///    "SESSION_FILES",
 ///    "SESSION_PIPE",
-///    "SESSION_SOCKET",
 ///    "START",
 ///    "REPORT",
 ///    "READ_FROM",
@@ -2911,8 +2891,6 @@ pub enum HostRunnerStreamParamsScript {
     SessionFiles,
     #[serde(rename = "SESSION_PIPE")]
     SessionPipe,
-    #[serde(rename = "SESSION_SOCKET")]
-    SessionSocket,
     #[serde(rename = "START")]
     Start,
     #[serde(rename = "REPORT")]
@@ -2942,7 +2920,6 @@ impl ::std::fmt::Display for HostRunnerStreamParamsScript {
             Self::Binary => f.write_str("BINARY"),
             Self::SessionFiles => f.write_str("SESSION_FILES"),
             Self::SessionPipe => f.write_str("SESSION_PIPE"),
-            Self::SessionSocket => f.write_str("SESSION_SOCKET"),
             Self::Start => f.write_str("START"),
             Self::Report => f.write_str("REPORT"),
             Self::ReadFrom => f.write_str("READ_FROM"),
@@ -2966,7 +2943,6 @@ impl ::std::str::FromStr for HostRunnerStreamParamsScript {
             "BINARY" => Ok(Self::Binary),
             "SESSION_FILES" => Ok(Self::SessionFiles),
             "SESSION_PIPE" => Ok(Self::SessionPipe),
-            "SESSION_SOCKET" => Ok(Self::SessionSocket),
             "START" => Ok(Self::Start),
             "REPORT" => Ok(Self::Report),
             "READ_FROM" => Ok(Self::ReadFrom),

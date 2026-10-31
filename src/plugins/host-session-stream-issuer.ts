@@ -1,5 +1,6 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute, normalize } from "node:path";
-import { loadStrategy } from "../config/strategy";
+import { cachedStrategy } from "./host-drift";
 import { CoreError } from "../core/errors";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
@@ -28,7 +29,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string) 
   const taskId = match[2]!, task = readTask(ctx, taskId), run = task?.run;
   if (!task || !run || run.host !== alias || run.mode !== "new" ||
     run.remoteDir !== remoteDir || run.dir !== localDir || run.attempt !== Number(match[3])) return deny();
-  const host = loadStrategy(ctx).hosts[alias];
+  const host = cachedStrategy(ctx).hosts[alias];
   if (!host || host.session !== "full") return deny();
   return { taskId, task, host };
 }
@@ -37,7 +38,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string) 
 export function issueConfiguredHostSessionStream(ctx: Ctx, alias: string, remoteDir: string,
   localDir: string): ConfiguredHostSessionStreamGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir);
-  const hostFingerprint = JSON.stringify(current.host);
+  const hostFingerprint = driftFingerprint(current.host);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "SESSION_PIPE", args: [remoteDir], timeoutMs: 60_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -56,7 +57,7 @@ export function validateConfiguredHostSessionStream(ctx: Ctx, grant: ConfiguredH
   const current = snapshot(ctx, saved.alias, saved.remoteDir, saved.localDir);
   if (current.taskId !== saved.taskId || admission && current.task.rev !== saved.taskRev ||
     JSON.stringify(current.task.run) !== saved.runFingerprint ||
-    JSON.stringify(current.host) !== saved.hostFingerprint ||
+    matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "SESSION_PIPE" || grant.resource.timeoutMs !== 60_000 ||
     grant.resource.maxBytes !== 65_536 || grant.resource.args.length !== 1 ||

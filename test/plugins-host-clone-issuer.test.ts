@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { consumeConfiguredHostClone, issueConfiguredHostClone, validateConfiguredHostClone } from "../src/plugins/host-clone-issuer";
 import { loadStrategy } from "../src/config/strategy";
+import { hostFingerprint } from "../src/plugins/host-drift";
 import { fakeCtx, realRun } from "./helpers";
 
 test("configured clone grant pins one mapped checkout and local origin", async () => {
@@ -22,7 +23,7 @@ test("configured clone grant pins one mapped checkout and local origin", async (
     const ctx = fakeCtx({ home, pacerHome, run: realRun });
     const host = loadStrategy(ctx).hosts.box;
     const snapshot = { alias: "box", key: "example.invalid/acme/repo", path: "/remote/repo",
-      origin: "https://example.invalid/acme/repo.git", hostFingerprint: JSON.stringify(host) };
+      origin: "https://example.invalid/acme/repo.git", hostFingerprint: hostFingerprint(host, ["/remote/repo"], true) };
     const grant = await issueConfiguredHostClone(ctx, "box", repo, true, snapshot);
     expect(grant.resource).toMatchObject({ alias: "box", script: "CHECK_REPO",
       args: ["/remote/repo", "clone", "https://example.invalid/acme/repo.git"] });

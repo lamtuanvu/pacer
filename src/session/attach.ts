@@ -2,6 +2,7 @@ import { clientHello } from "./protocol";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { admitRemoteViewer } from "../remote/viewer-admission";
 import { FrameType, WireDecoder, wire } from "./framing";
 import { readRecording } from "./recording";
 import { readTask } from "../tasks/store";
@@ -116,13 +117,21 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
       const socket=createConnection(path);const decoder=new WireDecoder();
       try {
         await new Promise<void>((resolve,reject)=>{socket.once("connect",resolve);socket.once("error",reject);});
+        if(existsSync(join(dir,"session.bridge.pid"))){
+          const reason=await admitRemoteViewer(socket);
+          if(reason) throw Error(reason);
+        }
         socket.on("data",data=>{try {for(const f of decoder.push(Buffer.from(data))) draw(f.type,f.data);}catch{detach();}});
         socket.on("close",detach);socket.on("error",detach);
+        socket.resume();
         send=bytes=>{if(!socket.destroyed)socket.write(bytes);};
         send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello()}));
         if(options.control)keys.take(options.force);
         await detached;return;
-      } catch { /* a dead host still has an offline recording */ }
+      } catch (error) {
+        if(existsSync(join(dir,"session.bridge.pid"))) throw error;
+        /* a dead host still has an offline recording */
+      }
       finally {send=()=>{};socket.destroy();}
     }
     // Replay starts with the last checkpoint, then the retained current generation.

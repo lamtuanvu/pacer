@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, mappedRepoForPath, matchesHostFingerprint } from "./host-drift";
 import { createHash } from "node:crypto";
 import { isAbsolute, normalize } from "node:path";
 import { loadStrategy } from "../config/strategy";
@@ -42,7 +43,7 @@ export function issueConfiguredHostStart(ctx: Ctx, alias: string, remoteDir: str
   if (!(input instanceof Uint8Array) || input.length < 1 || input.length > MAX_START_INPUT ||
     !Buffer.from(input).includes(Buffer.from("__PACER_STDIN__\n"))) return deny();
   const current = snapshot(ctx, alias, remoteDir, localDir, args);
-  const hostFingerprint = JSON.stringify(current.host), fixed = Object.freeze([...args]);
+  const hostFingerprint = driftFingerprint(current.host, [mappedRepoForPath(current.host, args[1]!) ?? ""], true), fixed = Object.freeze([...args]);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint, script: "START",
     args: [...fixed], timeoutMs: 60_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -59,7 +60,7 @@ export function validateConfiguredHostStartState(ctx: Ctx, grant: ConfiguredHost
   if (!saved || saved.home !== ctx.pacerHome) return deny();
   const current = snapshot(ctx, saved.alias, saved.remoteDir, saved.localDir, saved.args);
   if (current.taskId !== saved.taskId || current.task.rev !== saved.taskRev ||
-    JSON.stringify(current.task.run) !== saved.runFingerprint || JSON.stringify(current.host) !== saved.hostFingerprint ||
+    JSON.stringify(current.task.run) !== saved.runFingerprint || matchesHostFingerprint(current.host, saved.hostFingerprint) === false ||
     grant.resource.alias !== saved.alias || grant.resource.hostFingerprint !== saved.hostFingerprint ||
     grant.resource.script !== "START" || grant.resource.timeoutMs !== 60_000 || grant.resource.maxBytes !== 65_536 ||
     grant.resource.args.length !== saved.args.length || grant.resource.args.some((value, index) => value !== saved.args[index])) return deny();

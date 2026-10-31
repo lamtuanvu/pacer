@@ -19,7 +19,8 @@ test("disabled remote caller and SSH provider never fall back to direct SSH", as
   for (const id of ["pacer-remote-caller", "pacer-ssh"]) {
     const { ctx, log, strategy } = remoteEligibilityFixture();
     await pluginRegistry(ctx).disable(ctx, id);
-    expect(await remoteExclusion(ctx, strategy, "codex@box")).toBe("host box unreachable");
+    expect(await remoteExclusion(ctx, strategy, "codex@box")).toBe(id === "pacer-ssh" ? "SSH host runner plugin pacer-ssh is disabled" : "SSH remote caller plugin pacer-remote-caller is disabled");
+    expect(await probeHosts(ctx)).toEqual([{ alias: "box", reachable: false, failures: 0 }]);
     expect(existsSync(log)).toBe(false);
   }
 });
@@ -29,7 +30,8 @@ test("a fresh healthy cache never keeps routing after either plugin is disabled"
     const { ctx, log, strategy } = remoteEligibilityFixture();
     expect(await remoteExclusion(ctx, strategy, "codex@box")).toBeNull();
     await pluginRegistry(ctx).disable(ctx, id);
-    expect(await remoteExclusion(ctx, strategy, "codex@box")).toBe("host box unreachable");
+    expect(await remoteExclusion(ctx, strategy, "codex@box")).toContain(`plugin ${id} is disabled`);
+    expect(await probeHosts(ctx)).toEqual([{ alias: "box", reachable: false, failures: 0 }]);
     expect(readFileSync(log, "utf8").match(/BatchMode=yes/g)).toHaveLength(1);
   }
 });

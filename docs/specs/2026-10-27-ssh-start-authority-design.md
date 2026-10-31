@@ -14,4 +14,4 @@ No public host-caller operation is added. The only protocol change is enabling t
 
 ## Validation
 
-Focused tests cover exact stdin bytes including hostile shell text, a one-use persisted-run grant, source/host drift, provider disablement, oversize input, no direct fallback, lost receipt and timeout uncertainty, and normal pipe/full-session starts. CT-11 runs a harmless task on the approved disposable SSH checkout through the guarded harness. Streaming FOLLOW and bidirectional SESSION_PIPE retain their direct paths for separate authority designs.
+Focused tests cover exact stdin bytes including hostile shell text, a one-use persisted-run grant, source/host drift, provider disablement, oversize input, no direct fallback, lost receipt and timeout uncertainty, and normal pipe/full-session starts. CT-11 runs a harmless task on the approved disposable SSH checkout through the guarded harness. The viewer uses bounded `READ_FROM` polls and the bidirectional `SESSION_PIPE` stream uses bundled plugin authority.

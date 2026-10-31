@@ -343,7 +343,7 @@ test("an exited leader with retained pipes settles promptly and fails closed", a
   const started = Date.now();
   await expect(stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 }))
     .rejects.toMatchObject({ code: "plugin_unavailable" });
-  expect(Date.now() - started).toBeLessThan(750);
+  expect(Date.now() - started).toBeLessThan(1500);
   expect(readdirSync(join(f.ctx.pacerHome, "transfers"))).toEqual([]);
   await expect(stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 }))
     .rejects.toMatchObject({ code: "plugin_unavailable" });

@@ -1,3 +1,4 @@
+import { hostFingerprint as driftFingerprint, matchesHostFingerprint } from "./host-drift";
 import { isAbsolute } from "node:path";
 import { repoKey } from "../config/hosts";
 import { loadStrategy } from "../config/strategy";
@@ -45,7 +46,7 @@ export async function issueConfiguredHostIdentity(ctx: Ctx, alias: string,
   if (!remotePath || !(isAbsolute(remotePath) || remotePath.startsWith("~/")) ||
     remotePath.length > 4096 || /[\u0000-\u001f\u007f]/.test(remotePath)) return deny();
   const args = Object.freeze([remotePath, local.name, local.email]);
-  const hostFingerprint = JSON.stringify(host);
+  const hostFingerprint = driftFingerprint(host, args, true);
   const resource: HostOperationResource = Object.freeze({ alias, hostFingerprint,
     script: "SET_IDENTITY", args: [...args], timeoutMs: 50_000, maxBytes: 65_536 });
   Object.freeze(resource.args);
@@ -59,7 +60,7 @@ export async function validateConfiguredHostIdentity(ctx: Ctx, grant: Configured
   const saved = issued.get(grant);
   if (!saved || saved.home !== ctx.pacerHome) return deny();
   const host = loadStrategy(ctx).hosts[saved.alias];
-  if (!host || host.paused || JSON.stringify(host) !== saved.hostFingerprint ||
+  if (!host || host.paused || matchesHostFingerprint(host, saved.hostFingerprint) === false ||
     host.repos[saved.key] !== saved.args[0] || grant.resource.alias !== saved.alias ||
     grant.resource.hostFingerprint !== saved.hostFingerprint || grant.resource.script !== "SET_IDENTITY" ||
     grant.resource.timeoutMs !== 50_000 || grant.resource.maxBytes !== 65_536 ||

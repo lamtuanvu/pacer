@@ -6,7 +6,7 @@ import type { HostCfg } from "../config/hosts";
 import { socketPath } from "../session/host";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostSessionStream } from "../plugins/host-session-stream-issuer";
-import { CoreError } from "../core/errors";
+import { FrameType, wire } from "../session/framing";
 
 /** Concurrent local viewers per remote session; each one holds a bundled SSH stream. */
 export const MAX_SESSION_VIEWERS = 2;
@@ -54,26 +54,52 @@ export class RemoteSession {
 
   accept(socket: Socket): void {
     if (this.closed) { socket.destroy(); return; }
-    // The session socket protocol has no error frame, so the refusal is the socket error and an immediate close.
-    if (this.peers.size >= MAX_SESSION_VIEWERS) {
-      socket.on("error", () => {});
-      socket.destroy(new CoreError("plugin_unavailable", `remote session already has ${MAX_SESSION_VIEWERS} viewers; close one and try again`));
-      return;
-    }
+    const marker = Buffer.from("PACER-VIEWER/1\n");
+    let first = Buffer.alloc(0);
+    const receive = (chunk: Buffer) => {
+      first = Buffer.concat([first, chunk]);
+      if (first.length < marker.length && first.equals(marker.subarray(0, first.length))) return;
+      socket.off("data", receive);
+      socket.pause();
+      const admission = first.subarray(0, marker.length).equals(marker);
+      const release = this.peers.size < MAX_SESSION_VIEWERS ? pluginRegistry(this.ctx).reserveSessionViewer() : null;
+      const reason = this.peers.size >= MAX_SESSION_VIEWERS
+        ? `remote session already has ${MAX_SESSION_VIEWERS} viewers; close one and try again`
+        : !release ? "session viewer stream capacity exhausted" : null;
+      if (reason) {
+        if (admission) socket.end(`PACER-REFUSED ${reason}\n`);
+        else socket.end(wire(FrameType.exit, {code:1,reason}));
+        return;
+      }
+      if (!admission) socket.unshift(first);
+      else {
+        if (first.length > marker.length) socket.unshift(first.subarray(marker.length));
+        socket.write("PACER-READY\n");
+      }
+      this.startBridge(socket, release!);
+    };
+    socket.on("error", () => socket.destroy());
+    socket.on("data", receive);
+    socket.resume();
+  }
+
+  private startBridge(socket: Socket, release: () => void): void {
     const owner = new AbortController();
     this.peers.set(socket, owner);
     socket.pause();
-    socket.on("error", () => socket.destroy());
     socket.once("close", () => { owner.abort(); this.peers.delete(socket); });
-    const bridge = this.bridge(socket, owner).catch(() => { socket.destroy(); });
+    const bridge = this.bridge(socket, owner, release).catch(() => { socket.destroy(); });
     this.bridges.add(bridge);
     void bridge.finally(() => this.bridges.delete(bridge));
   }
 
-  private async bridge(socket: Socket, owner: AbortController): Promise<void> {
-    const grant = issueConfiguredHostSessionStream(this.ctx, this.host.alias, this.remoteDir, this.localDir);
-    const stream = await pluginRegistry(this.ctx).streamConfiguredHost(this.ctx, grant,
-      bytes => this.output(socket, owner.signal, bytes), owner.signal);
+  private async bridge(socket: Socket, owner: AbortController, release: () => void): Promise<void> {
+    let stream: Awaited<ReturnType<ReturnType<typeof pluginRegistry>["streamConfiguredHost"]>>;
+    try {
+      const grant = issueConfiguredHostSessionStream(this.ctx, this.host.alias, this.remoteDir, this.localDir);
+      stream = await pluginRegistry(this.ctx).streamConfiguredHost(this.ctx, grant,
+        bytes => this.output(socket, owner.signal, bytes), owner.signal);
+    } finally { release(); }
     let sending: Promise<void> = Promise.resolve();
     socket.on("data", raw => {
       const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);

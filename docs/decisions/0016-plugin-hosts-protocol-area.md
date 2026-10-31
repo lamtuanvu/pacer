@@ -13,7 +13,7 @@ depends on another.
 The Rust SDK depends on the new area and keeps the
 `pacer_plugin::types::HostRunner*` and `CapabilityHosts*` paths through its
 re-export facade, as it does for the decision, agent-session and install areas.
-Direct 0.2 protocol consumers import these types from the new crate.
+Direct 0.2 protocol consumers import these types from the new crate. Only bundled plugins may serve `hostRunner` or `remoteCaller`; publishing the types does not admit installed providers.
 The generated Rust layout changes no JSON wire field or TypeScript validator.
 The immutable 0.1 release lane is unaffected.
 
