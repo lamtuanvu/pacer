@@ -41,6 +41,14 @@ test("open drain finishes its first slow policy evaluation and leaves later work
   expect(readTask(f.ctx,b.id)).toMatchObject({state:"queued"});
   expect(f.calls()).toHaveLength(1);
 });
+test("closed drain finishes its first slow policy evaluation and leaves later work queued",async()=>{
+  const f=policyGateFixture({verdict:"allow"});
+  const a=waiting(f.ctx,"first",f.ctx.now-2),b=waiting(f.ctx,"second",f.ctx.now-1);
+  const deps={...queueDeps(),now:()=>f.calls().length?10_001:0};
+  expect(await drainQueue(f.ctx,()=>process.pid,deps)).toEqual([a.id]);
+  expect(readTask(f.ctx,b.id)).toMatchObject({state:"queued"});
+  expect(f.calls()).toHaveLength(1);
+});
 test("pinned removed executor fails with a clear report; unpinned work is reranked", async () => {
   const ctx = fakeCtx(), pinned = waiting(ctx, "pinned", ctx.now - 2, "missing"), other = waiting(ctx, "other", ctx.now - 1);
   expect(await drainQueue(ctx, () => process.pid, queueDeps())).toEqual([other.id]);

@@ -92,12 +92,12 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     const budgetNow=deps.now??Date.now;
     let policyBudget=10_000;
     const summary=policySummary(ctx);
-    const openPolicy=summary.mode==="open"&&summary.plugins>0;
+    const budgeted=summary.plugins>0;
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
-      if(openPolicy&&policyBudget<=0)break;
+      if(budgeted&&policyBudget<=0)break;
       const task = waiting[index], s = deps.loadStrategy(ctx);
       const work=getWork(ctx,task.id);
       if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
@@ -168,7 +168,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         holdForPolicy(ctx, task.id, error);
         continue;
       } finally {
-        if(openPolicy)policyBudget-=Math.max(0,budgetNow()-policyStarted);
+        if(budgeted)policyBudget-=Math.max(0,budgetNow()-policyStarted);
       }
       for(const [id,plugin] of Object.entries(routeAdmission.excludedBy)) ranking.excluded.push({id,reason:`excluded by plugin ${plugin}`});
       const permitted=routeAdmission.candidates;
