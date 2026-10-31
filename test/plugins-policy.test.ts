@@ -1,5 +1,5 @@
 import {afterEach,expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {spawn} from "node:child_process";
 import {fakeCtx} from "./helpers";
@@ -17,11 +17,11 @@ function fixture(mode="open") {
   const registry=pluginRegistry(ctx,{bundled:[],spawnBundled:()=>{throw Error("no bundles");},sleep:async()=>{},spawn:((...args:Parameters<typeof spawn>)=>{starts++;return spawn(...args);}) as typeof spawn});
   const configure=(nextMode=mode,extra:Record<string,unknown>={})=>writeFileSync(join(ctx.pacerHome,"strategy.yaml"),JSON.stringify({planner:"claude-code",providers:{"claude-code":{}},plugins:{policy:{mode:nextMode},installed:{"fx-policy":{version:"1.0.0",capabilities:[]}},...extra}}));
   configure();
-  const install=(verdict:unknown={verdict:"allow"},delay=0,capabilities:string[]=[])=>{
+  const install=(verdict:unknown={verdict:"allow"},delay=0,capabilities:string[]=[],negotiated=true)=>{
     const dir=join(ctx.pacerHome,"plugins","fx-policy");mkdirSync(dir,{recursive:true});
     writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1.6",entry:"main.ts",capabilities:capabilities.map(name=>({name})),contributes:{policy:{}}}));
     writeFileSync(join(dir,"settings.json"),JSON.stringify({verdict,delay}));
-    writeFileSync(join(dir,"main.ts"),`#!${process.execPath}\nimport {readFileSync,appendFileSync} from "node:fs";\nfor await(const line of console) {const r=JSON.parse(line); if(!r.id)continue;let result;if(r.method==="plugin.hello")result={protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]};else if(r.method==="policy.before"){appendFileSync("calls.jsonl",JSON.stringify(r.params)+"\\n");const s=JSON.parse(readFileSync("settings.json","utf8"));await Bun.sleep(s.delay);result=s.verdict;}else result={ok:true};console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));}\n`);
+    writeFileSync(join(dir,"main.ts"),`#!${process.execPath}\nimport {readFileSync,appendFileSync} from "node:fs";\nfor await(const line of console) {const r=JSON.parse(line); if(!r.id)continue;let result;if(r.method==="plugin.hello")result={protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"],features:${negotiated?'["policyRedactionMetadata"]':'[]'}};else if(r.method==="policy.before"){appendFileSync("calls.jsonl",JSON.stringify(r.params)+"\\n");const s=JSON.parse(readFileSync("settings.json","utf8"));await Bun.sleep(s.delay);result=s.verdict;}else result={ok:true};console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));}\n`);
     chmodSync(join(dir,"main.ts"),0o755);return dir;
   };
   return {ctx,registry,configure,install,starts:()=>starts};
@@ -43,6 +43,39 @@ test("actual installed policy call starts once without invalidating stable metad
   expect(wire.input.goal).toBe("");expect(wire.input.repo).not.toBe(input.repo);
   expect(wire.input.goalLength).toBe(input.goal.length);expect(wire.input.goalHash).toHaveLength(64);
   receipt.revalidate();context="after";expect(()=>receipt.revalidate()).toThrow("changed");
+});
+test("older policy peers receive the redacted legacy shape",async()=>{
+  const f=fixture(),dir=f.install({verdict:"allow"},0,[],false);
+  await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"legacy"});
+  const review={taskId:"task",revision:1,state:"done" as const,verdict:"accept" as const,note:"private note"};
+  await applyPolicy(f.ctx,"review",review,{contextFingerprint:()=>"legacy"});
+  const [delegate,redacted]=readFileSync(join(dir,"calls.jsonl"),"utf8").trim().split("\n").map(line=>JSON.parse(line));
+  expect(delegate.input).toEqual({goal:"",repo:expect.stringMatching(/^repo:[a-f0-9]{64}$/),kind:null,requestedExecutor:null,placement:"auto"});
+  expect(redacted.input).toEqual({taskId:"task",revision:1,state:"done",verdict:"accept"});
+});
+test("classifier secrets file coexists with redacted policy calls in both modes",async()=>{
+  for(const mode of ["open","closed"]){
+    const f=fixture(mode),dir=f.install();
+    writeFileSync(join(f.ctx.pacerHome,"secrets"),"CLASSIFIER_KEY=value\n",{mode:0o600});
+    await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>mode});
+    expect(readFileSync(join(f.ctx.pacerHome,"secrets"),"utf8")).toBe("CLASSIFIER_KEY=value\n");
+    expect(existsSync(join(f.ctx.pacerHome,"state","policy-hmac.key"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8")).input.goalHash).toHaveLength(64);
+  }
+});
+test("policy key is lazy for review without a note and rejects unsafe mode",async()=>{
+  const f=fixture("closed");f.install();
+  await applyPolicy(f.ctx,"review",{taskId:"task",revision:1,state:"done",verdict:"accept"},{contextFingerprint:()=>"no-note"});
+  const key=join(f.ctx.pacerHome,"state","policy-hmac.key");
+  expect(existsSync(key)).toBe(false);
+  await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"key"});
+  chmodSync(key,0o644);
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"key"})).rejects.toMatchObject({code:"not_allowed",message:expect.stringContaining("mode-0600")});
+  f.configure("open");
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"key"})).rejects.toMatchObject({code:"not_allowed"});
+  rmSync(key);
+  const target=join(f.ctx.pacerHome,"other-key");writeFileSync(target,Buffer.alloc(32),{mode:0o600});symlinkSync(target,key);
+  await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"key"})).rejects.toMatchObject({code:"not_allowed"});
 });
 test("only a declared and granted tasks.read policy receives goal and repo detail",async()=>{
   const f=fixture();

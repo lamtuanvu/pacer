@@ -1427,6 +1427,16 @@ impl<'de> ::serde::Deserialize<'de> for PluginMetadataVariant1ReadOwner {
 ///              "type": "string",
 ///              "maxLength": 4096
 ///            },
+///            "noteHash": {
+///              "type": "string",
+///              "maxLength": 64,
+///              "minLength": 64
+///            },
+///            "noteLength": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
 ///            "revision": {
 ///              "type": "integer",
 ///              "maximum": 9007199254740991.0,
@@ -1514,6 +1524,19 @@ pub enum PolicyBeforeParams {
         kind: ::std::option::Option<PolicyBeforeParamsInputKind>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         note: ::std::option::Option<PolicyBeforeParamsInputNote>,
+        #[serde(
+            rename = "noteHash",
+            default,
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        note_hash: ::std::option::Option<PolicyBeforeParamsInputNoteHash>,
+        #[serde(
+            rename = "noteLength",
+            default,
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        #[serde(deserialize_with = "deserialize_integer_1")]
+        note_length: ::std::option::Option<i64>,
         #[serde(deserialize_with = "deserialize_integer_1")]
         revision: i64,
         state: PolicyBeforeParamsInputState,
@@ -1800,6 +1823,52 @@ impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputNote {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputNote {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`PolicyBeforeParamsInputNoteHash`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 64
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PolicyBeforeParamsInputNoteHash(::std::string::String);
+impl ::std::ops::Deref for PolicyBeforeParamsInputNoteHash {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PolicyBeforeParamsInputNoteHash> for ::std::string::String {
+    fn from(value: PolicyBeforeParamsInputNoteHash) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PolicyBeforeParamsInputNoteHash {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_2(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for PolicyBeforeParamsInputNoteHash {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PolicyBeforeParamsInputNoteHash {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,

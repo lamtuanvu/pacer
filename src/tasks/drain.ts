@@ -1,4 +1,5 @@
 import { authorizeRoute } from "./policy-route";
+import { policySummary } from "../plugins/policy";
 import { CoreError } from "../core/errors";
 import { getWork, pendingDependencies } from "../dispatch/work";
 import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
@@ -27,6 +28,7 @@ import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
 
 export interface DrainDeps {
+  now?: () => number;
   hooks?: DecisionHooks;
   loadStrategy(ctx: Ctx): Strategy;
   computeStatus(ctx: Ctx, s: Strategy): Promise<Status>;
@@ -87,11 +89,14 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue && launches.has(t.id))
       .sort((a, b) => (getWork(ctx,b.id)?.options.priority??0)-(getWork(ctx,a.id)?.options.priority??0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
-    const policyDeadline=Date.now()+10_000;
+    const budgetNow=deps.now??Date.now;
+    const policyDeadline=budgetNow()+10_000;
+    const openPolicy=policySummary(ctx).mode==="open";
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
+      if(openPolicy&&budgetNow()>=policyDeadline)break;
       const task = waiting[index], s = deps.loadStrategy(ctx);
       const work=getWork(ctx,task.id);
       if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
@@ -161,6 +166,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         holdForPolicy(ctx, task.id, error);
         continue;
       }
+      if(openPolicy&&budgetNow()>=policyDeadline)break;
       for(const [id,plugin] of Object.entries(routeAdmission.excludedBy)) ranking.excluded.push({id,reason:`excluded by plugin ${plugin}`});
       const permitted=routeAdmission.candidates;
       let policyChanged = false;

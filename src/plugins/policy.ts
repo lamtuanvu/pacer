@@ -1,5 +1,5 @@
 import {createHash,createHmac,randomBytes} from "node:crypto";
-import {mkdirSync,readFileSync,writeFileSync} from "node:fs";
+import {chmodSync,closeSync,constants,fstatSync,fsyncSync,linkSync,lstatSync,mkdirSync,openSync,readFileSync,unlinkSync,writeSync} from "node:fs";
 import {join} from "node:path";
 import {appendActivity} from "../activity/log";
 import {CoreError} from "../core/errors";
@@ -23,14 +23,44 @@ function canonical(value:unknown):unknown {
   return value;
 }
 const fingerprint=(value:unknown)=>createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
-function policyKey(ctx:Ctx,id:string):Buffer {
-  const dir=join(ctx.pacerHome,"secrets"),path=join(dir,"policy-hmac.key");
+function readPolicyKey(ctx:Ctx,id:string):Buffer {
+  const dir=join(ctx.pacerHome,"state"),path=join(dir,"policy-hmac.key");
   mkdirSync(dir,{recursive:true,mode:0o700});
-  try {writeFileSync(path,randomBytes(32),{flag:"wx",mode:0o600});}
-  catch(error) {if((error as NodeJS.ErrnoException).code!=="EEXIST") throw error;}
-  const master=readFileSync(path);
+  const owner=typeof process.getuid==="function"?process.getuid():undefined;
+  const parent=lstatSync(dir);
+  if(!parent.isDirectory()||(owner!==undefined&&parent.uid!==owner)) throw new CoreError("invalid_input","Policy hash key directory is not private");
+  chmodSync(dir,0o700);
+  const temp=join(dir,`policy-hmac.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
+  let created=false;
+  try {
+    try {lstatSync(path);} catch(error) {if((error as NodeJS.ErrnoException).code==="ENOENT") created=true;else throw error;}
+    if(created) {
+      const fd=openSync(temp,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+      try {
+        const bytes=randomBytes(32);
+        for(let offset=0;offset<bytes.length;)offset+=writeSync(fd,bytes,offset,bytes.length-offset);
+        fsyncSync(fd);
+      } finally {closeSync(fd);}
+      try {linkSync(temp,path);} catch(error) {if((error as NodeJS.ErrnoException).code!=="EEXIST") throw error;}
+    }
+  } finally {try {unlinkSync(temp);} catch(error) {if((error as NodeJS.ErrnoException).code!=="ENOENT") throw error;}}
+  let fd:number;
+  try {fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);} catch {throw new CoreError("invalid_input","Policy hash key must be a private regular file");}
+  let master:Buffer;
+  try {
+    const stat=fstatSync(fd);
+    if(!stat.isFile()||(stat.mode&0o777)!==0o600||(owner!==undefined&&stat.uid!==owner)||stat.size!==32) throw new CoreError("invalid_input","Policy hash key must be an owned mode-0600 regular file with 32 bytes");
+    master=readFileSync(fd);
+  } finally {closeSync(fd);}
   if(master.length!==32) throw new CoreError("invalid_input","Policy hash key is invalid");
   return createHmac("sha256",master).update(id).digest();
+}
+function policyKey(ctx:Ctx,id:string):Buffer {
+  try {return readPolicyKey(ctx,id);}
+  catch(error) {
+    if(error instanceof CoreError) throw error;
+    throw new CoreError("invalid_input","Policy hash key cannot be accessed safely");
+  }
 }
 function opaque(key:Buffer,value:unknown):string {return createHmac("sha256",key).update(JSON.stringify(canonical(value))).digest("hex");}
 function metadata(ctx:Ctx) {
@@ -76,7 +106,7 @@ export async function applyPolicy<D extends Decision>(ctx:Ctx,decision:D,input:I
       }
       const entry=initial.policies.find(value=>value.id===policy.id);
       const canReadDetail=!!entry?.manifest.capabilities.some(capability=>capability.name==="tasks.read") && (entry.bundled||entry.grant?.capabilities.includes("tasks.read"));
-      const key=canReadDetail||params.decision==="route"?null:policyKey(ctx,policy.id);
+      const key=canReadDetail||params.decision==="route"||(params.decision==="review"&&params.input.note===undefined)?null:policyKey(ctx,policy.id);
       const wire=params.decision==="delegate"&&key ? {
         ...params,
         input:{...params.input,goal:"",repo:`repo:${opaque(key,params.input.repo)}`,goalLength:params.input.goal.length,goalHash:opaque(key,params.input.goal),repoKey:opaque(key,params.input.repo)},

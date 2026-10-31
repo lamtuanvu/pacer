@@ -17,6 +17,7 @@ export const pluginMetadata = z
   ])
   .optional();
 export const POLICY_OBSERVATIONS_FEATURE = "policyObservations";
+export const POLICY_REDACTION_METADATA_FEATURE = "policyRedactionMetadata";
 export const POLICY_DECISIONS = ["delegate", "route", "review"] as const;
 export const POLICY_EVENT_TYPES = [
   "desktop.update",

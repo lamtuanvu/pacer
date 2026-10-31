@@ -18,6 +18,14 @@ test("one free slot drains only the oldest task and reserves it across drains", 
   expect(readTask(ctx, a.id)?.queue).toBeUndefined();
   expect(readTask(ctx, b.id)?.queue).toBeDefined(); expect(readTask(ctx, c.id)?.queue).toBeDefined();
 });
+test("open drain stops at its shared policy budget and leaves later work queued",async()=>{
+  const ctx=fakeCtx(),a=waiting(ctx,"first",ctx.now-2),b=waiting(ctx,"second",ctx.now-1);
+  let now=Date.now();
+  const deps={...queueDeps(),now:()=>now};
+  const spawn=()=>{now+=10_001;return process.pid;};
+  expect(await drainQueue(ctx,spawn,deps)).toEqual([a.id]);
+  expect(readTask(ctx,b.id)).toMatchObject({state:"queued"});
+});
 test("pinned removed executor fails with a clear report; unpinned work is reranked", async () => {
   const ctx = fakeCtx(), pinned = waiting(ctx, "pinned", ctx.now - 2, "missing"), other = waiting(ctx, "other", ctx.now - 1);
   expect(await drainQueue(ctx, () => process.pid, queueDeps())).toEqual([other.id]);

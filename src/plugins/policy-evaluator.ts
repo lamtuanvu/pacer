@@ -137,6 +137,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
       }
     } catch(error) {
       checkCancelled(options.signal);
+      if(error instanceof CoreError&&error.message.startsWith("Policy hash key")) throw new CoreError("not_allowed",error.message);
       if(snapshot.mode==="closed") veto(policy,"Policy decision failed");
       ignored(policy,`Policy decision failed and was ignored in open mode (${failureReason(error)})`);
     }
