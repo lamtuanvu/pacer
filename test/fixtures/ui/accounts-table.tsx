@@ -11,7 +11,7 @@ const accounts = [
   { name: 'team', kind: 'codex', signedIn: true, runners: ['codex#team'] },
   { name: 'out', kind: 'codex', signedIn: false, signin_command: 'codex login' },
   { name: 'ark', kind: 'endpoint', quotaSource: 'arkcli', state: 'not_tested', usageReading: { windows: [], availability: { state: 'unknown', reason: 'authentication_failed' } } },
-] as any;
+].map((account:any)=>({...account,usageCheck:{action:'refresh',consentRequired:false,description:'Read provider usage'}})) as any;
 const config = { keys: {}, planners: [] };
 const calls: [string, any][] = [];
 Object.assign(window, { accountFixture: { calls: () => calls } });
@@ -19,7 +19,8 @@ const api = { call: async (op: string, params: any) => {
   calls.push([op, params]);
   if (op === 'account.list') return accounts;
   if (op === 'config.get') return config;
-  if (op === 'limits.refresh') return { accounts: [{ account: 'ark', outcome: 'ok' }] };
+  if (op === 'job.list') return [];
+  if (op === 'account.usage.check') return {id:'usage-ark',kind:'account.usage.check',target:'ark',state:'passed',startedAt:1,steps:[{name:'Check usage',state:'skipped',detail:'No new usage observation.'}]};
   return {};
 } } as any;
 const actions = createActionRunner({ call: api.call, waitFor: async () => true, refetch: () => {}, navigate: () => {} });

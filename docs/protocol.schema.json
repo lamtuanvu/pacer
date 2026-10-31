@@ -440,6 +440,23 @@
       ],
       "additionalProperties": false
     },
+    "AccountUsageCheckParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "consent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "account"
+      ],
+      "additionalProperties": false
+    },
     "ActivityListParams": {
       "type": "object",
       "properties": {

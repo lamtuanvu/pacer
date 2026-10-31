@@ -145,11 +145,11 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
- const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
+ const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageCheck:{action:'refresh' as const,consentRequired:false,description:'Reads provider usage.'},usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>);
  expect(html).toContain('Fix Ark CLI sign-in');
  expect(html).toContain('arkcli auth login');
- expect(html).toContain('Refresh usage');
+ expect(html).toContain('Check usage');
  expect(html).not.toContain('No subscription');
 });
 
@@ -232,7 +232,7 @@ test('Settings and host executors share uncertainty; retained account usage is h
  const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · refresh to use');
+ expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · check account usage');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};
@@ -283,7 +283,7 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
  const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
  expect(html).toContain('$3.20 of $5 this week');
- expect(html).toContain('Stale reading · refresh to use');
+ expect(html).toContain('Stale reading · check account usage');
 });
 
 test('Updates identifies the service and preserves failed-check status', () => {

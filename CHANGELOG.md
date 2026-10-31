@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Check usage directly from Agents › Accounts for planner and executor accounts, including accounts without an executor. Claude asks consent for a small quota-consuming telemetry task; other providers report fresh, unchanged or failed reads honestly, with reactive and unmetered limitations. Account rows keep progress and failures compact, with provider guidance and technical errors in one expandable Usage check details disclosure and no duplicate job toasts. The planner card links to account usage controls. New v3 operation: `account.usage.check`.
+
 - Upgrading the service no longer interrupts running agents or terminal commands. `pacer update`, **Settings → Updates** and `pacer service install|restart` restart the service onto the new version. Each task's runner then hands its live attempt to a new-version runner that reattaches to the same agent, without re-certifying, requeueing or new grants, and session hosts keep running. Waiting interactive lanes with live workers count as running work; they stay on the previous runner until answered, and a failed worker release is reported as not stopped. Every path reports "Updated to v<version>. N tasks and M sessions kept running; K stayed on the previous runner." `pacer status` and **Settings → Updates** list work still on an older runner or host. Sessions outside the three-minor support window show **Reopen to update**. New operations `service.handover` and `service.work`. This starts with the first upgrade *from* this version: upgrading *into* it uses the old code, and on Linux that first upgrade still stops running work.
 - Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
 - Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
@@ -42,6 +44,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Collapsing a terminal split restores focus to the retained tab without closing either shell. Unavailable session Changes keep their friendly error and no longer show a successful empty count.
 
 - Wake event subscribers promptly after same-process persisted writes while retaining polling for other writers, batch task-list enrichment, and include untracked files in task-detail change counts.
+- Reuse recent screen reads and coalesce identical requests within each app connection; refresh on events, errors and reconnects. Briefly cache repository branch choices to avoid rescanning every registered repository on rapid navigation.
+
 - Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
 - Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
 - Resolve interactive agent reports from the authenticated launch run directory, so an overridden `PACER_HOME` no longer prevents completion. Report invalid launch paths, task states, attempts and tokens with actionable errors.

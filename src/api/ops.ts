@@ -44,6 +44,7 @@ import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
+import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-usage-check";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { msgOps } from "./ops-msg";
@@ -101,6 +102,7 @@ export interface OpDeps {
   clientInstance?: import("../session/send").ClientInstance;
   delegate?: typeof core.tasks.delegate;
   runnerCheck?: RunnerCheckDeps;
+  accountUsageCheck?: AccountUsageCheckDeps;
   terminal?: Partial<TerminalDeps>;
   openInTerminal?: typeof openInTerminal;
   spawnRunner?: SpawnRunner;
@@ -496,6 +498,7 @@ export const OPS: Record<string, OpDef> = {
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
+  "account.usage.check": op({description: "Check usage for an account independently of its planner or executor role. Claude requires explicit consent for a quota-consuming small task; poll job.get for progress and observation outcome.", params: z.object({account: id, consent: z.boolean().optional()}), handler: (ctx, p, deps) => checkAccountUsage(ctx, p.account, p.consent, {...deps.accountUsageCheck, onDone: deps.usageRefreshDone})}),
   "limits.refresh": op({ description: "Refresh configured account usage from each provider's available source without starting an agent turn.", params: z.object({ account: id.optional() }), handler: async (ctx, p, deps) => {
     const accounts = p.account ? [await refreshAccountUsage(ctx, p.account)] : await refreshAllUsage(ctx);
     await deps.usageRefreshDone?.();
