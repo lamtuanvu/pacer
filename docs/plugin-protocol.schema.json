@@ -3327,6 +3327,16 @@
                   "type": "string",
                   "maxLength": 4096
                 },
+                "noteLength": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "noteHash": {
+                  "type": "string",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
                 "kind": {
                   "anyOf": [
                     {

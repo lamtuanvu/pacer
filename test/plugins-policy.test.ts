@@ -51,6 +51,34 @@ test("only a declared and granted tasks.read policy receives goal and repo detai
   await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"detail"});
   expect(JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8"))).toEqual({decision:"delegate",input});
 });
+test("review notes require declared and granted tasks.read",async()=>{
+  const review={taskId:"task",revision:1,state:"done" as const,verdict:"accept" as const,note:"private review feedback"};
+  const f=fixture(),dir=f.install();
+  await applyPolicy(f.ctx,"review",review,{contextFingerprint:()=>"review"});
+  const redacted=JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8"));
+  expect(redacted.input.note).toBeUndefined();
+  expect(redacted.input.noteLength).toBe(review.note.length);
+  expect(redacted.input.noteHash).toHaveLength(64);
+  f.configure("open",{installed:{"fx-policy":{version:"1.0.0",capabilities:["tasks.read"],policy:true}}});
+  const manifest=JSON.parse(readFileSync(join(dir,"pacer-plugin.json"),"utf8"));
+  manifest.capabilities=[{name:"tasks.read"}];writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify(manifest));
+  await applyPolicy(f.ctx,"review",review,{contextFingerprint:()=>"review"});
+  expect(JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8").trim().split("\n").at(-1)!)).toEqual({decision:"review",input:review});
+});
+test("opaque goal and repository digests differ between policy plugins",async()=>{
+  const f=fixture(),dir=f.install();
+  const other=join(f.ctx.pacerHome,"plugins","other-policy");mkdirSync(other,{recursive:true});
+  const manifest=JSON.parse(readFileSync(join(dir,"pacer-plugin.json"),"utf8"));manifest.id="other-policy";
+  writeFileSync(join(other,"pacer-plugin.json"),JSON.stringify(manifest));
+  writeFileSync(join(other,"settings.json"),readFileSync(join(dir,"settings.json")));
+  writeFileSync(join(other,"main.ts"),readFileSync(join(dir,"main.ts"),"utf8").replaceAll("fx-policy","other-policy"));
+  chmodSync(join(other,"main.ts"),0o755);
+  f.configure("open",{installed:{"fx-policy":{version:"1.0.0",capabilities:[],policy:true},"other-policy":{version:"1.0.0",capabilities:[],policy:true}}});
+  await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"two"});
+  const first=JSON.parse(readFileSync(join(dir,"calls.jsonl"),"utf8")),second=JSON.parse(readFileSync(join(other,"calls.jsonl"),"utf8"));
+  expect(first.input.goalHash).not.toBe(second.input.goalHash);
+  expect(first.input.repoKey).not.toBe(second.input.repoKey);
+});
 
 test("mode config grant and full manifest edits invalidate receipts",async()=>{
   for(const change of ["mode","config","grant","manifest"]){
@@ -152,7 +180,7 @@ test("closed mode refuses while a granted policy plugin cannot load, with a visi
     const f=fixture("closed");const dir=f.install();f.configure("closed",granted);breakIt(dir);
     await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"}),name).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
     const entry=readActivity(f.ctx).entries.find(e=>e.kind==="policy");
-    expect(entry?.text,name).toContain("unavailable");expect(f.starts()).toBe(0);
+    expect(entry?.text,name).toContain("cannot be verified");expect(f.starts()).toBe(0);
     // Open mode keeps going but leaves the same trace (F5).
     f.configure("open",granted);
     await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"context"});
@@ -167,6 +195,13 @@ test("closed mode refuses an old unmarked grant with an unreadable manifest",asy
   writeFileSync(join(dir,"pacer-plugin.json"),"{not json");
   await expect(applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"old-grant"})).rejects.toMatchObject({code:"not_allowed",hint:"plugin fx-policy"});
   expect(f.starts()).toBe(0);
+});
+test("closed mode ignores a missing grant marked non-policy",async()=>{
+  const f=fixture("closed");
+  f.configure("closed",{installed:{"missing-tool":{version:"1.0.0",capabilities:[],policy:false}}});
+  const receipt=await applyPolicy(f.ctx,"delegate",input,{contextFingerprint:()=>"non-policy"});
+  expect(receipt.params.input).toEqual(input);
+  expect(readActivity(f.ctx).entries.filter(e=>e.kind==="policy")).toEqual([]);
 });
 
 test("closed mode refuses an updated policy manifest that needs a new grant even without a recorded marker (B2)",async()=>{

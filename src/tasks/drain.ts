@@ -87,6 +87,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue && launches.has(t.id))
       .sort((a, b) => (getWork(ctx,b.id)?.options.priority??0)-(getWork(ctx,a.id)?.options.priority??0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
+    const policyDeadline=Date.now()+10_000;
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
@@ -153,7 +154,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>>;
       try {
         routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},task.id,eligible,{
-          strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),
+          strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),budgetDeadline:policyDeadline,
         });
       } catch (error) {
         // Route admission concerns this task only: hold it with the reason and keep draining.

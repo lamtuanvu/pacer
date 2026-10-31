@@ -23,6 +23,8 @@ export interface PolicyEvaluationOptions {
   signal?: AbortSignal;
   /** Absolute wall-clock deadline shared with the outer operation. */
   deadline?: number;
+  /** Shared policy budget for a queue drain; expiry skips later policies in open mode. */
+  budgetDeadline?: number;
   now?: () => number;
   onVeto?: (event: {pluginId:string; decision:PolicyBeforeParams["decision"]; reason:string}) => void;
   /** Open mode ignored a failed or unavailable policy; the sink records a trace. */
@@ -85,7 +87,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
   catch(error) {if(error instanceof CoreError) throw error;throw new CoreError("invalid_input","Invalid policy decision input");}
   const excludedBy:Record<string,string>=Object.create(null);
   const now=options.now??Date.now;
-  const aggregateDeadline=Math.min(options.deadline??Infinity,now()+POLICY_AGGREGATE_MS);
+  const aggregateDeadline=Math.min(options.deadline??Infinity,options.budgetDeadline??Infinity,now()+POLICY_AGGREGATE_MS);
   const eligibleRunnerIds=options.eligibleRunnerIds ? [...options.eligibleRunnerIds] : undefined;
   const allowedPlacements=options.allowedPlacements ? [...options.allowedPlacements] : undefined;
   const veto=(policy:PolicyIdentity,reason:string):never=>{
@@ -97,7 +99,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     try {options.onFailure?.({pluginId:policy.id,decision:params.decision,reason});} catch { /* Tracing never changes the decision. */ }
   };
   for(const missing of snapshot.unavailable??[]) {
-    const reason=`Policy plugin is unavailable (${missing.reason})`;
+    const reason=`Granted plugin ${missing.id} cannot be verified (${missing.reason})`;
     if(snapshot.mode==="closed") veto({id:missing.id,generation:""},reason);
     ignored(missing,reason);
   }
@@ -106,7 +108,7 @@ export async function evaluatePolicy(source:PolicySnapshot,input:unknown,options
     let explicitVeto:string|undefined;
     try {
       const remaining=Math.min(3000,aggregateDeadline-now());
-      if(remaining<=0) throw new CoreError("plugin_timeout","Policy call timed out");
+      if(remaining<=0) throw new CoreError("plugin_timeout",`Policy ${policy.id} skipped: shared deadline expired`);
       const raw=await invoke(policy,params,options,remaining);
       checkCancelled(options.signal);
       const verdict=policyVerdict.parse(boundedClone(raw));

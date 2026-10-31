@@ -110,9 +110,9 @@ export class PluginRegistry {
       if(e.bundled||cfg.disabled.includes(e.id)||!cfg.installed[e.id]||healthy(e)) continue;
       // An unreadable old manifest may have been a policy plugin before grants
       // carried the policy marker. Closed mode cannot prove otherwise.
-      if(cfg.installed[e.id]!.policy===true||!e.manifest||Object.hasOwn(e.manifest.contributes,"policy")) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
+      if(cfg.installed[e.id]!.policy===true||(cfg.installed[e.id]!.policy===undefined&&!e.manifest)||Object.hasOwn(e.manifest?.contributes??{},"policy")) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
     }
-    for(const [id] of Object.entries(cfg.installed)) if(!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))&&!this.entries.get(id)?.manifest) out.set(id,this.entries.has(id)?"manifest is unreadable":"plugin folder is missing");
+    for(const [id,grant] of Object.entries(cfg.installed)) if(grant.policy!==false&&!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))&&!this.entries.get(id)?.manifest) out.set(id,this.entries.has(id)?"manifest is unreadable":"plugin folder is missing");
     return [...out].sort(([a],[b])=>a.localeCompare(b)).map(([id,reason])=>({id,reason}));
   }
   private eventTimerState():void {
@@ -693,7 +693,7 @@ export class PluginRegistry {
     const covered = e.bundled || grantCovers(m, current);
     if (!covered && !grant) return { id, state: "needs_grant", needs, ...(surfaces.length ? { surfaces } : {}) };
     const policy = Object.hasOwn(m.contributes, "policy");
-    if (!e.bundled && (!covered || current?.version !== m.version || (current?.policy === true) !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, ...(policy ? { policy: true as const } : {}) });
+    if (!e.bundled && (!covered || current?.version !== m.version || current?.policy !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, policy });
     await setPluginDisabled(ctx, id, false);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";

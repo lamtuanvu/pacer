@@ -75,6 +75,8 @@ const reviewInput = z
     state: z.enum(POLICY_TASK_STATES),
     verdict: z.enum(["accept", "reject", "send_back", "retry"]),
     note: z.string().max(4096).optional(),
+    noteLength: z.number().int().nonnegative().optional(),
+    noteHash: z.string().length(64).optional(),
     kind: kind.optional(),
     executor: id.optional(),
   })

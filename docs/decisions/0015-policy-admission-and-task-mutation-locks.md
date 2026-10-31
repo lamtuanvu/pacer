@@ -70,11 +70,12 @@ A policy may only restrict. The maintainer confirmed this rule on 2026-10-30:
 
 `plugins.policy.mode` sets the failure behavior. In `closed` mode, an unavailable, ungranted or failing policy plugin refuses or holds the action with a visible diagnostic. In `open` mode the action proceeds, and each ignored failure writes a `policy` warning with the plugin id and reason.
 
-Policy calls share a ten-second aggregate deadline. An old unmarked grant with an
+Policy calls share a ten-second aggregate deadline per queue drain. An old unmarked grant with an
 unreadable or missing manifest counts as unavailable in closed mode. Delegate
 decisions expose the goal text and repository path only to plugins that declare
-and hold `tasks.read`; other policy plugins receive a goal length and hash plus
-an opaque repository key. The full inputs remain host-owned for final admission.
+and hold `tasks.read`; other policy plugins receive a goal length and per-plugin
+keyed hash plus an opaque repository key. Review notes are likewise replaced by
+their length and keyed hash. The full inputs remain host-owned for final admission.
 
 ## Message continuation turns
 

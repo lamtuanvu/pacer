@@ -1,4 +1,6 @@
-import {createHash} from "node:crypto";
+import {createHash,createHmac,randomBytes} from "node:crypto";
+import {mkdirSync,readFileSync,writeFileSync} from "node:fs";
+import {join} from "node:path";
 import {appendActivity} from "../activity/log";
 import {CoreError} from "../core/errors";
 import type {Ctx} from "../types";
@@ -9,7 +11,7 @@ import type {PolicyBeforeParams} from "./policy-protocol";
 
 type Decision = PolicyBeforeParams["decision"];
 type Input<D extends Decision> = Extract<PolicyBeforeParams,{decision:D}>["input"];
-export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"signal"|"deadline"> {
+export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"signal"|"deadline"|"budgetDeadline"> {
   /** Fresh synchronous task/project/candidate/authority context, checked again before effects. */
   contextFingerprint: () => string;
 }
@@ -21,6 +23,16 @@ function canonical(value:unknown):unknown {
   return value;
 }
 const fingerprint=(value:unknown)=>createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+function policyKey(ctx:Ctx,id:string):Buffer {
+  const dir=join(ctx.pacerHome,"secrets"),path=join(dir,"policy-hmac.key");
+  mkdirSync(dir,{recursive:true,mode:0o700});
+  try {writeFileSync(path,randomBytes(32),{flag:"wx",mode:0o600});}
+  catch(error) {if((error as NodeJS.ErrnoException).code!=="EEXIST") throw error;}
+  const master=readFileSync(path);
+  if(master.length!==32) throw new CoreError("invalid_input","Policy hash key is invalid");
+  return createHmac("sha256",master).update(id).digest();
+}
+function opaque(key:Buffer,value:unknown):string {return createHmac("sha256",key).update(JSON.stringify(canonical(value))).digest("hex");}
 function metadata(ctx:Ctx) {
   const registry=pluginRegistry(ctx);
   const policies=registry.policySnapshot(ctx);
@@ -64,9 +76,12 @@ export async function applyPolicy<D extends Decision>(ctx:Ctx,decision:D,input:I
       }
       const entry=initial.policies.find(value=>value.id===policy.id);
       const canReadDetail=!!entry?.manifest.capabilities.some(capability=>capability.name==="tasks.read") && (entry.bundled||entry.grant?.capabilities.includes("tasks.read"));
-      const wire=params.decision==="delegate"&&!canReadDetail ? {
+      const key=canReadDetail||params.decision==="route"?null:policyKey(ctx,policy.id);
+      const wire=params.decision==="delegate"&&key ? {
         ...params,
-        input:{...params.input,goal:"",repo:`repo:${fingerprint(params.input.repo)}`,goalLength:params.input.goal.length,goalHash:fingerprint(params.input.goal),repoKey:fingerprint(params.input.repo)},
+        input:{...params.input,goal:"",repo:`repo:${opaque(key,params.input.repo)}`,goalLength:params.input.goal.length,goalHash:opaque(key,params.input.goal),repoKey:opaque(key,params.input.repo)},
+      } : params.decision==="review"&&key&&params.input.note!==undefined ? {
+        ...params,input:{...params.input,note:undefined,noteLength:params.input.note.length,noteHash:opaque(key,params.input.note)},
       } : params;
       return initial.registry.call(ctx,policy.id,"policy.before",wire,callOptions);
     },

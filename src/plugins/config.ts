@@ -30,7 +30,7 @@ export function setPluginDisabled(ctx: Ctx, id: string, disabled: boolean): Prom
 
 export function setPluginGrant(ctx: Ctx, id: string, grant: PluginGrant | null): Promise<void> {
   return edit(ctx, (doc, current) => {
-    if (grant) doc.setIn(["plugins", "installed", id], { version: grant.version, capabilities: grant.capabilities, ...(grant.surfaces?.length ? { surfaces: grant.surfaces } : {}), ...(grant.policy ? { policy: true } : {}) });
+    if (grant) doc.setIn(["plugins", "installed", id], { version: grant.version, capabilities: grant.capabilities, ...(grant.surfaces?.length ? { surfaces: grant.surfaces } : {}), ...(grant.policy !== undefined ? { policy: grant.policy } : {}) });
     else if (Object.hasOwn(current.installed, id)) doc.deleteIn(["plugins", "installed", id]);
   });
 }

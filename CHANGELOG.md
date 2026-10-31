@@ -28,6 +28,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Policy plugins without a declared and granted `tasks.read` receive an empty delegate `goal` and an opaque `repo`; review notes are omitted. The goal, repository and note hashes are keyed per plugin, changing the meaning of those fields for existing policy plugins. The hardening protocol release version remains PENDING for assignment at merge.
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
 - Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.6.0 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
 - OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.6.0 adds `notifier.deliver`.

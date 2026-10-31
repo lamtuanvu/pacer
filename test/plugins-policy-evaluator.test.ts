@@ -41,9 +41,9 @@ test("closed mode vetoes listed unavailable policy plugins before calling any po
   const calls:string[]=[],vetoes:unknown[]=[],failures:unknown[]=[];
   const source={mode:"closed" as const,fingerprint:"g",policies:[{id:"a",generation:"1"}],unavailable:[{id:"gone",reason:"needs_grant"}]};
   await expect(evaluatePolicy(freezePolicySnapshot(source),delegate,{onVeto:v=>{vetoes.push(v);},call:async p=>{calls.push(p.id);return {verdict:"allow"};}})).rejects.toMatchObject({code:"not_allowed",hint:"plugin gone"});
-  expect(calls).toEqual([]);expect(vetoes).toEqual([{pluginId:"gone",decision:"delegate",reason:"Policy plugin is unavailable (needs_grant)"}]);
+  expect(calls).toEqual([]);expect(vetoes).toEqual([{pluginId:"gone",decision:"delegate",reason:"Granted plugin gone cannot be verified (needs_grant)"}]);
   const open=await evaluatePolicy(freezePolicySnapshot({...source,mode:"open"}),delegate,{onFailure:v=>{failures.push(v);},call:async p=>{calls.push(p.id);return {verdict:"allow"};}});
-  expect(open.params).toEqual(delegate);expect(calls).toEqual(["a"]);expect(failures).toEqual([{pluginId:"gone",decision:"delegate",reason:"Policy plugin is unavailable (needs_grant)"}]);
+  expect(open.params).toEqual(delegate);expect(calls).toEqual(["a"]);expect(failures).toEqual([{pluginId:"gone",decision:"delegate",reason:"Granted plugin gone cannot be verified (needs_grant)"}]);
 });
 
 test("explicit veto rejects even in open mode with bounded safe activity",async()=>{
@@ -99,6 +99,13 @@ test("policy calls share one ten-second deadline",async()=>{
   const receipt=await evaluatePolicy(source,delegate,{now:()=>clock,call:async(policy)=>{visited.push(policy.id);clock+=4000;return {verdict:"allow"};}});
   expect(visited).toEqual(["a","b","c"]);
   expect(()=>receipt.revalidate("aggregate")).not.toThrow();
+});
+test("open mode reports each policy skipped after a shared deadline",async()=>{
+  let clock=0;const skipped:string[]=[];
+  const source=freezePolicySnapshot({mode:"open",fingerprint:"g",policies:["a","b","c"].map(id=>({id,generation:"1"}))});
+  const receipt=await evaluatePolicy(source,delegate,{now:()=>clock,budgetDeadline:5000,onFailure:event=>skipped.push(`${event.pluginId}: ${event.reason}`),call:async()=>{clock=5000;return {verdict:"allow"};}});
+  expect(()=>receipt.revalidate("g")).not.toThrow();
+  expect(skipped).toEqual(["b","c"].map(id=>`${id}: Policy decision failed and was ignored in open mode (plugin_timeout: Policy ${id} skipped: shared deadline expired)`));
 });
 
 test("cancellation stops evaluation even in open mode",async()=>{
