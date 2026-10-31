@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
@@ -106,6 +106,22 @@ test("a 40 KiB body is written to a file and only a short prompt is typed", asyn
   const path = /"([^"]+\.md)"/.exec(bytes)![1]!;
   expect(path.startsWith(dir)).toBe(true);
   expect(readFileSync(path, "utf8")).toContain("x".repeat(40 * 1024));
+});
+
+test("a failed large-message rename leaves the message pending for a clean retry", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "x".repeat(40 * 1024) }, { appAuthenticated: true });
+  const path = join(dir, `messages-${id}_live.1.md`);
+  mkdirSync(path);
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  expect(session.input).toHaveLength(0);
+  rmSync(path, { recursive: true });
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(readFileSync(path, "utf8")).toContain("x".repeat(40 * 1024));
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
 });
 
 test("a resumed agent or takeover during admission leaves live messages pending", async () => {
