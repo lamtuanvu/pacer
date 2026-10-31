@@ -129,6 +129,36 @@ test("a cycle stops at max_nudges on the third nudge and the fourth tick inserts
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
 });
 
+test("zero nudge cap escalates an idle run immediately without inserting a nudge", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nmessaging:\n  liveness: {max_nudges: 0}\n");
+  const task = createTask(ctx, { brief: { goal: "idle", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
+  await brokerTick(ctx, { mode });
+  const node = `task:${task.id}`;
+  expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
+  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+  expect(getLiveness(ctx, node)?.nudges).toBe(0);
+});
+
+test("idle run waits one interval before bounded recovery", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "idle", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
+  const node = `task:${task.id}`;
+  await brokerTick(ctx, { mode });
+  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).not.toBeNull();
+  await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
+  await brokerTick({ ...ctx, now: ctx.now + 420 }, { mode });
+  await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+  expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+  expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
+});
+
 test("a concurrent broker tick skips the held lock", async () => {
   const { ctx } = fixture();
   let release!: () => void;
@@ -157,4 +187,14 @@ test("broker timer is registered at 15 seconds and cleared on stop", async () =>
     await server.stop();
     expect(cleared.mock.calls.some(([id]) => id === timer)).toBe(true);
   } finally { cleared.mockRestore(); await server.stop(); }
+});
+
+test("strict mode escalates an idle run instead of nudging it", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "idle", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
+  const node = `task:${task.id}`;
+  await brokerTick(ctx, { mode: async () => "strict" as const });
+  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
 });

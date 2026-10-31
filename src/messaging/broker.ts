@@ -4,6 +4,7 @@ import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
 import { publish } from "../link/publish";
 import { readTask } from "../tasks/store";
+import { stopRun } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { analyzeLiveness, buildSnapshot, type Stall } from "./liveness";
@@ -54,7 +55,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         row.reason = stall.reason;
-        const nudged = stall.reason === "cycle";
+        const nudged = stall.reason === "cycle" || stall.reason === "idle_run";
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
         if (ctx.now < row.nextAt && nudged && allowed && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
@@ -68,12 +69,21 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
         } else if (nudged) {
-          if (!stall.deepest || !allowed || row.nudges >= config.max_nudges) stallNow = true;
+          if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;
           else if (node === stall.deepest && !cycleTargets.has(node)) {
             cycleTargets.add(node);
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: your conversation is waiting on you (cycle: ${chain}). Answer the open question, ask your parent, or report.`,
+              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+            await deliver(ctx, node, deps.spawnRunner);
+            row.nudges++; acted = true;
+          } else if (stall.reason === "idle_run") {
+            // As supervise does for an idle run: stop the turn, then a nudge resumes it once the task settles.
+            const task = readTask(ctx, taskOf(node)!);
+            if (task?.run?.dir) await stopRun(task.run.dir);
+            insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
+              kind: "nudge", body: "pacer: your run was idle. Resume the work, ask for help, or report progress.",
               replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
