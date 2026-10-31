@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import { readTask, withTaskLock } from "../tasks/store";
 import { publishOwnedExecutorRun } from "./executor-attempt";
+import { checkoutOccupied } from "./executor-checkout";
 import type { CallAuthority } from "./authority";
 
 const deny = (): never => { throw new CoreError("capability_denied", "executor run claim owner changed"); };
@@ -15,8 +16,10 @@ export async function answerExecutorClaim(authority: CallAuthority,
   const ctx = authority.ctx;
   const existing = readTask(ctx, grant.taskId)?.run;
   if (!existing) {
+    if (grant.inPlaceTop !== undefined && checkoutOccupied(ctx, grant.taskId, grant.inPlaceTop)) return deny();
     try { await publishOwnedExecutorRun(ctx, grant.providerId, grant.taskId, grant.executor, grant.workdir,
-      grant.launch.session); }
+      grant.launch.session, { ...(grant.agentSession ? { agentSession: { ...grant.agentSession } } : {}),
+        ...(grant.turnResume ? { turnResume: grant.turnResume } : {}) }); }
     catch (error) {
       if (error instanceof CoreError && error.code === "conflict") return deny();
       throw error;

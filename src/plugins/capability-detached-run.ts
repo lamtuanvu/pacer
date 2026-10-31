@@ -5,13 +5,20 @@ import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import { startRun } from "../supervisor/run";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
-import type { CallAuthority } from "./authority";
+import type { CallAuthority, ExecutorLaunchFile } from "./authority";
 
 const deny = (): never => { throw new CoreError("capability_denied", "detached run owner or source changed"); };
 
+/** Each fixed launch file name has one mode, size bound and session kind; strict settings guard pipe launches. */
+const LAUNCH_FILES: Record<ExecutorLaunchFile["name"], { mode: number; bytes: number; interactive: boolean }> = {
+  "report-hook.sh": { mode: 0o700, bytes: 16_384, interactive: true },
+  "claude-settings.json": { mode: 0o600, bytes: 16_384, interactive: true },
+  "strict-claude-settings.json": { mode: 0o600, bytes: 16_384, interactive: false },
+  "prompt.md": { mode: 0o600, bytes: 8 * 1024 * 1024, interactive: true },
+};
+
 /** Publish a complete fixed artifact without replacing another entry at its name. */
-function publishArtifact(dir: string, file: { name: "report-hook.sh" | "claude-settings.json";
-  content: string; mode: number }): void {
+function publishArtifact(dir: string, file: ExecutorLaunchFile): void {
   const temp = join(dir, `.pacer-${randomUUID()}.tmp`), target = join(dir, file.name);
   let fd: number | undefined;
   try {
@@ -65,16 +72,19 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
     updateTask(authority.ctx, grant.taskId, current => {
       current.startIntent = { attempt: grant.attempt, providerId: current.executorProvider!, dir: grant.dir };
     });
-    if (grant.files?.length && grant.session !== "interactive") return deny();
-    for (const file of grant.files ?? []) {
-      if (!["report-hook.sh", "claude-settings.json"].includes(file.name) ||
-        file.mode !== (file.name === "report-hook.sh" ? 0o700 : 0o600) ||
-        Buffer.byteLength(file.content, "utf8") > 16_384) return deny();
-      publishArtifact(grant.dir, file);
+    const files = grant.files ?? [];
+    if (new Set(files.map(file => file.name)).size !== files.length) return deny();
+    for (const file of files) {
+      const rule = Object.hasOwn(LAUNCH_FILES, file.name) ? LAUNCH_FILES[file.name] : undefined;
+      if (!rule || file.mode !== rule.mode || Buffer.byteLength(file.content, "utf8") > rule.bytes ||
+        rule.interactive && grant.session !== "interactive") return deny();
     }
+    for (const file of files) publishArtifact(grant.dir, file);
     const result = startRun({ dir: grant.dir, argv: [grant.executable, ...grant.argv.slice(1)], cwd: grant.cwd,
       env: { PATH: authority.ctx.env.PATH ?? "/usr/bin:/bin", ...grant.env, HOME: authority.ctx.home },
-      stdin: grant.stdin, session: grant.session ?? "pipe" });
+      stdin: grant.stdin, session: grant.session ?? "pipe",
+      ...(grant.umask === undefined ? {} : { umask: grant.umask }),
+      ...(grant.keepColor === undefined ? {} : { keepColor: grant.keepColor }) });
     if ("error" in result) throw new CoreError("plugin_unavailable", "detached wrapper launch uncertain; inspect run directory");
     updateTask(authority.ctx, grant.taskId, current => { current.childPid = result.pid; });
     return result;

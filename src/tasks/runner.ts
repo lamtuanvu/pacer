@@ -516,7 +516,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
         ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
         !resolveRunner(s, pick)?.host &&
-        (!task.worktree || !!task.retryOf || task.attempts.length > 0);
+        (!task.worktree || !!task.retryOf || task.attempts.length > 0) &&
+        // A task whose earlier attempt ran on the built-in owner continues there: its receipts predate the provider.
+        (task.attempts.length === 0 || !!task.retryOf ||
+          task.executorExitReceipt?.providerId === "pacer-exec-direct" &&
+            task.executorExitReceipt.attempt === task.attempts.length);
       const localGit = localOwnerCandidate ? await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" })) : null;
       const localTop = localGit && !("error" in localGit) ? realpathSafe(localGit.top) : realpathSafe(task.brief.repo);
       const localBusy = localOwnerCandidate && listTasksWhere(ctx, { states: ["running"] }).some(other => {

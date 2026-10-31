@@ -24,7 +24,7 @@ function fixture() {
     current.executorProvider = "pacer-exec-direct";
   });
   const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0",
-    publisher: "pacer", host: ">=1.8.0", contributes: { executor: { backends: ["direct"] } },
+    publisher: "pacer", host: ">=1.9.0", contributes: { executor: { backends: ["direct"] } },
     capabilities: [{ name: "process.spawn", scopes: ["bun", "codex"] }] });
   const executable = realpathSync(process.execPath);
   const binary = statSync(executable), cwd = realpathSync(home);
@@ -297,7 +297,7 @@ test("isolated run claim requires the issued worktree effect and binds its exact
   const worktree = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
   const executable = realpathSync(process.execPath), binary = statSync(executable);
   const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0",
-    publisher: "pacer", host: ">=1.8.0", contributes: { executor: { backends: ["direct"] } },
+    publisher: "pacer", host: ">=1.9.0", contributes: { executor: { backends: ["direct"] } },
     capabilities: [{ name: "worktree", scopes: ["task-owned"] },
       { name: "process.spawn", scopes: ["bun", "codex"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree,
@@ -321,4 +321,35 @@ test("isolated run claim requires the issued worktree effect and binds its exact
     expect(readTask(ctx, task.id)?.run?.workdir).toBe(worktree.workdir);
     expect(readTask(ctx, task.id)?.worktreeIntent).toBeUndefined();
   } finally { await authority.revoke(); }
+});
+
+test("a pipe claim publishes the strict guard file but refuses an interactive-only launch file", async () => {
+  for (const name of ["strict-claude-settings.json", "prompt.md"] as const) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, launch: { ...resource.launch,
+        files: [{ name, content: "{}", mode: 0o600 }] } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      const start = answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority);
+      if (name === "prompt.md") {
+        await expect(start).rejects.toMatchObject({ code: "capability_denied" });
+        expect(existsSync(join(dir, name))).toBe(false);
+        expect(existsSync(join(dir, "pid"))).toBe(false);
+      } else {
+        expect(await start).toHaveProperty("pid");
+        expect(readFileSync(join(dir, name), "utf8")).toBe("{}");
+      }
+    } finally {
+      await authority.revoke();
+      const dir = readTask(ctx, task.id)?.run?.dir;
+      if (dir && existsSync(join(dir, "pid"))) await stopRun(dir, { graceMs: 1000 });
+      cleanup();
+    }
+  }
 });

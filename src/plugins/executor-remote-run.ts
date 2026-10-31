@@ -17,6 +17,13 @@ import type { CallAuthority } from "./authority";
 
 const deny = (): never => { throw new CoreError("capability_denied", "owned remote run changed"); };
 
+/** Poll and output read only the run this call prepared or the exact persisted run issued for resume. */
+function observed(authority: CallAuthority, taskId: string, attempt: number) {
+  const bound = authority.remoteObservedRun(taskId, attempt), found = owner(authority, taskId, attempt);
+  if (bound.dir !== undefined && (found.run.dir !== bound.dir || found.run.startedAt !== bound.startedAt)) return deny();
+  return found;
+}
+
 function owner(authority: CallAuthority, taskId: string, attempt: number) {
   authority.assertActive();
   const ctx = authority.ctx, task = readTask(ctx, taskId), run = task?.run,
@@ -46,6 +53,8 @@ function owner(authority: CallAuthority, taskId: string, attempt: number) {
 /** Record START before any remote effect; a lost reply may only be observed. */
 export async function answerOwnedRemoteStart(authority: CallAuthority,
   request: { taskId: string; attempt: number }): Promise<{ pid: number }> {
+  // Only the call that prepared and claimed this run may start it.
+  authority.remotePreparedRun(request.taskId, request.attempt);
   const before = owner(authority, request.taskId, request.attempt);
   if (before.task.stopPending || before.task.startIntent || before.task.executorExitReceipt) return deny();
   const cfg = loadStrategy(before.ctx).providers[before.run.executor];
@@ -92,7 +101,7 @@ export async function answerOwnedRemoteStart(authority: CallAuthority,
 export async function answerOwnedRemotePoll(authority: CallAuthority,
   request: { taskId: string; attempt: number }): Promise<{ state: "running" | "exited" | "uncertain";
     exitCode: number | null }> {
-  const before = owner(authority, request.taskId, request.attempt);
+  const before = observed(authority, request.taskId, request.attempt);
   if (!before.task.startIntent || before.task.startIntent.attempt !== request.attempt ||
     before.task.startIntent.providerId !== "pacer-exec-direct" ||
     before.task.startIntent.dir !== before.run.dir) return deny();
@@ -156,7 +165,7 @@ export async function answerOwnedRemoteStop(authority: CallAuthority,
 /** Bounded tails only after a host-verified exit receipt. */
 export function answerOwnedRemoteOutput(authority: CallAuthority,
   request: { taskId: string; attempt: number }): { stdoutBase64: string; stderrBase64: string } {
-  const before = owner(authority, request.taskId, request.attempt), receipt = before.task.executorExitReceipt;
+  const before = observed(authority, request.taskId, request.attempt), receipt = before.task.executorExitReceipt;
   if (!receipt || receipt.attempt !== request.attempt || receipt.providerId !== "pacer-exec-direct" ||
     receipt.dir !== before.run.dir || receipt.startedAt !== before.run.startedAt) return deny();
   const tail = (name: "stdout" | "stderr") => {

@@ -91,7 +91,8 @@ export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, rec
 
 /** Persist the exact run owner before any provider process effect. */
 export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId: string,
-  executor: string, workdir: string, session?: "interactive"):
+  executor: string, workdir: string, session?: "interactive",
+  native: Pick<RunRef, "agentSession" | "turnResume"> = {}):
   Promise<{ owner: RunRef; runIdentity: { dev: number; ino: number } }> {
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
   let runIdentity: { dev: number; ino: number };
@@ -125,7 +126,7 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
     if (claim.path !== dir) throw new CoreError("conflict", "executor run directory changed");
     runIdentity = claim.identity;
     const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
-      ...(session ? { session } : {}),
+      ...(session ? { session } : {}), ...native,
       mode: isolated ? "new" : "current", workdir, logFile: join(dir, "stdout") };
     updateTask(ctx, taskId, current => {
       if (JSON.stringify(current.runClaim) !== JSON.stringify(expected))

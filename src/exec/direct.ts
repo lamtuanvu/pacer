@@ -337,7 +337,7 @@ function pacerTaskWorktree(ctx: Ctx, mode: "current" | "new", folder: string): b
 }
 
 /** Claude asks about folder trust before it loads pacer's hooks, so an unattended task would wait unseen. */
-async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, root?: string): Promise<string> {
+export async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, root?: string): Promise<string> {
   if (!pacerTaskWorktree(ctx, mode, folder)) return "claude folder trust: not pre-approved (only pacer-created task worktrees are); Claude may ask whether to trust this folder\n\n";
   const result = await grantClaudeFolderTrust(claudeConfigFile(env, ctx.home), folder, root)
     .catch(() => ({status: "skipped" as const, reason: "the Claude config file could not be updated"}));
@@ -348,7 +348,7 @@ async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | unde
  * The source checkout's MCP answers, read only for a pacer-created task worktree, whose untracked settings.local.json
  * is not in the worktree. An in-place run is left to Claude, which reads that checkout's own answers and may prompt.
  */
-function projectMcpAnswers(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, roots: string[]): McpChoices | {reason: string} {
+export function projectMcpAnswers(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, roots: string[]): McpChoices | {reason: string} {
   if (!pacerTaskWorktree(ctx, mode, folder)) return {reason: "only pacer-created task worktrees are"};
   return projectMcpChoices(claudeConfigFile(env, ctx.home), roots);
 }

@@ -5,6 +5,11 @@ import type { ChildProcess } from "node:child_process";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
+/** Host-written run files published after the empty run-directory claim and before the wrapper starts. */
+export interface ExecutorLaunchFile {
+  name: "report-hook.sh" | "claude-settings.json" | "strict-claude-settings.json" | "prompt.md";
+  content: string; mode: number }
+
 export interface CallResources {
   /** One persisted remote placement; provider may request only this fixed PREPARE or recover proof. */
   remotePrepare?: { grant: import("./executor-remote-prepare").OwnedRemotePrepareGrant };
@@ -12,12 +17,18 @@ export interface CallResources {
   remoteStop?: { taskId: string; attempt: number; providerId: string;
     requestedAt: number; graceMs: number; dir: string; startedAt: number };
   remoteTransfer?: { taskId: string; attempt: number; providerId: string };
+  /** Exact already-persisted remote run a resumed call may poll and read; never START. */
+  remoteObserve?: { taskId: string; attempt: number; providerId: string; dir: string; startedAt: number };
   /** Host-selected local run publication after placement, never derived from plugin params. */
   executorClaim?: { taskId: string; attempt: number; providerId: string; executor: string; workdir: string;
     launch: { argv: string[]; cwd: string; executable: string;
       executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
-      env: Record<string, string>; stdin?: string; session?: "interactive";
-      files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] } };
+      env: Record<string, string>; stdin?: string; session?: "interactive"; umask?: string; keepColor?: string[];
+      files?: ExecutorLaunchFile[] };
+    /** In-place attempts recheck this canonical checkout for another task's work at claim. */
+    inPlaceTop?: string;
+    /** Host-chosen native session details recorded on the published run. */
+    agentSession?: { id: string; source: "header" | "assigned" | "lookup" }; turnResume?: "replayed" };
   /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
   executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
     workdir: string; dir: string; dirIdentity: { dev: number; ino: number }; startedAt: number };
@@ -44,8 +55,8 @@ export interface CallResources {
     dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
     executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
     cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string;
-    session?: "interactive";
-    files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] };
+    session?: "interactive"; umask?: string; keepColor?: string[];
+    files?: ExecutorLaunchFile[] };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
@@ -158,7 +169,7 @@ export class CallAuthority {
       }
       Object.freeze(this.resources.writes);
     }
-    if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
+    if (this.resources.http) { Object.freeze(this.resources.http.hosts); if (this.resources.http.origins) Object.freeze(this.resources.http.origins); Object.freeze(this.resources.http); }
     if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);
     if (this.resources.detachedRun) {
       Object.freeze(this.resources.detachedRun.argv);
@@ -190,7 +201,11 @@ export class CallAuthority {
       Object.freeze(this.resources.executorClaim.launch.argv);
       Object.freeze(this.resources.executorClaim.launch.executableIdentity);
       Object.freeze(this.resources.executorClaim.launch.env);
+      for (const file of this.resources.executorClaim.launch.files ?? []) Object.freeze(file);
+      if (this.resources.executorClaim.launch.files) Object.freeze(this.resources.executorClaim.launch.files);
+      if (this.resources.executorClaim.launch.keepColor) Object.freeze(this.resources.executorClaim.launch.keepColor);
       Object.freeze(this.resources.executorClaim.launch);
+      if (this.resources.executorClaim.agentSession) Object.freeze(this.resources.executorClaim.agentSession);
       Object.freeze(this.resources.executorClaim);
     }
     if (this.resources.executorObserve) {
@@ -200,6 +215,7 @@ export class CallAuthority {
     if (this.resources.remotePrepare) Object.freeze(this.resources.remotePrepare);
     if (this.resources.remoteStop) Object.freeze(this.resources.remoteStop);
     if (this.resources.remoteTransfer) Object.freeze(this.resources.remoteTransfer);
+    if (this.resources.remoteObserve) Object.freeze(this.resources.remoteObserve);
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -307,6 +323,15 @@ export class CallAuthority {
       throw new CoreError("capability_denied", "remote run claim has no verified placement");
     return result;
   }
+  /** The remote run this call prepared, or the exact persisted run issued to a resumed call. */
+  remoteObservedRun(taskId: string, attempt: number): { dir?: string; startedAt?: number } {
+    this.assertGranted("hosts");
+    const prepared = this.remotePrepared, observe = this.resources.remoteObserve;
+    if (prepared && prepared.taskId === taskId && prepared.attempt === attempt) return {};
+    if (observe && observe.taskId === taskId && observe.attempt === attempt)
+      return { dir: observe.dir, startedAt: observe.startedAt };
+    throw new CoreError("capability_denied", "remote run observation is not issued for this call");
+  }
   consumeRemoteStop(taskId: string, attempt: number, graceMs: number): NonNullable<CallResources["remoteStop"]> {
     this.assertGranted("hosts");
     const grant = this.resources.remoteStop;
@@ -334,7 +359,8 @@ export class CallAuthority {
       grant.workdir !== issued.workdir ||
       grant.cwd !== realpathSync(issued.launch.cwd) || grant.executable !== issued.launch.executable ||
       JSON.stringify(grant.argv) !== JSON.stringify(issued.launch.argv) ||
-      grant.session !== issued.launch.session ||
+      grant.session !== issued.launch.session || grant.umask !== issued.launch.umask ||
+      JSON.stringify(grant.keepColor) !== JSON.stringify(issued.launch.keepColor) ||
       JSON.stringify(grant.files) !== JSON.stringify(issued.launch.files))
       throw new CoreError("capability_denied", "executor launch was not derived from this run claim");
     this.claimedDetachedRun = Object.freeze({ ...grant, argv: Object.freeze([...grant.argv]) as string[],

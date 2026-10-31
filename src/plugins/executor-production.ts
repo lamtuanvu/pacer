@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -6,15 +6,14 @@ import { gitInfo, realpathSafe } from "../core/git";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { validateExecution } from "../config/execution";
-import { launchFor, providerEnv } from "../exec/launch";
-import { executorEnv } from "../exec/process";
-import { planInteractive, requireCodexInteractive } from "../session/reports";
+import { launchModeFor } from "../exec/launch";
+import { outcome } from "../exec/direct";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { detectLimit } from "../exec/limits";
 import type { AttemptOutcome } from "../exec/direct";
-import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { readTask, tasksDir, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { pluginRegistry } from "./index";
@@ -23,6 +22,8 @@ import { inspectOwnedExecutorRun } from "./executor-run-state";
 import { issueOwnedWorktreeGrant } from "./executor-worktree";
 import { admitOwnedRemotePrepare } from "./executor-remote-prepare";
 import type { CallResources } from "./authority";
+import { checkoutOccupied } from "./executor-checkout";
+import { planOwnedLaunch } from "./executor-launch-plan";
 
 interface ExecutorCaller {
   call(ctx: Ctx, pluginId: string, method: "executor.run", params: unknown,
@@ -112,23 +113,21 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const strategy = loadStrategy(ctx), execution = validateExecution(strategy.execution);
   const attempt = current.attempts.length + 1, dir = join(ctx.pacerHome, "runs", task.id, String(attempt));
   let worktreeGrant: Awaited<ReturnType<typeof issueOwnedWorktreeGrant>> | undefined;
-  let workdir: string;
+  let workdir: string, inPlaceTop: string | undefined, repoRoots: string[], trustRoot: string | undefined;
   if (placement === "current") {
     if (current.placement?.requested === "new" || current.placement?.mode === "new" ||
       current.placement?.requested !== "current" && execution.worktree !== "current" &&
         current.placement?.mode !== "current")
       throw new CoreError("capability_denied", "local current placement is not selected");
-    const source = realpathSafe(task.brief.repo);
     const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
     if (current.placement?.why === "strategy default" && !("error" in git) && git.dirty)
       throw new CoreError("capability_denied", "current checkout has uncommitted changes");
-    const occupied = listTasksWhere(ctx, { states: ["queued", "running"] }).some(other =>
-      other.id !== task.id && realpathSafe(other.worktree ?? other.result?.worktree ?? other.brief.repo) === source &&
-      (other.interactionMode === "conversation" && other.placement?.requested === "current" ||
-        other.state === "running" && other.placement?.mode === "current" && !!other.runnerPid &&
-          (() => { try { process.kill(other.runnerPid!, 0); return true; } catch { return false; } })()));
-    if (occupied) throw new CoreError("capability_denied", "current checkout is owned by another task");
+    inPlaceTop = realpathSafe("error" in git ? task.brief.repo : git.top);
+    if (checkoutOccupied(ctx, task.id, inPlaceTop))
+      throw new CoreError("capability_denied", "current checkout is owned by another task");
     workdir = realpathSync(task.brief.repo);
+    repoRoots = [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])];
+    trustRoot = "error" in git ? undefined : git.main;
   } else {
     if (current.placement?.requested === "current" || current.placement?.mode === "current" ||
       current.placement?.requested !== "new" && execution.worktree === "current")
@@ -137,35 +136,30 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       await admittedDefaultBase(ctx, task, providerId, attempt);
     worktreeGrant = await issueOwnedWorktreeGrant(ctx, task.id, providerId, attempt, base);
     workdir = worktreeGrant.workdir;
+    repoRoots = [task.brief.repo, worktreeGrant.repoTop, worktreeGrant.repoMain];
+    trustRoot = worktreeGrant.repoMain;
   }
-  const interactive = cfg.session === "interactive";
-  const prompt = buildPrompt(placement === "new" ? { ...task.brief,
+  const brief = buildPrompt(placement === "new" ? { ...task.brief,
     repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` :
       `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }
     : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
-  const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
-  const baseLaunch = launchFor(cfg, prompt + instructions, workdir, dir, task.id);
-  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
-  const planned = interactive ? planInteractive(agent, dir, baseLaunch) :
-    { launch: baseLaunch, files: [] as ReturnType<typeof planInteractive>["files"] };
-  const launch = planned.launch;
+  const plan = await planOwnedLaunch(ctx, { cfg, task, execution, placement, workdir, dir, brief, repoRoots, trustRoot });
+  cfg = plan.cfg;
+  if (plan.refused !== undefined) {
+    const log = join(tasksDir(ctx), `${task.id}.${cfg.id}.log`);
+    return outcome(cfg, Date.now() / 1000, { code: 1, stdout: "", stderr: plan.refused, timedOut: false }, log, plan.refused);
+  }
+  const { interactive, launch } = plan;
   if (launch.argv.length < 1 || launch.argv.length > 32 ||
     launch.argv.some(arg => !arg || Buffer.byteLength(arg, "utf8") > 4096 || arg.includes("\0")) ||
-    launch.stdin !== undefined && Buffer.byteLength(launch.stdin, "utf8") > 262144)
+    launch.stdin !== undefined && Buffer.byteLength(launch.stdin, "utf8") > 262144 ||
+    plan.files.some(file => file.name === "prompt.md" && Buffer.byteLength(file.content, "utf8") > 8 * 1024 * 1024))
     throw new CoreError("invalid_input", "executor launch exceeds the bounded plugin contract");
   const selected = ctx.which(launch.argv[0]!);
   if (!selected) throw new CoreError("plugin_unavailable", "executor binary is unavailable");
   const executable = realpathSync(selected), stat = statSync(executable);
   if (!stat.isFile() || !(stat.mode & 0o111))
     throw new CoreError("plugin_unavailable", "executor binary is not executable");
-  const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
-  if (interactive) {
-    if (agent === "codex") await requireCodexInteractive(ctx, env);
-    env.PACER_HOME = ctx.pacerHome;
-    env.PACER_RUN_DIR = dir;
-    env.PACER_TRANSCRIPT_REPORT = join(dir, "transcript-report.md");
-  }
-  const cleanEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   const admitted = readTask(ctx, task.id);
   if (!admitted || admitted.state !== "running" || admitted.stopPending ||
     admitted.executorProvider !== providerId || admitted.attempts.length + 1 !== attempt ||
@@ -176,9 +170,15 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     executorClaim: { taskId: task.id, attempt, providerId, executor: cfg.id,
       workdir, launch: { argv: launch.argv, cwd: workdir, executable,
         executableIdentity: { dev: stat.dev, ino: stat.ino, size: stat.size,
-          mtimeMs: stat.mtimeMs, mode: stat.mode }, env: cleanEnv,
+          mtimeMs: stat.mtimeMs, mode: stat.mode }, env: plan.env,
         ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
-        ...(interactive ? { session: "interactive" as const, files: planned.files } : {}) } } };
+        ...(interactive ? { session: "interactive" as const } : {}),
+        ...(plan.files.length ? { files: plan.files } : {}),
+        ...(plan.umask === undefined ? {} : { umask: plan.umask }),
+        ...(plan.keepColor === undefined ? {} : { keepColor: plan.keepColor }) },
+      ...(inPlaceTop === undefined ? {} : { inPlaceTop }),
+      ...(plan.agentSession ? { agentSession: plan.agentSession } : {}),
+      ...(plan.turnResume ? { turnResume: plan.turnResume } : {}) } };
   const raw = await caller.call(ctx, providerId, "executor.run",
     { task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
       owned: { placement, timeoutMs: task.timeoutS * 1000,
@@ -188,6 +188,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
+  out.report = plan.note + out.report;
   if (!interactive) {
     if (launch.lastMessageFile && existsSync(launch.lastMessageFile)) {
       const last = readFileSync(launch.lastMessageFile, "utf8").trim().slice(-4000);
@@ -299,6 +300,8 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
       !current.startIntent || current.startIntent.attempt !== attempt ||
       current.startIntent.providerId !== providerId || current.startIntent.dir !== run.dir)
       throw new CoreError("capability_denied", "remote run is uncertain; replacement launch refused");
+    resources = { ...resources, remoteObserve: { taskId: task.id, attempt, providerId,
+      dir: run.dir, startedAt: run.startedAt } };
   }
   const admitted = readTask(ctx, task.id)!;
   const run = admitted.run;
@@ -347,6 +350,9 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
       noWork.exitCode !== receipt.exitCode)
       throw new CoreError("conflict", "remote transfer outcome lacks a host-verified disposition");
   }
+  const choice = launchModeFor(cfg, validateExecution(strategy.execution));
+  if (choice.fallback) try { appendFileSync(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); }
+  catch { /* the attempt result stands */ }
   return out as AttemptOutcome;
 }
 
@@ -356,7 +362,6 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
   const providerId = "pacer-exec-direct", run = task.run;
   if (!run || task.state !== "running" || task.stopPending || task.executorProvider !== providerId ||
     run.host || run.executor !== cfg.id || task.executor !== cfg.id ||
-    run.session !== (cfg.session === "interactive" ? "interactive" : undefined) ||
     run.attempt !== task.attempts.length + 1 || task.startIntent?.attempt !== run.attempt ||
     task.startIntent.providerId !== providerId || task.startIntent.dir !== run.dir)
     throw new CoreError("capability_denied", "executor resume is not bound to an owned local run");
