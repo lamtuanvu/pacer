@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { kindChip, livenessNotice, participantLabel, sendOutcome, sendRefusal, threadView, type ThreadMessage } from "../app/src/model/thread";
+import { autoReadIds, kindChip, livenessNotice, participantLabel, sendOutcome, sendRefusal, threadView, type ThreadMessage } from "../app/src/model/thread";
 import { ApiError } from "../app/src/data/api";
 
 const now = Date.UTC(2026, 9, 29, 10, 0) / 1000;
@@ -62,4 +62,14 @@ test("liveness shows a plain notice only when the task is stalled or waiting for
   expect(livenessNotice({ liveness: { stalled: false, reason: "viewer" } })).toBe("Waiting for you to hand back the terminal");
   expect(livenessNotice({})).toBeNull();
   expect(livenessNotice(undefined)).toBeNull();
+});
+
+test("showing the thread marks reports read but leaves an open question for its answer", () => {
+  const view = threadView([msg({ id: "r", from: "task:t-20261029-090000-aaaa", to: "human", kind: "report", createdAt: now - 120 }),
+    msg({ id: "q", from: "task:t-20261029-090000-aaaa", to: "human", kind: "question", createdAt: now - 60 })], { now });
+  expect(view.unreadIds).toEqual(["r", "q"]);
+  expect(autoReadIds(view)).toEqual(["r"]);
+  const answered = threadView([msg({ id: "q", from: "task:t-20261029-090000-aaaa", to: "human", kind: "question", createdAt: now - 60 }),
+    msg({ id: "a", kind: "answer", replyTo: "q", createdAt: now - 30 })], { now });
+  expect(autoReadIds(answered)).toEqual(["q"]);
 });

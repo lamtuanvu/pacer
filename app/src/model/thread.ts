@@ -46,6 +46,10 @@ export function threadView(messages: readonly ThreadMessage[], o: { now: number;
   };
 }
 
+/** Unread messages to mark read on display. An open question stays unread until its answer is delivered, as the task page and workspace answer it too. */
+export const autoReadIds = (view: Pick<ThreadViewModel, "unreadIds" | "openQuestion">): string[] =>
+  view.unreadIds.filter(id => id !== view.openQuestion?.id);
+
 /** Plain copy for a refused send: the service's `data.reason`, never the code itself. */
 export function sendRefusal(error: unknown): { text: string; blocking: boolean } {
   const data = (error as { data?: unknown } | null)?.data;

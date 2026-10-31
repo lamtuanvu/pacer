@@ -5,8 +5,9 @@ import { Alert } from "../../ds/Alert";
 import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { Prose } from "../../ds/Prose";
-import { participantLabel, sendOutcome, sendRefusal, threadView, type ThreadMessage, type ThreadViewModel } from "../../model/thread";
+import { autoReadIds, participantLabel, sendOutcome, sendRefusal, threadView, type ThreadMessage, type ThreadViewModel } from "../../model/thread";
 import { useQuery, useTaskContext } from "../task-shared";
+import { answerDelivered } from "../../model/task-answer";
 
 export interface ComposerProps {
   value: string; onInput: (value: string) => void; onSend: () => void; onAnswer: () => void; busy: boolean;
@@ -61,12 +62,12 @@ export function Thread({ id, closed, notice }: { id: string; closed: boolean; no
   const [announcement, setAnnouncement] = useState("");
   const read = useRef(new Set<string>()), seen = useRef<string | null | undefined>(undefined), request = useRef<string>();
   useEffect(() => {
-    const ids = view?.unreadIds.filter(m => !read.current.has(m)) ?? [];
+    const ids = view ? autoReadIds(view).filter(m => !read.current.has(m)) : [];
     if (!ids.length) return;
     ids.forEach(m => read.current.add(m));
     // A failed mark leaves the message unread; the next refetch offers it again.
     void api.call("msg.read", { ids }).catch(() => ids.forEach(m => read.current.delete(m)));
-  }, [view?.unreadIds.join()]);
+  }, [view && autoReadIds(view).join()]);
   useEffect(() => {
     if (!view) return;
     const latest = log.data!.messages.find(m => m.id === view.latest);
@@ -83,6 +84,8 @@ export function Thread({ id, closed, notice }: { id: string; closed: boolean; no
       const result = await api.call<{ delivery?: string }>("msg.send", { to: `task:${id}`, body, request_id: request.current,
         ...(answer && view?.openQuestion ? { kind: "answer", reply_to: view.openQuestion.id } : {}) });
       request.current = undefined;
+      // A delivered answer settles the question; a held one leaves it open and unread.
+      if (answer && view?.openQuestion && answerDelivered(result.delivery)) await api.call("msg.read", { ids: [view.openQuestion.id] }).catch(() => undefined);
       setValue(""); setStatus(sendOutcome(result.delivery)); log.reload();
     } catch (failure) {
       const refusal = sendRefusal(failure);
