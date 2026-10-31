@@ -63,7 +63,7 @@ test("a Waiting on you message opens its task instead of sending an empty messag
     messages: { unreadForHuman: 1, question: { id: "m1", text: "Which provider?", at: 1 } } };
   const attention = deriveItems({ now: 2, tasks: [task] as never, executors: [], accounts: [], planner: null, setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null });
   const [item] = homeModel({ ...emptySnapshot(), attention } as never, []).attention;
-  expect(item).toMatchObject({ label: "Waiting on you", href: "#/tasks/t1?tab=answer" });
+  expect(item).toMatchObject({ label: "Waiting on you", href: "#/workspace?task=t1?tab=answer" });
   expect(item!.actions?.[0]).toMatchObject({ label: "Answer", op: "ui.open", params: { view: "task", id: "t1", tab: "answer" } });
   expect(item!.actions?.some(a => a.op === "msg.send")).toBe(false);
 });

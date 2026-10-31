@@ -10,11 +10,16 @@ test('unavailable diff never becomes zero line totals or a completed file count'
  const t = task({derived:{files:'unavailable'} as TaskDetail['derived']});
  for (const compact of [false, true]) {
   const cost = renderToString(<CostTiles task={t} compact={compact}/>);
-  expect(cost).toContain('Not recorded');
-  expect(cost).not.toContain('+0');
-  expect(cost).not.toContain('−0');
+  if (compact) {
+   expect(cost).toContain('Some task metrics are unavailable.');
+   expect(cost).not.toContain('Changed');
+  } else {
+   expect(cost).toContain('Not recorded');
+   expect(cost).not.toContain('+0');
+   expect(cost).not.toContain('−0');
+  }
   const now = renderToString(<NowCard task={t} compact={compact}/>);
-  expect(now).toContain('File changes unavailable');
+  expect(now).toContain('Changes unavailable');
   expect(now).not.toContain('0 files');
  }
 });
@@ -31,8 +36,12 @@ test('running file count uses recorded progress including zero, then only an ava
  for (const files of [undefined, 0, 3]) {
   const t = task({state:'running', progress: files === undefined ? undefined : {phase:'editing',lastOutputAt:null,files,commits:0,logBytes:0}, derived:{files:'unavailable'} as TaskDetail['derived']});
   const now = renderToString(<NowCard task={t} compact/>);
-  expect(now).toContain(files === undefined ? 'File changes unavailable' : `${files} files touched so far`);
-  if (files === undefined) expect(now).not.toContain('0 files');
+  if (files === undefined) {
+   expect(now).not.toContain('touched so far');
+   expect(now).not.toContain('files changed');
+  } else {
+   expect(now).toContain(`${files} files touched so far`);
+  }
  }
  const available = task({state:'running', progress:undefined, derived:{files:'ready'} as TaskDetail['derived']});
  expect(renderToString(<NowCard task={available} compact/>)).toContain('0 files touched so far');
