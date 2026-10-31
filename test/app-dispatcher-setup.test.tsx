@@ -108,8 +108,8 @@ test("saved setups are marked with an identicon and switch only through an expli
   const html = wrap(<SavedSetups initialData={[{ name: "default", active: true, summary: "Built in" }, { name: "night", active: false, summary: "Cheap runs" }]} />);
   expect(html.match(/pc-identicon /g)).toHaveLength(2);
   expect(html).toContain("night");
-  expect(html).toContain("Use night");
-  expect(html).not.toContain("Use default");
+  expect(html).toContain("Activate night");
+  expect(html).not.toContain("Activate default");
   expect(html).toContain("Active");
 });
 

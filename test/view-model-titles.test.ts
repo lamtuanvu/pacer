@@ -5,7 +5,8 @@ test("layout titles prefer the full API text without clipping commands, paths or
   const fullTitle = "Repair the queue " + "for all existing workers ".repeat(12) + "(keep src/core/tasks.ts and `bun run test`)";
   expect(displayTitle({ fullTitle, title: "Repair the queue…", goal: "capped legacy goal" })).toBe(fullTitle);
   expect(displayTitle({ title: fullTitle })).toBe(fullTitle);
-  expect(displayTitle({ goal: fullTitle })).toBe(fullTitle);
+  expect(displayTitle({ fullTitle, goal: fullTitle })).toBe(fullTitle);
+  expect(displayTitle({ goal: fullTitle })).toBe("Repair the queue for all existing workers for all existing workers for all…");
   expect(displayTitle({ fullTitle: " ", title: "Fallback" })).toBe("Fallback");
   expect(displayTitle({})).toBe("Task");
 });

@@ -1,3 +1,5 @@
+import { RepositoryChoices } from "./Dispatcher";
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { executorReadiness } from "../../../../src/view-model/capacity";
 import { executorLabel } from "../../../../src/view-model/words";
 import type { ComponentChildren } from "preact";
@@ -7,7 +9,7 @@ import { Disclosure, Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Icon } from "../../ds/icons";
-import { SegmentedControl, tabStep } from "../../ds/Patterns";
+import { SegmentedControl, Tabs } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
 import { Tooltip } from "../../ds/Tooltip";
@@ -49,11 +51,11 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
     <div className="dispatcher-order-grid">
       <div className="pc-stack pc-stack--compact">
         {title && <SectionHeading as="h3">{title}</SectionHeading>}
-        <SortableList iconControls label={`${label}, in priority order`} disabled={disabled} items={items.map((item, index) => {
+        <SortableList layout="executor" iconControls label={`${label}, in priority order`} disabled={disabled} items={items.map((item, index) => {
           const { runner, status } = metadata(item.id ?? item.key);
           const name = executorLabel(item.id ?? item.key);
           return { ...item, displayLabel: name,
-            leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
+            leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={agentKey(markAgent(runner?.id ?? item.id ?? item.key, runner?.account)) ?? "opencode"} size={24} labelled={false} /></>,
             detail: item.detail,
             trailing: status && <span className="pc-executor-state" onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><Pill tone={status.tone}>{status.label}</Pill></span></Tooltip></span> };
         })} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
@@ -66,9 +68,9 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
             const { runner, status } = metadata(item.id ?? item.key);
             const unavailable = runner && (runner.eligibility?.state === "ineligible" || ["disabled", "blocked", "down", "failing", "exhausted"].includes(runner.state));
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
-              <AgentMark agent={runner?.agent ?? item.key} size={20} labelled={false} />
+              <AgentMark agent={agentKey(markAgent(runner?.id ?? item.id ?? item.key, runner?.account)) ?? "opencode"} size={20} labelled={false} />
               <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span onKeyDown={containTooltipEscape}>{status ? <Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip> : <span className="pc-executor-caption">Refresh to confirm availability</span>}</span></span>
-              {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
+              {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton geometry="board" size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
           }) : <p className="pc-executor-caption pc-executor-pool__empty">Every executor is in the list.</p>}
           <ButtonLink size="sm" variant="quiet" className="pc-executor-pool__setup" href={hrefFor(routes.addExecutor())}>+ Set up a new executor</ButtonLink>
@@ -103,12 +105,8 @@ function GlobalRules({ rules, available, disabled, onChange, onActiveKind }: { r
     onChange(rules.filter((_, at) => at !== index));
   };
   return <div ref={root} className="pc-stack pc-stack--normal">
-    <div role="tablist" aria-label="Task type" className="pc-dispatcher-tabs">
-      {rules.map((value, index) => <Button size="sm" key={keys.current[index]} role="tab" id={`rule-${tabId}-${keys.current[index]}-tab`} aria-controls={`rule-${tabId}-${keys.current[index]}-panel`} aria-selected={active === index} tabIndex={active === index ? 0 : -1}
-        onClick={() => setSelected(index)} onKeyDown={event => { const to = tabStep(event.key, index, rules.length); if (to === undefined) return; event.preventDefault(); setSelected(to); buttons(root.current, '[role="tab"]')[to]?.focus(); }}>
-        {kindLabel(value)} <span className="pc-dispatcher-tabs__count">{value.executors.length}</span>
-      </Button>)}
-    </div>
+    <Tabs variant="pills" label="Task type" id={`rule-${tabId}`} value={String(keys.current[active])} onChange={value => setSelected(keys.current.findIndex(key => String(key) === value))}
+      options={rules.map((value, index) => ({ value: String(keys.current[index]), label: <>{kindLabel(value)} <span className="pc-dispatcher-tabs__count">{value.executors.length}</span></> }))} />
     {rules.map((_, index) => index !== active && <div key={keys.current[index]} hidden role="tabpanel" id={`rule-${tabId}-${keys.current[index]}-panel`} aria-labelledby={`rule-${tabId}-${keys.current[index]}-tab`} />)}
     {rule && <div role="tabpanel" id={`rule-${tabId}-${keys.current[active]}-panel`} aria-labelledby={`rule-${tabId}-${keys.current[active]}-tab`} className="pc-stack pc-stack--normal">
       {rule.kinds && <div className="u3-row">
@@ -226,7 +224,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
     </Section>
     <Section step={3} id="decision-ladder" title="How should Pacer choose?" detail={`One choice method for every repository. It runs after step 2 has decided who is eligible. From saved setup ${view.strategy}.`}>
       {engine !== "ladder" && <p>This setup uses a plugin choice method; configure it in the saved setup. If the plugin cannot decide, Pacer {view.config.engineFallback === "ladder" ? "uses this fallback ladder" : "queues the work"}.</p>}
-      {ladderEditable && <><ol className="pc-choice-ladder">{setup.ladder.steps.map((step,index) => <li key={step.id}><span>{index + 1}</span><strong>{step.id === "capable-with-headroom" ? "Capable model with spare capacity" : "Usable fallback"}</strong><span className="u3-muted">Share: Not recorded</span></li>)}</ol><Button size="sm" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button>{editingLadder && <div className="pc-stack pc-stack--section">
+      {ladderEditable && <><ol className="pc-choice-ladder">{setup.ladder.steps.map((step,index) => <li key={step.id}><span className={`pc-ladder-number pc-ladder-number--${step.capacity === "comfortable" ? "good" : step.capacity === "usable" ? "warn" : "muted"}`}>{index + 1}</span><strong>{step.id === "capable-with-headroom" ? "Capable model with spare capacity" : "Usable fallback"}</strong><span className="u3-muted">Share: Not recorded</span></li>)}</ol><div className="pc-choice-ladder-actions"><Button size="sm" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button><span className="u3-muted">Edits are checked, then saved as a new setup you can activate.</span><TextAction size="caption" href={hrefFor(routes.settings("planner"))}>Planner reserve and pacing</TextAction></div>{editingLadder && <div className="pc-stack pc-stack--section">
         <DispatcherLadderFields config={setup.ladder} disabled={disabled} onChange={ladder => setSetup(current => ({ ...current, ladder }))} />
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
           <SectionHeading as="h3">Save the ladder as a new saved setup</SectionHeading>
@@ -276,11 +274,13 @@ export function DispatcherGuidedSetup({ view, onSaved, onLadderDraft }: { view: 
     : <GuidedSetup view={view} onSaved={onSaved} onLadderDraft={onLadderDraft} repos={[]} />;
 }
 function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view: DispatcherConfigView; onSaved: () => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; repos: ScopeOption[]; listError?: ComponentChildren }) {
+  const {state} = useTaskContext();
   const [scope, setScope] = useState(""), [dirty, setDirty] = useState(false), [notice, setNotice] = useState("");
   const [oneRepo, setOneRepo] = useState(false);
   const pickScope = (one: boolean) => { if (dirty || one === oneRepo) return; setOneRepo(one); setScope(one ? repos[0]?.value ?? "" : ""); setNotice(""); };
   const options = [{ value: "", label: "All repositories" }, ...repos];
   return <>
+    <SectionHeading>Set up delegation</SectionHeading>
     <Section step={1} id="dispatcher-scope" title="Where should this apply?">
       <div className="pc-dispatcher-scope-row">
         <SegmentedControl variant="board" label="Scope" value={oneRepo ? "one" : "all"} disabled={dirty}
@@ -292,7 +292,7 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
       </div>
       {dirty && <p id="dispatcher-scope-reason">Save or discard your changes to switch scope.</p>}
       {!repos.length && <p id="dispatcher-scope-no-repo" className="u3-muted">Add a repository to edit its own executor list.</p>}
-      <p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
+      {state.features.ops.has("project.strategy.list") && <RepositoryChoices/>}<p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
       {listError}
     </Section>
     <ScopedEditor key={scope} view={view} scope={scope} notice={notice} repoLabel={options.find(option => option.value === scope)?.label ?? scope}

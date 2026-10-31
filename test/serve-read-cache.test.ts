@@ -43,3 +43,17 @@ test("a failed refresh preserves the last value and can retry", async () => {
   expect(await cache.get()).toBe(3);
   cache.stop();
 });
+
+test('a write refresh waits for an older pending build before rebuilding',async()=>{
+ let value=1,calls=0;
+ const first=deferred<number>();
+ const cache=createReadCache(async()=>++calls===1?first.promise:value,1000);
+ const old=cache.get();await Bun.sleep(5);
+ value=2;
+ const fresh=cache.refreshAfterPending();
+ first.resolve(1);
+ expect(await old).toBe(1);
+ await fresh;
+ expect(await cache.get()).toBe(2);
+ cache.stop();
+});

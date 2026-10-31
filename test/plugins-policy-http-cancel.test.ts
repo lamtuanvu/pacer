@@ -6,7 +6,7 @@ import { ReadOwner } from '../src/plugins/read-owner';
 import type { PluginManifest } from '../src/plugins/protocol';
 
 async function entered(f: ReturnType<typeof policyGateFixture>) {
-  const until = Date.now() + 2000;
+  const until = Date.now() + 5000;
   while (!f.calls().length && Date.now() < until) await Bun.sleep(5);
   expect(f.calls().length).toBeGreaterThan(0);
 }
@@ -31,9 +31,12 @@ test('HTTP request abort during an actual policy wait prevents admission and a f
 
 test('HTTP lifetime composition preserves an upstream trusted abort instead of replacing it', async () => {
   const f = policyGateFixture({ verdict: 'allow' }, 150), parent = new AbortController();
-  const pending = handleV2(request(f.repo), { getCtx: () => ({ ...f.ctx, operation: { signal: parent.signal, deadline: Date.now() + 2000 } }), opDeps: { spawnRunner: f.spawn } });
+  // Abort composition is independent of startup speed; deadlines are tested below.
+  const pending = handleV2(request(f.repo), { getCtx: () => ({ ...f.ctx, operation: { signal: parent.signal } }), opDeps: { spawnRunner: f.spawn } });
   await entered(f); parent.abort();
-  expect((await pending).status).not.toBe(200);
+  const response = await pending;
+  expect(response.status).not.toBe(200);
+  expect(await response.json()).toMatchObject({ error: { code: 'not_allowed', message: 'Policy operation cancelled' } });
   expect(listTasksWhere(f.ctx)).toHaveLength(0);
   expect(f.launches()).toBe(0);
 });

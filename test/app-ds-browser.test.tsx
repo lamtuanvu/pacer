@@ -69,7 +69,9 @@ browserTest('Saved setups keep their bordered list when operation feedback follo
     await page.setContent(`<style>${styles.join('\n')}</style><div class="u3-general-sections">${markup}</div>`);
     const list = page.locator('#saved-profiles .pc-saved-setups');
     expect(await list.locator('.pc-saved-setups__row').count()).toBe(2);
-    expect(await list.evaluate(node => node.nextElementSibling?.classList.contains('u3-feedback'))).toBe(true);
+    const feedback = page.locator('#saved-profiles .u3-feedback');
+    expect(await feedback.count()).toBe(1);
+    expect(await list.evaluate(node => !!(node.compareDocumentPosition(node.closest('#saved-profiles')!.querySelector('.u3-feedback')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     for (const side of ['Top', 'Bottom'] as const) {
       expect(await list.evaluate((node, s) => getComputedStyle(node).getPropertyValue(`border-${s.toLowerCase()}-width`), side)).toBe('1px');
       expect(await list.evaluate((node, s) => getComputedStyle(node).getPropertyValue(`border-${s.toLowerCase()}-style`), side)).toBe('solid');

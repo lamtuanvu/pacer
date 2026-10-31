@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AssistantScope, TurnView } from "../../../../src/assistant/types";
 import { ApiError } from "../../data/api";
@@ -191,7 +192,7 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
   </>;
 }
 
-interface Candidate { account: string; models: { id: string; name: string }[] }
+interface Candidate { runners?: { id: string }[]; account: string; models: { id: string; name: string }[] }
 interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageReading?: { windows?: { usedPct?: number }[] } }
 function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
   const [accounts, setAccounts] = useState<(Candidate & { name: string; note: string; local: boolean })[] | null>(null);
@@ -227,7 +228,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   return <section className="pc-assistant-setup" data-assistant-setup tabIndex={-1} aria-labelledby="assistant-setup-heading">
     <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one OpenAI-compatible endpoint account and never moves to another. Your question and what it reads go to that account’s model.</p></div></div>
     {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => <div className="pc-assistant-setup__account" key={account.account}>
-      <AgentMark agent={account.account} size={24} labelled={false} />
+      <AgentMark agent={agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
       <div className="pc-assistant-setup__name"><strong>{account.name}</strong><span title={account.note}>{account.note}</span></div>
       <Button size="sm" variant={account.account === primary ? "primary" : "secondary"} busy={busy === account.account} disabled={!!busy} onClick={() => void choose(account.account)}>Use {account.name}</Button>
     </div>)}</div>}

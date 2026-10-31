@@ -10,7 +10,7 @@ export function CommandTrigger({ narrow = false, onOpen }: { narrow?: boolean; o
   // One key cap: ⌘K on macOS, Ctrl K elsewhere.
   const caps = keyCaps("Mod-k");
   return <DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-command-trigger" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" data-command-trigger="" onClick={event => onOpen(event.currentTarget)}>
-    <span className="pc-command-trigger__icon" aria-hidden="true"><Icon name="search" /></span>
+    <span className="pc-command-trigger__icon" aria-hidden="true"><Icon name="topbar-search" /></span>
     <span className="pc-command-trigger__text">Search tasks, agents or run a command</span>
     <Kbd size="sm">{caps[0] === "⌘" ? caps.join("") : caps.join(" ")}</Kbd>
   </Button></DensityContext.Provider>;

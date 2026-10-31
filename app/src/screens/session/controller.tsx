@@ -50,16 +50,19 @@ export function Sessions({query}:{query:RouteQuery}) {
   };
   return onPageScroll(remember);
  }, [scrollKey]);
+ const [repoScope, setRepoScope] = useState(query.repo);
  const [cursor,setCursor]=useState<string | undefined>(savedPosition.current?.cursor);
  const [history,setHistory]=useState<ApiTask[]>(savedPosition.current?.history ?? []);
  useEffect(() => {
   taskListPositions.set(scrollKey, {scroll: taskListPositions.get(scrollKey)?.scroll ?? savedScroll.current, cursor, history});
  }, [scrollKey, cursor, history]);
- const page=useQuery<{tasks:ApiTask[];next:string|null}>("task.list",{all:true,limit:20,...(cursor?{before:cursor}:{}),...(query.repo?{repo:query.repo}:{})});
- useEffect(()=>{if(page.data)setHistory(previous=>{
+ const historySource = useRef<unknown>();
+ const workSource = useRef<unknown>();
+ const page=useQuery<{tasks:ApiTask[];next:string|null}>("task.list",{all:true,limit:20,...(repoScope === query.repo && cursor?{before:cursor}:{}),...(query.repo?{repo:query.repo}:{})}, "", true);
+ useEffect(()=>{if(page.data && !page.loading && !page.error){historySource.current=page.data;setHistory(previous=>{
   const rows=cursor?[...previous,...page.data!.tasks]:page.data!.tasks;
   return [...new Map(rows.map(t=>[t.id,t])).values()];
- });},[page.data,cursor]);
+ });}},[page.data,page.loading,page.error,cursor]);
  useEffect(() => {
   if (!snapshot || page.loading || scrollRestored.current) return;
   // History and the selected-task panel can change the list's height after this
@@ -85,11 +88,21 @@ export function Sessions({query}:{query:RouteQuery}) {
  }, [snapshot, page.loading, history]);
  const [workBefore,setWorkBefore]=useState<string|undefined>();
  const [workRows,setWorkRows]=useState<WorkRow[]>([]);
- const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(workBefore?{before:workBefore}:{}),...(query.repo?{repo:query.repo}:{})});
- useEffect(()=>{if(work.data)setWorkRows(previous=>[...new Map([...(workBefore?previous:[]),...work.data!.tasks].map(row=>[row.id,row])).values()]);},[work.data,workBefore]);
+ const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(repoScope === query.repo && workBefore?{before:workBefore}:{}),...(query.repo?{repo:query.repo}:{})}, "", true);
+ useEffect(()=>{if(work.data && !work.loading && !work.error){workSource.current=work.data;setWorkRows(previous=>[...new Map([...(workBefore?previous:[]),...work.data!.tasks].map(row=>[row.id,row])).values()]);}},[work.data,work.loading,work.error,workBefore]);
+ if (repoScope !== query.repo) {
+  setRepoScope(query.repo); setCursor(undefined); setWorkBefore(undefined);
+ }
  const extra=useMemo(()=>[...workTasks(workRows),...history],[workRows,history]);
- const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
- return <TasksPage key={query.repo??''} nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
+ const nextNodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
+ // The snapshot can filter immediately, but historical rows need both reads.
+ const held = useRef(nextNodes);
+ const pending = page.loading || work.loading
+  || (!page.error && page.data !== undefined && historySource.current !== page.data)
+  || (!work.error && work.data !== undefined && workSource.current !== work.data);
+ if (!pending && !page.error && !work.error && historySource.current === page.data && workSource.current === work.data) held.current = nextNodes;
+ const nodes = held.current ?? nextNodes;
+ return <TasksPage updating={pending && held.current !== undefined} nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
   hasOlder={!!page.data?.next} loadingOlder={page.loading} onLoadOlder={()=>setCursor(page.data!.next!)}
   error={page.error||work.error?<Cluster><span role="alert">{page.error&&work.error?"Tasks and subtasks could not be loaded.":page.error?"Task history could not be loaded.":"Subtasks and branches could not be loaded."}</span><Button onClick={()=>{page.error&&page.reload();work.error&&work.reload();}}>Try again</Button></Cluster>:undefined}
   hasMoreWork={!!work.data?.next} loadingMoreWork={work.loading} onLoadMoreWork={()=>setWorkBefore(work.data!.next!)}/>;

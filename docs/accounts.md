@@ -273,6 +273,15 @@ so a planner account and an account without an executor can both be checked.
 Sign-in and usage freshness are separate facts: the quota column shows when
 the provider observation was captured and whether it is historical. Quota, reset
 and observation time come from the same reading, even while data updates.
+A measured reading is shown as current only with an explicit `stale: false`
+and a finite observation time that is not in the future. Older snapshots that
+omit freshness or timing fields still show their measured quota, labelled
+historical; their status now indicates historical usage (for example,
+**Stale reading** or **Historical usage**) rather than a retained pace verdict.
+Unknown budget evidence, an expired reset, or an observation more than
+24 hours old also makes the reading historical. The web meter preserves the
+measured value, describes it as historical, and omits the current pace marker;
+the TUI includes a plain-text historical caption using the snapshot time.
 
 Claude asks for confirmation before **Run usage check**. This starts one small,
 bounded Claude Code turn using the selected account’s subscription quota or
@@ -445,3 +454,5 @@ sign-in, the service checks usage every 15 seconds for up to ten minutes.
 Account evidence is stored by account source identity. Replacing an account home or source does not reuse its previous evidence. Availability, quota and spending signals have separate timestamps. See [execution eligibility](executors.md#execution-eligibility-and-evidence) for freshness and recovery rules.
 
 Changing an OpenCode provider also changes that identity. Changing a weekly cap keeps authentication and execution restrictions, but percentages calculated under the previous cap no longer constrain routing. An uncapped metered account needs no budget evidence; a successful usage reading can confirm availability. Missing or malformed costs stay unknown, and retained spending after a failed refresh is labelled historical even when the account has no cap.
+
+Accounts keep measured usage visible after it ages or its window resets, but label its retained pacing status **Stale reading** rather than current pace. New direct observations without a service pacing verdict still show **Usage observed** or **Historical usage**.

@@ -94,7 +94,7 @@ export function SearchPicker({ label, searchLabel, placeholder, emptyLabel, valu
     }}>
     <Button ref={trigger} size="sm" className="pc-chip pc-chip--repo" aria-expanded={open} aria-controls={id}
       onClick={() => { if (open) close(); else { setSearch(""); setOpen(true); } }}>
-      {label}<span aria-hidden="true">⌄</span>
+      {label}
     </Button>
     {open && <div className="pc-search-picker__popover" id={id}>
       <div className="pc-search-picker__search">

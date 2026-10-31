@@ -33,6 +33,7 @@ async function open():Promise<Page>{
  values={...defaults};sets=[];
  const page=await browser.newPage();
  await page.goto(String(server.url));
+ await page.getByText('More machine settings',{exact:true}).click();
  await page.getByRole('button',{name:/Delegated task launch/}).waitFor();
  return page;
 }

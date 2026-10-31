@@ -3,6 +3,8 @@ import type { ComponentType } from "preact";
 import type { RouteQuery } from "../../router";
 import { Button } from "../../ds/Button";
 
+import { Skeleton } from "../../ds/Patterns";
+
 type SetupProps = { query: RouteQuery };
 /** Setup is needed on first run only, so it loads as its own chunk. */
 export function LazySetup(props: SetupProps) {
@@ -13,5 +15,5 @@ export function LazySetup(props: SetupProps) {
     void import("./Setup").then(module => { if (active) setView(() => module.Setup); }).catch(() => { if (active) setError("Could not load Setup."); });
     return () => { active = false; };
   }, [attempt]);
-  return View ? <View {...props} /> : <div className="pc-setup" role={error ? "alert" : "status"}>{error || "Loading Setup…"}{error && <Button onClick={() => setAttempt(n => n + 1)}>Try again</Button>}</div>;
+  return View ? <View {...props} /> : !error ? <Skeleton layout="settings" label="Loading Setup…" /> : <div className="pc-setup" role={error ? "alert" : "status"}>{error}{error && <Button onClick={() => setAttempt(n => n + 1)}>Try again</Button>}</div>;
 }

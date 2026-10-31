@@ -8,7 +8,8 @@ import { AgentMark } from "../ds/AgentMark";
 import { Kbd } from "../ds/Kbd";
 import { Icon } from "../ds/icons";
 import { UsageMeter } from "../ds/UsageMeter";
-import { Button } from "../ds/Button";
+import { Button, IconButton } from "../ds/Button";
+import { Tooltip } from "../ds/Tooltip";
 import { PopoverDialog } from "../ds/Dialog";
 import type { Account } from "../model/accounts";
 import { useQuery, useTaskContext } from "../screens/task-shared";
@@ -66,7 +67,7 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
     </Button>
     <span className="grow" />
     {counts && <a href="#/tasks" className="pc-statusbar__work pc-inline-link"><span className="pc-statusbar__dot" aria-hidden="true" />{counts.running} running · {counts.queued} queued</a>}
-    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
+    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="status-terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
     <div className="pc-statusbar__hints">{hints.length ? hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>) : help && <Button size="sm" variant="quiet" className="pc-statusbar__help" onClick={help.run}>? shortcuts</Button>}</div>
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
     {usageOpen && <PopoverDialog id="pc-usage-details" title="Usage details" close={() => setUsageOpen(false)}><UsagePopover close={() => setUsageOpen(false)} now={now} /></PopoverDialog>}
@@ -94,12 +95,17 @@ export function UsagePopover({ close, now }: { close: () => void; now: number })
     finally { setRefreshing(false); }
   }
   return <>
-    <div className="pc-usage-popover__head"><strong>Usage</strong><span className="grow" /><Button size="sm" onClick={refresh} busy={refreshing}>Refresh usage</Button><Button size="sm" onClick={close}>Close</Button></div>
+    <div className="pc-dialog-popover__head pc-usage-popover__head"><strong>Usage</strong><span className="grow" />
+      <Tooltip text="Refresh usage"><IconButton variant="quiet" icon="refresh" aria-label="Refresh usage" onClick={refresh} busy={refreshing} /></Tooltip>
+      <Tooltip text="Close"><IconButton variant="quiet" icon="close" aria-label="Close" onClick={close} /></Tooltip>
+    </div>
+    <div className="pc-dialog-popover__body">
     {refreshError && <p role="alert">Could not refresh usage. Try again.</p>}
     {refreshMessage && <p role="status">{refreshMessage}</p>}
     {query.error && <p role="alert">Could not load usage. Try refreshing.</p>}
     {query.loading && !query.data && <p className="muted">Loading usage…</p>}
     {query.data && <UsageDetails accounts={query.data} now={now} />}
+    </div>
   </>;
 }
 

@@ -96,15 +96,15 @@ test("service supervision and queue draining settle a task whose executor was re
   expect(settled?.queue).toBeUndefined();
 });
 
-test("task events expose complete titles, including retained legacy events",async()=>{
+test("task events expose clean derived titles and complete explicit titles, including retained legacy events",async()=>{
  const {createTask,updateTask}=await import("../src/tasks/store");
  const {taskData}=await import("../src/link/pump");
  const ctx=fakeCtx(),t=createTask(ctx,{brief:{goal:"Fix queue. Then test",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  await publish(ctx,[{type:"task",data:taskData(t)}]);
- expect(eventsSince(ctx,0).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:t.brief.goal});
- const record=updateTask(ctx,t.id,t=>{t.title="Queue fix";});
+ expect(eventsSince(ctx,0).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:"Fix queue"});
+ const record=updateTask(ctx,t.id,t=>{t.title="Queue fix (keep src/core/tasks.ts and `bun run test`). Verify all workers " + "without clipping ".repeat(10);});
  await publish(ctx,[{type:"task",data:taskData(record)}]);
- expect(eventsSince(ctx,1).events[0]?.data).toMatchObject({title:"Queue fix",fullTitle:"Queue fix"});
+ expect(eventsSince(ctx,1).events[0]?.data).toMatchObject({fullTitle:record.title!.trim()});
  appendOutbox(ctx,[{seq:3,envelope:{type:"task",data:{...taskData(t),id:"deleted",title:undefined}}}]);
- expect(eventsSince(ctx,2).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:t.brief.goal});
+ expect(eventsSince(ctx,2).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:"Fix queue"});
 });

@@ -2,10 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { liveRoot, saveSession, type Session } from "../scripts/live/core";
-import { rollbackProbe, updaterFixtureRoot } from "../scripts/live/updater";
+import type { Session } from "../scripts/live/core";
+import { liveTestCheckout } from "./live-checkout";
 import { main } from "../scripts/live/cli";
 import { refusal } from "../scripts/live/guard";
+
+const checkout = liveTestCheckout();
+const { liveRoot, saveSession } = await import(`${checkout}/scripts/live/core.ts`) as typeof import("../scripts/live/core");
+const { rollbackProbe, updaterFixtureRoot } = await import(`${checkout}/scripts/live/updater.ts`) as typeof import("../scripts/live/updater");
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });

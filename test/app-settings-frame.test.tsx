@@ -148,7 +148,7 @@ test('Overview shows only real readiness and setup facts', () => {
   const down = { ...executor, state: 'down', eligibility:{...eligible,state:'ineligible',reasons:[{code:'subscription_missing'}]} };
   const stale = { ...executor, id: 'stale', stale: true };
   const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, down, stale], machine: { used: 0, max: 4 } } });
-  expect(html).toContain('1 of 3 agents can take work. 2 need you.');
+  expect(html).toContain('1 of 3 agents can take work. 1 needs you.');
   for (const title of ['Readiness', 'Current setup']) expect(html).toMatch(new RegExp(`<h2[^>]*>${title}</h2>`));
   for (const href of ['executors', 'dispatcher', 'planner', 'machine']) expect(html).toContain(`href="#/settings/${href}"`);
   expect(html).toContain('No active subscription');
@@ -187,7 +187,7 @@ test('existing settings actions send the same operations', async () => {
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all' } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all' } }} /></TaskContext.Provider></ActionContext.Provider>);
   try {
     // Let each operation settle before the next control is used.
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -224,7 +224,7 @@ test.skipIf(!browserPath)('settings_nav_tab_order_follows_groups', async () => {
     expect(order).toEqual(expected);
     expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('solid');
     expect(await page.locator('[aria-current="page"]').getAttribute('href')).toBe('#/settings/planner');
-    expect(await page.getByRole('navigation', { name: 'Settings' }).ariaSnapshot()).toContain('Budget & pacing');
+    expect(await page.getByRole('navigation', { name: 'Settings pages' }).ariaSnapshot()).toContain('Budget & pacing');
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -255,12 +255,12 @@ test('update, reserve and threshold controls send the same operations', async ()
     const props = node.props as any;
     if (props?.children === 'Check now' && props.onClick) handlers.check = props.onClick;
     if (props?.['aria-label'] === 'Check automatically' && 'checked' in props && props.onChange) handlers.autoCheck = props.onChange;
-    if (props?.['aria-label'] === 'Keep back for planning and review' && props.onChange) handlers.reserve = props.onChange;
+    if (props?.['aria-label'] === 'Keep back for planning and review' && props.onCommit) handlers.reserve = event => props.onCommit(event.currentTarget.value);
     if (props?.type === 'number' && props.max === '100' && props.onChange) handlers.threshold = props.onChange;
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'pacing.accounts': { value: 'fill' }, 'pacing.fill_threshold': { value: 80 } } } }} /></TaskContext.Provider></ActionContext.Provider>);
   const settle = () => new Promise(resolve => setTimeout(resolve, 0));
   const input = (value: string, checked = false) => ({ currentTarget: { validity: { valid: true }, value, checked } });
   try {
@@ -358,7 +358,7 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
         const nav = getComputedStyle(node), item = getComputedStyle(node.querySelector('.pc-settings-nav__item')!), heading = getComputedStyle(node.querySelector('.pc-settings-nav__heading')!), badge = getComputedStyle(node.querySelector('.pc-settings-nav__badge')!);
         return { padding: nav.padding, gap: nav.gap, height: item.height, radius: item.borderRadius, itemGap: item.gap, weight: item.fontWeight, headingSize: heading.fontSize, headingLine: heading.lineHeight, tracking: heading.letterSpacing, badgePadding: badge.padding, badgeWeight: badge.fontWeight };
       });
-      expect(styles).toEqual({ padding: '14px 10px', gap: '2px', height: '34px', radius: '8px', itemGap: '10px', weight: '600', headingSize: '11px', headingLine: '14px', tracking: '0.66px', badgePadding: '0px 7px', badgeWeight: '650' });
+      expect(styles).toEqual({ padding: '14px 10px', gap: '2px', height: '34px', radius: '8px', itemGap: '10px', weight: '600', headingSize: '11px', headingLine: '14px', tracking: '0.66px', badgePadding: '0px 7px', badgeWeight: '700' });
       // The retained SidePanel toggle must not cover the board back link.
       await page.getByRole('link', { name: 'Back to Dispatch' }).click({ trial: true });
       await page.getByRole('button', { name: 'Hide Settings' }).click({ trial: true });
@@ -470,7 +470,7 @@ test('Budget mode choices preserve service operation parameters', async () => {
   const calls: unknown[] = [];
   const runner = { run: async (_: string, r: any) => { calls.push({ op: r.op, params: r.params }); return { status: 'done' }; }, result: () => ({}) } as any;
   try {
-    renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as any }}><SettingsGeneral section="planner" initialData={settings} /></TaskContext.Provider></ActionContext.Provider>);
+    renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section="planner" initialData={settings} /></TaskContext.Provider></ActionContext.Provider>);
     for (const value of ['strict', 'relaxed', 'auto']) { change(value); await new Promise(resolve => setTimeout(resolve, 0)); }
   } finally { options.vnode = old; }
   expect(calls).toEqual([{ op: 'mode.hold', params: { mode: 'strict' } }, { op: 'mode.hold', params: { mode: 'relaxed' } }, { op: 'mode.release', params: {} }]);
@@ -520,7 +520,7 @@ test('Budget planner selection retains the configured choices and consent review
   try {
     const html = render(<SettingsGeneral section="planner" initialData={settings} />);
     expect(choice.value).toBe('codex#team');
-    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, label: executorLabel(value) })));
+    expect(choice.options).toEqual(settings.config.planners.map(value => ({ value, agent: value, label: executorLabel(value) })));
     expect(html).toContain('Review integration changes');
     expect(html).not.toContain('Planner integration changes');
   } finally { options.vnode = old; }
@@ -549,4 +549,15 @@ test('Budget windows use pace only on matching windows and preserve individual f
   expect(html.match(/pc-meter--stale/g)).toHaveLength(1);
   expect(html).toContain('18% · pace 38%');
   expect(html).toContain('Stale reading');
+});
+
+test('Budget labels synthetic reactive zeroes and absent windows as unmeasured', () => {
+  const accounts = [
+    {name:'cursor',kind:'cursor',usageReading:{source:'reactive',stale:false,windows:[{name:'limit',usedPct:0,resetsAt:null}]}},
+    {name:'empty',kind:'codex',usageReading:{source:'session-log',stale:true,capturedAt:null,windows:[]}},
+  ];
+  const html=render(<SettingsGeneral section="planner" initialData={{...settings,accounts}}/>,{...state,snapshot:{...state.snapshot,accounts:[]}});
+  expect(html.match(/Usage unknown · No usage reported/g)).toHaveLength(2);
+  expect(html.match(/>No reading</g)).toHaveLength(2);
+  expect(html).not.toContain('>0%');
 });

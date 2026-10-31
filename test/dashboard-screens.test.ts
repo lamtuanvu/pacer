@@ -667,3 +667,17 @@ describe("Sessions keeps a conversation's list status and detail in agreement", 
     expect(item.keys.a?.label).toBe("Mark accepted");
   });
 });
+
+for (const change of [{stale:undefined,capturedAt:undefined}, {stale:undefined,capturedAt:1800000000}, {stale:false,capturedAt:undefined}, {stale:true,capturedAt:1800000000}, {stale:false,capturedAt:1800000000,resetsAt:1800000000}, {stale:false,capturedAt:1800000000,eligibility:{budget:'unknown'}}, {stale:false,capturedAt:1800000000}]) {
+  test(`TUI account freshness uses snapshot time and plain words: ${JSON.stringify(change)}`, () => {
+    const s = snapshot();
+    s.at = 1800000000;
+    Object.assign(s.accounts![0]!, {usedPct:17,window:'week',resetsAt:s.at+3600,eligibility:undefined}, change);
+    const text = renderDashboard(s, 120, 40, s.at, {noColor:true,data:data(),state:{screen:'settings',section:'accounts',focus:'detail'}}).replace(/\s+/g, ' ');
+    expect(text).toContain('17% of week');
+    const historical = change.stale !== false || change.capturedAt == null || 'eligibility' in change || 'resetsAt' in change;
+    expect(text.includes('Stale reading') || text.includes('Reading 0s old')).toBe(historical);
+    expect(text.includes('Historical usage')).toBe(historical);
+    expect(text).not.toContain('\x1b[');
+  });
+}

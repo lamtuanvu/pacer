@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { withSigningCredentials } from "../scripts/release/desktop-credentials";
 
 test("missing credentials refuse before keychain calls", async () => {
@@ -88,7 +88,15 @@ test("interim signing secures a macOS-created 0644 keychain before importing cre
     const keychain = argv[argv.indexOf("-k") + 1];
     expect(statSync(keychain).mode & 0o777).toBe(0o600);
     expect(calls.some(call => call[1] === "list-keychains" && call.includes("-s") && call.includes(keychain))).toBe(true);
-  } if (argv[1] === "create-keychain") writeFileSync(argv.at(-1)!, "fixture", { mode: 0o644 }); return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
+  }
+  if (argv[1] === "create-keychain") {
+    const keychain = argv.at(-1)!;
+    writeFileSync(keychain, "fixture", { mode: 0o644 });
+    // Model macOS's public initial mode independently of the runner's umask.
+    chmodSync(keychain, 0o644);
+    expect(statSync(keychain).mode & 0o7777).toBe(0o644);
+  }
+  return argv[1] === "list-keychains" && !argv.includes("-s") ? '    "/fixture/login.keychain-db"\n' : ""; });
   const imported = calls.find(a => a[1] === "import")!;
   expect(imported[imported.indexOf("-k") + 1]).toBe(seen);
   expect(imported[imported.indexOf("-P") + 1]).toBe("pw");

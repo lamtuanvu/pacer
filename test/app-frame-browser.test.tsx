@@ -268,7 +268,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await focused(page, "#pc-terminal-dock");
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
     await page.getByRole("button", { name: "New terminal", exact: true }).click();
-    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).waitFor();
+    await dock.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "Shell", exact: true }).last().waitFor();
     expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
@@ -280,13 +280,14 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     expect(sizes.pane).toBeLessThanOrEqual(sizes.panes);
     // The terminal itself keeps several lines (about 16px each) once search, status and controls are compacted.
     expect(sizes.term).toBeGreaterThanOrEqual(100);
-    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).getAttribute("aria-selected")).resolves.toBe("true");
+    expect(await dock.getByRole("tab", { name: "Shell", exact: true }).count()).toBe(2);
+    await expect(dock.getByRole("tab", { name: "Shell", exact: true }).last().getAttribute("aria-selected")).resolves.toBe("true");
     await dock.focus();
     await page.getByRole("button", { name: "Hide panel (Ctrl+`)" }).click();
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, "#main-content");
     // The terminal route has no dock and no dock control.
-    await page.evaluate(() => { location.hash = "#/terminal"; });
+    await page.evaluate(() => { location.hash = "#/workspace"; });
     await button.waitFor({ state: "detached" });
     await page.keyboard.press("Control+Backquote");
     await page.waitForTimeout(100);
@@ -394,7 +395,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       };
     });
     expect(m.top.h).toBe(36);
-    expect(m.top.pad).toBe("0px 10px 0px 8px");
+    expect(m.top.pad).toBe("0px 10px 0px 84px");
     expect(m.top.bg).toBe(m.top.card);
     expect(m.top.headings).toBe(0); // Settings pages supply the h1; the banner retains its name.
     expect(m.top.label).toBe("Settings");
@@ -434,9 +435,9 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     await page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).click();
     await page.getByRole("region", { name: "Terminal panel" }).waitFor();
     await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
-    // A route without panels or dock offers no toggles; narrow layouts keep their own chrome.
-    await page.evaluate(() => { location.hash = "#/terminal"; });
-    await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].length === 3 && [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")].every(button => button.disabled));
+    // Workspace owns its two side panels; its terminal dock toggle stays disabled.
+    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.waitForFunction(() => { const buttons = [...document.querySelectorAll<HTMLButtonElement>(".pc-layout-toggles button")]; return buttons.length === 3 && !buttons[0]!.disabled && buttons[1]!.disabled && !buttons[2]!.disabled; });
     // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
     await page.evaluate(() => { location.hash = "#/settings"; });
     await page.setViewportSize({ width: 767, height: 800 });
@@ -548,7 +549,7 @@ browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls'
       await open(page,built,'#/');
       expect(await page.locator('.pc-planner').getAttribute('href')).toBe('#/settings/planner');
       expect(await page.locator('.pc-statusbar__work').getAttribute('href')).toBe('#/tasks');
-      await page.getByRole('link',{name:'Terminal panel (Ctrl+`)'}).click();
+      await page.getByRole('button',{name:'Toggle terminal panel (Ctrl+`)'}).click();
       await page.locator('#pc-terminal-dock').waitFor();
       const geometry=await page.evaluate(()=>{
         const rect=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
@@ -569,3 +570,68 @@ browserTest('canvas_shell_dock_is_centre_only_and_navigation_uses_live_controls'
     }
   } finally {await browser.close();}
 },30000);
+
+browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "#/settings");
+    const trigger = page.getByRole("link", { name: "Workspace", exact: true });
+    const active = page.locator('.pc-rail__item.on').first();
+    const activeBackground = await active.evaluate(el => getComputedStyle(el).backgroundColor);
+    expect(await active.evaluate(el => getComputedStyle(el, "::before").width)).toBe("3px");
+    await active.hover();
+    expect(await active.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(activeBackground);
+    const inactiveBackground = await trigger.evaluate(el => getComputedStyle(el).backgroundColor);
+    await trigger.hover();
+    expect(await trigger.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(inactiveBackground);
+    expect(await trigger.getAttribute("aria-current")).toBeNull();
+    const bubble = page.getByRole("tooltip");
+    await bubble.waitFor({ state: "visible" });
+    expect(await bubble.evaluate(el => el.parentElement === document.body)).toBe(true);
+    expect(await bubble.textContent()).toBe("Workspace");
+    const measure = () => bubble.evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, height: rect.height, position: style.position, background: style.backgroundColor, z: Number(style.zIndex) };
+    });
+    const initial = await measure();
+    const anchor = (await trigger.boundingBox())!;
+    expect(initial.x - anchor.x - anchor.width).toBeCloseTo(8, 0);
+    expect(initial.y + initial.height / 2).toBeCloseTo(anchor.y + anchor.height / 2, 0);
+    expect(initial.position).toBe("fixed");
+    expect(initial.z).toBeGreaterThanOrEqual(10);
+    expect(initial.background).not.toMatch(/rgba\(.*?, 0\)/);
+    await trigger.focus();
+    await page.mouse.move(900, 800);
+    await bubble.waitFor({ state: "visible" });
+    // Move the rail into a clipped stacking context at each viewport edge.
+    for (const at of [{ right: "0", top: "0" }, { right: "0", bottom: "0" }]) {
+      await trigger.evaluate((el, at) => {
+        const rail = el.closest<HTMLElement>(".pc-rail")!;
+        rail.style.cssText = `position:fixed;left:auto;right:${at.right};top:${at.top ?? "auto"};bottom:${at.bottom ?? "auto"};height:auto;overflow:hidden;transform:translateZ(0)`;
+      }, at);
+      await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+      const placed = await measure();
+      const moved = (await trigger.boundingBox())!;
+      expect(placed.right).toBeLessThanOrEqual(moved.x - 7);
+      expect(placed.x).toBeGreaterThanOrEqual(8);
+      expect(placed.y).toBeGreaterThanOrEqual(8);
+      expect(placed.bottom).toBeLessThanOrEqual(892);
+    }
+    await trigger.evaluate(el => el.closest(".pc-rail")!.removeAttribute("style"));
+    await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+    await trigger.focus();
+    await page.keyboard.press("Escape");
+    await bubble.waitFor({ state: "hidden" });
+    await trigger.hover();
+    await bubble.waitFor({ state: "visible" });
+    await page.mouse.move(600, 400);
+    await bubble.waitFor({ state: "visible" }); // Still focused after Escape and re-entry.
+    await page.keyboard.press("Escape");
+    await page.mouse.move(610, 400);
+    await bubble.waitFor({ state: "hidden" });
+    await page.close();
+  } finally { await browser.close(); }
+}, 20_000);

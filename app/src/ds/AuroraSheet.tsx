@@ -7,7 +7,7 @@ import { Kbd } from "./Kbd";
 /**
  * The assistant sheet. Three layers: a decorative aurora (`aria-hidden`), the conversation (a `log` region) and the
  * composer. The aurora is solid at the bottom edge and masked to transparent toward the top, and the log fades older
- * messages the same way. It drifts only while `generating`, and never under reduced motion. Message text sits on solid
+ * messages the same way. It drifts while open, as on the Shell board, and never under reduced motion. Message text sits on solid
  * card surfaces supplied by the consumer, never on the gradient.
  *
  * Open state is a prop and the sheet stays mounted, so a conversation survives closing. Opening moves focus to the
@@ -65,7 +65,7 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     }
   }}>
     <div className="pc-aurora__veil" aria-hidden="true" />
-    <div className="pc-aurora__glow" aria-hidden="true"><span /><span /><span /><span /></div>
+    <div className="pc-aurora__glow" aria-hidden="true"><div className="pc-aurora__gradient" /><div className="pc-aurora__blobs"><span /><span /><span /></div></div>
     <div className="pc-aurora__column">
       {header && <div className="pc-aurora__bar">{header}</div>}
       <div ref={log} role="log" aria-label={logLabel} aria-live="polite" aria-relevant="additions" tabIndex={0} className="pc-aurora__log" data-expanded={expanded ? "true" : "false"}>{messages}</div>

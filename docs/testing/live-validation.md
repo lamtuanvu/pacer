@@ -471,3 +471,30 @@ detected with CFEqual and mark the observation truncated. Native action failures
 report `not_delivered` only before a platform mutation is attempted; later errors
 report `unknown` and must not be retried implicitly. This classification does not
 prove that the intended effect completed.
+
+## Fixed settings save fixture
+
+`bun run live settings --id <seeded-id>` exercises the real `config.set` handler
+in a fresh, exclusively created `settings-fixture/` home inside an active,
+healthy UI sandbox. It takes no setting, path or value arguments. The fixed
+scenario saves `pacing.policy=even`, reads it back, verifies an invalid policy
+is rejected without changing the file, and restores the original `priority`
+policy and config bytes. It refuses existing fixture directories, redirected
+paths and unsafe evidence files. No subprocesses, real accounts or integrations
+are used. Fixture files remain with the sandbox for inspection.
+
+D8 continues to refuse **every network `config.set` request**. This fixture
+validates handler persistence and validation, not the browser's saving indicator,
+rollback rendering, concurrency, planner integration side effects or other
+settings. Those surfaces remain UNVERIFIED until safely exercised separately.
+
+## Test temporary files
+
+The test preload redirects `TMPDIR`, `TMP` and `TEMP` into the disposable test
+home. This contains raw `mkdtemp(os.tmpdir())` allocations and subprocess temp
+files as well as helper-managed fixtures. Normal teardown, SIGINT and SIGTERM
+remove them; `PACER_KEEP_TEST_TMP=1` preserves them for debugging. SIGKILL and
+machine failure cannot run teardown; the existing ownership-aware startup sweep
+handles stale managed roots on a later run. Hard-coded temp paths and surviving
+child processes are not covered by environment redirection. This does not scan
+or delete arbitrary historical temp folders.

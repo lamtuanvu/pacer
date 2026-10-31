@@ -171,8 +171,8 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
             <span className="pc-work-panel-caption">
               {executor.usedPct == null
                 ? "Weekly usage unknown"
-                : `${executor.usedPct}% of week used`}
-              {executor.pacePct != null && ` · pace ${executor.pacePct}%`}
+                : `${Math.round(executor.usedPct)}% of week used`}
+              {executor.pacePct != null && ` · pace ${Math.round(executor.pacePct)}%`}
             </span>
           </>
         )}
@@ -346,6 +346,8 @@ export function WorkPanels({
       : (selected ??
         scoped.find((task) => task.state === "running")?.id ??
         scoped[0]?.id);
+  const recentRunning = scoped.filter(task => task.state === "running")
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
   const plugins = panelSurfaces(surfaces, id),
     visible = plugins.filter((surface) => surface.visible);
   // The current API exposes the visibility revision through a plugin's settings
@@ -557,9 +559,12 @@ export function WorkPanels({
           ) : id ? (
             <TaskInspector key={id} id={id} query={query} />
           ) : (
-            <p className="pc-work-panel-caption">
-              Select a task to inspect its routing and details.
-            </p>
+            <section className="pc-work-panel-section">
+              <p className="pc-work-panel-caption">Select a task to see its details.</p>
+              {recentRunning && <ButtonLink size="sm" variant="quiet" href={withQuery(`#/tasks/${encodeURIComponent(recentRunning.id)}`, query)}>
+                {recentRunning.title || recentRunning.goal}
+              </ButtonLink>}
+            </section>
           )}
         </div>
       </FrameSlot>

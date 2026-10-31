@@ -125,8 +125,9 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Files( \d+)?$/), expect.stringMatching(/^Commands \d+$/)]);
   // The Tab hint sits beside the tablist, not inside it.
   await expect(page.locator('[role="tablist"] .pc-command__hint').count()).resolves.toBe(0);
-  // The tabs control the results listbox.
-  await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("combobox").getAttribute("aria-controls"));
+  // Tabs control the named panel; the combobox continues to control its results listbox.
+  await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("tabpanel").getAttribute("id"));
+  await expect(page.getByRole("combobox").getAttribute("aria-controls")).resolves.toBe(await page.getByRole("listbox").getAttribute("id"));
   const pressed = () => page.locator('.pc-command__scope[aria-selected="true"]').textContent();
   await expect(pressed()).resolves.toMatch(/^All/);
   await page.keyboard.press("Tab");
@@ -306,12 +307,12 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
   await page.waitForTimeout(100);
   const m = await page.evaluate(() => {
     const css = (selector: string) => getComputedStyle(document.querySelector(selector)!), box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    return { dialogW: Math.round(box("dialog.pc-command").width), dialogTop: Math.round(box("dialog.pc-command").top), dialogRadius: css("dialog.pc-command").borderTopLeftRadius, rowH: Math.round(box(".pc-command__search").height), inputOutline: css(".pc-command__input").outlineStyle, focusRing: css(".pc-command__search").boxShadow.includes("inset") ? "inset" : css(".pc-command__search").boxShadow,
+    return { dialogW: Math.round(box("dialog.pc-command").width), dialogTop: Math.round(box("dialog.pc-command").top), dialogRadius: css("dialog.pc-command").borderTopLeftRadius, rowH: Math.round(box(".pc-command__search").height), inputOutline: css(".pc-command__input").outlineStyle, inputOutlineWidth: css(".pc-command__input").outlineWidth, inputFocusVisible: document.querySelector(".pc-command__input")!.matches(":focus-visible"), focusRing: css(".pc-command__search").boxShadow.includes("inset") ? "inset" : css(".pc-command__search").boxShadow,
       optionRadius: css(".pc-command__option").borderTopLeftRadius, glyph: [Math.round(box(".pc-command__glyph").width), css(".pc-command__glyph").borderTopLeftRadius], markWeight: css(".pc-command__label mark").fontWeight,
       scopeH: Math.round(box(".pc-command__scope").height), scopeRadius: css(".pc-command__scope").borderTopLeftRadius, kbd: [css(".pc-command__footer kbd").borderTopLeftRadius, css(".pc-command__footer kbd").fontSize, Math.round(box(".pc-command__footer kbd").height)],
       placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
   });
-  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "12px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "6px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
+  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "12px", rowH: 52, inputOutline: "solid", inputOutlineWidth: "2px", inputFocusVisible: true, focusRing: "none", optionRadius: "8px", glyph: [28, "6px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
     placeholder: "Search tasks, agents, files or type > for commands", label: "Search tasks, agents, files or run a command" });
 }));
 
@@ -561,7 +562,8 @@ browserTest("subtitles_and_scope_counts_meet_contrast_and_dark_overlay_uses_toke
     for (const ratio of measured.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
     if (theme === "dark") {
       expect(measured.backdrop).toBe("rgba(0, 0, 0, 0.6)");
-      expect(measured.shadow).toBe("rgba(0, 0, 0, 0.13) 0px 6px 24px 0px");
+      // Board 17 deliberately mixes ink into both shadow layers, including dark mode.
+      expect(measured.shadow).toBe("color(srgb 0.980392 0.980392 0.980392 / 0.4) 0px 24px 64px -12px, color(srgb 0.980392 0.980392 0.980392 / 0.12) 0px 2px 6px 0px");
     }
   }
 }));
@@ -593,13 +595,15 @@ browserTest("Answer Escape restores its opening control inside Layout", () => wi
   expect(await answer.evaluate(el=>el===document.activeElement)).toBe(true);
 }));
 
-browserTest("closing the shell Inspector preserves the inline selected task aside", () => withPage(async (page, built) => {
+browserTest("Tasks owns its selected task aside with the shell Inspector toggle disabled", () => withPage(async (page, built) => {
   await open(page, built, "?task-list#/tasks");
   const aside = page.getByRole("complementary",{name:"Selected task"});
-  expect(await aside.count()).toBe(0);
-  await page.getByRole("button", {name:"Hide Inspector"}).click();
   await aside.waitFor();
   expect(await aside.isVisible()).toBe(true);
-  await page.getByRole("button", {name:"Toggle right panel"}).click({timeout:2000});
-  await aside.waitFor({state:"detached"});
+  expect(await page.getByRole("button", {name:"Hide Inspector"}).count()).toBe(0);
+  expect(await page.getByRole("button", {name:"Toggle right panel", exact:true}).isDisabled()).toBe(true);
+  expect(await page.getByRole("complementary", {name:"Inspector", exact:true}).count()).toBe(0);
+  await page.keyboard.press("ControlOrMeta+Alt+b");
+  expect(await aside.isVisible()).toBe(true);
+  expect(await page.getByRole("complementary", {name:"Inspector", exact:true}).count()).toBe(0);
 }));

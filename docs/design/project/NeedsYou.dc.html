@@ -75,9 +75,9 @@ class Component extends DCLogic {
     const bad = 'var(--bad-fg)', warn = 'var(--warn-fg)', info = 'var(--info-fg)';
     return {
       items: [
-        { glyph: '◐', fg: warn, tone: 'warn', kind: 'Question', top: 'transparent', mono: 'Cx', title: 'ota: stale plan shown as the current update', repo: 'acme/ota-client', age: 'asked 38 min ago', why: 'Codex asks: should an expired plan be hidden, or shown greyed out with its expiry date?', action: 'Answer', href: 'Answer.dc.html', secondary: 'Open session', secondaryHref: 'Session.dc.html' },
-        { glyph: '✕', fg: bad, tone: 'bad', kind: 'Checks failed', top: 'var(--line)', mono: 'Cx', title: 'runner-forge: GitHub App authentication', repo: 'acme/runner-forge', age: 'yesterday 17:26', why: 'Acceptance checks failed twice on Codex: 2 of 14 tests time out on the token refresh.', action: 'Inspect failures', href: 'TaskFailed.dc.html', secondary: 'Stop task', secondaryHref: '#' },
-        { glyph: '●', fg: info, tone: 'info', kind: 'Ready for review', top: 'var(--line)', mono: 'Cx', title: 'Browser-validate the web app PWA build', repo: 'acme/web', age: 'finished 12 min ago', why: 'All 3 subtasks done and checks passed · 6 files changed · report attached.', action: 'Review', href: 'Review.dc.html', secondary: 'Dispatch trace', secondaryHref: 'TaskDetail.dc.html' }
+        { glyph: '◐', fg: warn, tone: 'warn', kind: 'Question', top: 'transparent', mono: 'Cx', title: 'ota: stale plan shown as the current update', repo: 'acme/ota-client', age: 'asked 38 min ago', why: 'Codex asks: should an expired plan be hidden, or shown greyed out with its expiry date?', action: 'Answer', href: 'Answer.dc.html', secondary: 'Open in workspace', secondaryHref: 'Workspace.dc.html' },
+        { glyph: '✕', fg: bad, tone: 'bad', kind: 'Checks failed', top: 'var(--line)', mono: 'Cx', title: 'runner-forge: GitHub App authentication', repo: 'acme/runner-forge', age: 'yesterday 17:26', why: 'Acceptance checks failed twice on Codex: 2 of 14 tests time out on the token refresh.', action: 'Inspect failures', href: 'TaskPageFailed.dc.html', secondary: 'Stop task', secondaryHref: '#' },
+        { glyph: '●', fg: info, tone: 'info', kind: 'Ready for review', top: 'var(--line)', mono: 'Cx', title: 'Browser-validate the web app PWA build', repo: 'acme/web', age: 'finished 12 min ago', why: 'All 3 subtasks done and checks passed · 6 files changed · report attached.', action: 'Review', href: 'TaskPage.dc.html', secondary: 'Open workspace', secondaryHref: 'Workspace.dc.html' }
       ]
     };
   }

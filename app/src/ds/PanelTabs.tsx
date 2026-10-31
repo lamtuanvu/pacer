@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "./Button";
 import { CountBadge } from "./CountBadge";
 import { Icon, type IconName } from "./icons";
-import { tabStep } from "./Patterns";
+import { Tabs } from "./Patterns";
 
 export interface PanelTab { id: string; label: string; icon?: IconName; badge?: number }
 const content = (tab: PanelTab) => <>{tab.icon && <Icon name={tab.icon} />}<span className="pc-panel-tabs__label">{tab.label}</span>
@@ -29,16 +29,8 @@ export function PanelTabs({ id, label, tabs, value, onChange, maxVisible = 4 }: 
   }, [menu, value]);
   const close = () => { setMenu(false); more.current?.focus(); };
   return <div className="pc-panel-tabs">
-    <div ref={list} role="tablist" aria-label={label} className="pc-tabs pc-panel-tabs__list">
-      {visible.map((tab, at) => <Button key={tab.id} size="sm" role="tab" id={id && `${id}-${tab.id}-tab`} aria-controls={id && `${id}-${tab.id}-panel`} aria-selected={tab.id === current} tabIndex={tab.id === current ? 0 : -1} title={tab.label}
-        onClick={() => onChange(tab.id)} onKeyDown={event => {
-          const next = tabStep(event.key, at, visible.length);
-          if (next === undefined) return;
-          event.preventDefault();
-          onChange(visible[next]!.id);
-          list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
-        }}>{content(tab)}</Button>)}
-    </div>
+    <div ref={list} className="pc-panel-tabs__list"><Tabs id={id} label={label} className="pc-panel-tabs__list" value={current ?? ""} onChange={onChange}
+      options={visible.map(tab => ({ value: tab.id, label: content(tab), buttonProps: { title: tab.label } }))} /></div>
     {hidden.length > 0 && <div ref={wrap} className="pc-panel-tabs__more" onFocusOut={event => {
       if (!wrap.current?.contains(event.relatedTarget as Node | null)) setMenu(false);
     }}>

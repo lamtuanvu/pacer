@@ -1,3 +1,4 @@
+import { xtermCsp } from "./xterm-csp";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../package.json";
@@ -11,11 +12,11 @@ const root = import.meta.dir;
 
 /** Pure with respect to the filesystem: tests compare without rewriting checked-in assets. */
 export async function buildApp(): Promise<AppFile[]> {
-  const result = await Bun.build({ entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/dispatch/Dispatch.tsx"), join(root, "src/screens/insights/Insights.tsx"), join(root, "src/shell/CommandPalette.tsx"), join(root, "src/screens/new-task/NewTask.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
+  const result = await Bun.build({ plugins: [xtermCsp], entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/dispatch/Dispatch.tsx"), join(root, "src/screens/insights/Insights.tsx"), join(root, "src/shell/CommandPalette.tsx"), join(root, "src/screens/new-task/NewTask.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!result.success) throw new AggregateError(result.logs, "app build failed");
   const tray = await Bun.build({ entrypoints: [join(root, "src/tray/main.tsx")], target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!tray.success) throw new AggregateError(tray.logs, "tray build failed");
-  const css = [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/ds/feedback.css")).text(), await Bun.file(join(root, "src/styles.css")).text(), await Bun.file(join(root, "src/screens/insights/insights.css")).text(), await Bun.file(join(root, "src/screens/session/session.css")).text(), await Bun.file(join(root, "src/screens/session/file-viewer.css")).text(), await Bun.file(join(root, "src/screens/terminal/terminal.css")).text(), await Bun.file(join(root, "src/screens/work/work.css")).text(), await Bun.file(join(root, "src/screens/new-task/new-task.css")).text(), await Bun.file(join(root, "src/shell/assistant/assistant.css")).text(), await Bun.file(join(root, "src/screens/trace/trace.css")).text(), await Bun.file(join(root, "src/screens/review/result-page.css")).text()].join("\n");
+  const css = [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/ds/feedback.css")).text(), await Bun.file(join(root, "src/styles.css")).text(), await Bun.file(join(root, "src/screens/insights/insights.css")).text(), await Bun.file(join(root, "src/screens/session/session.css")).text(), await Bun.file(join(root, "src/screens/session/file-viewer.css")).text(), await Bun.file(join(root, "src/screens/terminal/terminal.css")).text(), await Bun.file(join(root, "src/screens/work/work.css")).text(), await Bun.file(join(root, "src/screens/new-task/new-task.css")).text(), await Bun.file(join(root, "src/shell/assistant/assistant.css")).text(), await Bun.file(join(root, "src/screens/trace/trace.css")).text(), await Bun.file(join(root, "src/screens/workspace/workspace.css")).text(), await Bun.file(join(root, "src/screens/review/result-page.css")).text()].join("\n");
   return [
     { path: "index.html", type: "text/html; charset=utf-8", text: await Bun.file(join(root, "index.html")).text() },
     { path: "app.js", type: "text/javascript; charset=utf-8", text: await result.outputs.find(output => output.path.endsWith("/app.js"))!.text() },
@@ -45,7 +46,7 @@ if (import.meta.main) {
   await Bun.write(shellPath, tokenCss + shellCss.slice(shellSuffixAt));
   await Bun.write(join(root, "src/ds/tokens.ts"), generateTokensTs(tokens));
   for (const file of files) await Bun.write(join(root, "dist", file.path), file.text);
-  await Bun.write(join(root, "../src/app/assets.generated.ts"), generatedSource(files));
+  if (!process.argv.includes("--no-embed")) await Bun.write(join(root, "../src/app/assets.generated.ts"), generatedSource(files));
   for (const file of files.filter(file => file.path.endsWith(".js"))) {
     const size = Bun.gzipSync(file.text).byteLength;
     const budget = file.path === "app.js" ? APP_JS_BUDGET : TERM_JS_BUDGET;

@@ -41,23 +41,6 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 <span style="color: var(--ink-secondary);">Pacer asks a planner to organize work, then chooses an eligible executor and model for each delegated task.</span>
 </header>
 
-<section aria-label="Current setup" style="display: flex; flex-wrap: wrap; align-items: center; gap: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-card); overflow: hidden;">
-<div style="flex: 1 1 240px; display: flex; align-items: center; gap: 10px; padding: 12px 16px;">
-<dc-import name="AgentMark" mono="Cl" size="28" hint-size="28px,28px"></dc-import>
-<div style="display: flex; flex-direction: column;"><span class="lbl">Planner</span><b>Claude Code</b></div>
-<a href="#" style="margin-left: auto; font-size: 12px;">Planner &amp; pacing</a>
-</div>
-<div style="flex: 1 1 280px; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-left: 1px solid var(--line);">
-<span aria-hidden="true" style="width: 28px; height: 28px; box-sizing: border-box; padding: 3px; border-radius: 6px; background: {{activeIcon.tint}}; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; flex-shrink: 0;"><sc-for list="{{activeIcon.cells}}" as="c" hint-placeholder-count="25"><span style="border-radius: 4px; background: {{c}};"></span></sc-for></span>
-<div style="display: flex; flex-direction: column;"><span class="lbl">Active saved setup</span><b>no-agy</b></div>
-<a href="#setups" style="margin-left: auto; font-size: 12px;">Switch setup</a>
-</div>
-<div style="flex: 1 1 200px; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-left: 1px solid var(--line);">
-<div style="display: flex; flex-direction: column;"><span class="lbl">Repository choices</span><b>2 repositories</b></div>
-<span class="cap" style="margin-left: auto;">Kept when setup changes</span>
-</div>
-</section>
-
 <h2 class="lbl" style="margin: 8px 0 0;">Set up delegation</h2>
 
 <section class="step" aria-labelledby="s1">

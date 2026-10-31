@@ -13,7 +13,7 @@ Any agent can read and edit it, with or without access to claude.ai.
 ```
 project/
   canvas.json            index: one entry per board (position, size, title, flags), notes, order, design system record
-  *.dc.html              one file per board (artboard); 43 boards
+  *.dc.html              one file per board (artboard); 48 boards
   ds/pacer/              the pacer design system copy: tokens.css, tokens.json, components/bundle.{css,js}
 BOARDS.md                generated board index
 ```
@@ -39,7 +39,8 @@ Tokens: `project/ds/pacer/tokens.css` (light values on `:root`, dark under `pref
 - **Controls:** design-system buttons are `sm` (32px) on desktop boards; `md` (44px) only on phone boards. App density: Comfortable (default) = 32px controls, Compact = 28px. Icon buttons 28px (24px in panel strips, 40px in the activity bar, 44px on touch); segmented controls 30px; switches 36×20.
 - **Section headings:** 16/22 weight 650, sentence case, on content pages. Settings uses 11px uppercase group labels.
 - **Terminal:** one design everywhere (board 5's panel, also used by 5b and 18): 6px resize sash on the top edge, 30px tab strip, kill ×, `+` with a location menu, Find / Split / Kill / More / Maximize / Hide icons, find widget on ⌘F, colours from the theme (no hard-coded dark).
-- **Live session (5b and 18 are one design):** the global top bar, then a 40px session header (title, repo · branch, status pill, Dispatch trace, End session), a 272px Sessions panel, and a 300px right panel with Details | Changes tabs.
+- **Task page and workspace (adopted 2026-10-30, boards 25, 25b, 25c, 26):** a task is the only thing you navigate to. Every task title, everywhere, opens its task page (header, state actions, Overview: now card, cost, dispatch trace, acceptance). Work happens in the Workspace (26, opened by Open workspace, Take over or the rail's Workspace item): left, tasks with their sessions nested (collapsed: session icons in a row; expanded: rows in a column); middle, tabs of any kind (agent session following or driven, shell, file, diff) with + for a shell, a new agent session on the task or a file; right, the selected task (Overview, Changes, Notes). The open panel's details sit left of the top bar search and its actions, as icon buttons with tooltips, right of it. Open workspace is offered on the task page in every state, ended tasks included (their sessions open read-only). Every panel is resizable: 6px sash on the shared edge, arrow keys move 16px, double-click resets (workspace list 272px, 200–480; task panel 320px, 260–560; terminal height), sizes persist per window. Boards 4, 5b, 5d, 22 and 23 are retired.
+- **Loading (board 27):** a page-shaped skeleton in `--surface-lane` blocks with a soft 1.4s pulse (none under reduced motion), shown only after 150ms, no spinner and no visible text; a reload keeps the content already on screen.
 - **Terminal setting:** one setting, a select on Machines (Automatic plus detected terminals). App preferences has no Terminal row.
 - **Assistant:** the floating pill is always shown while "Show the button" is on; with no account chosen it opens the setup card (board 6b). The app never picks an account itself.
 - **Contrast and working controls win over a board value:** text ≥ 4.5:1 (UI-2); no control that cannot work (UI-13).
@@ -47,7 +48,7 @@ Tokens: `project/ds/pacer/tokens.css` (light values on `:root`, dark under `pref
 
 ## Core flow (the clickable prototype)
 
-Start at `Main.dc.html` (1 · Dispatch). Needs you (`NeedsYou`, 20) → Answer (`Answer`, 21) · Inspect failures (`TaskFailed`, 22) → Retry · Review (`Review`, 23, states reviewing / requesting / accepted) → Tasks. New task (`NewTask`, 3a) → Tasks. ⌘K (`CommandMenu`). Planner chip → Budget. Activity bar → Dispatch, Needs you, Tasks, Insights, Terminal panel (`Shell`), Settings. The tray (`Tray`, 19) links into the same screens.
+Start at `Main.dc.html` (1 · Dispatch). Needs you (`NeedsYou`, 20) → Answer (`Answer`, 21) · the task page (`TaskPage`, 25 review; `TaskPageFailed`, 25c) → Accept / Retry → Tasks. Running tasks open `TaskPageRunning` (25b); Open workspace / Take over → `Workspace` (26). New task (`NewTask`, 3a) → Tasks. ⌘K (`CommandMenu`). Planner chip → Budget. Activity bar → Dispatch, Needs you, Tasks, Insights, Workspace, Settings. The tray (`Tray`, 19) links into the same screens.
 
 ## Editing with any agent
 

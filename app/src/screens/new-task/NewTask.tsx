@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useFrame } from "../../shell/slots";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
@@ -13,7 +14,7 @@ import { Dialog } from "../../ds/Dialog";
 import { Icon } from "../../ds/icons";
 import { Kbd } from "../../ds/Kbd";
 import { Page, PageTitle } from "../../ds/Page";
-import { Card, LoadingState } from "../../ds/Patterns";
+import { Card, Skeleton } from "../../ds/Patterns";
 import { Pill } from "../../ds/Pill";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { IssuePicker } from "./IssuePicker";
@@ -109,7 +110,7 @@ export function NewTask({ query }: { query: RouteQuery }) {
   const routing = useQuery<Routing>("routing.route", draft.repo ? { repo: draft.repo } : {});
   const accounts = useQuery<Account[]>("account.list", {});
   const preview = useRoutePreview({ repo: draft.repo, goal: draft.request, kind: draft.kind, executor: draft.executor });
-  const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }));
+  const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }), { bytes: 10_000_000, label: "10 MB" });
   const action = useAction();
   const [issuePicker, setIssuePicker] = useState(false);
   const [failure, setFailure] = useState<unknown>();
@@ -206,7 +207,7 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
       {p.canImportIssue && <Button variant="quiet" size="sm" className="pc-request-box__tool" onClick={p.onIssue} aria-label="From an issue" disabled={!p.repo}><Icon name="issue" /><span className="pc-request-box__tool-word">From an issue</span></Button>}
       {p.canImportIssue && !p.repo && <span className="pc-caption">Choose a repository to import an issue</span>}
       <span className="grow" />
-      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 25 MiB per file"}</span>
+      <span className="pc-caption pc-request-box__hint">{p.uploads.items.length || p.mentions.length ? `${p.uploads.items.length + p.mentions.length} file${p.uploads.items.length + p.mentions.length === 1 ? "" : "s"} attached` : compact ? "" : "Drop files here · images, logs, specs up to 10 MB per file"}</span>
     </div>
   </div>;
 }
@@ -226,7 +227,7 @@ function KindField({ p }: { p: ViewProps }) {
 function WorkspaceChoices({ p }: { p: ViewProps }) {
   return <RadioGroup label="Where it runs" className="pc-new-task__workspaces">
     {WORKSPACES.map(w => <RadioCard key={w.id} checked={(p.draft.workspace || "worktree") === w.id} onSelect={() => p.set({ workspace: w.id })} title={w.title} tag={w.tag}
-      sub={w.id === "current" && p.repo ? `Writes to ${p.repo.path} directly` : w.sub} />)}
+      sub={w.id === "current" && p.repo ? `Writes to ${p.repo.label} directly` : w.sub} />)}
   </RadioGroup>;
 }
 
@@ -255,10 +256,10 @@ function AgentChoices({ p }: { p: ViewProps }) {
   const options = agentOptions(p.routing, row => routingStatus(row as never), p.accounts);
   const plannerAgent = p.planner?.agent ?? "claude-code";
   return <RadioGroup label="Agent for this task" className="pc-new-task__agents">
-    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={20} labelled={false} />}
+    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={16} labelled={false} />}
       title="Let pacer decide" sub="Recommended · uses your dispatcher setup" pill={{ label: "Default", tone: "neutral" }} />
     {options.map(option => <OptionRow key={option.executor} checked={p.draft.executor === option.executor} disabled={!option.available}
-      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={option.agent} size={20} labelled={false} />}
+      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={agentKey(markAgent(option.executor)) ?? "opencode"} size={16} labelled={false} />}
       title={option.name} sub={option.sub} pill={option.pill} />)}
   </RadioGroup>;
 }
@@ -267,7 +268,7 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
   const { preview, card } = p;
   if (preview.empty) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Describe the task to see where it goes</span><span className="pc-caption">pacer picks the agent from the kind, each agent's budget, and your dispatcher setup.</span></div>;
   if (preview.unavailable) return <div className="pc-route-card__empty"><span className="pc-route-card__empty-title">Routing preview isn't available</span><span className="pc-caption">This pacer service can't explain routes yet. pacer still picks the agent from your dispatcher setup when you delegate.</span></div>;
-  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <LoadingState label="Checking where it goes…" />;
+  if (!card) return preview.error ? <span className="pc-caption">Couldn't check where it goes: {errorWords(preview.error)}</span> : <Skeleton layout="rows" label="Checking where it goes…" />;
   const reasons = <ul className={compact ? "pc-route-card__why pc-caption" : "pc-route-card__why"}>{(compact ? card.why.slice(0, 1) : card.why).map((y, i) => <li key={i}>{!compact && <span aria-hidden="true" className={`pc-route-card__glyph pc-route-card__glyph--${y.tone}`}>{y.glyph}</span>}<span className={compact ? "pc-ellipsis" : undefined} title={compact ? card.why.map(reason => reason.text).join(" · ") : undefined}>{y.text}</span></li>)}</ul>;
   return <>
     {card.lead ? <div className="pc-route-card__lead">
@@ -320,8 +321,8 @@ function FailureNotice({ p }: { p: ViewProps }) {
 }
 
 function RepoPicker({ p, id }: { p: ViewProps; id?: string }) {
-  return <ChoicePicker id={id} className="pc-new-task__pick" searchable value={p.draft.repo} placeholder="Choose a repository…"
-    options={p.choices.map(r => ({ value: r.key, label: r.label, description: r.branches?.[0] }))} onValueChange={value => p.set({ repo: value, base: "", executor: "" })} />;
+  return <ChoicePicker id={id} variant="repository" className="pc-new-task__pick" searchable value={p.draft.repo} placeholder="Choose a repository…"
+    options={p.choices.map(r => ({ value: r.key, label: r.label, description: r.key === p.draft.repo ? p.base : r.branches?.[0] }))} onValueChange={value => p.set({ repo: value, base: "", executor: "" })} />;
 }
 const repoHelp = (p: ViewProps) => {
   const others = Math.max(0, p.choices.length - 1);
@@ -359,7 +360,7 @@ function NewTaskPage(p: ViewProps) {
           <div className="pc-new-task__field">
             <span className="pc-new-task__label" id="nt-branch-label">Branch name</span>
             <ValueBox aria-labelledby="nt-branch-label" role="group" meta="Auto"><span className="mono">pacer/…</span></ValueBox>
-            <span className="pc-caption">Made from the request; edit it if you like</span>
+            <span className="pc-caption">Branch is assigned when the task starts</span>
           </div>
         </div>
         <fieldset className="pc-new-task__fieldset">
@@ -371,7 +372,7 @@ function NewTaskPage(p: ViewProps) {
           <span className="pc-new-task__label-row"><span className="pc-new-task__label">Acceptance checks</span><span className="pc-caption">Must pass before the result reaches you</span></span>
           <Checks p={p} />
         </div>
-        <Disclosure className="pc-new-task__more" summary={<>More options <span className="pc-caption pc-new-task__label-note">· base branch {p.base || "current"}</span></>}>
+        <Disclosure className="pc-new-task__more" summary={<>More options <span className="pc-caption pc-new-task__label-note">· planner may split it · up to 3 in parallel · no deadline</span></>}>
           <div className="pc-new-task__more-body">
             <Field label="Base branch" help="The new worktree starts from this branch.">
               <ChoicePicker value={p.base} options={(p.repo?.branches ?? []).map(b => ({ value: b, label: b }))} placeholder="Current branch" onValueChange={value => p.set({ base: value })} />
@@ -432,7 +433,6 @@ function NewTaskSheet(p: ViewProps) {
         <DrillRow label="Acceptance checks" onClick={() => setOpen("checks")} value={p.checks.length ? `${on} of ${p.checks.length} on` : "None yet"} />
         <DrillRow label="Agent" onClick={() => setOpen("agent")} value={agent} />
       </div>
-      <span className="pc-caption">Each row opens its own sheet with the same choices as the desktop form.</span>
     </div>
     {open && <Dialog title={titles[open]} close={() => setOpen(null)}>
       <div className="pc-new-task-sheet__choice">

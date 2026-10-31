@@ -10,3 +10,10 @@
 .pc-toast{display:flex;align-items:flex-start;gap:var(--space-1);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-popover)}
 .pc-toast>.pc-alert{flex:1;border:0}
 .pc-toast>.pc-btn{flex:none;margin:var(--space-1)}
+.pc-immediate-save{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
+.pc-immediate-save__line{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.pc-immediate-save__control{min-width:0;max-width:100%}
+.pc-immediate-save__control[aria-busy=true]{opacity:.65;pointer-events:none}
+.pc-immediate-save__status{color:var(--good-fg);font-size:var(--type-caption-size);white-space:nowrap}
+.pc-immediate-save__error{display:flex;flex-direction:column;gap:var(--space-2);color:var(--bad-fg)}
+.pc-immediate-save__error p{margin:0}

@@ -96,7 +96,7 @@ browserTest('validation errors, conflicts and visibility conflicts preserve the 
     await page.getByRole('spinbutton',{name:'Retries'}).fill('99');await page.getByRole('button',{name:'Save',exact:true}).click();expect(await calls(page,'plugin.settings.set')).toHaveLength(0);await page.getByRole('spinbutton',{name:'Retries'}).fill('3');
     await page.getByRole('textbox',{name:'Label',exact:true}).fill('Other');await page.evaluate(()=>{(window as any).saveError='invalid_input';});await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Choose another label.',{exact:true}).waitFor();await page.getByText('Too many retries.',{exact:true}).waitFor();expect(await page.getByRole('textbox',{name:'Label',exact:true}).getAttribute('aria-invalid')).toBe('true');
     await page.evaluate(()=>{(window as any).saveError='conflict';});await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('These settings changed elsewhere.',{exact:false}).waitFor();expect(await page.getByRole('textbox',{name:'Label',exact:true}).inputValue()).toBe('Other');await page.getByRole('button',{name:'Load latest'}).click();await page.getByRole('button',{name:'Save',exact:true}).waitFor({state:'detached'});
-    await page.getByRole('textbox',{name:'Label',exact:true}).fill('Keep draft');await page.evaluate(()=>{(window as any).visibilityConflict=true;(window as any).saveError=undefined;});await page.getByRole('switch',{name:'Checklist tab in the right panel'}).click();await page.getByText('Changed elsewhere; showing the latest.',{exact:true}).waitFor();expect(await page.getByRole('textbox',{name:'Label',exact:true}).inputValue()).toBe('Keep draft');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByRole('button',{name:'Save',exact:true}).waitFor({state:'detached'});expect((await calls(page,'plugin.settings.set')).at(-1).params.expect_rev).toBe(8);
+    await page.getByRole('textbox',{name:'Label',exact:true}).fill('Keep draft');await page.evaluate(()=>{(window as any).visibilityConflict=true;(window as any).saveError=undefined;});await page.getByRole('switch',{name:'Checklist tab in the right panel'}).click();await page.getByRole('alert').filter({hasText:"Couldn't save: This setting changed elsewhere"}).waitFor();expect(await page.getByRole('textbox',{name:'Label',exact:true}).inputValue()).toBe('Keep draft');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByRole('button',{name:'Save',exact:true}).waitFor({state:'detached'});expect((await calls(page,'plugin.settings.set')).at(-1).params.expect_rev).toBe(8);
     await page.getByRole('button',{name:'Turn off',exact:true}).click();await page.getByText('This plugin is off.',{exact:true}).waitFor();await page.getByRole('button',{name:'Turn on',exact:true}).click();await page.getByRole('textbox',{name:'Label',exact:true}).waitFor();
   } finally {await page.close();}
 });
@@ -256,12 +256,12 @@ browserTest('App and plugin pages retain the shared frame and controls',async()=
     expect(await frame(editor)).toEqual(expected);
     expect((await style(editor,'.pc-setting-row')).align).toBe('start');
     expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});
-    expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'32px',height:'32px',radius:'6px'});
+    expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'28px',height:'28px',radius:'6px'});
     expect((await style(cards,'.pc-action-menu__trigger')).color).toBe('rgb(82, 82, 91)');
-    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px',radius:'6px'});
+    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'28px',height:'28px',padding:'0px',radius:'6px'});
     expect(await editor.locator('.pc-plugin-remove').first().evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--ink-secondary)';document.body.append(probe);const want=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===want;})).toBe(true);
     const row=await editor.locator('.pc-plugin-ordered>li').first().evaluate(node=>{const s=getComputedStyle(node);return {height:node.getBoundingClientRect().height,columns:s.gridTemplateColumns.split(' ').length,padding:s.padding,radius:s.borderRadius};});
-    expect(row).toMatchObject({height:44,columns:4,padding:'8px 10px',radius:'8px'});
+    expect(row).toMatchObject({height:46,columns:4,padding:'8px 10px',radius:'8px'});
     expect(await editor.getByRole('button',{name:'Move up: Run tests',exact:true}).count()).toBe(0);
     expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).count()).toBe(0);
     await editor.getByRole('button',{name:'Move down: Run tests',exact:true}).focus();await editor.keyboard.press('Enter');

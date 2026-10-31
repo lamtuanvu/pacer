@@ -17,6 +17,7 @@ class ParentChannelsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory(prefix='pacer-parent-channels-')
+        cls.addClassCleanup(cls.directory.cleanup)
         library = Path(cls.directory.name) / 'shim.dylib'
         subprocess.run([
             '/usr/bin/clang', '-Wall', '-Wextra', '-Werror', '-dynamiclib', '-O2',
@@ -30,26 +31,33 @@ class ParentChannelsTests(unittest.TestCase):
         cls.ack.argtypes = [ctypes.c_int]
         cls.ack.restype = ctypes.c_int
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.directory.cleanup()
-
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='pacer-parent-receiver-')
+        self.addCleanup(self.directory.cleanup)
         self.listener = socket.socket(socket.AF_UNIX)
-        self.listener.bind(str(Path(self.directory.name) / 'listener'))
+        self.addCleanup(self.listener.close)
+        # Only the listener's descriptor/type is under test, not its absolute
+        # pathname. Keep sun_path short inside the private, managed temp root.
+        previous = os.getcwd()
+        try:
+            os.chdir(self.directory.name)
+            self.listener.bind('listener')
+        finally:
+            os.chdir(previous)
         self.listener.listen(1)
         self.root, self.core = socket.socketpair()
+        self.addCleanup(self.root.close)
+        self.addCleanup(self.core.close)
         self.helpers, self.remote = socket.socketpair()
+        self.addCleanup(self.helpers.close)
+        self.addCleanup(self.remote.close)
         self.out = (ctypes.c_int * 2)(-1, -1)
+        self.addCleanup(self.close_received)
 
-    def tearDown(self):
+    def close_received(self):
         for fd in self.out:
             if fd >= 0:
                 os.close(fd)
-        for sock in [self.listener, self.root, self.core, self.helpers, self.remote]:
-            sock.close()
-        self.directory.cleanup()
 
     def send(self, marker=b'B', fds=None):
         if fds is None:

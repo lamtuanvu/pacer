@@ -35,9 +35,15 @@ export function createQueryCache<Result>(call: (op: string, params: unknown) => 
   }
   return {
     invalidate() { for (const entry of entries.values()) entry.dirty = true; },
-    createQuery<T = Result>(publish: Publish<T>) {
+    createQuery<T = Result>(publish: Publish<T>, keepPreviousData = false) {
       let current: Entry | undefined, disposed = false;
-      const notify = () => { if (!disposed && current) publish({ ...current.state } as QueryState<T>, current.key); };
+      let previous: { op: string; data: T } | undefined;
+      const notify = () => {
+        if (disposed || !current) return;
+        if (current.state.data !== undefined) previous = { op: current.op, data: current.state.data as T };
+        const fallback = keepPreviousData && previous?.op === current.op ? previous : undefined;
+        publish({ ...current.state, ...(current.state.data === undefined && fallback ? { data: fallback.data } : {}) } as QueryState<T>, current.key);
+      };
       return {
         update(op: string, serialized: string, revision: string) {
           if (disposed) return;
@@ -72,8 +78,8 @@ export function createQueryCache<Result>(call: (op: string, params: unknown) => 
     },
   };
 }
-export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>, publish: Publish<T>) {
-  return createQueryCache(call).createQuery(publish);
+export function createQuery<T>(call: (op: string, params: unknown) => Promise<T>, publish: Publish<T>, keepPreviousData = false) {
+  return createQueryCache(call).createQuery(publish, keepPreviousData);
 }
 // Weak ownership prevents sharing data between service connections or retaining retired clients.
 const caches = new WeakMap<object, ReturnType<typeof createQueryCache>>();
@@ -85,3 +91,17 @@ export function queryCacheFor(client: object, call: (op: string, params: unknown
 
 /** A transport break may happen while no screen is mounted. Never reuse that data as fresh. */
 export function invalidateQueryCache(client: object) { caches.get(client)?.invalidate(); }
+
+// Separate hook instances may read the same resource (including across portals).
+// Keep only pending reads: mutations and explicit reloads must always reach the service.
+const inFlight = new WeakMap<object, Map<string, Promise<unknown>>>();
+export function dedupeQuery<T>(owner: object, call: (op: string, params: unknown) => Promise<T>, op: string, params: unknown): Promise<T> {
+  let reads = inFlight.get(owner);
+  if (!reads) { reads = new Map(); inFlight.set(owner, reads); }
+  const key = JSON.stringify([op, params]);
+  const pending = reads.get(key);
+  if (pending) return pending as Promise<T>;
+  const request = call(op, params).finally(() => { reads.delete(key); });
+  reads.set(key, request);
+  return request;
+}

@@ -9,10 +9,10 @@ import { TaskContext } from '../../../app/src/screens/task-shared';
 import { initialState } from '../../../app/src/data/store';
 
 const initial: ChoiceOption[] = [
-  { value: 'codex', label: 'Codex · work' },
-  { value: 'claude', label: 'Claude Code · personal', disabled: true, reason: 'Sign in first' },
-  { value: 'opencode', label: 'OpenCode · team', description: 'Uses team account' },
-  { value: 'long', label: 'A-very-long-executor-name-with-no-breaks-at-all-that-must-fit-in-a-narrow-viewport' },
+  { value: 'codex', agent: 'codex#work', label: 'Codex · work' },
+  { value: 'claude', agent: 'claude#personal', label: 'Claude Code · personal', disabled: true, reason: 'Sign in first' },
+  { value: 'opencode', agent: 'opencode#byteplus', label: 'OpenCode · team', description: 'Uses team account' },
+  { value: 'long', agent: 'custom', label: 'A-very-long-executor-name-with-no-breaks-at-all-that-must-fit-in-a-narrow-viewport' },
 ];
 const many: ChoiceOption[] = Array.from({ length: 40 }, (_, index) => ({ value: `item-${index}`, label: `Item ${index}` }));
 const delegateState = { ...initialState(), connected: true, features: { readModel: true, ops: new Set(['repo.list']) } };

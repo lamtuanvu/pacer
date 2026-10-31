@@ -9,6 +9,7 @@ const browserTest = test.skipIf(!browserPath);
 let browser: Browser, server: ReturnType<typeof Bun.serve>;
 const calls: string[] = [];
 let refreshed = false;
+let accountCount = 1;
 let mode: "success" | "hold" | "fail" = "success";
 let release: () => void = () => {};
 let pending: Promise<void> = Promise.resolve();
@@ -23,10 +24,10 @@ beforeAll(async () => {
   const styles = (await Promise.all(["app/src/ds/tokens.css", "app/src/ds/components.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n");
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
     const path = new URL(req.url).pathname;
-    if (!path.startsWith("/ops/")) return new Response(`<div id="root"></div><style>${styles}</style><script type="module">${script}</script>`, { headers: { "Content-Type": "text/html" } });
+    if (!path.startsWith("/ops/")) return new Response(`<html data-density="compact"><div id="root"></div><style>${styles}</style><script type="module">${script}</script>`, { headers: { "Content-Type": "text/html" } });
     const op = path.slice(5);
     calls.push(op);
-    if (op === "account.list") return Response.json(reading(refreshed ? 35 : 20));
+    if (op === "account.list") return Response.json(Array.from({ length: accountCount }, (_, index) => ({ ...reading(refreshed ? 35 : 20)[0], name: index ? `work-${index}` : "work" })));
     if (op === "limits.refresh") {
       if (mode === "hold") await pending;
       if (mode === "fail") return Response.json({ code: "internal", message: "Provider unavailable" }, { status: 500 });
@@ -78,11 +79,58 @@ browserTest("Usage refresh shows busy and error states without claiming an updat
     await button.click();
     expect(await button.isDisabled()).toBe(true);
     expect(await button.getAttribute("aria-busy")).toBe("true");
+    const icon = button.locator("svg");
+    expect(await icon.evaluate(element => getComputedStyle(element).animationName)).toBe("pc-icon-spin");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await icon.evaluate(element => getComputedStyle(element).animationName)).toBe("none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     expect(calls.filter(op => op === "limits.refresh")).toHaveLength(1);
     mode = "fail"; release();
     await page.getByRole("alert").getByText("Could not refresh usage. Try again.").waitFor();
     expect(await button.isDisabled()).toBe(false);
+    expect(await icon.evaluate(element => getComputedStyle(element).animationName)).toBe("none");
     expect(await page.getByText("1 account updated.").count()).toBe(0);
     expect(await page.getByText("20%", { exact: true }).count()).toBe(1);
   } finally { release(); await page.close(); }
+}, 15_000);
+
+for (const width of [1440, 375]) browserTest(`Usage header stays fixed and icon actions have names and tooltips at ${width}px`, async () => {
+  accountCount = 24; refreshed = false; mode = "success";
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  try {
+    await page.goto(String(server.url));
+    const trigger = page.getByRole("button", { name: /Usage details/ });
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "Usage details" });
+    await dialog.getByRole("region", { name: "work-23 usage", exact: true }).waitFor();
+    const head = dialog.locator(".pc-usage-popover__head");
+    expect((await head.boundingBox())!.height).toBe(44);
+    for (const name of ["Refresh usage", "Close"]) {
+      const button = dialog.getByRole("button", { name, exact: true });
+      expect(await button.textContent()).toBe("");
+      const box = (await button.boundingBox())!;
+      expect([box.width, box.height]).toEqual([28, 28]);
+      await button.focus();
+      const tooltip = page.getByRole("tooltip", { name, exact: true });
+      await tooltip.waitFor();
+      expect(await button.getAttribute("aria-describedby")).toBe(await tooltip.getAttribute("id"));
+    }
+    await dialog.getByRole("button", { name: "Refresh usage", exact: true }).click();
+    await dialog.locator(".pc-dialog-popover__body").getByRole("status").getByText("1 account updated.").waitFor();
+    const before = (await head.boundingBox())!;
+    const first = dialog.getByRole("region", { name: "work usage", exact: true });
+    const firstY = (await first.boundingBox())!.y;
+    const body = dialog.locator(".pc-dialog-popover__body");
+    await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    expect((await first.boundingBox())!.y).toBeLessThan(firstY);
+    expect(await head.boundingBox()).toEqual(before);
+    expect(await dialog.evaluate(element => element.scrollTop)).toBe(0);
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    expect(await trigger.evaluate(element => document.activeElement === element)).toBe(true);
+    await trigger.click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+  } finally { accountCount = 1; await page.close(); }
 }, 15_000);

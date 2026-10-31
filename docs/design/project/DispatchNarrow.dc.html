@@ -45,7 +45,7 @@ a{color:var(--link)}a:hover{color:var(--ink)}
 </section>
 <section aria-labelledby="nl-h" style="display: flex; flex-direction: column; gap: 8px;">
 <h2 id="nl-h" style="margin: 0; font-size: 16px; line-height: 22px; font-weight: 650;">Running</h2>
-<a href="Session.dc.html" style="display: flex; gap: 10px; align-items: center; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--ink);"><dc-import name="AgentMark" mono="Cx" size="20" hint-size="20px,20px"></dc-import><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Make remote-support access mode opt-out</span><span class="cap"><span style="color: var(--info-fg); font-weight: 600;">Editing</span> · 12m · acme/web</span></span></a>
+<a href="TaskPageRunning.dc.html" style="display: flex; gap: 10px; align-items: center; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--ink);"><dc-import name="AgentMark" mono="Cx" size="20" hint-size="20px,20px"></dc-import><span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Make remote-support access mode opt-out</span><span class="cap"><span style="color: var(--info-fg); font-weight: 600;">Editing</span> · 12m · acme/web</span></span></a>
 </section>
 </main>
 <nav aria-label="Primary" style="flex-shrink: 0; display: flex; border-top: 1px solid var(--line); background: var(--surface-card); padding-bottom: 20px;">
@@ -64,8 +64,8 @@ class Component extends DCLogic {
       p: { used: 16, pace: 38 },
       needs: [
         { glyph: '◐', fg: 'var(--warn-fg)', bd: 'var(--warn-line)', title: 'ota: stale plan shown as the current update', why: 'Codex asks · 38 min', action: 'Answer', href: 'Answer.dc.html' },
-        { glyph: '✕', fg: 'var(--bad-fg)', bd: 'var(--bad-line)', title: 'runner-forge: GitHub App authentication', why: 'Checks failed twice', action: 'Inspect', href: 'TaskFailed.dc.html' },
-        { glyph: '●', fg: 'var(--info-fg)', bd: 'var(--line)', title: 'Browser-validate the web app PWA build', why: 'Ready for review', action: 'Review', href: 'Review.dc.html' }
+        { glyph: '✕', fg: 'var(--bad-fg)', bd: 'var(--bad-line)', title: 'runner-forge: GitHub App authentication', why: 'Checks failed twice', action: 'Inspect', href: 'TaskPageFailed.dc.html' },
+        { glyph: '●', fg: 'var(--info-fg)', bd: 'var(--line)', title: 'Browser-validate the web app PWA build', why: 'Ready for review', action: 'Review', href: 'TaskPage.dc.html' }
       ]
     };
   }

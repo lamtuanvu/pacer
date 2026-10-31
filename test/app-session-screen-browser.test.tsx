@@ -26,8 +26,8 @@ async function openSession(browser: Browser, scenario: Scenario, viewport = { wi
   await page.goto("http://pacer.test/#/tasks/t-0412");
   await page.evaluate(([css, scenario, tokenMode, navigator]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; (window as any).TOKEN_MODE = tokenMode; (window as any).NAVIGATOR = navigator; }, [css, scenario, tokenMode, navigator] as const);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
-  await page.locator(".pc-session-bar").first().waitFor({ state: "attached" });
-  await page.locator(".pc-topbar h1.pc-topbar__heading").waitFor();
+  await page.locator(".pc-session-bar").first().waitFor({ state: "attached", timeout: 5000 }).catch(async error => { throw new Error(`${error}; ${await page.locator("body").innerText()}`); });
+  if (!navigator) await page.locator(".pc-topbar h1.pc-topbar__heading").waitFor();
   return page;
 }
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 })
@@ -497,3 +497,43 @@ browserTest("session header keeps full status ahead of clipped repository facts"
   await page.close();
  }
 }),60000);
+
+
+browserTest("Sessions navigator keeps its DOM, scroll and reads when selection changes", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "supervised", { width: 1440, height: 900 }, "light", undefined, true);
+  const scroll = page.locator(".pc-task-nav__scroll");
+  await scroll.waitFor();
+  await page.waitForFunction(() => document.querySelectorAll(".pc-task-nav a").length > 1);
+  await scroll.evaluate(node => {
+    node.style.height = "80px";
+    node.style.flex = "none";
+    node.scrollTop = 40;
+    (window as any).savedNavigator = node;
+    (window as any).savedScroll = node.scrollTop;
+    (window as any).removedNavigator = false;
+    new MutationObserver(() => {
+      if (!(window as any).savedNavigator.isConnected) (window as any).removedNavigator = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const before = (await calls(page)).filter(op => op === "task.list" || op === "dispatch.list").length;
+  const link = page.locator(".pc-task-nav a:not([aria-current='page'])").first();
+  const href = await link.getAttribute("href");
+  // Dispatch the click without Playwright scrolling the row into view first.
+  await link.dispatchEvent("click", { button: 0 });
+  await page.waitForFunction(href => location.hash === href, href);
+  await page.waitForTimeout(400);
+  expect(await scroll.evaluate(node => ({ same: node === (window as any).savedNavigator, scroll: node.scrollTop,
+    expected: (window as any).savedScroll, removed: (window as any).removedNavigator }))).toEqual({ same: true, scroll: 40, expected: 40, removed: false });
+  expect((await calls(page)).filter(op => op === "task.list" || op === "dispatch.list").length).toBe(before);
+  expect(await page.locator(".pc-task-nav [aria-current='page']").getAttribute("href")).toBe(href);
+  if (process.env.PACER_UI_EVIDENCE_DIR) {
+    await page.screenshot({ path: `${process.env.PACER_UI_EVIDENCE_DIR}/sessions-light.png` });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.screenshot({ path: `${process.env.PACER_UI_EVIDENCE_DIR}/sessions-dark.png` });
+  }
+  await page.close();
+  const deepLink = await openSession(browser, "supervised", { width: 1440, height: 900 }, "light", "deep-link", true);
+  await deepLink.locator(".pc-task-nav [aria-current='page']").waitFor();
+  expect(await deepLink.locator(".pc-task-nav [aria-current='page']").count()).toBe(1);
+  await deepLink.close();
+}), 20_000);

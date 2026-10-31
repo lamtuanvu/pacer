@@ -182,7 +182,7 @@
 .u3-step-heading{display:flex;flex-direction:column;gap:var(--space-half)}
 
 /* NavTabs: page tabs as links; the current page gets the selected tab underline. */
-.pc-tabs--nav [aria-current=page]{color:var(--ink);border-bottom-color:var(--ink)}
+.pc-tabs--nav [aria-current=page]{color:var(--ink)}
 
 /* Stepper: wizard progress. The mark carries the step number or a check; the current step is shaded and named by aria-current. */
 .pc-stepper{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
@@ -324,6 +324,31 @@
 .pc-stepper .pc-btn.pc-stepper__step{padding:var(--space-2\.5);min-height:var(--size-44)}
 .u3-account-policy .pc-section-heading{font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-display-weight);text-transform:none;letter-spacing:normal}
 
-.pc-stepper .pc-stepper__step,.pc-stepper .pc-btn.pc-stepper__step{min-height:var(--size-56);height:var(--size-56)}
+
 .dispatcher-preview-row{grid-template-columns:var(--size-200) var(--size-140) minmax(0,1fr) auto}
 @media(max-width:900px){.dispatcher-preview-row{grid-template-columns:minmax(0,1fr)}}
+
+.pc-agents-tab-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
+
+/* Board content layout. Control geometry and typography stay with DS variants. */
+.u3-agents-table .u3-agent strong{font-weight:var(--type-body-strong-weight)}
+.pc-agents-tab-row>.u3-actions{margin-bottom:var(--space-1)}
+.u3-chip{box-sizing:border-box;height:var(--size-22);padding:0 var(--space-2) 0 calc(var(--size-2) + var(--size-1))}
+.u3-account-policy{padding-top:var(--space-4)}
+.u3-account-policy .pc-section-heading{color:var(--ink)}
+.u3-agent-facts{grid-template-columns:calc(var(--size-100) + var(--size-10)) minmax(0,1fr)}
+.u3-add-agent>.u3-breadcrumb{padding:0}
+.u3-step-heading .u3-muted{color:var(--ink-muted);line-height:var(--type-caption-line)}
+.u3-aliases{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--size-150),1fr));gap:var(--space-1\.5)}
+
+.pc-budget-mode--active{font-weight:var(--type-count-badge-weight)}
+.pc-settings-board__caption b{color:var(--ink)}
+.u3-machine-body{display:flex;flex-direction:column}
+.u3-machine-advanced{order:1}
+.pc-choice-ladder-actions{display:flex;gap:var(--space-2\.5);align-items:center;flex-wrap:wrap}
+.pc-choice-ladder-actions>.pc-text-action{margin-left:auto}
+#dispatcher>.u3-heading p{font-size:var(--type-body-size);line-height:var(--type-body-line)}
+#dispatcher-scope .pc-settings-step__body{gap:var(--space-2\.5)}
+.dispatcher-preview-row{align-items:center}
+.dispatcher-preview-submit{padding-top:0}
+.pc-executor-pool__setup.pc-btn{font-weight:var(--type-body-weight)}

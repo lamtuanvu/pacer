@@ -72,10 +72,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) test(`test setup cleans hom
   const parent = tmpDir(), ready = join(parent, "ready.json"), file = join(parent, "signal.test.ts");
   writeFileSync(file, `import {test} from "bun:test";
 import {writeFileSync} from "node:fs";
-import {dirname} from "node:path";
+import {dirname,join} from "node:path";
+import {mkdtempSync} from "node:fs";
+import {tmpdir} from "node:os";
 import {tmpDir} from ${JSON.stringify(join(import.meta.dir, "helpers.ts"))};
 test("wait for signal", async () => {
-  writeFileSync(${JSON.stringify(ready)}, JSON.stringify({home: process.env.HOME, root: dirname(tmpDir())}));
+  writeFileSync(${JSON.stringify(ready)}, JSON.stringify({home: process.env.HOME, root: dirname(tmpDir()), raw: mkdtempSync(join(tmpdir(), "pacer-raw-"))}));
   await new Promise(resolve => setTimeout(resolve, 20000));
 });`);
   const child = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "setup.ts"), file], {
@@ -90,5 +92,22 @@ test("wait for signal", async () => {
     await child.exited;
     expect(existsSync(roots.home)).toBe(false);
     expect(existsSync(roots.root)).toBe(false);
+    expect(existsSync(roots.raw)).toBe(false);
   } finally {child.kill(); await child.exited;}
+});
+
+for (const keep of [false, true]) test(`ordinary suite contains and cleans raw temp allocations (keep=${keep})`, async () => {
+  const parent = tmpDir(), result = join(parent, "raw.json"), file = join(parent, "raw.test.ts");
+  writeFileSync(file, `import {test} from "bun:test";
+import {mkdtempSync,writeFileSync} from "node:fs";
+import {join} from "node:path";import {tmpdir} from "node:os";
+test("raw temp",()=>writeFileSync(${JSON.stringify(result)},JSON.stringify({home:process.env.HOME,raw:mkdtempSync(join(tmpdir(),"raw-fixture-"))})));`);
+  const child = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "setup.ts"), file], {
+    env: {...process.env, TMPDIR: parent, PACER_KEEP_TEST_TMP: keep ? "1" : ""}, stdout: "ignore", stderr: "pipe",
+  });
+  const error = await new Response(child.stderr).text();
+  expect(await child.exited, error).toBe(0);
+  const roots = JSON.parse(readFileSync(result, "utf8"));
+  expect(roots.raw.startsWith(roots.home + "/")).toBe(true);
+  expect(existsSync(roots.raw)).toBe(keep);
 });

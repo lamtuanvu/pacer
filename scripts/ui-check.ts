@@ -251,6 +251,12 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
       && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px"
       && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === (name === "--pc-dock-height" ? "dock?.getBoundingClientRect().height ?? 0" : "sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0")) return;
+    // SidePanel's bounded drag/keyboard measurement is a unitless geometry channel.
+    // CSS multiplies it by the generated one-pixel token; neighboring styles stay checked.
+    if (path === "app/src/ds/SidePanel.tsx" && name === "--pc-panel-width"
+      && node.type === "CallExpression" && node.callee.type === "MemberExpression"
+      && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "panelElement.current.style.setProperty"
+      && source.slice(value.start ?? 0,value.end ?? 0) === "String(width)") return;
     // These exact data channels are owned by the meter and are unitless clamped values.
     if (path === "app/src/ds/UsageMeter.tsx" && ["--used", "--pace"].includes(name)
       && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "clamp" && value.arguments.length === 1
@@ -260,6 +266,31 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
     if (brandMetric && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.expressions[0]?.type === "Identifier" && value.expressions[0].name === "size"
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") return;
+    // Restoring a pre-swap measurement introduces no authored design dimension.
+    if (path === "app/src/ds/SelectionStrip.tsx" && name === "min-height"
+      && node.type === "AssignmentExpression" && source.slice(node.left.start ?? 0, node.left.end ?? 0) === "parent.style.minHeight"
+      && value.type === "Identifier" && value.name === "minimum"
+      && source.slice(resolveExpression(value).start ?? 0, resolveExpression(value).end ?? 0) === "parent.style.minHeight") return;
+    // SelectionStrip adapts measured item/panel rectangles; no authored visual lengths.
+    if (path === "app/src/ds/SelectionStrip.tsx" && node.type === "AssignmentExpression" && node.left.type === "MemberExpression"
+      && value.type === "TemplateLiteral" && value.expressions.length === 1
+      && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") {
+      const target = source.slice(node.left.start ?? 0, node.left.end ?? 0);
+      const metric = source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0);
+      if ((name === "width" && target === "marker.style.width" && metric === "selected.getBoundingClientRect().width")
+        || (name === "height" && target === "marker.style.height" && metric === "selected.getBoundingClientRect().height")
+        || (name === "min-height" && target === "parent.style.minHeight" && ["Math.max(parent.offsetHeight, panel.offsetHeight, Number(old.dataset.containerHeight))", "parent.offsetHeight"].includes(metric))) return;
+    }
+    // Anchored menus adapt viewport/anchor measurements only; CSS owns the gutter.
+    if (path === "app/src/ds/useAnchoredMenu.ts" && node.type === "AssignmentExpression"
+      && node.left.type === "MemberExpression" && value.type === "TemplateLiteral"
+      && value.expressions.length === 1 && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") {
+      const target = source.slice(node.left.start ?? 0, node.left.end ?? 0);
+      const metric = source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0);
+      if ((name === "max-height" && target === "element.style.maxHeight" && metric === "Math.max(0, height)")
+        || (name === "left" && target === "element.style.left" && metric === "Math.max(gutter, Math.min(rect.right - element.offsetWidth, viewport.clientWidth - element.offsetWidth - gutter))")
+        || (name === "top" && target === "element.style.top" && metric === "down ? rect.bottom : rect.top - element.offsetHeight")) return;
+    }
     // Viewer sizing is authoritative PTY/measured geometry, scoped to scale() assignments.
     const terminalScale = path === "app/src/term/term.tsx" && ["width", "height"].includes(name)
       && ancestors.some(parent => parent.type === "VariableDeclarator" && parent.id.type === "Identifier" && parent.id.name === "scale")

@@ -165,3 +165,25 @@ browserTest('Delegate identifies and focuses a missing required repository', asy
     expect(await repo.evaluate(node => document.activeElement === node)).toBe(true);
   } finally { await page.close(); }
 });
+
+ browserTest('vendor marks decorate every option and the selected trigger without changing accessible names', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`${server.url}`);
+    const trigger = page.locator('#executor');
+    await trigger.click();
+    const options = page.getByRole('option');
+    expect(await options.count()).toBe(4);
+    expect(await options.locator('.pc-agent-mark[aria-hidden="true"]').count()).toBe(4);
+    expect(await page.getByRole('option', { name: 'Codex · work', exact: true }).count()).toBe(1);
+    expect(await options.nth(1).getAttribute('aria-disabled')).toBe('true');
+    expect(await options.nth(2).locator('.pc-agent-mark--byteplus').count()).toBe(1);
+    expect(await options.nth(3).locator('.pc-agent-mark--opencode[aria-hidden="true"]').count()).toBe(1);
+    await page.getByRole('option', { name: 'Codex · work', exact: true }).click();
+    expect(await trigger.textContent()).toBe('Codex · work');
+    expect(await trigger.locator('.pc-agent-mark--codex[aria-hidden="true"]').count()).toBe(1);
+    const geometry = await trigger.locator('.pc-choice-picker__identity').evaluate(node => ({ gap: getComputedStyle(node).gap, size: node.querySelector('.pc-agent-mark')!.getBoundingClientRect().width }));
+    expect(geometry).toEqual({ gap: '8px', size: 16 });
+    expect(await trigger.evaluate(node => document.activeElement === node)).toBe(true);
+  } finally { await page.close(); }
+});

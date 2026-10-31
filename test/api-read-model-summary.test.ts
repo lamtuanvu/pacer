@@ -193,3 +193,19 @@ test("attention keeps the complete title even when its task is outside the recen
  expect(model.attention.find(item=>item.taskId===task.id)?.title).toBe(goal);
  expect(task.title).not.toBe(goal);
 });
+
+test('mode hold and release override a warm injected status immediately',async()=>{
+ const {holdMode,releaseMode}=await import('../src/core/mode-hold');
+ const {computeStatus}=await import('../src/engine/status');
+ const {loadStrategy}=await import('../src/config/strategy');
+ const ctx=fakeCtx();
+ await Bun.write(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n');
+ const cached=await computeStatus(ctx,loadStrategy(ctx));
+ const options={status:async()=>cached};
+ await holdMode(ctx,{mode:'strict',until:ctx.now+60});
+ expect((await liveSnapshot(ctx,options)).snapshot.planner).toMatchObject({mode:'strict',modeHeldUntil:ctx.now+60});
+ await holdMode(ctx,{mode:'relaxed',until:ctx.now+60});
+ expect((await liveSnapshot(ctx,options)).snapshot.planner?.mode).toBe('relaxed');
+ releaseMode(ctx);
+ expect((await liveSnapshot(ctx,{status:async()=>({...cached,mode:'strict',modeHold:{mode:'strict',until:ctx.now+60}})})).snapshot.planner?.modeHeldUntil).toBeUndefined();
+});

@@ -435,10 +435,9 @@ browserTest('overview reads repository choices and Switch setup focuses the fina
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   try {
     await page.goto(`${server.url.href}#overview`);
-    const strip=page.getByRole('region',{name:'Current setup'});
-    await strip.getByText('1 repository',{exact:true}).waitFor();
-    expect(await strip.getByRole('link',{name:'Planner & pacing'}).getAttribute('href')).toBe('#/settings/planner');
-    await strip.getByRole('link',{name:'Switch setup'}).click();
+    expect(await page.getByRole('region',{name:'Current setup'}).count()).toBe(0);
+    await page.locator('#dispatcher-scope').getByText('1 repository',{exact:true}).waitFor();
+    await page.locator('#saved-profiles').getByRole('link',{name:'Switch setup'}).click();
     expect(await page.evaluate(()=>document.activeElement?.id)).toBe('saved-profiles');
     expect(await page.locator('main>section').last().getAttribute('id')).toBe('saved-profiles');
     expect(await page.locator('.pc-saved-setups__row--active strong').textContent()).toBe('default');

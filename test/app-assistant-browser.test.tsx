@@ -79,7 +79,7 @@ browserTest("assistant_announces_only_the_finished_answer_in_a_polite_log", asyn
   } finally { await browser.close(); }
 }, 20_000);
 
-browserTest("assistant_aurora_moves_only_while_generating_and_never_under_reduced_motion", async () => {
+browserTest("assistant_aurora_has_board_ambient_motion_and_never_moves_under_reduced_motion", async () => {
   const built = await build();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
@@ -87,8 +87,8 @@ browserTest("assistant_aurora_moves_only_while_generating_and_never_under_reduce
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion });
       await open(page, built);
       await openSheet(page);
-      // At rest it is still, with or without the preference.
-      expect((await animating(page)).every(name => name === "none")).toBe(true);
+      // The adopted Shell board has ambient motion even before a question.
+      expect((await animating(page)).every(name => reducedMotion === "reduce" ? name === "none" : name !== "none")).toBe(true);
       await page.keyboard.type("how is the budget");
       await page.keyboard.press("Enter");
       await page.getByText("Thinking…").first().waitFor();
@@ -98,7 +98,7 @@ browserTest("assistant_aurora_moves_only_while_generating_and_never_under_reduce
       // Under reduced motion the sheet's own open and close are instant.
       if (reducedMotion === "reduce") expect(await page.locator(".pc-aurora").evaluate(el => getComputedStyle(el).transitionDuration)).toBe("0s");
       await page.getByText("Three tasks need you.").waitFor();
-      expect((await animating(page)).every(name => name === "none")).toBe(true);
+      expect((await animating(page)).every(name => reducedMotion === "reduce" ? name === "none" : name !== "none")).toBe(true);
       await page.close();
     }
   } finally { await browser.close(); }

@@ -35,7 +35,14 @@ with tempfile.TemporaryDirectory(prefix='pacer-native-adoption-') as temporary:
         listener.listen(1)
         os.chmod(path, 0o600)
         socket_inode = os.lstat(path).st_ino
-        other.bind(home + '/other.sock')
+        # Only the decoy uses a relative name; the adopted listener retains its
+        # exact absolute production path for the ownership/provenance checks.
+        previous = os.getcwd()
+        try:
+            os.chdir(home)
+            other.bind('other.sock')
+        finally:
+            os.chdir(previous)
         other.listen(1)
         process = subprocess.Popen([sys.argv[1], sys.argv[2], 'adopt', path], stdin=child,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

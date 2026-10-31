@@ -81,3 +81,8 @@ test("key caps split modifiers and sequences", () => {
   expect(keyCaps("Ctrl-b", true)).toEqual(["⌃", "B"]);
   expect(keyCaps("Ctrl-`", true)).toEqual(["⌃", "`"]);
 });
+
+test("multi-modifier command key caps match the registered right-panel shortcut", () => {
+  expect(keyCaps("Alt-Mod-b", true)).toEqual(["⌥", "⌘", "B"]);
+  expect(keyCaps("Alt-Mod-b", false)).toEqual(["Alt", "Ctrl", "B"]);
+});

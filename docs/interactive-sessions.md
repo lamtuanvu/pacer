@@ -36,3 +36,9 @@ pacer session resume <task-id>
 Use `--checkout /path/to/checkout` instead of `--base` for existing files. Add `--json` for structured results. In the TUI, `n` starts an interactive session and Enter opens its terminal; the existing `d` delegation flow remains available.
 
 Implementation verification and live agent/version/platform coverage are recorded in the change's evidence report. Do not infer verified feature parity from an installed agent or a passing terminal-renderer test.
+
+Task changes use the recorded base commit for a new worktree and the first start
+commit for an existing checkout. Orca-owned tasks use the same baseline even
+without a built-in terminal record. Changes already committed before that baseline
+are excluded. Existing uncommitted edits and changes by other tools in a shared
+checkout cannot be assigned to an individual agent by Git alone.

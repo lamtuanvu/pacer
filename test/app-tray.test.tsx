@@ -115,13 +115,14 @@ test("executor marks use current capacity, values and detailed tooltips after en
   expect(draw(state.snapshot!)).toContain(">47%</span>");
 });
 
-test("task titles are preferred and legacy goals remain complete for CSS clipping", () => {
+test("task titles are preferred and legacy goals derive clean labels", () => {
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("Fix retry 0");
   expect(html).not.toContain("A long detailed goal");
   const goal = "Repair the retry system in /tmp/project/src/index.ts before adding more checks for all existing background workers";
   const title = shortTitle({ goal });
-  expect(title).toBe(goal);
+  expect(title).toBe("Repair the retry system in /tmp/project/src/index.ts before adding more checks…");
+  expect(shortTitle({ fullTitle: goal, goal })).toBe(goal);
   expect(shortTitle({ title: "Short service title", goal })).toBe("Short service title");
   const legacy: ClientSnapshot = { ...snapshot, tasks: [{ ...snapshot.tasks[0]!, title: undefined, goal } as ClientTask] };
   expect(draw(legacy)).toContain(title);
@@ -351,6 +352,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   const allowed = (raw: string) => {
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
     if (/^\/needs-you\?answer=t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/.test(raw)) return true;
+    if (/^\/workspace(?:\?task=[A-Za-z0-9_-]+(?:&panel=(?:session|changes|notes))?)?$/.test(raw)) return true;
     if (raw.includes("?")) return false;
     return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw) || /^\/sessions\/[A-Za-z0-9_-]+\/answer$/.test(raw);
   };
@@ -365,7 +367,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   expect(literals.length).toBeGreaterThan(15);
   for (const route of literals) { expect(cases.allowed).toContain(route); expect(allowed(route)).toBe(true); }
   const html = draw({...fixture(), tasks: [{...fixture().tasks[0]!,id:"task-1"}]});
-  for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(cases.allowed).toContain(match[1]!);
+  for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(allowed(match[1]!)).toBe(true);
   const routes: string[] = [];
   await performAction({label:"Answer",op:"task.answer",params:{id:"t-20261029-153500-a0f9"}}, api, {...ipc,desktop:true,open:async route=>{routes.push(route);}});
   expect(routes).toEqual(["/needs-you?answer=t-20261029-153500-a0f9"]);
@@ -512,6 +514,15 @@ test("browser tray Answer opens the Needs you question panel", async () => {
   await performAction({ label: "Answer", op: "task.answer", params: { id: "task-1" } }, api, { ...ipc, desktop: false, open: async route => { routes.push(route); } });
   expect(routes).toEqual(["/needs-you?answer=task-1"]);
 });
+
+test('attention task titles open their task page independently of the primary action',()=>{
+ const snapshot=fixture();
+ const item=snapshot.attention!.find(i=>i.taskId)!;
+ const html=section(draw({...snapshot,attention:[item]}),'Needs you');
+ expect(html).toContain(`href="/app/#/tasks/${encodeURIComponent(item.taskId!)}"`);
+ expect(html).toContain('tray-task-title');
+});
+
 
 test("a failed row action's message clears when its attention item disappears", async () => {
   const { visibleFailure } = await import("../app/src/tray/model");

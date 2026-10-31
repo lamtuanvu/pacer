@@ -74,3 +74,15 @@ test("terminal children do not inherit service or executor credentials", async (
   expect(spawned.PACER_ROLE).toBeUndefined();
   expect(spawned.HOME).toBe(ctx.home);
 });
+
+test("automatic shell titles name the login executable and preserve the requested working folder", async () => {
+  const ctx = fakeCtx({ env: { ...process.env, SHELL: "/bin/sh" } });
+  let launched: import("../src/supervisor/run").RunSpec | undefined;
+  const tab = await workspace.createTerminal(ctx, { requestId: "login-title", kind: "shell", cwd: ctx.home }, {
+    start: spec => { launched = spec; return { pid: 99999999 }; },
+  });
+  expect(launched!.argv[1]).toBe("-l");
+  expect(tab.title).toBe(launched!.argv[0]!.split("/").at(-1)!);
+  expect(launched!.env.SHELL).toBe(launched!.argv[0]);
+  expect(launched!.cwd).toBe(realpathSync(ctx.home));
+});

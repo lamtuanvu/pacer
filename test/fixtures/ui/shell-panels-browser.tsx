@@ -1,6 +1,8 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import snapshot from "./snapshot.json";
+import fixture from "./snapshot.json";
+const options = new URLSearchParams(location.search);
+const snapshot = { ...fixture, tasks: options.has("no-tasks") ? [] : options.has("unselected") ? [...fixture.tasks].reverse() : fixture.tasks };
 import { initialState } from "../../../app/src/data/store";
 import { TaskContext } from "../../../app/src/screens/task-shared";
 import { NavigationProvider } from "../../../app/src/navigation";
@@ -67,7 +69,7 @@ const state = {
 } as any;
 function App() {
   const [hash, setHash] = useState(location.hash || "#/"),
-    [selected, select] = useState<string | null>(snapshot.tasks[0]!.id),
+    [selected, select] = useState<string | null>(options.has("unselected") ? null : snapshot.tasks[0]?.id ?? null),
     [revision, update] = useState(0);
   useEffect(() => {
     const change = () => setHash(location.hash);

@@ -57,7 +57,7 @@ export function snapshotItems(snapshot: ClientSnapshot | null, now: number): Men
     const status = taskStatus(task);
     const executor = task.executor ? executorLabel(task.executor, snapshot.accounts) : null;
     items.push({
-      id: `task:${task.id}`, scope: "tasks", title: displayTitle(task), icon: "tasks", pill: { label: status.label, tone: status.tone },
+      id: `task:${task.id}`, scope: "tasks", title: displayTitle(task), icon: "stack", pill: { label: status.label, tone: status.tone },
       sub: [task.repo?.label, executor, ago(task.updatedAt, now)].filter(Boolean).join(" · "), hidden: `${task.goal} ${task.id}`,
       target: routes.task(task.id),
     });
@@ -109,7 +109,7 @@ export function filesNotice(result: FilesSearchResult, repoLabel: (key: string) 
 }
 
 export function commandItems(commands: Command[]): MenuItem[] {
-  return commands.filter(command => !command.hidden).map(command => ({ id: `command:${command.id}`, scope: "commands", title: command.title, sub: command.sub, icon: command.icon ?? "dispatch", hidden: `${command.group} ${command.keywords ?? ""}`, command }));
+  return commands.filter(command => !command.hidden).map(command => ({ id: `command:${command.id}`, scope: "commands", title: command.title, sub: command.sub, icon: command.icon ?? "command-nav", hidden: `${command.group} ${command.keywords ?? ""}`, command }));
 }
 
 /** The oldest question or review waiting on the user, offered as a suggestion on the recent screen. */
@@ -119,7 +119,7 @@ function waitingSuggestion(snapshot: ClientSnapshot | null, now: number): MenuIt
   const row = snapshot.executors?.find(executor => executor.id === item.executor);
   const who = row ? agentInfo(row.agent).name : "the agent";
   return {
-    id: `attention:${item.id}`, scope: "tasks", group: "Suggested", title: `${item.kind === "question" ? "Answer" : "Review"} ${who} on “${item.title}”`, icon: "tasks", agent: row?.agent,
+    id: `attention:${item.id}`, scope: "tasks", group: "Suggested", title: `${item.kind === "question" ? "Answer" : "Review"} ${who} on “${item.title}”`, icon: "stack", agent: row?.agent,
     sub: `It has been waiting ${elapsed(now - item.since)}`, target: item.taskId ? routes.task(item.taskId) : routes.needsYou(),
   };
 }
@@ -189,7 +189,8 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, scope: "all", enterHint: "ask" };
   if (mode === "commands") {
     // Only the command groups: Suggested holds New task, which the recent screen offers.
-    const matched = rankAndMark(commandItems(commands).filter(item => item.command!.group !== "Suggested"), text);
+    const matchedIds = new Map(rankAndMark(commandItems(commands).filter(item => item.command!.group !== "Suggested"), text).map(item => [item.id,item]));
+    const matched = commandItems(commands).flatMap(item => matchedIds.get(item.id) ?? []);
     const groups = groupBy(matched, item => item.command!.group, matched.length).sort(orderOf(COMMAND_GROUPS));
     return { mode, groups, counts: { ...zero, all: matched.length, commands: matched.length }, empty: !matched.length, scope: "all", enterHint: "run", modEnterHint: "run and keep open" };
   }
@@ -222,7 +223,7 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
-    { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "tasks" as const, target: routes.tasks() },
+    { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "stack" as const, target: routes.tasks() },
   ];
   return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", notice, enterHint: "open" };
 }

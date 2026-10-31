@@ -50,3 +50,22 @@ test("disabled named picker does not serialize a hidden value", () => {
   );
   expect(html).not.toContain('name="executor"');
 });
+
+for (const [agent, expected] of [["codex#team@devbox", "codex"], ["claude#personal", "claude-code"], ["opencode#byteplus", "byteplus"], ["agy", "agy"], ["cursor", "cursor"], ["opencode#custom", "opencode"], ["unknown-provider", "opencode"]]) {
+  test(`choice picker decorates ${agent} without changing the label or form value`, () => {
+    const html = renderToString(<ChoicePicker value="chosen" options={[{ value: "chosen", label: "Exact account label", agent }]} name="executor" onValueChange={() => {}} />);
+    expect(html).toContain(`pc-agent-mark--${expected}`);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('--agent-size:16px');
+    expect(html).toContain('Exact account label');
+    expect(html).toContain('value="chosen"');
+    expect(html).not.toContain('role="img"');
+  });
+}
+
+test("text choices and missing selections do not acquire a vendor mark", () => {
+  for (const value of ["codex", "removed"]) {
+    const html = renderToString(<ChoicePicker value={value} options={options} onValueChange={() => {}} />);
+    expect(html).not.toContain('pc-agent-mark');
+  }
+});

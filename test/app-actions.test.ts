@@ -24,7 +24,7 @@ test("ui.open navigates without calling the service", async () => {
   expect(calls).toEqual([]);
   expect(navigated).toEqual(["#/tasks/t%201"]);
   expect(uiHref({ view: "task", id: "t1" })).toBe("#/tasks/t1");
-  expect(uiHref({ view: "session", id: "t1" })).toBe("#/tasks/t1");
+  expect(uiHref({ view: "session", id: "t1" })).toBe("#/workspace?task=t1");
   expect(uiHref({ view: "task", id: "t1", tab: "answer" })).toBe("#/tasks/t1?tab=answer");
   expect(uiHref({ view: "settings", section: "executors" })).toBe("#/settings/executors");
   expect(uiHref({ view: "settings" })).toBe("#/settings");
@@ -105,7 +105,7 @@ test('takeover row action navigates only after success and preserves conflict re
   const { d, calls, navigated } = deps({call:async <T>()=>({state:'starting'}) as T});
   const runner=createActionRunner(d);
   await runner.run('takeover', {label:'Take over',op:'task.takeover',params:{id:'t 1'}});
-  expect(navigated).toEqual(['#/tasks/t%201?takeover=starting']);
+  expect(navigated).toEqual(['#/workspace?task=t%201&panel=session&takeover=starting']);
   const failed=deps({call:async()=>{throw new ApiError('conflict','No agent session id',undefined,409);}});
   expect(await createActionRunner(failed.d).run('takeover',{label:'Take over',op:'task.takeover',params:{id:'t1'}})).toEqual({status:'error',message:'No agent session id'});
   expect(failed.navigated).toEqual([]);

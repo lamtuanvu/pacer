@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { userInfo } from "node:os";
 import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, upgradeRuntimeDir, upgradeLoginArgs, handoverFailureMarker, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
@@ -53,14 +54,28 @@ test("the harness needs an unseeded, stopped macOS sandbox", () => {
 });
 
 test("the fixture policy and plist use the fixture label, never the real one", () => {
-  const policy = upgradePolicy(session(), nonce, 501);
+  // The checkout itself may be below the real ~/.pacer/worktrees. Plist generation
+  // constructs a Ctx, so give this fixture a temporary home, not a checkout path.
+  const root = join(tmpDir(), ".work", "live", "upgrade-test");
+  const policy = upgradePolicy(session({ root }), nonce, 501);
   expect(policy.serviceLabel).toBe(`com.pacer.live.${nonce}.service`);
-  expect(policy).toMatchObject({ home: join(liveRoot, "upgrade-test", "home"), port: 49112, root: join(liveRoot, "upgrade-test", "ota") });
+  expect(policy).toMatchObject({ home: join(root, "home"), port: 49112, root: join(root, "ota") });
   const text = fixturePlist(policy, "/fixture/bin/pacer");
   expect(text).toContain(`<key>Label</key><string>${policy.serviceLabel}</string>`);
   expect(text).toContain("<key>PACER_RELEASE_BASE</key>");
+  expect(text).toContain(`<key>PACER_HOME</key><string>${policy.home}</string>`);
   expect(text).not.toContain(`<string>${LABEL}</string>`);
   expect(() => fixturePlist({ ...policy, serviceLabel: LABEL }, "/fixture/bin/pacer")).toThrow("non-fixture service label");
+});
+
+test("fixture plist generation still refuses the real pacer home and descendants", () => {
+  const root = join(tmpDir(), ".work", "live", "upgrade-test");
+  const policy = upgradePolicy(session({ root }), nonce, 501);
+  const realHome = join(userInfo().homedir, ".pacer");
+  // No directories or service jobs are created: makeCtx must reject these paths.
+  for (const home of [realHome, join(realHome, "worktrees", "fixture", "home")]) {
+    expect(() => fixturePlist({ ...policy, home }, "/fixture/bin/pacer")).toThrow("bun test refuses real user PACER_HOME");
+  }
 });
 
 test("the release feed matches the updater's manifest and checksum layout", () => {

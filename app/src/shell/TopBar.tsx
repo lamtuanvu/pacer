@@ -40,13 +40,13 @@ export interface TopBarProps {
   plannerFigure?: boolean;
   /** A screen's own title and agent, shown instead of `title`. */
   heading?: FrameHeading | null;
-  /** Receives the action slot after the layout toggles. */
+  /** Receives the active panel action slot right of search. */
   actions?: (element: HTMLElement | null) => void;
   /** Receives the title-bar area a screen fills with its facts and actions. */
   context?: (element: HTMLElement | null) => void;
 }
 const modeTone = (mode: string) => ({ normal: "neutral", relaxed: "good" } as const)[mode.toLowerCase() as "normal"] ?? "warn";
-function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "panel-bottom" | "panel-right"; label: string; keys: string; toggle?: PanelToggle }) {
+function LayoutToggle({ icon, label, keys, toggle }: { icon: "topbar-left" | "topbar-bottom" | "topbar-right"; label: string; keys: string; toggle?: PanelToggle }) {
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={toggle ? label : `This screen has no ${label.replace("Toggle ", "").replace(/ \(.*$/, "")}`} disabled={!toggle} aria-keyshortcuts={keys} aria-pressed={toggle?.open} onClick={toggle?.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
@@ -66,6 +66,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
     {narrow && showActions && narrowSearch}
     {showActions && <>
+    {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     {planner && !(narrow && title === "Dispatch") && <a href="#/settings/planner" className="pc-planner pc-inline-link">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
@@ -73,10 +74,9 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {narrowMeter && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
     </a>}
     {(!narrow || heading) && <div role="group" aria-label="Layout" className="pc-layout-toggles">
-      {!narrow && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
-      {!narrow && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
-      {!narrow && <LayoutToggle icon="panel-right" label="Toggle right panel" keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
-      {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
+      {!narrow && <LayoutToggle icon="topbar-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
+      {!narrow && <LayoutToggle icon="topbar-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
+      {!narrow && <LayoutToggle icon="topbar-right" label="Toggle right panel" keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
     {narrow && title === "Dispatch" ? <IconButton icon="plus" aria-label="New task" onClick={onDelegate} /> : (!narrow || delegate) && <DensityContext.Provider value="compact"><ButtonLink href="#/tasks/new" className="pc-topbar__new" variant="secondary" size="sm" onClick={event => { event.preventDefault(); onDelegate(); }}>New task</ButtonLink></DensityContext.Provider>}

@@ -1,3 +1,4 @@
+import { Tabs } from "./SelectionStrip";
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { cycleDialogFocus } from "./Dialog";
@@ -126,13 +127,12 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
       <Kbd size="sm">Esc</Kbd>
     </div>
     {scopes && scopes.length > 0 && <div className="pc-command__scopes">
-      <div className="pc-command__tabs" role="tablist" aria-label="Search in">
-      {scopes.map(item => <button key={item.id} type="button" role="tab" tabIndex={-1} className="pc-command__scope" aria-selected={item.id === scope} aria-controls={`${uid}-list`}
-        onMouseDown={event => event.preventDefault()} onClick={() => onScope?.(item.id)}>{item.label}{item.count !== undefined && <span className="pc-command__count"> {item.count}</span>}</button>)}
-      </div>
+      <Tabs id={`${uid}-scope`} label="Search in" value={scope ?? ""} onChange={value => onScope?.(value)} className="pc-command__tabs"
+        options={scopes.map(item => ({ value: item.id, controls: `${uid}-scope-panel`, label: <>{item.label}{item.count !== undefined && <span className="pc-command__count"> {item.count}</span>}</>, buttonProps: { className: "pc-command__scope", onMouseDown: event => event.preventDefault() } }))} />
       <span className="pc-command__spacer" />
       <span className="pc-command__hint"><Kbd size="sm">Tab</Kbd> switch</span>
     </div>}
+    <div className="pc-command__panel" role={scopes?.length ? "tabpanel" : undefined} id={`${uid}-scope-panel`} aria-labelledby={scopes?.length ? `${uid}-scope-${scope}-tab` : undefined}>
     {empty && <div className="pc-command__empty" role="status"><strong>{empty.title}</strong><span>{empty.description}</span></div>}
     <div className="pc-command__list" id={`${uid}-list`} role="listbox" aria-label="Results" ref={list}>
       {groups.map((group, at) => <div key={group.title} role="group" aria-labelledby={`${uid}-group-${at}`} className="pc-command__group">
@@ -152,6 +152,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
           </div>;
         })}
       </div>)}
+    </div>
     </div>
     {notice && <div className="pc-command__notice">{notice}</div>}
     {/* A region that is always mounted, so screen readers announce results arriving and sources that could not be searched. */}

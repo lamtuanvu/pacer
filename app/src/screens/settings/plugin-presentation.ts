@@ -1,6 +1,8 @@
 import type { PluginInfo, SurfaceInfo } from "../../../../src/plugins/registry";
 import { PLUGIN_ICONS } from "../../plugins/icons";
 export function pluginIcon(plugin: string, surfaces: SurfaceInfo[]) {
+  if (plugin === "pacer-agent-session") return "plugin-terminal";
+  if (plugin === "pacer-assistant") return "spark";
   const icon = surfaces.find(s => s.plugin === plugin && (s.surface === "activity" || s.surface === "panelTabs"))?.icon;
   return PLUGIN_ICONS[icon as keyof typeof PLUGIN_ICONS] ?? "plugin";
 }

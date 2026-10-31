@@ -11,11 +11,11 @@ import { primaryFor, routes, type Route, type RouteTarget } from "../router";
 import { StrategyQuickAccess } from "./StrategyQuickAccess";
 
 const ITEMS: { name: "insights" | "dispatch" | "review" | "sessions" | "terminal"; label: string; to: RouteTarget; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
-  { name: "dispatch", label: "Dispatch", to: routes.dispatch(), icon: "dispatch", count: () => 0, words: "", tone: "info" },
-  { name: "review", label: "Needs you", to: routes.needsYou(), icon: "review", count: c => c.attention, words: "items", tone: "warn" },
-  { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "sessions", count: () => 0, words: "running", tone: "info" },
-  { name: "insights", label: "Insights", to: routes.insights(), icon: "insights", count: () => 0, words: "", tone: "info" },
-  { name: "terminal", label: "Terminal", to: routes.terminal(), icon: "terminal", count: () => 0, words: "", tone: "info" },
+  { name: "dispatch", label: "Dispatch", to: routes.dispatch(), icon: "activity-dispatch", count: () => 0, words: "", tone: "info" },
+  { name: "review", label: "Needs you", to: routes.needsYou(), icon: "needs-you", count: c => c.attention, words: "items", tone: "warn" },
+  { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "task-checklist", count: () => 0, words: "running", tone: "info" },
+  { name: "insights", label: "Insights", to: routes.insights(), icon: "activity-insights", count: () => 0, words: "", tone: "info" },
+  { name: "terminal", label: "Workspace", to: routes.terminal(), icon: "activity-terminal", count: () => 0, words: "", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const EXECUTOR_PROBLEMS = new Set(["failing", "down", "blocked", "exhausted"]);
@@ -31,9 +31,9 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
     {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
       const n = counts && !(narrow && item.name === "sessions") ? item.count(counts) : 0;
-      const label = item.name === "terminal" ? "Terminal panel (Ctrl+`)" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
+      const label = item.name === "terminal" ? "Workspace" : n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
       return <Tooltip key={item.name} text={label}>
-        <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label} onClick={item.name === "terminal" && terminal ? event => {event.preventDefault(); terminal.toggle();} : undefined} aria-expanded={item.name === "terminal" ? terminal?.open : undefined} aria-current={primaryFor(route) === item.name ? "page" : undefined}>
+        <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label}  aria-current={primaryFor(route) === item.name ? "page" : undefined}>
           <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}
         </AppLink>
       </Tooltip>;
@@ -42,9 +42,9 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
       {surfaces.filter(s => s.surface === "activity" && s.visible).map(s => {
         const active = route.name === "plugin" && route.plugin === s.plugin && route.id === s.id;
         const label = `${s.title} (plugin)`;
-        return <Tooltip key={`${s.plugin}/${s.id}`} text={label}><AppLink className={`pc-rail__item${active ? " on" : ""}`} to={routes.plugin(s.plugin, s.id)} query={route.query} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={PLUGIN_ICONS[s.icon as keyof typeof PLUGIN_ICONS] ?? "plugin"} /></AppLink></Tooltip>;
+        return <Tooltip key={`${s.plugin}/${s.id}`} text={label}><AppLink className={`pc-rail__item${active ? " on" : ""}`} to={routes.plugin(s.plugin, s.id)} query={route.query} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={s.icon === "check-square" ? "plugin-checklist" : PLUGIN_ICONS[s.icon as keyof typeof PLUGIN_ICONS] ?? "plugin"} /></AppLink></Tooltip>;
       })}
-      <Tooltip text="Add a plugin"><AppLink className="pc-rail__item pc-rail__add-plugin" to={routes.settings("plugins")} query={route.query} aria-label="Add a plugin"><Icon name="plus" /></AppLink></Tooltip>
+      <Tooltip text="Add a plugin"><AppLink className="pc-rail__item pc-rail__add-plugin" to={routes.settings("plugins")} query={route.query} aria-label="Add a plugin"><Icon name="add-plugin" /></AppLink></Tooltip>
       </div><span className="grow" /></>}
     {!narrow && showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><AppLink className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} to={routes.setup()} query={route.query} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</AppLink></Tooltip>}
 

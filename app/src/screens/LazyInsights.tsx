@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { ComponentType } from "preact";
 import type { RouteQuery } from "../router";
 import { Button } from "../ds/Button";
+import { Skeleton } from "../ds/Patterns";
 export function LazyInsights({ query }: { query: RouteQuery }) {
   const [View, setView] = useState<ComponentType<{ query: RouteQuery }> | null>(null),
     [error, setError] = useState(false),
@@ -23,9 +24,9 @@ export function LazyInsights({ query }: { query: RouteQuery }) {
   }, [attempt]);
   return View ? (
     <View query={query} />
-  ) : (
-    <div role="status">
-      {error ? "Could not load Insights." : "Loading insights…"}
+  ) : !error ? <Skeleton layout="dashboard" label="Loading insights…" /> : (
+    <div role="alert">
+      Could not load Insights.
       {error && (
         <Button onClick={() => setAttempt((n) => n + 1)}>Try again</Button>
       )}

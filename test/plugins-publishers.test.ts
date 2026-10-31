@@ -31,6 +31,9 @@ test("trust requires canonical 32-byte key and exact expected fingerprint", asyn
 test("trust migration tightens an owned 0755 manual plugin root without changing its contents", async () => {
   const { ctx, path } = fixture(), root = join(ctx.pacerHome, "plugins"), trust = createPublisherTrust({});
   mkdirSync(root, { mode: 0o755 });
+  // Exercise migration from a shared root, not an already-private umask result.
+  chmodSync(root, 0o755);
+  expect(lstatSync(root).mode & 0o7777).toBe(0o755);
   const manual = join(root, "fx-manual");
   mkdirSync(manual);
   writeFileSync(join(manual, "pacer-plugin.json"), JSON.stringify({ id: "fx-manual", version: "1.0.0", publisher: "Fixture", host: "*", entry: "main.js", contributes: {}, capabilities: [] }));

@@ -1,12 +1,26 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { tmpDir } from "./helpers";
+
+function longTempEnvironment() {
+  const root = join(tmpDir(), "native-socket-long-temp-root-" + "x".repeat(120));
+  mkdirSync(root, { mode: 0o700 });
+  return { root, env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root } };
+}
 
 const driver = `
 import array,json,os,socket,subprocess,sys,tempfile
 with tempfile.TemporaryDirectory(prefix='pacer-native-handoff-') as root:
     listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-    listener.bind(root+'/listener.sock');listener.listen(1)
+    # Relative bind keeps sun_path short while the socket stays in the owned temp root.
+    previous=os.getcwd()
+    try:
+        os.chdir(root)
+        listener.bind('listener.sock')
+    finally:
+        os.chdir(previous)
+    listener.listen(1)
     parent,child=socket.socketpair()
     process=subprocess.Popen([sys.argv[1],sys.argv[2],sys.argv[3]],stdin=child,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     child.close()
@@ -30,11 +44,14 @@ with tempfile.TemporaryDirectory(prefix='pacer-native-handoff-') as root:
 test.skipIf(process.platform !== "darwin")("native listener handoff accepts exactly one socket and closes malformed transfers", () => {
   const python = Bun.which("python3");
   if (!python) throw Error("python3 is required for the macOS descriptor boundary test");
+  const { root, env } = longTempEnvironment();
   for (const mode of ["valid", "marker", "missing", "regular", "extra", "truncated", "eof", "timeout", "leak"]) {
     const result = Bun.spawnSync([python, "-c", driver, process.execPath, resolve("test/fixtures/native-listener-handoff.ts"), mode], {
-      env: process.env, stdout: "pipe", stderr: "pipe", timeout: 15000,
+      env, stdout: "pipe", stderr: "pipe", timeout: 15000,
     });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
+    // Bun may retain its compiler cache here; Python must remove its fixture roots.
+    expect(readdirSync(root).filter(name => name.startsWith("pacer-native-")), mode + " temporary directory cleanup").toEqual([]);
     expect(JSON.parse(result.stdout.toString()), mode + ": " + result.stderr.toString()).toEqual(mode === "valid" || mode === "leak" ? { accepted: true, socket: true } : { accepted: false });
   }
 }, 30000);
@@ -73,10 +90,13 @@ _Static_assert(MSG_TRUNC == 0x10 && MSG_CTRUNC == 0x20, "truncation flags");
 test.skipIf(process.platform !== "darwin")("adopted native listener preserves root and client identities without child socket cleanup", () => {
   const python = Bun.which("python3");
   if (!python) throw Error("python3 is required for the macOS descriptor boundary test");
+  const { root, env } = longTempEnvironment();
   for (const mode of ["valid", "birth", "inode", "process", "permissions", "symlink", "path"]) {
     const result = Bun.spawnSync([python, resolve("test/fixtures/native-listener-adoption.py"), process.execPath,
-      resolve("test/fixtures/native-listener-handoff.ts"), mode], { env: process.env, stdout: "pipe", stderr: "pipe", timeout: 10000 });
+      resolve("test/fixtures/native-listener-handoff.ts"), mode], { env, stdout: "pipe", stderr: "pipe", timeout: 10000 });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
+    // Bun may retain its compiler cache here; Python must remove its fixture roots.
+    expect(readdirSync(root).filter(name => name.startsWith("pacer-native-")), mode + " temporary directory cleanup").toEqual([]);
     expect(JSON.parse(result.stdout.toString()), mode).toEqual(mode === "valid"
       ? { accepted: true, originalPeer: true, rootListener: true, preservedSocket: true } : { accepted: false });
   }

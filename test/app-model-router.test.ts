@@ -56,6 +56,7 @@ test("incomplete setup redirects to Setup except within settings", () => {
 test("interactive entry and its sessions do not require planner integration setup", () => {
   expect(resolveRoute("#/", false, true)).toEqual({name:"dispatch",query:q});
   expect(resolveRoute("#/tasks/one", false, true)).toEqual({name:"sessions",id:"one",query:q});
+  expect(resolveRoute("#/workspace?task=one", false, true)).toMatchObject({name:"terminal",id:"one",query:q});
   expect(resolveRoute("#/needs-you", false, true)).toEqual({redirect:"#/setup"});
 });
 

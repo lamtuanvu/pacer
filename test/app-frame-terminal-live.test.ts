@@ -81,7 +81,7 @@ browserTest("all routed page frames and the resizable terminal match the boards"
       await panel.getByRole("button", { name: "New terminal", exact: true }).click();
       await page.waitForFunction(count => document.querySelectorAll("#pc-terminal-dock [role=tab]").length === count + 1, tabCount, { timeout: 5000 }).catch(async error => { console.error(await panel.innerText()); throw error; });
       await panel.locator('.pc-terminal-view[data-session-control="true"]').first().waitFor({ timeout: 5000 }).catch(async error => { console.error(await panel.innerText()); if (output) await page.screenshot({path: `${output}/terminal-error.png`}); throw error; });
-      expect(await panel.getByRole("tab").last().getAttribute("title")).toContain(currentRepo.path);
+      expect(await panel.getByRole("tab").last().getAttribute("title")).not.toMatch(/(?:\/Users\/|\/home\/|t-\d{8})/);
       expect(await panel.getByRole("search").count()).toBe(0);
       const body = await panel.locator(".pc-terminal-pane").first().evaluate(e => { const css = getComputedStyle(e); return [css.padding, css.fontSize, css.lineHeight]; });
       expect(body).toEqual(["10px 14px", "12px", "19px"]);

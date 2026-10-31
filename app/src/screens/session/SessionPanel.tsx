@@ -6,9 +6,9 @@ import { executorLabel } from "../../../../src/view-model/words";
 import { Icon } from "../../ds/icons";
 import type { Status } from "../../../../src/view-model/words";
 import { Button, IconButton } from "../../ds/Button";
-import { tabStep } from "../../ds/Patterns";
+import { Tabs } from "../../ds/Patterns";
 import { DisclosurePanel } from "../../ds/Page";
-import { EmptyState, LoadingState } from "../../ds/Patterns";
+import { EmptyState, Skeleton } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StatusDot } from "../../ds/StatusDot";
 import { AgentMark } from "../../ds/AgentMark";
@@ -86,7 +86,7 @@ export function SessionTitle({ status, live, facts, repo, branch, actions, next 
 /** Every file the worktree changed, then the full patch behind a disclosure. */
 export function WorktreeChanges({ diff, loading, error }: { diff?: TaskDiff | null; loading?: boolean; error?: string }) {
   if (error) return <p role="alert">{error}</p>;
-  if (!diff) return loading ? <LoadingState label="Loading changes…" /> : <EmptyState title="No changes so far." />;
+  if (!diff) return loading ? <Skeleton layout="rows" label="Loading changes…" /> : <EmptyState title="No changes so far." />;
   const files: ChangedFile[] = [...(diff.files ?? parseDiff(diff.patch)), ...diff.untracked.map(path => ({ path, added: 0, removed: 0, status: "added" as const }))];
   const text = `${diff.patch}${diff.untracked.length ? `\nUntracked files:\n${diff.untracked.join("\n")}` : ""}${diff.truncated ? "\nDiff truncated." : ""}`;
   return <div className="pc-stack pc-stack--compact">
@@ -161,13 +161,9 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
     const path = (event.target as HTMLElement).closest<HTMLElement>("[data-session-file]")?.dataset.sessionFile;
     if (path && readFile) void open(path);
   }}>
-    <div className="pc-panel-tabs"><div role="tablist" aria-label="Session details" className="pc-tabs pc-session-tabs">
-      {tabs.map((item, index) => <span className="pc-session-tab" key={item.id}><Button size="sm" role="tab" id={`${base}-${item.id}-tab`} aria-controls={`${base}-${item.id}-panel`} aria-selected={current === item.id} tabIndex={current === item.id ? 0 : -1}
-        onClick={() => { if (opened.includes(item.id)) void open(item.id); else { request.current++; setSelected(undefined); onTab(item.id as SessionPanelTab); } }}
-        onKeyDown={event => { const next = tabStep(event.key,index,tabs.length); if (next === undefined) return; event.preventDefault(); document.getElementById(`${base}-${tabs[next]!.id}-tab`)?.click(); document.getElementById(`${base}-${tabs[next]!.id}-tab`)?.focus(); }}>{item.label}</Button>
-        {opened.includes(item.id) && <IconButton size="sm" variant="quiet" aria-label={`Close ${item.id}`} onClick={() => { close(item.id); requestAnimationFrame(() => document.getElementById(`${base}-details-tab`)?.focus()); }}>×</IconButton>}
-      </span>)}
-    </div></div>
+    <div className="pc-panel-tabs"><Tabs id={base} label="Session details" className="pc-session-tabs" value={current}
+      onChange={value => { if (opened.includes(value)) void open(value); else { request.current++; setSelected(undefined); onTab(value as SessionPanelTab); } }}
+      options={tabs.map(item => ({ value: item.id, label: item.label, trailing: opened.includes(item.id) ? <IconButton size="sm" variant="quiet" aria-label={`Close ${item.id}`} onClick={() => { close(item.id); requestAnimationFrame(() => document.getElementById(`${base}-details-tab`)?.focus()); }}>×</IconButton> : undefined }))} /></div>
     <div role="tabpanel" id={`${base}-${current}-panel`} aria-labelledby={`${base}-${current}-tab`} tabIndex={0} className="pc-session-panel__body">
       {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : <div className="pc-stack pc-stack--section">{details}{work}</div>}
     </div>

@@ -75,7 +75,7 @@ const summary = (over: object) => ({ agent: 'codex', source: 'Codex sign-in', us
 
 test('Accounts: status pill with a fix link only where the fix can work', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
-    summary({ name: 'team', executors: [executor.id] }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
+    summary({ name: 'team', executors: [executor.id], stale: false, capturedAt: 1000 }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
   for (const label of ['On pace', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   // Sign-in help remains available for the signed-out native account and Ark CLI endpoint.
   // Other fixture rows deliberately omit usageCheck: they offer no usage action, while reconnect guidance stays available.
@@ -159,17 +159,18 @@ test('route plumbing: Add agent receives the host link and host detail receives 
   expect(render(<SettingsGeneral section="hosts" initialData={settings} />, state)).toContain('Add a remote host');
 });
 
-test('Agents: only Executors has a planner card; Accounts has the factual banner and sign-in column',()=>{
+test('Agents: Executors and Accounts have a planner card; Accounts has the factual banner and sign-in column',()=>{
  const snapshot=withState({planner:{agent:'codex',runner:'codex',advice:'Planner advice'},accounts:[summary({name:'team',signedIn:false,source:'Observed source'})]});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,snapshot);
  expect(executors).toContain('aria-label="Planner"');
  expect(executors).not.toContain('>Connected<');
  expect(executors).not.toContain('class="u3-save-bar"');
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,snapshot);
- expect(html).not.toContain('Change planner');
+ expect(html).toContain('aria-label="Planner"');
+ expect(html).toContain('Change planner');
  expect(html).toContain('An account is where quota comes from.');
  expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
- expect(html).not.toContain('Endpoint keys stay in your keychain');
+ expect(html).toContain('Endpoint keys stay in your keychain and are used by reference.');
  expect(html).toContain('scope="col">Sign-in</th>');
  expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Codex’s own sign-in/);
  expect(html).toContain('data-label="Sign-in"><span>Unknown</span>');
@@ -248,8 +249,8 @@ test('Add agent has a breadcrumb, polite panel, found state, selection check and
   expect(html).toContain('--agent-size:28px');
   expect(html).toContain('Not installed · how to install');
   expect(html).toContain('Install: <code>install-cursor</code>');
-  expect(html).toContain('Agents that aren’t installed show how to get them.');
-  expect(render(<AddExecutor initialDetection={[]}/>)).not.toContain('show how to get them');
+  expect(html).toContain("Agents that aren't installed show how to get them.");
+  expect(render(<AddExecutor initialDetection={[]}/>)).toContain('show how to get them');
 });
 
 test('Add agent account and location options use radios and omit unavailable remote choices', () => {

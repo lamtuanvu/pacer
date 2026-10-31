@@ -17,8 +17,8 @@ export interface SessionClientOptions {
 export class SessionClient {
  state:SessionState;
  private ws?:SessionSocket; private offset?:number; private stopped=false; private ended=false; private attempt=0; private cancel?:()=>void;
- private autoControlAllowed=true; private autoControlAttempted=false;
- constructor(private options:SessionClientOptions){this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
+ private autoControlAllowed:boolean; private autoControlAttempted=false;
+ constructor(private options:SessionClientOptions){this.autoControlAllowed=options.autoControl!==false;this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
  private update(patch:Partial<SessionState>){this.state={...this.state,...patch};this.options.onState?.(this.state);}
  connect(){
   if(this.stopped||this.ended)return;
@@ -45,14 +45,11 @@ export class SessionClient {
      if(!Number.isSafeInteger(frame.outputOffset)||frame.outputOffset<0||!Number.isInteger(frame.cols)||frame.cols<1||!Number.isInteger(frame.rows)||frame.rows<1||typeof frame.scrollbackAnsi!=='string'||typeof frame.screenAnsi!=='string')throw Error('invalid snapshot');
      this.options.onSnapshot?.(frame);this.offset=frame.outputOffset;this.attempt=0;
      this.update({status:'live',cols:frame.cols,rows:frame.rows,controller:frame.controller,viewers:frame.viewers,you:false,message:undefined});
-     if(this.options.autoControl!==false&&!this.autoControlAttempted){
-      this.autoControlAttempted=true;
-      if(frame.controller===null&&this.autoControlAllowed)void this.take();
-     }
+     this.tryAutoControl();
      break;
     }
     case 'resize':if(Number.isInteger(frame.cols)&&frame.cols>0&&Number.isInteger(frame.rows)&&frame.rows>0)this.update({cols:frame.cols,rows:frame.rows});break;
-    case 'control':this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:frame.controller,you:this.options.control&&frame.you===true,message:frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});break;
+    case 'control':this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:frame.controller,you:this.options.control&&frame.you===true,message:frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});this.tryAutoControl();break;
     case 'resync':this.offset=undefined;this.update({status:'resyncing',you:false,message:'Refreshing the terminal snapshot…'});break;
     case 'exit':this.ended=true;this.cancel?.();this.update({status:'exited',you:false,code:frame.code,signal:frame.signal,message:undefined});break;
     default:throw Error('unknown session frame');
@@ -71,14 +68,21 @@ export class SessionClient {
   }
   this.attempt=0;this.update({status:'live',message:undefined});
  }
+ private tryAutoControl(){
+  // A resume with no new output has only a control frame, not a snapshot.
+  // Attempt once per connection, and never retry because another viewer releases.
+  if(this.offset===undefined||this.state.status!=='live'||this.autoControlAttempted)return;
+  this.autoControlAttempted=true;
+  if(this.state.controller===null&&this.autoControlAllowed)void this.take();
+ }
  async take(confirm?:(message:string)=>boolean|Promise<boolean>){
   if(!this.options.control||this.state.you||this.ended||this.state.status!=='live')return false;
   const holder=this.state.controller;
   if(holder){if(!confirm||!await confirm(`Someone is in control from ${holder}. Take over?`))return false;
    // A delayed confirmation must not steal control from a different holder.
    if(this.state.controller!==holder||this.state.you||this.state.status!=='live')return false;
-   return this.send('take',{force:true});}
-  return this.send('take');
+   const sent=this.send('take',{force:true});if(sent)this.autoControlAllowed=true;return sent;}
+  const sent=this.send('take');if(sent)this.autoControlAllowed=true;return sent;
  }
  release(){this.autoControlAllowed=false;const sent=this.send('release');this.update({you:false});return sent;}
  input(text:string){

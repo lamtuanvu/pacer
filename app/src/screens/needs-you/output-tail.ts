@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useTaskContext } from "../task-shared";
 interface Chunk { stdout: string; stderr: string; next?: { stdout: number; stderr: number }; source?: string }
 /** Follow byte offsets to the final chunk; only retain the last lines for the question context. */
-export function useOutputTail(id: string) {
+export function useOutputTail(id: string, revision: unknown = "") {
   const { api } = useTaskContext();
   const [result, setResult] = useState<{ loading: boolean; text?: string; error?: unknown }>({ loading: true });
   useEffect(() => {
@@ -21,6 +21,6 @@ export function useOutputTail(id: string) {
       if (active) setResult({ loading: false, text });
     })().catch(error => { if (active) setResult({ loading: false, error }); });
     return () => { active = false; };
-  }, [api, id]);
+  }, [api, id, revision]);
   return result;
 }

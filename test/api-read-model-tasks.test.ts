@@ -1,4 +1,5 @@
 import { shortTitle } from "../src/core/short-title";
+import { displayTitle, taskHeading } from "../src/view-model/titles";
 import { expect, test } from "bun:test";
 import { apiTask, needsReview, snapshotTasks, supersededTaskIds } from "../src/api/read-model/tasks";
 import { fakeCtx } from "./helpers";
@@ -23,7 +24,7 @@ test("stored repo labels are normalized when different hosts clash",()=>{
 
 test("task snapshots derive titles for older records and retain stored titles",()=>{
  const ctx=fakeCtx();
- expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).fullTitle).toBe("Fix the queue. Then run tests");
+ expect(apiTask(ctx,record("done",ctx.now,{brief:{goal:"Fix the queue. Then run tests",repo:ctx.home}})).fullTitle).toBe("Fix the queue");
  expect(snapshotTasks(ctx,[record("done",ctx.now,{title:"Queue fix"})])[0]?.title).toBe("Queue fix");
 });
 
@@ -57,4 +58,6 @@ test("full titles restore generated short labels without changing the compact AP
  const row=apiTask(ctx,record("done",ctx.now,{title:shortTitle(goal),brief:{goal,repo:ctx.home}}));
  expect(row.fullTitle).toBe(goal);
  expect(row.title).toBe(shortTitle(goal));
+ expect(displayTitle({...row,goal})).toBe(goal);
+ expect(taskHeading(displayTitle({...row,goal}))).toBe(shortTitle(goal));
 });

@@ -2,6 +2,8 @@
 
 Pacer can choose an executor and a concrete model for each work attempt, then record why it made that choice. An executor with a scoped work grant can delegate a child task back to Pacer. Pacer owns the child policy, workspace, admission, review, and history. Existing `task.delegate` calls remain available; `dispatch.submit` explicitly creates a managed work root.
 
+Task labels derived from a brief strip Markdown, use the first sentence and shorten at a word boundary near 80 characters without leaving brackets open. An explicit full title supplied by the service stays complete; the layout clips it visually where needed. The execution goal remains unchanged.
+
 ## Start and inspect work
 
 ```sh

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentType } from "preact";
 import { Button } from "../../ds/Button";
-import { LoadingState } from "../../ds/Patterns";
+import { Skeleton } from "../../ds/Patterns";
 import type { RouteQuery } from "../../router";
 
 /** The composer is its own chunk, so app.js stays inside its gzip budget. */
@@ -14,5 +14,5 @@ export function LazyNewTask({ query }: { query: RouteQuery }) {
     return () => { active = false; };
   }, [attempt]);
   if (View) return <View query={query} />;
-  return error ? <div role="status">Could not load the New task composer. <Button onClick={() => setAttempt(n => n + 1)}>Try again</Button></div> : <LoadingState label="Loading composer…" />;
+  return error ? <div role="status">Could not load the New task composer. <Button onClick={() => setAttempt(n => n + 1)}>Try again</Button></div> : <Skeleton layout="settings" label="Loading composer…" />;
 }

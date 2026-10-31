@@ -16,9 +16,9 @@ function memoryStorage(seed: Record<string, string> = {}) {
   return { store, getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => { store.set(key, value); } };
 }
 /** Runs the hook once outside a component tree: renderToString gives it a real hook context. */
-function readPanel(id: string, defaultOpen: boolean) {
+function readPanel(id: string, defaultOpen: boolean, perWindow = false) {
   let result!: ReturnType<typeof usePanelState>;
-  function Probe() { result = usePanelState(id, defaultOpen); return null; }
+  function Probe() { result = usePanelState(id, defaultOpen, perWindow); return null; }
   renderToString(<Probe />);
   return result;
 }
@@ -40,7 +40,7 @@ test("panel_toggle_has_aria_expanded_and_controls", () => {
   expect(closed).toMatch(/aria-label="Show Details"[^>]*aria-expanded="false"/);
   expect(closed).not.toContain("aria-controls");
   // The toggle reports the next state.
-  const button = (open!.props.children as any[])[0].props.children;
+  const button = (open!.props.children as any[]).find(child => child?.props?.className === "pc-side-panel__bar").props.children;
   button.props.onClick();
   expect(changes).toEqual([false]);
 });
@@ -137,4 +137,25 @@ test("a docked terminal holds keyboard control only while focus is inside the do
   const doc = (closest: unknown) => ({ querySelector: (s: string) => s === '[data-session-control="true"]' ? { closest: () => closest } : null });
   expect(sessionControlActive(doc(null))).toBe(true);
   expect(sessionControlActive(doc({}))).toBe(false);
+});
+
+test("Dispatch panel choices belong to a window and ignore legacy global choices", () => {
+  const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  const windowStorage = memoryStorage();
+  (globalThis as any).localStorage = memoryStorage({ "pacer.panel.dispatch.scope": "1" });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: windowStorage });
+  try {
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(false);
+    readPanel("dispatch.scope", false, true)[1](true);
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(true);
+    expect(readPanel("dispatch.inspector", false, true)[0]).toBe(false);
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: memoryStorage() });
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(false);
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, get() { throw Error("denied"); } });
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(false);
+    expect(() => readPanel("dispatch.scope", false, true)[1](true)).not.toThrow();
+  } finally {
+    if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
 });

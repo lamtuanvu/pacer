@@ -7,6 +7,8 @@ import { classNames } from "./classNames";
 import { HostChip } from "./HostChip";
 import { Icon } from "./icons";
 import { MetaRow } from "./MetaRow";
+import { Tooltip } from "./Tooltip";
+import { SubtaskToggle } from "./SubtaskToggle";
 import { Pill } from "./Pill";
 
 export type TaskCardView = "session" | "brief" | "changes";
@@ -84,9 +86,9 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         <AgentStack agents={node.agents} size={18} />
         <span className="pc-task-card__tokens">{bare(node.tokens) ?? "—"}</span>
         {viewHref && <span className="pc-task-card__actions">
-          <a className="pc-task-card__action" href={viewHref(node.id, "brief")} aria-label={`Notes for ${heading}`} title="Notes"><Icon name="notes" /></a>
-          <a className="pc-task-card__action" href={viewHref(node.id, "session")} aria-label={`Open terminal for ${heading}`} title="Open terminal"><Icon name="terminal" /></a>
-          <a className="pc-task-card__action" href={viewHref(node.id, "changes")} aria-label={`Changes for ${heading}`} title="Changes"><Icon name="branch" /></a>
+          <Tooltip text="Notes"><a className="pc-task-card__action" href={viewHref(node.id, "brief")} aria-label={`Notes for ${heading}`} title="Notes"><Icon name="notes" /></a></Tooltip>
+          <Tooltip text="Open terminal"><a className="pc-task-card__action" href={viewHref(node.id, "session")} aria-label={`Open terminal for ${heading}`} title="Open terminal"><Icon name="terminal" /></a></Tooltip>
+          <Tooltip text="Changes"><a className="pc-task-card__action" href={viewHref(node.id, "changes")} aria-label={`Changes for ${heading}`} title="Changes"><Icon name="branch" /></a></Tooltip>
         </span>}
       </div> : <>
         <div className="pc-task-card__row pc-task-card__row--facts">
@@ -102,10 +104,10 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
       {regular && <MetaRow items={node.meta} label="Task facts" />}
     </div>
     {node.children.length > 0 && <>
-      <div className="pc-task-card__kids"><button type="button" className="pc-task-card__toggle" aria-expanded={expanded} aria-controls={listId}
+      <div className="pc-task-card__kids"><SubtaskToggle aria-expanded={expanded} aria-controls={listId}
         aria-label={`${plural(node.children.length)} of ${heading}`} onClick={() => onToggle(node.id)}>
-        <Icon name="branch" />{plural(node.children.length)}<span className="pc-task-card__chevron" aria-hidden="true" />
-      </button></div>
+        {plural(node.children.length)}
+      </SubtaskToggle></div>
       {expanded && <Children nodes={node.children} selectedId={selectedId} href={href} id={listId} onSelect={onSelect} density={density} heading={headingFor} />}
     </>}
   </article>;
