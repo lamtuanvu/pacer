@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
@@ -6,7 +6,7 @@ import { appendActivity } from "../src/activity/log";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
-function fixture(delay: number) {
+function fixture(delay: number, untracked = "") {
   let calls: string[][] = [], active = 0, peak = 0;
   const repo = tmpDir();
   mkdirSync(join(repo, ".git"));
@@ -15,7 +15,7 @@ function fixture(delay: number) {
     calls.push(argv); active++; peak = Math.max(peak, active);
     expect(timeout).toBeLessThanOrEqual(250);
     await Bun.sleep(delay); active--;
-    return {code: 0, stderr: "", stdout: argv.includes("--name-status") ? "M\0file.txt\0" : argv.includes("--numstat") ? "2\t1\tfile.txt\0" : "main\n"};
+    return {code: 0, stderr: "", stdout: argv.includes("--name-status") ? "M\0file.txt\0" : argv.includes("--numstat") ? "2\t1\tfile.txt\0" : argv.includes("ls-files") ? untracked : "main\n"};
   }});
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), 'planner: codex\nproviders:\n  codex: {usage: unmetered}\n  cursor: {usage: unmetered}\n');
@@ -29,21 +29,21 @@ test("task.get runs only summary git in parallel and reuses it across snapshot r
   const first = await callOp(f.ctx, "task.get", {id: f.task.id}) as any;
   expect(first.files).toEqual([{path: "file.txt", status: "modified", added: 2, removed: 1, binary: false}]);
   expect(first.branch).toBe("main");
-  expect(f.calls).toHaveLength(3);
-  expect(f.peak()).toBe(3);
-  expect(f.calls.every(argv => argv.includes("--name-status") || argv.includes("--numstat") || argv.includes("branch"))).toBe(true);
+  expect(f.calls).toHaveLength(4);
+  expect(f.peak()).toBe(4);
+  expect(f.calls.every(argv => argv.includes("--name-status") || argv.includes("--numstat") || argv.includes("branch") || argv.includes("ls-files"))).toBe(true);
   // Unrelated snapshot/activity changes must not trigger more git.
   appendActivity(f.ctx, {taskId: f.task.id, kind: "verdict", level: "info", text: "Reviewed"});
   const second = await callOp({...f.ctx, now: f.ctx.now + 1}, "task.get", {id: f.task.id}) as any;
   expect(second.files).toEqual(first.files);
   expect(second.timeline.at(-1).text).toBe("Reviewed");
-  expect(f.calls).toHaveLength(3);
+  expect(f.calls).toHaveLength(4);
   writeFileSync(join(f.repo, ".git", "HEAD"), "second-head\n");
   await callOp(f.ctx, "task.get", {id: f.task.id});
-  expect(f.calls).toHaveLength(6);
+  expect(f.calls).toHaveLength(8);
   updateTask(f.ctx, f.task.id, t => { t.baseBranch = "other"; });
   await callOp(f.ctx, "task.get", {id: f.task.id});
-  expect(f.calls).toHaveLength(9);
+  expect(f.calls).toHaveLength(12);
 });
 
 test("task.get bounds slow git and returns stored acceptance and explicit unavailable fields", async () => {
@@ -54,7 +54,7 @@ test("task.get bounds slow git and returns stored acceptance and explicit unavai
   expect(performance.now() - start).toBeLessThan(700);
   expect(detail).toMatchObject({state: "done", summary: "Completed", acceptance: {state: "passed"}, files: [], branch: null, derived: {files: "unavailable", branch: "unavailable"}});
   await callOp(f.ctx, "task.get", {id: f.task.id});
-  expect(f.calls).toHaveLength(3);
+  expect(f.calls).toHaveLength(4);
 });
 
 test("task.get reads a bounded activity tail instead of parsing historical log pages", async () => {
@@ -77,7 +77,7 @@ test("task.get batches repository labels with hundreds of stored tasks", async (
   const start = performance.now();
   await callOp(f.ctx, "task.get", {id: f.task.id});
   expect(performance.now() - start).toBeLessThan(700);
-  expect(f.calls).toHaveLength(3);
+  expect(f.calls).toHaveLength(4);
 });
 
 test("task.get shares concurrent summary reads and invalidates index and symbolic HEAD changes", async () => {
@@ -86,11 +86,37 @@ test("task.get shares concurrent summary reads and invalidates index and symboli
   writeFileSync(join(git, "HEAD"), "ref: refs/heads/main\n");
   writeFileSync(join(git, "refs", "heads", "main"), "first\n");
   await Promise.all(Array.from({length: 5}, () => callOp(f.ctx, "task.get", {id: f.task.id})));
-  expect(f.calls).toHaveLength(3);
+  expect(f.calls).toHaveLength(4);
   writeFileSync(join(git, "refs", "heads", "main"), "second\n");
   await callOp(f.ctx, "task.get", {id: f.task.id});
-  expect(f.calls).toHaveLength(6);
+  expect(f.calls).toHaveLength(8);
   writeFileSync(join(git, "index"), "changed index");
   await callOp(f.ctx, "task.get", {id: f.task.id});
-  expect(f.calls).toHaveLength(9);
+  expect(f.calls).toHaveLength(12);
+});
+
+// NUL output is Git's exact representation, including paths also seen in the diff.
+test("task.get summary includes untracked paths once and shares all four reads", async () => {
+  const f = fixture(40, "new.txt\0file.txt\0");
+  const results = await Promise.all(Array.from({length: 3}, () => callOp(f.ctx, "task.get", {id: f.task.id}))) as any[];
+  expect(results[0].files.map((file: any) => file.path)).toEqual(["file.txt", "new.txt"]);
+  expect(results.every(result => JSON.stringify(result.files) === JSON.stringify(results[0].files))).toBe(true);
+  expect(f.calls).toHaveLength(4);
+  // ls-files is independent of both diff summaries and branch: no extra serial delay.
+  expect(f.peak()).toBe(4);
+});
+
+test("task.get refreshes cached summaries after their TTL", async () => {
+  const f = fixture(0);
+  const now = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  try {
+    await callOp(f.ctx, "task.get", {id: f.task.id});
+    clock.mockReturnValue(now + 4999);
+    await callOp(f.ctx, "task.get", {id: f.task.id});
+    expect(f.calls).toHaveLength(4);
+    clock.mockReturnValue(now + 5000);
+    await callOp(f.ctx, "task.get", {id: f.task.id});
+    expect(f.calls).toHaveLength(8);
+  } finally { clock.mockRestore(); }
 });

@@ -81,3 +81,40 @@ test("overlapping settled attempts share cost but disjoint attempts do not", asy
   updateTask(ctx, other.id, t => { t.attempts[0].startedAt = attempt.endedAt; t.attempts[0].endedAt = ctx.now; });
   expect((await callOp(ctx, "task.get", { id: task.id }) as any).cost.executor).toMatchObject({ deltaPct: 1.2 });
 });
+
+test("task.get includes new-only, tracked-only and mixed files once, agreeing with task.diff", async () => {
+  for (const mode of ["new", "tracked", "mixed"] as const) {
+    const repo = gitRepo(), ctx = fakeCtx({ run: realRun });
+    writeFileSync(join(repo, "tracked.txt"), "before\n");
+    await realRun(["git", "-C", repo, "add", "."], 10000);
+    await realRun(["git", "-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline"], 10000);
+    const task = createTask(ctx, { brief: { goal: "Check changes", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    if (mode !== "tracked") writeFileSync(join(repo, "new.txt"), "new\n");
+    if (mode !== "new") writeFileSync(join(repo, "tracked.txt"), "after\n");
+    const detail = await callOp(ctx, "task.get", { id: task.id }) as any;
+    const diff = await callOp(ctx, "task.diff", { id: task.id }) as any;
+    const want = mode === "new" ? ["new.txt"] : mode === "tracked" ? ["tracked.txt"] : ["new.txt", "tracked.txt"];
+    expect(detail.files.map((f: any) => f.path).sort()).toEqual(want);
+    expect([...diff.files.map((f: any) => f.path), ...diff.untracked].sort()).toEqual(want);
+    expect(detail.derived.files).toBe("ready");
+    if (mode !== "tracked") expect(detail.files.find((f: any) => f.path === "new.txt")).toMatchObject({ status: "added", added: 0, removed: 0, binary: false });
+  }
+});
+
+test("task.get retains untracked counts from saved evidence and marks missing evidence unavailable", async () => {
+  const { persistTaskDiff } = await import("../src/tasks/diff");
+  const { readTask } = await import("../src/tasks/store");
+  const { rmSync } = await import("node:fs");
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun });
+  const task = createTask(ctx, { brief: { goal: "Keep evidence", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(repo, "new.txt"), "new\n");
+  await persistTaskDiff(ctx, readTask(ctx, task.id)!);
+  rmSync(repo, { recursive: true });
+  const saved = await callOp(ctx, "task.get", { id: task.id }) as any;
+  expect(saved.files).toMatchObject([{ path: "new.txt", status: "added" }]);
+  expect(saved.derived.files).toBe("ready");
+  const missing = createTask(ctx, { brief: { goal: "Missing evidence", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const unavailable = await callOp(ctx, "task.get", { id: missing.id }) as any;
+  expect(unavailable.files).toEqual([]);
+  expect(unavailable.derived.files).toBe("unavailable");
+});

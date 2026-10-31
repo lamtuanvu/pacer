@@ -39,7 +39,7 @@ import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
 import { requireRepoDirectory, resolveRepo, resolveRepoInput, listReposWithBranches, addRepo, removeRepo } from "../core/repos";
-import { apiTask } from "./read-model/tasks";
+import { apiTask, apiTaskPage } from "./read-model/tasks";
 import { appendActivity, readActivity } from "../activity/log";
 import { ACTIVITY_KINDS } from "../activity/types";
 import * as delegationPause from "../core/pause";
@@ -397,7 +397,7 @@ export const OPS: Record<string, OpDef> = {
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
-    const page={tasks:rows.slice(0,limit).map(t=>apiTask(ctx,t)),next:rows.length>limit?rows[limit-1].id:null};
+    const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
     if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
