@@ -118,9 +118,10 @@ test("a timed-out duplex read reaps its SSH child and retires the handle", async
   } finally { await authority.revoke(); }
 });
 
-for (const code of [0, 7]) test(`graceful SSH stream close preserves actual exit ${code}`, async () => {
-  const dir = tmpDir(), ssh = join(dir, "ssh");
-  writeFileSync(ssh, `#!/bin/sh\nprintf '__PACER_BEGIN__\\nbody'\nexit ${code}\n`, { mode: 0o755 });
+for (const [code, exitedFirst] of [[0, false], [7, false], [0, true]] as const)
+test(`graceful SSH stream close preserves actual exit ${code}${exitedFirst ? " and output written before an early exit" : ""}`, async () => {
+  const dir = tmpDir(), ssh = join(dir, "ssh"), pidFile = join(dir, "pid");
+  writeFileSync(ssh, `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nprintf '__PACER_BEGIN__\\nbody'\nexit ${code}\n`, { mode: 0o755 });
   const ctx = fakeCtx({ env: { ...process.env, HOME: dir }, which: name => name === "ssh" ? ssh : null });
   const argv = ["ssh", "unused"];
   const authority = createCallAuthority(ctx,
@@ -131,6 +132,14 @@ for (const code of [0, 7]) test(`graceful SSH stream close preserves actual exit
   const call = (method: string, params: unknown) => answerCapability(ctx, plugin, method, params, authority);
   try {
     const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
+    // Child exit drains unread stdio unless the broker retains it for the first read.
+    if (exitedFirst) {
+      for (let i = 0; i < 100 && !existsSync(pidFile); i++) await Bun.sleep(10);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      for (let i = 0; i < 100; i++) { try { process.kill(pid, 0); } catch { break; } await Bun.sleep(10); }
+      expect(() => process.kill(pid, 0)).toThrow();
+      await Bun.sleep(50);
+    }
     let output = "";
     for (;;) {
       const result = await call("capability.process.duplex.read", { handle, length: 65_536, timeoutMs: 1000 }) as { base64: string; eof: boolean };
