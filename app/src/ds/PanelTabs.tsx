@@ -4,9 +4,10 @@ import { CountBadge } from "./CountBadge";
 import { Icon, type IconName } from "./icons";
 import { Tabs } from "./Patterns";
 
-export interface PanelTab { id: string; label: string; icon?: IconName; badge?: number }
+/** `badgeLabel` names what the badge counts, singular and plural ("unread message"/"unread messages"); it defaults to items. */
+export interface PanelTab { id: string; label: string; icon?: IconName; badge?: number; badgeLabel?: readonly [string, string] }
 const content = (tab: PanelTab) => <>{tab.icon && <Icon name={tab.icon} />}<span className="pc-panel-tabs__label">{tab.label}</span>
-  {!!tab.badge && <CountBadge count={tab.badge} label={tab.badge === 1 ? "item" : "items"} />}</>;
+  {!!tab.badge && <CountBadge count={tab.badge} label={(tab.badgeLabel ?? ["item", "items"])[tab.badge === 1 ? 0 : 1]} />}</>;
 
 /**
  * Compact panel tablist. Tabs past maxVisible move into a "+N" menu; the selected tab always stays in the strip.

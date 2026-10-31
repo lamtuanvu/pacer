@@ -34,8 +34,10 @@ test("Claude migration replaces legacy hooks and scripts and registers MCP", asy
   const f = legacyHome();
   await f.install();
   expect(JSON.parse(readFileSync(f.settings, "utf8"))).toEqual({ ...f.original, hooks: {
-    SessionStart: [{ hooks: [{ type: "command", command: "other-start" }] }, { hooks: [{ command: "/opt/pacer/bin/pacer status --hook claude-code", timeout: 15, type: "command", statusMessage: "Checking subscription budgets" }] }],
+    SessionStart: [{ hooks: [{ type: "command", command: "other-start" }] }, { hooks: [{ command: "/opt/pacer/bin/pacer msg hook session --planner claude-code", timeout: 15, type: "command", statusMessage: "Checking subscription budgets" }] }],
     PreToolUse: [{ matcher: "Read", hooks: [{ type: "command", command: "other-tool" }] }, { matcher: "Agent|Task|Bash", hooks: [{ command: "/opt/pacer/bin/pacer guard --planner claude-code", timeout: 15, type: "command" }] }],
+    Stop: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook stop --planner claude-code", timeout: 10, type: "command" }] }],
+    UserPromptSubmit: [{ hooks: [{ command: "/opt/pacer/bin/pacer msg hook prompt --planner claude-code", timeout: 10, type: "command" }] }],
   } });
   const script = readFileSync(f.script, "utf8");
   expect(script).toContain('# >>> pacer >>>\nprintf \'%s\' "$input" | /opt/pacer/bin/pacer statusline 2>/dev/null\n# <<< pacer <<<\n\nexit 0\n');
@@ -58,12 +60,23 @@ test("Claude reinstall is byte-idempotent and uninstall after two installs resto
   expect(f.calls.at(-1)).toEqual(["/usr/bin/claude", "mcp", "remove", "-s", "user", "pacer"]);
 });
 
+test("Claude reinstall replaces the previous status hook without adding a SessionStart entry", async () => {
+  const f = legacyHome();
+  const settings = JSON.parse(readFileSync(f.settings, "utf8"));
+  settings.hooks.SessionStart.push({ hooks: [{ type: "command", command: "/old/pacer status --hook claude-code" }] });
+  writeFileSync(f.settings, JSON.stringify(settings, null, 2) + "\n");
+  await f.install();
+  const groups = JSON.parse(readFileSync(f.settings, "utf8")).hooks.SessionStart;
+  expect(groups.filter((g: any) => g.hooks.some((h: any) => h.command.includes("pacer msg hook session")))).toHaveLength(1);
+  expect(JSON.stringify(groups)).not.toContain("status --hook claude-code");
+});
+
 test("Claude moved binary replaces hooks and script block instead of duplicating", async () => {
   const f = legacyHome(); const original = snapshot(f.ctx.home);
   await f.install(); await f.install(["/new/pacer"]);
   const settings = readFileSync(f.settings, "utf8");
   expect(settings).not.toContain("/opt/pacer");
-  expect(settings.match(/\/new\/pacer/g)).toHaveLength(2);
+  expect(settings.match(/\/new\/pacer/g)).toHaveLength(4);
   const script = readFileSync(f.script, "utf8");
   expect(script).not.toContain("/opt/pacer");
   expect(script.match(/# >>> pacer >>>/g)).toHaveLength(1);

@@ -16,6 +16,8 @@ import { hrefFor, routes, withQuery, type RouteQuery } from "../../router";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { MessageAnswer } from "../TaskResult";
 import { messageQuestion } from "../../model/task-answer";
+import { livenessNotice, type LivenessInput } from "../../model/thread";
+import { Alert } from "../../ds/Alert";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
 
 const name = (agent:string) => agentInfo(markAgent(agent)).name;
@@ -33,6 +35,8 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   if (!task.data) return task.error ? <ErrorMessage error={task.error}/> : <Skeleton layout="task" label="Loading dispatch trace…"/>;
   const t=task.data, root=tree.data?.nodes.find(n=>n.taskId===id), nodes=tree.data?.nodes ?? [];
   const question=messageQuestion(t);
+  // The thread lives in the workspace; the task page names a stalled conversation or unread messages and links there.
+  const notice=['running','needs_input'].includes(t.state)?livenessNotice(t as LivenessInput):null, unread=question?0:t.messages?.unreadForHuman??0;
   const focusAnswer=new URLSearchParams(location.hash.split("?")[1]).get("tab")==="answer";
   const steps=traceSteps(t,tree.data), totals=tree.data?.totals.tokens ?? (t.work?undefined:t.tokens);
   const children=nodes.filter(n=>n.taskId!==id);
@@ -75,6 +79,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
       <MessageAnswer key={question.id} task={t} question={question} focus={focusAnswer} onSent={message=>{setAnswered(message);task.reload();}}/>
     </ActionPanel>}
     {answered && <p role="status" aria-live="polite">{answered}</p>}
+    {(notice || unread>0) && <Alert tone={notice?"warning":"info"} compact announce={false} title={notice ?? `${unread} unread ${unread===1?"message":"messages"}`}><TextAction href={hrefFor(routes.workspace(id,"messages"))}>Open messages</TextAction></Alert>}
     <NowCard task={t}/>
     <CostTiles task={t} tokens={totals} agentsUsed={agents.length} attempts={attempts} subtasks={children.length} retries={retries}/>
     <div className="pc-trace__columns">

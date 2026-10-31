@@ -90,7 +90,10 @@ export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
   appAuthenticated?: boolean;
-  /** In-process callers only (CLI, MCP): the messaging participant when no planner session is detected. Never set from a request. */
+  /**
+   * In-process callers (CLI, MCP): the messaging participant when no planner session is detected. Never taken from
+   * request fields; the HTTP service sets `human` only for a bearer request that also presents a valid app session.
+   */
   participant?: string;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
@@ -179,6 +182,16 @@ async function mutation<T>(ctx: Ctx, area: string, action: () => T | Promise<T>)
 }
 
 /** Check before any liveness refresh, label write, process signal or spawn. */
+/**
+ * task.retry on a work root a person started restarts it as managed work, keeping its lineage, worktree and delegation
+ * policy. The request id is stable per revision, so a repeated click retries once. Other managed work returns null.
+ */
+function userStartedRetry(ctx: Ctx, id: string, expectRev: number | undefined, executor: string | undefined, deps: OpDeps) {
+  const task = readTask(ctx, id);
+  if (!task || !core.tasks.userStartedRoot(ctx, task)) return null;
+  const rev = expectRev ?? task.rev;
+  return retryWork(ctx, id, { expectRev: rev, requestId: `retry-${id}-${rev}`, ...(executor ? { executor } : {}) }, deps.spawnRunner ?? spawnRunner).then(summarizeTask);
+}
 function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, action: () => T): T {
   return withTaskLock(ctx, id, () => {
     const task = readTask(ctx, id);
@@ -410,7 +423,8 @@ export const OPS: Record<string, OpDef> = {
     description: "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
-      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
+      const work=getWork(ctx,p.id)?readTask(ctx,p.id):null;
+      if(work&&!core.tasks.canContinue(ctx,work))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
       return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner),spawnRunner:deps.spawnRunner,appAuthenticated:deps.appAuthenticated,participant:deps.participant});
     },
   }),
@@ -424,7 +438,11 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+      if(getWork(ctx,p.id)){
+        const managed=userStartedRetry(ctx,p.id,p.expect_rev,p.executor,deps);
+        if(!managed)throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
+        const r=await managed;return { retry: r, of: r };
+      }
       const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
@@ -438,7 +456,11 @@ export const OPS: Record<string, OpDef> = {
       const skipped: { id: string; reason: string }[] = [];
       for (const id of [...new Set<string>(p.ids)]) {
         try {
-          if(getWork(ctx,id))throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+          if(getWork(ctx,id)){
+            const managed=userStartedRetry(ctx,id,undefined,p.executor,deps);
+            if(!managed)throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
+            const r=await managed;retried.push({ of: r, retry: r });continue;
+          }
           const r = await core.tasks.retry(ctx, id, { executor: p.executor, fromPanel: p.from_panel }, {
             delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
           });
@@ -468,11 +490,12 @@ export const OPS: Record<string, OpDef> = {
       .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
     handler: (ctx, p, deps) => {
       if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      if(getWork(ctx,p.id)){
+      const work=getWork(ctx,p.id)?readTask(ctx,p.id):null;
+      if(work&&!(p.verdict==="send_back"&&core.tasks.canContinue(ctx,work))){
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),

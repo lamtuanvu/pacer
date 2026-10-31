@@ -1,6 +1,6 @@
 # Agent messaging: multi-turn collaboration between agents, with a liveness broker
 
-Date: 2026-10-28. Status: proposed, awaiting the maintainer's approval. Applies to: `src/tasks/**` (store, types, runner), `src/exec/**` (launch, direct, prompt), `src/supervisor/**`, `src/session/**`, `src/core/tasks.ts`, `src/core/work.ts`, `src/api/ops.ts`, `src/api/ops-session.ts`, `src/api/caller-policy.ts`, `src/mcp/server.ts`, `src/cli.ts`, `src/install/{claude,codex,skill,policy,doctor-hooks}.ts`, `src/attention/**`, `src/view-model/**`, `app/src/**`, `plugins/agent-session/**`, `docs/protocol.md`, `docs/protocol.schema.json`, generated Rust protocol types.
+Date: 2026-10-28. Status: plans 1, 2 and 3 implemented. Applies to: `src/tasks/**` (store, types, runner), `src/exec/**` (launch, direct, prompt), `src/supervisor/**`, `src/session/**`, `src/core/tasks.ts`, `src/core/work.ts`, `src/api/ops.ts`, `src/api/ops-session.ts`, `src/api/caller-policy.ts`, `src/mcp/server.ts`, `src/cli.ts`, `src/install/{claude,codex,skill,policy,doctor-hooks}.ts`, `src/attention/**`, `src/view-model/**`, `app/src/**`, `plugins/agent-session/**`, `docs/protocol.md`, `docs/protocol.schema.json`, generated Rust protocol types.
 Builds on:
 - [ADR 0003 interactive conversations](../decisions/0003-interactive-conversations.md) and the [interactive agent support design](2026-10-24-interactive-agent-support-design.md): native resume arguments and session identity
 - [intelligent work dispatcher](2026-10-24-intelligent-work-dispatcher-design.md) and [ADR 0006](../decisions/0006-intelligent-work-dispatcher.md): API-5 work grants, `dispatch.retry` same-task restarts
@@ -34,13 +34,14 @@ Non-goals:
 
 ### Participants
 
-A participant is anything that can send or receive messages. There are three kinds, and the kind decides delivery, never the position in the tree.
+A participant is anything that can send or receive messages. Delivery follows the participant kind, never the position in the tree. The `broker` is a fourth, service-owned participant that sends liveness nudges; callers cannot impersonate it.
 
 | Kind | Example | Reachability |
 |---|---|---|
 | `launched` | any task pacer runs, including a top-level task a user started | wakeable: the broker starts a turn |
 | `external` | a Claude Code or Codex planner calling `pacer delegate` | pull only: inbox, MCP, planner hooks |
 | `human` | the user in the app, TUI or terminal | notify only: attention, badge, thread view |
+| `broker` | pacer's liveness loop | sends bounded nudges and raises stalled attention |
 
 An `external` participant is registered on first contact with a stable identity: the planner kind plus its native session id when the hook supplies one, otherwise the calling process's planner identity. A `human` participant is the local user; one per pacer home. A caller is `human` only through app authentication or the explicit local path: the CLI in an interactive terminal that is neither an executor session nor a planner session. Any other unknown local caller is `external:local`, which has no human privileges (see [ADR 0011](../decisions/0011-agent-messaging.md)).
 
@@ -48,7 +49,7 @@ An `external` participant is registered on first contact with a stable identity:
 
 Every tree has an origin: the participant that started it, either a `human` or an `external` agent. Each task node's parent is the participant that created it. A `launched` agent can be a top agent (parent is the origin), a child and a parent at once.
 
-A task the user starts gets an API-5 work grant when `grants.user_started_tasks` is on (the default), so its agent can create and message its own subtree. The user can turn this off per task.
+A task the user starts gets an API-5 work grant when `grants.user_started_tasks` is on (the default), so its agent can create and message its own subtree. `pacer delegate --no-grant` (or `grant: false` in `task.delegate`, or the app toggle) opts out for one task. Only human-origin, non-conversation, non-dispatch roots qualify. Planner delegates keep their existing behavior; conversations remain live terminals. Granted user tasks are strict managed work, run headlessly by default, and review their children through `dispatch.review`. Message turns on managed nodes resume the same session through the managed restart path and its attempt budget.
 
 ### Protocol and guardrails are separate layers
 
@@ -64,7 +65,7 @@ The service always derives the sender's identity from the caller's credential or
 
 ### Guardrail policy
 
-A policy is an ordered list of rules in pacer config (global, then per-project strategy, then per-tree overrides given at delegate or session start; a narrower scope wins). The first matching rule decides. A send that matches no rule is denied with `CoreError("MSG_FORBIDDEN")`, whose data names the policy layer that refused it.
+A policy is an ordered list of rules in per-tree overrides, the repository's project layer, global pacer config and shipped defaults, in that priority order. The first matching rule decides. A send that matches no rule is denied with `not_allowed` and `data.reason: msg_forbidden`; the response names the policy layer that refused it.
 
 A rule matches on:
 
@@ -83,9 +84,10 @@ The same policy holds the broker and hook settings, so they are configurable too
 
 | Setting | Default |
 |---|---|
-| `liveness.interval` | 60 s |
-| `liveness.backoff_max` | 15 min |
+| `liveness.interval_s` | 60 s |
+| `liveness.backoff_max_s` | 15 min |
 | `liveness.max_nudges` | 3 |
+| `liveness.escalate_after_s` | 900 s for a blocked external or human participant |
 | `liveness.nudge_in_modes` | `relaxed`, `normal` (escalate instead in `strict`, `emergency`) |
 | `tree.max_turns` | 50 |
 | `message.max_bytes` | 64 KiB |
@@ -101,7 +103,7 @@ The shipped policy starts from this routing table:
 |---|---|
 | A top-level session (an identified `external` planner session, or a `launched` top agent whose parent is a `human`; not the unidentified `external:local`) | its direct children, and other top-level sessions under the same pacer home |
 | The unidentified local caller `external:local` | the tasks it started |
-| A child node | its parent, and its siblings |
+| A child node | its parent; with a work grant, its siblings and children |
 | Anyone | the `human` |
 
 Under the default, a parent reaches deeper descendants through the child in between, and a child without a grant may message only its parent (the replacement for `pacer ask`). Users widen it (for example, allow `descendant`, or let mid-tree parents message each other) or narrow it (for example, deny `top_peer` for one project) in config.
@@ -109,6 +111,8 @@ Under the default, a parent reaches deeper descendants through the child in betw
 Wherever a policy lets a message cross trees, the recipient's turn runs in the recipient's tree, under that tree's caps and budget admission. The wait-for graph spans all trees, so a cycle across trees is detected like one inside a tree.
 
 `pacer msg policy [--json]` prints the effective policy for the current repo with the layer each rule came from. `pacer msg policy --check --from <p> --to <p> --kind <k>` explains which rule decides, without sending. A refusal's hint gives this command for the refused send. When no rule matched, the refusal says so (`data.layer: none`) and names the closest allow rule that would have matched with a work grant (`data.closest`).
+
+Repository rules live in `<pacerHome>/project-messaging.json`, with its own revision and file lock. `pacer msg policy --project <repo-path>` reads them; `--set-file rules.json --expect-rev N` sets them, and `--remove --expect-rev N` removes them. The equivalent v3 operations are `project.messaging.get`, `.set` and `.remove`. A malformed file is reported by policy inspection while sends fall back to global and default rules. This file is separate from `project-strategies.json`, whose strict v1 schema and whole-entry writes would make mixed old and new readers unsafe.
 
 ### Messages
 
@@ -175,7 +179,7 @@ If resume fails because the CLI rejects the id or the history is missing, the dr
 
 ### Live driver (`launched`, interactive)
 
-For conversations and executors with `session: "interactive"`, the process stays alive. The driver writes the batched messages into the PTY as one submitted prompt once the Stop hook reports the turn ended, and reads the reply from the hook's transcript report. This is in phase 1 for conversation top agents, because children of a conversation must be able to reach it.
+For conversations and interactive delegated tasks, the process stays alive. The driver waits for an idle or turn-ended state and for terminal control to be free. It never drives a takeover run or submits while the agent is mid-turn. It takes control as the `pacer` viewer, sends the batch in bracketed paste followed by one Return, then releases control. Bodies above 32 KiB go into a mode-0600 run-directory file; the terminal receives only a short prompt to read it. A viewer holding control leaves messages pending and shows a hand-back notice. A socket or control failure releases claimed messages for retry. A later turn-ended status and transcript report produce one reply to the parent and any other senders waiting on that turn.
 
 ### Pull driver (`external`)
 
@@ -218,18 +222,21 @@ The wait-for graph is built from `awaiting_reply` edges and unread blocking mess
 ### Bounds
 
 - Values below are the default guardrail; all are configurable (see Guardrail policy).
-- Backoff: the first nudge after one interval, then doubling, up to `liveness.backoff_max`.
+- Backoff: the first nudge after one interval, then doubling, up to `liveness.backoff_max_s`.
 - At most `liveness.max_nudges` consecutive nudges without progress per node. Progress is any outgoing message, outcome or new commit/diff in its worktree. Then the node becomes `stalled`, and the broker calls `task.request_review` with a specific note and raises an attention item.
+- Unread messages for an external planner or blocked human escalate after `liveness.escalate_after_s` (default 900 s). The broker appears as the sender of its own nudges. `stalled` is an attention kind; `liveness.status {task?}` returns current rows and wait-for analysis for inspection.
 - Nudges are turns. They count toward the tree's turn cap and pass budget admission. In `strict` and `emergency` modes the broker escalates instead of nudging.
 - The broker runs until the tree's origin closes it (accept, reject, stop or `msg close`). Closing a conversation records no verdict.
 
 ### Planner hooks
 
-`pacer install` adds, for Claude Code and Codex planners:
+`pacer install` adds, for Claude Code and Codex planners, `SessionStart`, `PreToolUse`, `Stop` and `UserPromptSubmit` hooks. Claude Code runs `pacer msg hook session --planner claude-code` at `SessionStart`; Codex runs `pacer status --hook codex`. Session startup records the native session as `PACER_PLANNER_SESSION` for session-specific inbox identity and keeps the status context. Messaging hooks can also read the native `session_id` in their input. A session inbox includes the planner-kind inbox for messages sent through MCP without that environment variable.
+
+The messaging hooks are:
 - `Stop`: `pacer msg hook stop --planner <kind>`. If the planner's identity has unread messages, or a child is `awaiting_reply` on it, the hook returns a block decision whose reason contains the messages. With the default `hooks.stop: block`, it allows the stop after the same message set has blocked twice, so a planner cannot be trapped, and the broker escalates to the human.
 - `UserPromptSubmit`: `pacer msg hook prompt --planner <kind>` adds the pending messages as additional context.
 
-`pacer doctor` probes both hooks, as it does `SessionStart` and `PreToolUse` today.
+`pacer doctor` probes both messaging hooks, as it does `SessionStart` and `PreToolUse` today. Hooks fail open on errors and skip executor sessions. `messaging.hooks.stop: inject_only` or `off` opts out of Stop blocking; `stop_release_after` defaults to two blocks for the same message set.
 
 ## Surfaces
 
@@ -267,7 +274,7 @@ The planner skill and policy change from "delegate → wait → review" to "dele
 
 ### App and TUI
 
-The task detail gets a thread view: messages, turns and nudges in order, with a composer. A node in `stalled`, or waiting on the user, shows a plain-language state (UI-12). Tree view nodes show their turn state.
+The app task detail has a Messages tab with an unread badge, chronological thread, sender and kind labels, and a composer for messages and answers. Showing unread human messages marks them read. The app and TUI display stalled and terminal-control notices in plain language; the TUI also renders the thread and offers reply and answer actions. Tree view nodes show their turn state.
 
 ## Safety
 
@@ -279,7 +286,7 @@ The task detail gets a thread view: messages, turns and nudges in order, with a 
 
 ## Delivery plan
 
-Three plans, each shippable on its own.
+Three plans, each shippable on its own; all three are implemented.
 
 1. **Messaging core.** Participants and identity (with each task's recorded `origin`), the message store, the guardrail evaluator with global and per-tree layers and the default policy, `msg.*` ops, CLI and MCP, headless resume turns, report-on-run-end, ask, answer and send-back expressed as messages, human attention for messages, skill and executor contract text, and the ADR.
 2. **Liveness broker and planner hooks.** The broker loop, stall detection, nudges, the wait-for graph, `SessionStart` per-session planner identity (`PACER_PLANNER_SESSION`), `Stop` and `UserPromptSubmit` hooks and their doctor probes, escalation.

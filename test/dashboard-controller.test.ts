@@ -180,6 +180,24 @@ test("delegate asks for goal, repository and work type, then calls task.delegate
   expect(t.last()).toContain("Delegated · t-9000 queued");
 });
 
+test("delegate offers the sub-agent choice only when user-started grants are on", async () => {
+  const policy = (mode: string) => (op: string) => op === "msg.policy" ? { config: { grants: { user_started_tasks: mode } } } : op === "task.delegate" ? { task_id: "t-9000" } : undefined;
+  const on = setup({ ops: [...ALL_OPS, "msg.policy"], respond: policy("on") });
+  await on.dash.refresh();
+  await on.keys("d", ..."Fix it", "enter", "enter", "enter");
+  expect(on.last()).toContain("Can coordinate sub-agents (y/n)");
+  await on.keys("backspace", "n", "enter");
+  expect(on.ops().filter(c => c.op === "task.delegate")).toEqual([{ op: "task.delegate", params: { goal: "Fix it", repo: "/tmp/repo", source: "ui", grant: false } }]);
+  const kept = setup({ ops: [...ALL_OPS, "msg.policy"], respond: policy("on") });
+  await kept.dash.refresh();
+  await kept.keys("d", ..."Fix it", "enter", "enter", "enter", "enter");
+  expect(kept.ops().filter(c => c.op === "task.delegate")).toEqual([{ op: "task.delegate", params: { goal: "Fix it", repo: "/tmp/repo", source: "ui" } }]);
+  const off = setup({ ops: [...ALL_OPS, "msg.policy"], respond: policy("off") });
+  await off.dash.refresh();
+  await off.keys("d", ..."Fix it", "enter", "enter", "enter");
+  expect(off.ops().filter(c => c.op === "task.delegate")).toEqual([{ op: "task.delegate", params: { goal: "Fix it", repo: "/tmp/repo", source: "ui" } }]);
+}, 20_000);
+
 test("service errors are shown with their hint", async () => {
   const t = setup({ respond: op => op === "host.check" ? new ApiError("not_allowed", "Live validation D8: host.check changes the real user environment", "Use the sandbox") : undefined });
   await t.dash.refresh();

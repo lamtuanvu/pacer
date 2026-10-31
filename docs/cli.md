@@ -48,7 +48,13 @@ Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
 `goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_timeout_min`, `acceptance_pipefail`, `constraints`, `context`,
 `worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
-(max 200 characters). Executors cannot delegate onward.
+(max 200 characters). Executors may create child work only with a scoped work grant.
+
+Human-started delegated tasks can coordinate sub-agents through a scoped work grant by
+default (`messaging.grants.user_started_tasks: on`). Use `pacer delegate --no-grant`,
+or `grant: false` with `task.delegate`, to opt out for one task. Planner delegates
+and conversations do not receive this default grant. Managed tasks run with strict
+enforcement and default to headless launches; their children use `dispatch.review`.
 
 `acceptance_timeout_min` (or `--acceptance-timeout-min`) is an integer from 1 to 120, default 10. It limits the acceptance command separately from the executor timeout. Retries preserve it. Timed-out results include `timedOut: true`, the deadline in the tail/summary, and a hint to raise this field.
 
@@ -193,6 +199,30 @@ tip. The brain checks at most once per task per minute and exposes `resolved` wi
 `reviewed`, `worktree removed`, or `already on <branch>`. Running and attention cards with
 live Orca terminals open their session on click or Enter/Space; unavailable sessions show a
 short action error.
+
+## Agent messages
+
+`pacer msg send <task> "<text>" [--wait]` sends a message to a task's agent;
+`--wait` returns its reply. Use `--question` for a question and
+`--answer <message-id>` to answer one. `pacer msg inbox [--wait]` reads your
+messages, `pacer msg read <message-id>...` marks them handled, and
+`pacer msg log <task>` shows the task thread. `pacer msg close <task>` closes
+the conversation without a review verdict. `pacer tree <task>` shows turn state.
+Messages to a settled agent resume its native session in the same worktree.
+
+`pacer msg policy` shows the effective rules and their layers. Add
+`--check --from <participant> --to <participant> --kind <kind>` to explain a
+route without sending. `pacer msg policy --project <repo-path>` reads one
+repository's rules; `--set-file rules.json --expect-rev N` sets them and
+`--remove --expect-rev N` removes them. The file can contain a rules array or an
+object with `rules`, optional `max_turns` and `liveness`. The project layer wins
+over global rules; tree overrides win over the project layer.
+
+Claude Code and Codex planner installs include `SessionStart`, `PreToolUse`,
+`Stop` and `UserPromptSubmit` hooks. The last two surface pending messages;
+the default Stop hook can block a planner twice for the same message set. Set
+`messaging.hooks.stop` to `inject_only` or `off` to opt out of blocking. Hooks
+do not mark messages read; answer or mark them read after handling them.
 
 ## Setup
 

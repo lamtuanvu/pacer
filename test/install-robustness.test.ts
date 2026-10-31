@@ -22,7 +22,7 @@ test("Claude preserves HTTP and prompt hooks without string commands", async () 
   const stop = [{ hooks: [{ type: "http", url: "http://x" }, { type: "prompt", prompt: "check" }] }];
   put(path, JSON.stringify({ hooks: { Stop: stop } }));
   await runInstall({ ctx, mcp: true, pacerArgv: PACER }, "claude-code", installClaude);
-  expect(JSON.parse(readFileSync(path, "utf8")).hooks.Stop).toEqual(stop);
+  expect(JSON.parse(readFileSync(path, "utf8")).hooks.Stop).toEqual([...stop, { hooks: [{ command: "/opt/pacer/bin/pacer msg hook stop --planner claude-code", timeout: 10, type: "command" }] }]);
 });
 
 for (const fmt of ["claude", "cursor"] as const) {

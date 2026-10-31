@@ -44,13 +44,13 @@ test("caller identity comes from grant, role env, app auth, planner env, else a 
   expect(callerParticipant({ ...ctx, env: { PACER_WORK_GRANT: token, PACER_ROLE: "executor" } }).id).toBe(`task:${top.id}`);
   expect(callerParticipant({ ...ctx, env: { PACER_ROLE: "executor", PACER_TASK_ID: top.id } })).toEqual({ id: `task:${top.id}`, grant: null });
   expect(callerParticipant({ ...ctx, env: { CLAUDECODE: "1" } }, { appAuthenticated: true }).id).toBe("human");
-  expect(callerParticipant({ ...ctx, env: { PACER_PLANNER_SESSION: "abc-1" } }).id).toBe("external:abc-1");
+  expect(callerParticipant({ ...ctx, env: { PACER_PLANNER_SESSION: "claude-code:abc-1" } }).id).toBe("external:claude-code:abc-1");
   expect(callerParticipant({ ...ctx, env: { CLAUDECODE: "1" } }).id).toBe("external:claude-code");
-  expect(callerParticipant({ ...ctx, env: { CODEX_THREAD_ID: "x" } }).id).toBe("external:codex");
+  expect(callerParticipant({ ...ctx, env: { CODEX_THREAD_ID: "x" } }).id).toBe("external:codex:x");
   expect(callerParticipant({ ...ctx, env: {} }).id).toBe("external:local");
   expect(callerParticipant({ ...ctx, env: {} }, { participant: "human" }).id).toBe("human");
   // An explicit participant never overrides a planner session's own identity.
-  expect(callerParticipant({ ...ctx, env: { PACER_PLANNER_SESSION: "abc-1" } }, { participant: "external:mcp" }).id).toBe("external:abc-1");
+  expect(callerParticipant({ ...ctx, env: { PACER_PLANNER_SESSION: "claude-code:abc-1" } }, { participant: "external:mcp" }).id).toBe("external:claude-code:abc-1");
   expect(callerParticipant({ ...ctx, env: { CODEX_SANDBOX: "seatbelt" } }, { participant: "human" }).id).toBe("external:codex");
 });
 
@@ -59,7 +59,7 @@ test("the local human path needs a terminal and no executor or planner session",
   expect(localHuman({ ...ctx, env: {} }, true)).toBe("human");
   expect(localHuman({ ...ctx, env: {} }, false)).toBeUndefined();
   expect(localHuman({ ...ctx, env: { PACER_ROLE: "executor", PACER_TASK_ID: top.id } }, true)).toBeUndefined();
-  for (const env of [{ CLAUDECODE: "1" }, { PACER_PLANNER_SESSION: "s" }, { CODEX_THREAD_ID: "t" }, { CODEX_SANDBOX: "seatbelt" }])
+  for (const env of [{ CLAUDECODE: "1" }, { PACER_PLANNER_SESSION: "claude-code:s" }, { CODEX_THREAD_ID: "t" }, { CODEX_SANDBOX: "seatbelt" }])
     expect(localHuman({ ...ctx, env }, true)).toBeUndefined();
   // CODEX_HOME only configures the Codex CLI; it does not mean a Codex session is running.
   expect(localHuman({ ...ctx, env: { CODEX_HOME: "/tmp/codex" } }, true)).toBe("human");
@@ -75,6 +75,6 @@ test("planner session detection uses only known session variables", () => {
   const { ctx } = tree();
   for (const env of [{ CLAUDECODE: "0" }, { CLAUDECODE: "" }, { CLAUDECODE: "true" }, { CODEX_API_KEY: "k" }, { CODEX_CI: "1" }])
     expect(callerParticipant({ ...ctx, env }, { participant: "human" }).id).toBe("human");
-  expect(callerParticipant({ ...ctx, env: { CODEX_THREAD_ID: "t" } }).id).toBe("external:codex");
+  expect(callerParticipant({ ...ctx, env: { CODEX_THREAD_ID: "t" } }).id).toBe("external:codex:t");
   expect(callerParticipant({ ...ctx, env: { CODEX_SANDBOX: "seatbelt" } }).id).toBe("external:codex");
 });

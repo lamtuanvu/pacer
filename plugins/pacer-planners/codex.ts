@@ -86,6 +86,16 @@ export async function installCodex(tx: PlannerBuilder): Promise<void> {
       command: shellCommand([...argv, "guard", "--planner", "codex"]),
       timeout: 15,
     },
+    {
+      event: "Stop",
+      command: shellCommand([...argv, "msg", "hook", "stop", "--planner", "codex"]),
+      timeout: 10,
+    },
+    {
+      event: "UserPromptSubmit",
+      command: shellCommand([...argv, "msg", "hook", "prompt", "--planner", "codex"]),
+      timeout: 10,
+    },
   ];
   await tx.edit(
     join(dir, "hooks.json"),

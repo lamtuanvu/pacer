@@ -1,9 +1,10 @@
 import type { TaskDetail } from "../../../src/core/task-detail";
+import { userStartedRoot } from "../../../src/view-model/managed-root";
 
 type AnswerTask = Pick<TaskDetail, "work" | "state" | "question" | "retriedBy" | "dismissed" | "messages" | "review">;
 /** A question asked with `pacer ask`: the task records it, and task.answer answers it. */
 export function legacyQuestionPending(task: AnswerTask): boolean {
-  return !task.work && task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+  return (!task.work || userStartedRoot(task)) && task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
 }
 /**
  * The unread question a task sent the human, unless the legacy composer already answers it.
@@ -17,5 +18,5 @@ export function messageQuestion(task: AnswerTask): { id: string; text: string } 
 export const answerParams = (taskId: string, questionId: string, body: string, requestId: string) =>
   ({ to: `task:${taskId}`, kind: "answer" as const, reply_to: questionId, body: body.trim(), request_id: requestId });
 /** msg.send deliveries that hand the answer to the task; any other leaves the question open and unread. */
-const DELIVERED = new Set(["turn_started", "queued", "pull"]);
+const DELIVERED = new Set(["turn_started", "queued", "pull", "live"]);
 export const answerDelivered = (delivery: unknown): boolean => typeof delivery === "string" && DELIVERED.has(delivery);

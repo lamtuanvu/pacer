@@ -1,12 +1,18 @@
 import {heading,span,wrap} from "../frame";
 import type {Row,TaskDetail,ScreenCtx} from "./types";
-import {taskStatus} from "../../view-model/words";
+import {COORDINATES,managedSkipWords,taskStatus} from "../../view-model/words";
+
+/** A task a person started that runs without coordinating sub-agents says why. */
+export function managedSkipRows(detail:TaskDetail|undefined,width:number):Row[]{
+ return detail?.managedSkip&&!detail.work?wrap(managedSkipWords(detail.managedSkip.reason),width,2).map(line=>({line:[span(line,{fg:"muted"})]})):[];
+}
 
 export function workRows(ctx:ScreenCtx,detail:TaskDetail,width:number):Row[]{
  if(!detail.work)return[];
  const tree=detail.workTree;
  const rows:Row[]=[{line:heading(ctx.theme,"Work tree")}];
- if(!tree)return[{line:heading(ctx.theme,"Work tree")},{line:[span("Work history unavailable",{fg:"muted"})]}];
+ if(detail.work.allowDelegation)for(const line of wrap(COORDINATES,width,2))rows.push({line:[span(line,{fg:"muted"})]});
+ if(!tree)return[...rows,{line:[span("Work history unavailable",{fg:"muted"})]}];
  rows.push({line:[span(`${tree.totals.tasks} tasks · ${tree.totals.running} running · ${tree.totals.queued} queued · ${Math.round(tree.totals.executionSeconds)} s recorded`,{fg:"muted"})]});
  const duration=(value:number|null|undefined)=>value==null?"unknown":`${Math.round(value)} s`;
  rows.push({line:[span(`Dependency wait ${duration(tree.totals.dependencyWaitSeconds)} · child wait ${duration(tree.totals.childWaitSeconds)} · capacity wait ${duration(tree.totals.capacityWaitSeconds)}`,{fg:"muted"})]});

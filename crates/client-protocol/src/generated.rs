@@ -7106,6 +7106,1434 @@ impl ::std::convert::From<::serde_json::Value> for PacerClientProtocol {
         Self(value)
     }
 }
+///`ProjectMessagingGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "repo"
+///  ],
+///  "properties": {
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingGetParams {
+    pub repo: ProjectMessagingGetParamsRepo,
+}
+///`ProjectMessagingGetParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectMessagingGetParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectMessagingGetParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectMessagingGetParamsRepo> for ::std::string::String {
+    fn from(value: ProjectMessagingGetParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingGetParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingGetParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectMessagingGetParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectMessagingRemoveParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "repo"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingRemoveParams {
+    pub expect_rev: i64,
+    pub repo: ProjectMessagingRemoveParamsRepo,
+}
+///`ProjectMessagingRemoveParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectMessagingRemoveParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectMessagingRemoveParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectMessagingRemoveParamsRepo> for ::std::string::String {
+    fn from(value: ProjectMessagingRemoveParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingRemoveParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingRemoveParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectMessagingRemoveParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectMessagingSetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "repo",
+///    "rules"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "liveness": {
+///      "type": "object",
+///      "properties": {
+///        "backoff_max_s": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 10.0
+///        },
+///        "interval_s": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 10.0
+///        },
+///        "max_nudges": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        },
+///        "nudge_in_modes": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "enum": [
+///              "relaxed",
+///              "normal",
+///              "strict",
+///              "emergency"
+///            ]
+///          }
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "max_turns": {
+///      "type": "integer",
+///      "maximum": 10000.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "rules": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "effect"
+///        ],
+///        "properties": {
+///          "effect": {
+///            "type": "string",
+///            "enum": [
+///              "allow",
+///              "deny"
+///            ]
+///          },
+///          "executor": {
+///            "type": "string",
+///            "minLength": 1
+///          },
+///          "from_kind": {
+///            "type": "string",
+///            "enum": [
+///              "human",
+///              "external",
+///              "launched",
+///              "broker",
+///              "any"
+///            ]
+///          },
+///          "from_position": {
+///            "type": "string",
+///            "enum": [
+///              "top",
+///              "child",
+///              "any"
+///            ]
+///          },
+///          "grant": {
+///            "type": "string",
+///            "enum": [
+///              "required",
+///              "not_required"
+///            ]
+///          },
+///          "kinds": {
+///            "type": "array",
+///            "items": {
+///              "type": "string",
+///              "enum": [
+///                "message",
+///                "question",
+///                "answer",
+///                "report",
+///                "nudge",
+///                "close"
+///              ]
+///            },
+///            "minItems": 1
+///          },
+///          "limits": {
+///            "type": "object",
+///            "properties": {
+///              "confirm": {
+///                "type": "boolean"
+///              },
+///              "max_bytes": {
+///                "type": "integer",
+///                "maximum": 1048576.0,
+///                "exclusiveMinimum": 0.0
+///              },
+///              "per_minute": {
+///                "type": "integer",
+///                "maximum": 9007199254740991.0,
+///                "exclusiveMinimum": 0.0
+///              }
+///            },
+///            "additionalProperties": false
+///          },
+///          "relation": {
+///            "anyOf": [
+///              {
+///                "type": "string",
+///                "const": "any"
+///              },
+///              {
+///                "type": "array",
+///                "items": {
+///                  "type": "string",
+///                  "enum": [
+///                    "self",
+///                    "parent",
+///                    "child",
+///                    "sibling",
+///                    "descendant",
+///                    "ancestor",
+///                    "top_peer",
+///                    "same_tree",
+///                    "none"
+///                  ]
+///                },
+///                "minItems": 1
+///              }
+///            ]
+///          },
+///          "repo": {
+///            "type": "string",
+///            "minLength": 1
+///          },
+///          "to_kind": {
+///            "type": "string",
+///            "enum": [
+///              "human",
+///              "external",
+///              "launched",
+///              "broker",
+///              "any"
+///            ]
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 50
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingSetParams {
+    pub expect_rev: i64,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub liveness: ::std::option::Option<ProjectMessagingSetParamsLiveness>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_turns: ::std::option::Option<::std::num::NonZeroU64>,
+    pub repo: ProjectMessagingSetParamsRepo,
+    pub rules: ::std::vec::Vec<ProjectMessagingSetParamsRulesItem>,
+}
+///`ProjectMessagingSetParamsLiveness`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "backoff_max_s": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 10.0
+///    },
+///    "interval_s": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 10.0
+///    },
+///    "max_nudges": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "nudge_in_modes": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "relaxed",
+///          "normal",
+///          "strict",
+///          "emergency"
+///        ]
+///      }
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingSetParamsLiveness {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub backoff_max_s: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub interval_s: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_nudges: ::std::option::Option<i64>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub nudge_in_modes: ::std::vec::Vec<ProjectMessagingSetParamsLivenessNudgeInModesItem>,
+}
+impl ::std::default::Default for ProjectMessagingSetParamsLiveness {
+    fn default() -> Self {
+        Self {
+            backoff_max_s: Default::default(),
+            interval_s: Default::default(),
+            max_nudges: Default::default(),
+            nudge_in_modes: Default::default(),
+        }
+    }
+}
+///`ProjectMessagingSetParamsLivenessNudgeInModesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "relaxed",
+///    "normal",
+///    "strict",
+///    "emergency"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsLivenessNudgeInModesItem {
+    #[serde(rename = "relaxed")]
+    Relaxed,
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "emergency")]
+    Emergency,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsLivenessNudgeInModesItem {
+    fn from(value: &ProjectMessagingSetParamsLivenessNudgeInModesItem) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsLivenessNudgeInModesItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Relaxed => f.write_str("relaxed"),
+            Self::Normal => f.write_str("normal"),
+            Self::Strict => f.write_str("strict"),
+            Self::Emergency => f.write_str("emergency"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsLivenessNudgeInModesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "relaxed" => Ok(Self::Relaxed),
+            "normal" => Ok(Self::Normal),
+            "strict" => Ok(Self::Strict),
+            "emergency" => Ok(Self::Emergency),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsLivenessNudgeInModesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectMessagingSetParamsRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectMessagingSetParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectMessagingSetParamsRepo> for ::std::string::String {
+    fn from(value: ProjectMessagingSetParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectMessagingSetParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectMessagingSetParamsRulesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "effect"
+///  ],
+///  "properties": {
+///    "effect": {
+///      "type": "string",
+///      "enum": [
+///        "allow",
+///        "deny"
+///      ]
+///    },
+///    "executor": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "from_kind": {
+///      "type": "string",
+///      "enum": [
+///        "human",
+///        "external",
+///        "launched",
+///        "broker",
+///        "any"
+///      ]
+///    },
+///    "from_position": {
+///      "type": "string",
+///      "enum": [
+///        "top",
+///        "child",
+///        "any"
+///      ]
+///    },
+///    "grant": {
+///      "type": "string",
+///      "enum": [
+///        "required",
+///        "not_required"
+///      ]
+///    },
+///    "kinds": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "message",
+///          "question",
+///          "answer",
+///          "report",
+///          "nudge",
+///          "close"
+///        ]
+///      },
+///      "minItems": 1
+///    },
+///    "limits": {
+///      "type": "object",
+///      "properties": {
+///        "confirm": {
+///          "type": "boolean"
+///        },
+///        "max_bytes": {
+///          "type": "integer",
+///          "maximum": 1048576.0,
+///          "exclusiveMinimum": 0.0
+///        },
+///        "per_minute": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "relation": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "const": "any"
+///        },
+///        {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "enum": [
+///              "self",
+///              "parent",
+///              "child",
+///              "sibling",
+///              "descendant",
+///              "ancestor",
+///              "top_peer",
+///              "same_tree",
+///              "none"
+///            ]
+///          },
+///          "minItems": 1
+///        }
+///      ]
+///    },
+///    "repo": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "to_kind": {
+///      "type": "string",
+///      "enum": [
+///        "human",
+///        "external",
+///        "launched",
+///        "broker",
+///        "any"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingSetParamsRulesItem {
+    pub effect: ProjectMessagingSetParamsRulesItemEffect,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<ProjectMessagingSetParamsRulesItemExecutor>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub from_kind: ::std::option::Option<ProjectMessagingSetParamsRulesItemFromKind>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub from_position: ::std::option::Option<ProjectMessagingSetParamsRulesItemFromPosition>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub grant: ::std::option::Option<ProjectMessagingSetParamsRulesItemGrant>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub kinds: ::std::vec::Vec<ProjectMessagingSetParamsRulesItemKindsItem>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limits: ::std::option::Option<ProjectMessagingSetParamsRulesItemLimits>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub relation: ::std::option::Option<ProjectMessagingSetParamsRulesItemRelation>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repo: ::std::option::Option<ProjectMessagingSetParamsRulesItemRepo>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub to_kind: ::std::option::Option<ProjectMessagingSetParamsRulesItemToKind>,
+}
+///`ProjectMessagingSetParamsRulesItemEffect`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "allow",
+///    "deny"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemEffect {
+    #[serde(rename = "allow")]
+    Allow,
+    #[serde(rename = "deny")]
+    Deny,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemEffect {
+    fn from(value: &ProjectMessagingSetParamsRulesItemEffect) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemEffect {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Allow => f.write_str("allow"),
+            Self::Deny => f.write_str("deny"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemEffect {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "allow" => Ok(Self::Allow),
+            "deny" => Ok(Self::Deny),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemEffect {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectMessagingSetParamsRulesItemExecutor(::std::string::String);
+impl ::std::ops::Deref for ProjectMessagingSetParamsRulesItemExecutor {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectMessagingSetParamsRulesItemExecutor> for ::std::string::String {
+    fn from(value: ProjectMessagingSetParamsRulesItemExecutor) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemExecutor {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemExecutor {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectMessagingSetParamsRulesItemExecutor {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectMessagingSetParamsRulesItemFromKind`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "human",
+///    "external",
+///    "launched",
+///    "broker",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemFromKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "external")]
+    External,
+    #[serde(rename = "launched")]
+    Launched,
+    #[serde(rename = "broker")]
+    Broker,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemFromKind {
+    fn from(value: &ProjectMessagingSetParamsRulesItemFromKind) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemFromKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Human => f.write_str("human"),
+            Self::External => f.write_str("external"),
+            Self::Launched => f.write_str("launched"),
+            Self::Broker => f.write_str("broker"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemFromKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "human" => Ok(Self::Human),
+            "external" => Ok(Self::External),
+            "launched" => Ok(Self::Launched),
+            "broker" => Ok(Self::Broker),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemFromKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemFromPosition`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "top",
+///    "child",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemFromPosition {
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "child")]
+    Child,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemFromPosition {
+    fn from(value: &ProjectMessagingSetParamsRulesItemFromPosition) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemFromPosition {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Top => f.write_str("top"),
+            Self::Child => f.write_str("child"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemFromPosition {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "top" => Ok(Self::Top),
+            "child" => Ok(Self::Child),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemFromPosition {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemGrant`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "required",
+///    "not_required"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemGrant {
+    #[serde(rename = "required")]
+    Required,
+    #[serde(rename = "not_required")]
+    NotRequired,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemGrant {
+    fn from(value: &ProjectMessagingSetParamsRulesItemGrant) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemGrant {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Required => f.write_str("required"),
+            Self::NotRequired => f.write_str("not_required"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemGrant {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "required" => Ok(Self::Required),
+            "not_required" => Ok(Self::NotRequired),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemGrant {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemKindsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "message",
+///    "question",
+///    "answer",
+///    "report",
+///    "nudge",
+///    "close"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemKindsItem {
+    #[serde(rename = "message")]
+    Message,
+    #[serde(rename = "question")]
+    Question,
+    #[serde(rename = "answer")]
+    Answer,
+    #[serde(rename = "report")]
+    Report,
+    #[serde(rename = "nudge")]
+    Nudge,
+    #[serde(rename = "close")]
+    Close,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemKindsItem {
+    fn from(value: &ProjectMessagingSetParamsRulesItemKindsItem) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemKindsItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Message => f.write_str("message"),
+            Self::Question => f.write_str("question"),
+            Self::Answer => f.write_str("answer"),
+            Self::Report => f.write_str("report"),
+            Self::Nudge => f.write_str("nudge"),
+            Self::Close => f.write_str("close"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemKindsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "message" => Ok(Self::Message),
+            "question" => Ok(Self::Question),
+            "answer" => Ok(Self::Answer),
+            "report" => Ok(Self::Report),
+            "nudge" => Ok(Self::Nudge),
+            "close" => Ok(Self::Close),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemKindsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemLimits`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "confirm": {
+///      "type": "boolean"
+///    },
+///    "max_bytes": {
+///      "type": "integer",
+///      "maximum": 1048576.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "per_minute": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMessagingSetParamsRulesItemLimits {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub confirm: ::std::option::Option<bool>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub max_bytes: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub per_minute: ::std::option::Option<::std::num::NonZeroU64>,
+}
+impl ::std::default::Default for ProjectMessagingSetParamsRulesItemLimits {
+    fn default() -> Self {
+        Self {
+            confirm: Default::default(),
+            max_bytes: Default::default(),
+            per_minute: Default::default(),
+        }
+    }
+}
+///`ProjectMessagingSetParamsRulesItemRelation`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string",
+///      "const": "any"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "enum": [
+///          "self",
+///          "parent",
+///          "child",
+///          "sibling",
+///          "descendant",
+///          "ancestor",
+///          "top_peer",
+///          "same_tree",
+///          "none"
+///        ]
+///      },
+///      "minItems": 1
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ProjectMessagingSetParamsRulesItemRelation {
+    Variant0(::std::string::String),
+    Variant1(::std::vec::Vec<ProjectMessagingSetParamsRulesItemRelationVariant1Item>),
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemRelation {
+    fn from(value: &ProjectMessagingSetParamsRulesItemRelation) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ProjectMessagingSetParamsRulesItemRelationVariant1Item>>
+    for ProjectMessagingSetParamsRulesItemRelation
+{
+    fn from(
+        value: ::std::vec::Vec<ProjectMessagingSetParamsRulesItemRelationVariant1Item>,
+    ) -> Self {
+        Self::Variant1(value)
+    }
+}
+///`ProjectMessagingSetParamsRulesItemRelationVariant1Item`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "self",
+///    "parent",
+///    "child",
+///    "sibling",
+///    "descendant",
+///    "ancestor",
+///    "top_peer",
+///    "same_tree",
+///    "none"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemRelationVariant1Item {
+    #[serde(rename = "self")]
+    Self_,
+    #[serde(rename = "parent")]
+    Parent,
+    #[serde(rename = "child")]
+    Child,
+    #[serde(rename = "sibling")]
+    Sibling,
+    #[serde(rename = "descendant")]
+    Descendant,
+    #[serde(rename = "ancestor")]
+    Ancestor,
+    #[serde(rename = "top_peer")]
+    TopPeer,
+    #[serde(rename = "same_tree")]
+    SameTree,
+    #[serde(rename = "none")]
+    None,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemRelationVariant1Item {
+    fn from(value: &ProjectMessagingSetParamsRulesItemRelationVariant1Item) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemRelationVariant1Item {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Self_ => f.write_str("self"),
+            Self::Parent => f.write_str("parent"),
+            Self::Child => f.write_str("child"),
+            Self::Sibling => f.write_str("sibling"),
+            Self::Descendant => f.write_str("descendant"),
+            Self::Ancestor => f.write_str("ancestor"),
+            Self::TopPeer => f.write_str("top_peer"),
+            Self::SameTree => f.write_str("same_tree"),
+            Self::None => f.write_str("none"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemRelationVariant1Item {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "self" => Ok(Self::Self_),
+            "parent" => Ok(Self::Parent),
+            "child" => Ok(Self::Child),
+            "sibling" => Ok(Self::Sibling),
+            "descendant" => Ok(Self::Descendant),
+            "ancestor" => Ok(Self::Ancestor),
+            "top_peer" => Ok(Self::TopPeer),
+            "same_tree" => Ok(Self::SameTree),
+            "none" => Ok(Self::None),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemRelationVariant1Item {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ProjectMessagingSetParamsRulesItemRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProjectMessagingSetParamsRulesItemRepo(::std::string::String);
+impl ::std::ops::Deref for ProjectMessagingSetParamsRulesItemRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProjectMessagingSetParamsRulesItemRepo> for ::std::string::String {
+    fn from(value: ProjectMessagingSetParamsRulesItemRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProjectMessagingSetParamsRulesItemRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProjectMessagingSetParamsRulesItemToKind`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "human",
+///    "external",
+///    "launched",
+///    "broker",
+///    "any"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ProjectMessagingSetParamsRulesItemToKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "external")]
+    External,
+    #[serde(rename = "launched")]
+    Launched,
+    #[serde(rename = "broker")]
+    Broker,
+    #[serde(rename = "any")]
+    Any,
+}
+impl ::std::convert::From<&Self> for ProjectMessagingSetParamsRulesItemToKind {
+    fn from(value: &ProjectMessagingSetParamsRulesItemToKind) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ProjectMessagingSetParamsRulesItemToKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Human => f.write_str("human"),
+            Self::External => f.write_str("external"),
+            Self::Launched => f.write_str("launched"),
+            Self::Broker => f.write_str("broker"),
+            Self::Any => f.write_str("any"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProjectMessagingSetParamsRulesItemToKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "human" => Ok(Self::Human),
+            "external" => Ok(Self::External),
+            "launched" => Ok(Self::Launched),
+            "broker" => Ok(Self::Broker),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProjectMessagingSetParamsRulesItemToKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`ProjectStrategyGetParams`
 ///
 /// <details><summary>JSON schema</summary>

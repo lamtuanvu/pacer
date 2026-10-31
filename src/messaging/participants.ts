@@ -4,20 +4,26 @@ import { isExecutorSession } from "../install/role";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import type { ParticipantKind, Relation } from "./types";
+import { plannerSessionId, type PlannerKind } from "./identity";
 
 const MAX_DEPTH = 64;
 export const taskOf = (p: string): string | null => p.startsWith("task:") ? p.slice(5) : null;
 export function participantKind(p: string): ParticipantKind {
-  return p === "human" ? "human" : p.startsWith("external:") ? "external" : "launched";
+  return p === "human" ? "human" : p === "broker" ? "broker" : p.startsWith("external:") ? "external" : "launched";
 }
-const clean = (key: string) => key.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 128);
 
 /** The participant of the planner session this process runs in, from its environment, or null. */
 export function plannerParticipant(env: Ctx["env"]): string | null {
-  if (env.PACER_PLANNER_SESSION) return `external:${clean(env.PACER_PLANNER_SESSION)}`;
+  if (env.PACER_PLANNER_SESSION) {
+    const match = /^(claude-code|codex):(.*)$/.exec(env.PACER_PLANNER_SESSION);
+    if (match) return plannerSessionId(match[1] as PlannerKind, match[2]);
+    // A value without a planner prefix stays a plain external identity, as before per-session ids existed.
+    const clean = env.PACER_PLANNER_SESSION.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 128);
+    if (clean) return `external:${clean}`;
+  }
   if (env.CLAUDECODE === "1") return "external:claude-code";
   // Only variables a Codex session sets; others such as CODEX_HOME or CODEX_API_KEY merely configure the CLI.
-  if (env.CODEX_THREAD_ID || env.CODEX_SANDBOX) return "external:codex";
+  if (env.CODEX_THREAD_ID || env.CODEX_SANDBOX) return plannerSessionId("codex", env.CODEX_THREAD_ID);
   return null;
 }
 
@@ -29,8 +35,9 @@ export function localHuman(ctx: Ctx, isTTY = !!process.stdin.isTTY): "human" | u
 /**
  * The caller's participant id. Never taken from request fields.
  * Executor identity comes from PACER_ROLE and PACER_TASK_ID (an accepted exception, see ADR 0011).
- * An unknown local caller is the non-privileged `external:local`; `human` needs app authentication
- * or an explicit `participant: "human"` from the local human path ({@link localHuman}).
+ * An unknown local caller is the non-privileged `external:local`; `human` needs app authentication,
+ * an explicit `participant: "human"` from the local human path ({@link localHuman}), or, over HTTP,
+ * the TUI's bearer request with an app session it exchanged for (see src/serve/http.ts).
  */
 export function callerParticipant(ctx: Ctx, deps: { appAuthenticated?: boolean; participant?: string } = {}): { id: string; grant: WorkNode | null } {
   const token = ctx.env.PACER_WORK_GRANT;
