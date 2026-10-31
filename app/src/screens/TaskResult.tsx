@@ -1,8 +1,9 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
-import { answerDeliveryWords, executorLabel, messageRefusalWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
+import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, messageRefusalWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
@@ -40,7 +41,10 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
   const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
   const results = <>
-      <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
+      <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p>
+        {task.work?.allowDelegation && task.work.parentId === null && <p className="muted">{COORDINATES}</p>}
+        {task.managedSkip && <p className="muted">{managedSkipWords(task.managedSkip.reason)}</p>}
+      </section>
       <section className="pc-section"><SectionHeading>Checks &amp; changes</SectionHeading>
         <p className={task.acceptance.state === "failed" ? "pc-warn-text" : "muted"}>{task.acceptance.state === "failed" ? "Checks failed" : task.acceptance.state === "passed" ? "Checks passed" : task.acceptance.state === "none" ? "No acceptance checks recorded" : "Checks have no final result"}{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</p>
       <Stack space="compact">
@@ -54,7 +58,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
   </>;
   const next = <>
       <section className="pc-action-panel"><SectionHeading>Next step</SectionHeading>
-        {question ?? (task.work ? <p>Use the Work tab for decisions and history.</p> : openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
+        {question ?? (task.work && !userStartedRoot(task) ? <p>Use the Work tab for decisions and history.</p> : openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </section>
   </>;
   if (compact) return <div className="pc-session-detail-group">{next}{results}
@@ -145,6 +149,11 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
     if ((verdict === "send_back" || verdict === "reject") && !note.trim()) { setMessage("Add a note before confirming.");noteRef.current?.focus();return; }
     inFlight.current = true;setPending(true);setMessage("");
     try {
+      if (userStartedRoot(task) && verdict === "send_back") {
+        await withManagedFallback((op, params) => api.call(op, params),
+          { op: "task.review", params: { id: task.id, verdict, expect_rev: task.rev, note: note.trim(), ...(kind ? { kind } : {}) } }, sendBackSteps(task, note.trim()));
+        setMessage("Sent back."); reload(); return;
+      }
       const key = `result:${task.id}:verdict`;
       const result = await runner.run(key,{label:"Record verdict",op:"task.review",params:{id:task.id,verdict,expect_rev:task.rev,...(note.trim()?{note:note.trim()}:{}),...(kind?{kind}:{}),...(verdict==="retry"?{executor}:{})}});
       if (result.status === "error" || result.status === "handled") setMessage(result.message);
@@ -154,7 +163,8 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
         if (response?.retry?.id) location.hash = `#/tasks/${encodeURIComponent(response.retry.id)}`;
       }
       reload();
-    } finally { inFlight.current=false;setPending(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not record the verdict."); }
+    finally { inFlight.current=false;setPending(false); }
   }
   const canReview = legacyReviewAvailable(task,state.features.ops.has("task.review"));
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
@@ -162,13 +172,22 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
   const isQuestion = legacyQuestionPending(task), asked = messageQuestion(task);
   const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);
-    try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
+    try {
+      if (userStartedRoot(task)) {
+        await withManagedFallback((op, params) => api.call(op, params), { op: "task.answer", params: { id: task.id, text: answer, expect_rev: task.rev } }, answerSteps(task.id, task.rev, answer));
+        setMessage("Answer sent.");
+      } else {
+        const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});
+        setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");
+      }
+      reload();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not send the answer."); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : asked ? <MessageAnswer task={task} question={asked} focus={focusAnswer} onSent={onAnswered}/> : undefined;
   return <><TaskResultView embedded compact={compact} task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges && !changes ? <Skeleton layout="rows" label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
 export function legacyReviewAvailable(task: TaskDetail, supportsReview: boolean): boolean {
-  return !task.work && !["queued", "running"].includes(task.state) && supportsReview && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
+  return (!task.work || userStartedRoot(task)) && !["queued", "running"].includes(task.state) && supportsReview && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
 }
 export function TaskHeading({ task }: { task: TaskDetail }) {
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
@@ -194,7 +213,7 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.
   const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab") ?? (location.hash.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
-  const panelTab = ({ changes: "changes", brief: "details", work: "work", answer: "details" } as const)[requested as "changes"];
+  const panelTab = ({ changes: "changes", brief: "details", messages: "messages", work: "work", answer: "details" } as const)[requested as "changes"];
   // "Answer" in Needs you lands on the composer for the task's question.
   const focusAnswer = requested === "answer";
   const active = ["queued", "running"].includes(task.data.state);

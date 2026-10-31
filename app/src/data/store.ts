@@ -86,6 +86,11 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
     case "counts": return patch({ counts: data as unknown as SnapshotV2["counts"] });
     case "pause": return patch({ pause: (data.removed === true || !Object.keys(data).length ? null : data) as SnapshotV2["pause"] });
     case "job": return typeof data.id === "string" ? { ...state, jobs: { ...state.jobs, [data.id]: data as unknown as Job }, snapshot: { ...snapshot, seq, at } } : state;
+    // A thread refetches its own messages; the snapshot holds no message rows.
+    case "message": {
+      const key = typeof data.taskId === "string" ? `msg:${data.taskId}` : null;
+      return { ...state, snapshot: { ...snapshot, seq, at }, invalidations: key ? { ...state.invalidations, [key]: (state.invalidations[key] ?? 0) + 1 } : state.invalidations };
+    }
     case "activity": return typeof data.id === "string" ? { ...state, activity: [data as unknown as ActivityEntry, ...state.activity].slice(0, ACTIVITY_CAP), snapshot: { ...snapshot, seq, at } } : state;
     default: return state;
   }

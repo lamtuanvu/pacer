@@ -273,8 +273,19 @@ export interface TaskRecord {
    * when the turn started; `replay` launches fresh with the brief and the thread after a failed resume.
    */
   pendingTurn?: { id: string; executor: string; at: number; session?: { id: string; source: "header" | "assigned" | "lookup" }; replay?: boolean };
+  /** A message turn typed into the live session; `statusAt` is the session status mtime at delivery. */
+  liveTurn?: { id: string; at: number; statusAt: number };
+  /** Why pending messages are not typed into the live session yet. */
+  liveBlocked?: "viewer";
+  /** The last live delivery that failed; its messages went back to pending. */
+  liveError?: { at: number; message: string };
   /** Closed for messaging by its parent; no more turns. */
   msgClosed?: boolean;
+  /**
+   * Why a task a person started runs unmanaged although managed work was on: no executor it could route to can run
+   * strict managed work (`refused`: the runner found that at launch and converted it). `detail` is technical.
+   */
+  managedSkip?: { reason: ManagedSkipReason; detail: string; at: number };
   /** Per-tree guardrail override given at delegate time; read from the tree's root task. */
   messaging?: import("../messaging/types").MessagingOverride;
   retryOf?: string;
@@ -286,3 +297,4 @@ export interface TaskRecord {
   result?: TaskResult;
 }
 
+export type ManagedSkipReason = "interactive" | "unsupported" | "unverified" | "unavailable" | "refused";

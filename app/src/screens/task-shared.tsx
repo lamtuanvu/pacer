@@ -19,6 +19,10 @@ export function ErrorMessage({ error }: { error: unknown }) {
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
   const budget = budgetResourceRevision(op, state.invalidations, state.snapshot?.accounts);
   if (budget !== undefined) return budget;
+  if (op === "msg.log") {
+    const task = (params as { task?: string } | null)?.task;
+    return JSON.stringify([state.invalidations[`msg:${task}`] ?? 0]);
+  }
   if (op === "task.list") return JSON.stringify([state.invalidations, state.snapshot?.tasks.map(t=>[t.id,t.rev,t.state,t.updatedAt])]);
   // Work rows carry the token roll-up; an attempt's tokens are recorded before its task changes state, so a
   // state change (or a new node) is when they move. Progress revisions alone would refetch every row each tick.

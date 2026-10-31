@@ -38,6 +38,7 @@ import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
+import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
@@ -232,7 +233,12 @@ export function startServer(
         return upgradeTerminal(req, server, getCtx(), terminalRoute[1]!);
       }
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant}, tailMs, status, snapshot: () => readCache.get() });
+        // The local TUI holds the bearer token and proves the human with an app session it exchanged for
+        // (X-Pacer-Session). A bearer alone stays the non-privileged `external:local`, and only identity changes:
+        // terminals and settings keep bearer behavior.
+        const session = req.headers.get("x-pacer-session") ?? "";
+        const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }
@@ -322,6 +328,16 @@ export function startServer(
       .finally(() => { certifying = false; });
   };
   const certificationTimer = setInterval(certify, 10 * 60_000);
+  let brokering = false;
+  const broker = () => {
+    if (stopped || brokering) return;
+    brokering = true;
+    void brokerTick(getCtx(), { spawnRunner: opts.opDeps?.spawnRunner, mode: async () => {
+      try { return (await status()).mode; } catch { return undefined; }
+    } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
+      .finally(() => { brokering = false; });
+  };
+  const brokerTimer = setInterval(broker, 15_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
@@ -349,6 +365,7 @@ export function startServer(
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
     clearInterval(certificationTimer);
+    clearInterval(brokerTimer);
     clearTimeout(usageStart);
     clearInterval(usageTimer);
     clearInterval(pumpTimer);

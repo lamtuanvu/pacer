@@ -51,6 +51,13 @@ test("configured hooks never imply Claude host invocation", () => {
   expect(checks.find(c => c.name === "Claude guard scope")?.detail).toContain("direct edits");
 });
 
+test("doctor accepts the new SessionStart command", () => {
+  const { ctx, settings, save } = fixture();
+  settings.hooks.SessionStart[0].hooks[0].command = "pacer msg hook session --planner claude-code";
+  save();
+  expect(claudeHookChecks(ctx).find(c => c.name === "Claude hook configuration")?.evidence).toBe("configured");
+});
+
 test("disabled, malformed, partial and wrong matcher settings cannot pass configuration", () => {
   for (const change of [
     (s: any) => { s.disableAllHooks = true; },
@@ -150,4 +157,21 @@ test('registered hook executable must exist and be executable without running se
   expect(result()?.level).toBe('warn');
   chmodSync(command,0o755);
   expect(result()).toMatchObject({level:'ok',evidence:'configured'});
+});
+
+test("doctor warns, without failing configuration, when the message hooks are missing", () => {
+  const { ctx, settings, save } = fixture();
+  expect(claudeHookChecks(ctx).find(c => c.name === "Claude message hooks")?.level).toBe("warn");
+  expect(claudeHookChecks(ctx).find(c => c.name === "Claude hook configuration")?.evidence).toBe("configured");
+  const full = JSON.parse(editClaudeSettings(null, { session: "pacer msg hook session --planner claude-code", guard: "pacer guard --planner claude-code",
+    statusline: "pacer statusline", stop: "pacer msg hook stop --planner claude-code", prompt: "pacer msg hook prompt --planner claude-code" }, ctx.home).text);
+  settings.hooks = full.hooks; save();
+  expect(claudeHookChecks(ctx).find(c => c.name === "Claude message hooks")).toMatchObject({ level: "ok", evidence: "configured" });
+});
+
+test("handler probes cover the Stop block and UserPromptSubmit context", async () => {
+  const check = await probeClaudeHandlers();
+  expect(check.level).toBe("ok");
+  expect(check.detail).toContain("Stop block");
+  expect(check.detail).toContain("UserPromptSubmit");
 });

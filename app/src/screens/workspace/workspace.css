@@ -49,3 +49,8 @@
 
 /* Identity text yields before the agent mark and canonical status pill. */
 .pc-workspace-panel-details{flex:1;width:100%}.pc-workspace-panel-details>.pc-agent-mark,.pc-workspace-panel-details>.pc-pill{flex:none}
+
+/* Four detail tabs (Overview, Changes, Notes, Messages) share the 320px panel without clipping. */
+.pc-workspace-task>.pc-tabs .pc-btn{padding-inline:var(--space-1\.5);font-size:var(--type-caption-size)}
+.pc-workspace-task>.pc-tabs .pc-count-badge{margin-left:var(--space-1);min-width:var(--size-18);padding:0 var(--space-1)}
+.pc-workspace-notice{padding:0 var(--space-6) var(--space-3)}
