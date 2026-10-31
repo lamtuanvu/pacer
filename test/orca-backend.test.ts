@@ -1186,14 +1186,16 @@ test("the supervision pass releases a live worker after dismissal, review, settl
 
 test("the supervision pass retries a live-worker release that failed", async () => {
   const {superviseTasks} = await import("../src/tasks/api");
-  const x = setup([[O("orchestration", "worker-stop"), [() => { throw Error("orca is not reachable"); }, envelope({dispatchId: "ctx_live", state: "stopped"})]]]);
+  const unreachable = () => { throw Error("orca is not reachable"); };
+  const x = setup([[O("orchestration", "worker-stop"), [unreachable, unreachable, envelope({dispatchId: "ctx_live", state: "stopped"})]]]);
   const asked = askedLane(x);
   updateTask(x.ctx, asked.id, t => { t.state = "stopped"; });
   await superviseTasks(x.ctx, () => 0);
-  expect(workerStops(x)).toBe(1);
+  // The provider's stop failed, then the host's own closure of the same worker failed too.
+  expect(workerStops(x)).toBe(2);
   expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
   await superviseTasks(x.ctx, () => 0);
-  expect(workerStops(x)).toBe(2);
+  expect(workerStops(x)).toBe(3);
   expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
 });
 
@@ -1616,6 +1618,50 @@ test("releasing a kept-alive lane while the provider is disabled stays host clos
   expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
   expect(closes(x.f.calls)).toHaveLength(1);
   expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+});
+
+test("releasing a kept-alive lane while the enabled provider fails stays host closure: the worker is stopped and its terminal closed", async () => {
+  for (const stop of [async () => { throw Error("plugin stdout closed"); }, async () => ({unexpected: true})]) {
+    const x = setup([], {}, {}, [], {handlers: {"executor.stop": stop}});
+    const asked = askedLane(x);
+    await x.backend.live!.release(x.ctx, readTask(x.ctx, asked.id)!, "the task was stopped");
+    expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+    expect(closes(x.f.calls)).toHaveLength(1);
+    expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  }
+});
+
+// The owning call runs one capability operation at a time (CallAuthority.exclusive), so a phase check cannot be raced.
+test("concurrent Orca effects for one attempt are refused: an answer is typed once and one admission lease is taken", async () => {
+  const codes: unknown[] = [];
+  const settle = async (calls: Promise<unknown>[]) => {
+    for (const r of await Promise.allSettled(calls)) codes.push(r.status === "fulfilled" ? "allowed" : (r.reason as {code?: string}).code);
+  };
+  const live = {"executor.run": async (params: unknown, host: HostClient) => {
+    const ids = {taskId: (params as {task: {id: string}}).task.id, attempt: 1};
+    await settle([host.call("capability.orca.liveAnswer", ids), host.call("capability.orca.liveAnswer", ids)]);
+    throw Object.assign(Error("probe"), {code: "probe"});
+  }};
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})]], {}, {}, [], {handlers: live});
+  const retry = answerOf(x, askedLane(x), "go with B");
+  await expect(x.backend.runAttempt(x.ctx, x.cfg, retry)).rejects.toBeDefined();
+  expect(codes.sort()).toEqual(["allowed", "conflict"]);
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(1);
+
+  codes.length = 0;
+  let begun = 0;
+  const prepare = {"executor.run": async (params: unknown, host: HostClient) => {
+    const ids = {taskId: (params as {task: {id: string}}).task.id, attempt: 1};
+    await host.call("capability.orca.liveAnswer", ids);
+    await settle([host.call("capability.orca.prepare", ids), host.call("capability.orca.prepare", ids)]);
+    return {orca: {fallback: {reason: "probe done"}}};
+  }};
+  const y = setup([], {}, {admission: {begin: (...a: Parameters<typeof beginWorkSync>) => { begun++; return beginWorkSync(...a); },
+    bind: bindOrcaWorkSync, finishOrca: finishOrcaWorkSync, finish: finishWorkSync}}, [], {handlers: prepare});
+  expect((await y.backend.runAttempt(y.ctx, y.cfg, y.task)).backend).toBe("direct");
+  expect(codes.sort()).toEqual(["allowed", "conflict"]);
+  expect(begun).toBe(1);
+  expect(await lease(y)).toBe(false);
 });
 
 test("a host placement refusal stands even if the provider asks for direct or dies", async () => {

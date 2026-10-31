@@ -107,7 +107,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
   } finally { session.close(); }
 }
 
-/** Live-worker effects outside an attempt; the provider's executor.stop owns closure of the exact recorded worker. */
+/** Live-worker effects outside an attempt; the provider's executor.stop closes the exact recorded worker, and the host closes it when the provider cannot. */
 function liveOps(caller: OrcaExecutorCaller): LiveWorkerOps {
   return {
     send: async (ctx, task, text) => {
@@ -122,16 +122,22 @@ function liveOps(caller: OrcaExecutorCaller): LiveWorkerOps {
       const live = readTask(ctx, task.id)?.live ?? task.live;
       if (!live || live.backend !== "orca") return;
       const attempt = Math.max(1, (readTask(ctx, task.id)?.attempts.length ?? task.attempts.length));
-      // Closure stays host authority (ADR 0018): a disabled provider never leaves a live agent behind.
-      if (pluginsConfig(ctx).disabled.includes(ORCA_PROVIDER)) {
-        await releaseLive(ctx, new OrcaClient(ctx.run, ctx.env), readTask(ctx, task.id) ?? task, why);
-        return;
-      }
-      const raw = await caller.call(ctx, ORCA_PROVIDER, "executor.stop", { taskId: task.id, attempt, graceMs: 0 }, {
-        resources: { ...empty(), orcaLive: { taskId: task.id, attempt, providerId: ORCA_PROVIDER, worker: live.worker,
-          terminal: live.terminal, ...(live.incarnation ? { incarnation: live.incarnation } : {}), action: "stop", why } },
-        deadlineMs: 120_000 });
-      if (!executorStopResult.safeParse(raw).success) throw new CoreError("plugin_refused", "Orca provider returned an invalid stop result");
+      // Closure stays host authority (ADR 0018): a disabled or failing provider never leaves a live agent behind.
+      const hostClosure = async () => {
+        const current = readTask(ctx, task.id);
+        if (current?.live?.backend !== "orca" || current.live.worker !== live.worker || current.live.terminal !== live.terminal) return;
+        await releaseLive(ctx, new OrcaClient(ctx.run, ctx.env), current, why);
+      };
+      if (pluginsConfig(ctx).disabled.includes(ORCA_PROVIDER)) return hostClosure();
+      let raw: unknown;
+      try {
+        raw = await caller.call(ctx, ORCA_PROVIDER, "executor.stop", { taskId: task.id, attempt, graceMs: 0 }, {
+          resources: { ...empty(), orcaLive: { taskId: task.id, attempt, providerId: ORCA_PROVIDER, worker: live.worker,
+            terminal: live.terminal, ...(live.incarnation ? { incarnation: live.incarnation } : {}), action: "stop", why } },
+          deadlineMs: 120_000 });
+      } catch { return hostClosure(); }
+      // An invalid reply is a provider fault too; the exact recorded worker is closed by the host if it is still recorded.
+      if (!executorStopResult.safeParse(raw).success) return hostClosure();
     },
   };
 }
