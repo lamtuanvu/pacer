@@ -273,6 +273,15 @@ so a planner account and an account without an executor can both be checked.
 Sign-in and usage freshness are separate facts: the quota column shows when
 the provider observation was captured and whether it is historical. Quota, reset
 and observation time come from the same reading, even while data updates.
+A measured reading is shown as current only with an explicit `stale: false`
+and a finite observation time that is not in the future. Older snapshots that
+omit freshness or timing fields still show their measured quota, labelled
+historical; their status now indicates historical usage (for example,
+**Stale reading** or **Historical usage**) rather than a retained pace verdict.
+Unknown budget evidence, an expired reset, or an observation more than
+24 hours old also makes the reading historical. The web meter preserves the
+measured value, describes it as historical, and omits the current pace marker;
+the TUI includes a plain-text historical caption using the snapshot time.
 
 Claude asks for confirmation before **Run usage check**. This starts one small,
 bounded Claude Code turn using the selected account’s subscription quota or

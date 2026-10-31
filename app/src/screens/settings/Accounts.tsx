@@ -58,7 +58,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                   readiness = { ...account, signedIn: summary?.signedIn ?? account.signedIn },
                   quotaLabel = accountQuotaLabel(account, summary),
                   observation = accountObservation(account, summary), usage = observation?.usage, observedAt = usage?.capturedAt,
-                  freshness = usage && accountUsageFreshness(usage), users = summary?.executors ?? account.runners ?? [],
+                  freshness = usage && accountUsageFreshness(usage, state.snapshot?.at), users = summary?.executors ?? account.runners ?? [],
                   pace = paceStatus(usage?.verdict ?? "unknown"),
                   status = quotaLabel ? accountStatus({}) : observation?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
                     : readiness.signedIn === true && usage
@@ -76,9 +76,9 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     </td>
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
-                      {usage?.usedPct != null && <UsageMeter used={usage.usedPct} pace={usage.pacePct??null} tone={paceStatus(usage.verdict).tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
+                      {usage?.usedPct != null && <UsageMeter used={usage.usedPct} pace={freshness ? null : usage.pacePct??null} tone={freshness ? "neutral" : pace.tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
                       <div className="u3-muted">{quotaLabel ?? accountUsageWords(usage)}{freshness && ` · ${freshness}`}</div>
-                      {!quotaLabel && <div className="u3-muted">{observedAt == null ? "No observation time available" : `Last observed ${clock(observedAt, Date.now()/1000)}${usage?.stale !== false ? " · historical reading" : ""}`}</div>}
+                      {!quotaLabel && <div className="u3-muted">{observedAt == null ? "No observation time available" : `Last observed ${clock(observedAt, Date.now()/1000)}${freshness ? " · historical reading" : ""}`}</div>}
                     </td>
                     <td data-label="Status">
                       <StatusPill status={status} />
