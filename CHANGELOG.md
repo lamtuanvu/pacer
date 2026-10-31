@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-31
+
 ### Fixed
 
 - Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
