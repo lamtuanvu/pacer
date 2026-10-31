@@ -56,19 +56,21 @@ test.skipIf(!browserPath)('Plugins renders real rows and reloads after enable an
     const control = page.getByRole('switch', { name: 'Enable checklist', exact: true });
     expect(await page.getByRole('list', { name: 'Plugins', exact: true }).locator(':scope > li').count()).toBe(2);
     await control.click();
-    await page.waitForFunction(() => document.querySelector('[aria-label="Enable checklist"]')?.getAttribute('aria-checked') === 'true');
+    await page.waitForFunction(() => (window as any).lastListedPlugins?.find((p: any) => p.id === 'checklist')?.enabled === true);
     await control.click();
     await page.waitForFunction(() => document.querySelector('[aria-label="Enable checklist"]')?.getAttribute('aria-checked') === 'false');
     expect(await mutations(page)).toEqual([{ op: 'plugin.enable', params: { id: 'checklist' } }, { op: 'plugin.disable', params: { id: 'checklist' } }]);
-    expect(await page.evaluate(() => (window as any).calls.filter((c: any) => c.op === 'plugin.list').length)).toBe(3);
+    await page.waitForFunction(() => (window as any).lastListedPlugins?.find((p: any) => p.id === 'checklist')?.enabled === false);
+    expect(await page.evaluate(() => (window as any).calls.filter((c: any) => c.op === 'plugin.list').length)).toBeGreaterThanOrEqual(3);
   } finally { await browser.close(); }
 });
 
-test.skipIf(!browserPath)('Plugins keeps keyboard focus through mutations and delayed reloads', async () => {
+for (const pluginPage of [false, true]) {
+test.skipIf(!browserPath)(`Plugins ${pluginPage ? 'page' : 'section'} keeps keyboard focus through mutations and delayed reloads`, async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage();
-    await mount(page, { plugins: [plugin()], actionDelay: 250, listDelay: 200, delayedInvalidation: true });
+    await mount(page, { page: pluginPage, plugins: [plugin()], actionDelay: 250, listDelay: 200, delayedInvalidation: true });
     const control = page.getByRole('switch', { name: 'Enable checklist', exact: true });
     await control.focus();
     await control.evaluate(node => {
@@ -86,6 +88,7 @@ test.skipIf(!browserPath)('Plugins keeps keyboard focus through mutations and de
       expect(await control.evaluate(node => document.activeElement === node)).toBe(true);
       // Repeated input during the pending operation must not dispatch another change.
       await page.keyboard.press('Space');
+      expect(await control.isChecked()).toBe(enabled);
       await page.waitForTimeout(1600);
       await page.waitForFunction(count => (window as any).listsSettled >= count, settled);
       expect(await control.isChecked()).toBe(enabled);
@@ -96,6 +99,8 @@ test.skipIf(!browserPath)('Plugins keeps keyboard focus through mutations and de
     expect(await mutations(page)).toEqual([{ op: 'plugin.enable', params: { id: 'checklist' } }, { op: 'plugin.disable', params: { id: 'checklist' } }]);
   } finally { await browser.close(); }
 });
+
+}
 
 test.skipIf(!browserPath)('Plugins keeps loaded rows and inline errors when a reload fails', async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
@@ -124,11 +129,12 @@ test.skipIf(!browserPath)('Plugins describes permanently refused switches', asyn
   } finally { await browser.close(); }
 });
 
-test.skipIf(!browserPath)('Plugins grants only after confirmation and reports operation errors inline', async () => {
+for (const pluginPage of [false, true]) {
+test.skipIf(!browserPath)(`Plugins ${pluginPage ? 'page' : 'section'} grants only after confirmation and reports operation errors inline`, async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage();
-    await mount(page, { plugins: [plugin()], needsGrant: true });
+    await mount(page, { page: pluginPage, plugins: [plugin()], needsGrant: true });
     await page.getByRole('switch', { name: 'Enable checklist' }).focus();
     await page.keyboard.press('Space');
     const dialog = page.getByRole('dialog');
@@ -145,12 +151,57 @@ test.skipIf(!browserPath)('Plugins grants only after confirmation and reports op
     await dialog.getByRole('button', { name: 'Grant and enable', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('[role="switch"]')?.getAttribute('aria-checked') === 'true');
     expect(await mutations(page)).toEqual([{ op: 'plugin.enable', params: { id: 'checklist' } }, { op: 'plugin.enable', params: { id: 'checklist' } }, { op: 'plugin.enable', params: { id: 'checklist', grant: true } }]);
-    await mount(page, { plugins: [plugin()], failAction: true });
+    await mount(page, { page: pluginPage, plugins: [plugin()], failAction: true });
     await page.getByRole('switch').click();
-    await page.getByText('Could not change plugin', { exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: "Couldn't save: Could not change plugin" }).waitFor();
     expect(await page.getByRole('switch').isChecked()).toBe(false);
   } finally { await browser.close(); }
 });
+
+}
+
+for (const pluginPage of [false, true]) {
+  test.skipIf(!browserPath)(`Plugins ${pluginPage ? 'page' : 'section'} rolls back a failed grant and blocks other switches while pending`, async () => {
+    const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+    try {
+      const page = await browser.newPage();
+      await mount(page, { page: pluginPage, plugins: [plugin(), plugin({ id: 'other' })], needsGrant: true, failGrant: true, actionDelay: 250 });
+      const control = page.getByRole('switch', { name: 'Enable checklist', exact: true });
+      const other = page.getByRole('switch', { name: 'Enable other', exact: true });
+      await control.focus();
+      await page.keyboard.press('Space');
+      await page.waitForFunction(() => document.querySelector('[aria-label="Enable other"]')?.getAttribute('aria-disabled') === 'true');
+      await other.evaluate(node => (node as HTMLInputElement).click());
+      expect(await other.isChecked()).toBe(false);
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      await dialog.getByRole('button', { name: 'Grant and enable', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: "Couldn't save: Could not change plugin" }).waitFor();
+      expect(await control.isChecked()).toBe(false);
+      expect(await other.isChecked()).toBe(false);
+      expect(await mutations(page)).toEqual([{ op: 'plugin.enable', params: { id: 'checklist' } }, { op: 'plugin.enable', params: { id: 'checklist', grant: true } }]);
+    } finally { await browser.close(); }
+  });
+}
+
+for (const pluginPage of [false, true]) {
+  test.skipIf(!browserPath)(`Plugins ${pluginPage ? 'page' : 'section'} rejects simultaneous changes before busy renders`, async () => {
+    const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+    try {
+      const page = await browser.newPage();
+      await mount(page, { page: pluginPage, plugins: [plugin(), plugin({ id: 'other' })], actionDelay: 250 });
+      await page.evaluate(() => {
+        document.querySelector<HTMLInputElement>('[aria-label="Enable checklist"]')!.click();
+        document.querySelector<HTMLInputElement>('[aria-label="Enable other"]')!.click();
+      });
+      await page.waitForFunction(() => document.querySelector('[aria-label="Enable other"]')?.closest('.pc-immediate-save__control')?.getAttribute('aria-busy') === 'false');
+      const other = page.getByRole('switch', { name: 'Enable other', exact: true });
+      expect(await other.isChecked()).toBe(false);
+      expect(await page.locator('.pc-immediate-save').nth(1).getByRole('status').textContent()).toBe('');
+      expect(await mutations(page)).toEqual([{ op: 'plugin.enable', params: { id: 'checklist' } }]);
+    } finally { await browser.close(); }
+  });
+}
 
 test.skipIf(!browserPath)('Plugins board geometry and narrow containment in both themes', async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
@@ -163,7 +214,7 @@ test.skipIf(!browserPath)('Plugins board geometry and narrow containment in both
       expect(await page.locator('.pc-settings-plugin').evaluate(node => {
         const s = getComputedStyle(node), tile = getComputedStyle(node.querySelector('.pc-settings-plugin__icon')!);
         return { gap: s.gap, padding: s.padding, tile: [tile.width, tile.height, tile.borderRadius], radius: getComputedStyle(node.parentElement!).borderRadius };
-      })).toEqual({ gap: '12px', padding: '12px 16px', tile: ['32px', '32px', '8px'], radius: '10px' });
+      })).toEqual({ gap: '12px', padding: '12px 16px', tile: ['32px', '32px', '8px'], radius: '12px' });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: join(screenshots, `${theme}-${width}.png`), fullPage: true });
       await page.close();

@@ -64,9 +64,9 @@ test("an older service sees an update notice on the new screens, not empty secti
   expect(renderToString(<Layout route={at("#/settings")} state={ready("2.0.0")} title="Settings"><p>body</p></Layout>)).toContain("<p>body</p>");
 });
 
-test("loading shows section skeletons, never the setup screen", () => {
+test("loading waits for the skeleton delay, never flashing the setup screen", () => {
   const html = renderToString(<Layout route={resolveRoute("#/", null) as Route} state={ready()} title="Overview"><p>body</p></Layout>);
-  expect(html).toContain("pc-skeleton");
+  expect(html).not.toContain("pc-skeleton");
   expect(html).not.toContain("<p>body</p>");
   expect(html).not.toContain("Setup");
 });
@@ -119,7 +119,7 @@ test("detail routes select exactly one primary and at most one settings destinat
 
 
 test("top bar calls the delegate action New task on every destination that offers it", () => {
-  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/terminal"]) {
+  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/workspace"]) {
     const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
     expect(html).toMatch(/pc-btn[^>]*>New task<\/a>/);
     expect(html).not.toMatch(/>Delegate<\/button>/);

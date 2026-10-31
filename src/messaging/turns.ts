@@ -1,5 +1,8 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { CoreError } from "../core/errors";
+import { projectSnapshot, resolvePolicyRepo } from "../core/project-policy";
+import type { ProjectSelection } from "../engine/project-routing";
 import type { OutboxEvent } from "../link/envelope";
 import { publish } from "../link/publish";
 import { publishTaskMessages } from "./publish";
@@ -9,6 +12,7 @@ import { appendActivity } from "../activity/log";
 import { executorsFor } from "../engine/rank";
 import { admissionLifetime } from "../tasks/creation-admission";
 import { getWork } from "../dispatch/work";
+import { restartWorkForTurn } from "../core/work";
 import { headlessTurnPath } from "../exec/launch";
 import { withoutPlannerSession } from "../exec/process";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -19,7 +23,7 @@ import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
 
-export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session";
+export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
 
 export const isClosed = (t: TaskRecord) => !!t.review || !!t.dismissed || !!t.msgClosed || t.state === "stopped";
@@ -58,11 +62,14 @@ export const turnWorktree = (t: TaskRecord): string | null => t.worktree ?? t.re
 /** Why no turn can start for this task now, or null when one can. Checked again under the task lock. */
 function turnBlocked(ctx: Ctx, t: TaskRecord | null): Delivery | null {
   if (!t || isClosed(t)) return "closed";
-  if (getWork(ctx, t.id)) return "pull";
-  if (t.interactionMode === "conversation") return "live_unavailable";
+  if (t.state === "running" && liveRun(t)) return "live";
+  if (t.interactionMode === "conversation") return t.state === "running" && t.run ? "live" : "live_unavailable";
+  if (getWork(ctx, t.id) && ["queued", "running"].includes(t.state)) return "pull";
   if (t.state === "queued" || t.state === "running") return "queued";
   if (!store.pendingFor(ctx, `task:${t.id}`).length) return "queued";
   if (!sessionAgent(t) || !turnCapable(ctx, t)) return "no_session";
+  const work = getWork(ctx, t.id);
+  if (work && t.attempts.length >= (work.options.maxAttempts ?? 3)) return "cap";
   const root = rootOf(ctx, `task:${t.id}`);
   if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
   return null;
@@ -89,6 +96,11 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
     // The runner deletes run when the attempt starts, so the session to resume is captured now.
     const session = !replay && t.run?.executor === executor ? t.run.agentSession : undefined;
     const turn = turnKey(ctx, t, replay);
+    if (getWork(ctx, id)) {
+      const pending = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(replay ? { replay: true } : {}) };
+      restartWorkForTurn(ctx, id, pending, spawn, { expectRev: t.rev, onReset: () => { store.recordTurn(ctx, { id: turn, taskId: id, rootId: root, at: ctx.now }); } });
+      return "turn_started";
+    }
     store.recordTurn(ctx, { id: turn, taskId: id, rootId: root, at: ctx.now });
     updateTask(ctx, id, x => {
       x.pendingTurn = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(replay ? { replay: true } : {}) };
@@ -112,12 +124,30 @@ export interface TurnHold { reason: string; plugin?: string }
 export interface TurnDelivery { delivery: Delivery; hold?: TurnHold }
 
 /** The task's executors that could run its next turn: the prior one first, then its routing rule's local headless executors. */
-function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string): string[] {
+function turnCandidates(ctx: Ctx, t: TaskRecord, prior: string, selection: ProjectSelection | undefined): string[] {
+  // The runner refuses an executor the repository's project policy forbids, so a turn never picks one.
+  const allowed = (id: string) => !selection || selection.executors.includes(id);
   let s: Strategy;
-  try { s = loadStrategy(ctx); } catch { return [prior]; }
+  try { s = loadStrategy(ctx); } catch { return [prior].filter(allowed); }
   const planner = (id: string) => s.runners[id]?.agent === s.planner.agent && s.runners[id]?.account === s.planner.account;
   const others = executorsFor(t.kind ?? null, s).filter(id => id !== prior && s.runners[id]?.enabled !== false && !planner(id) && !!headlessTurnPath(turnRunner(ctx, id)));
-  return [prior, ...new Set(others)];
+  return [prior, ...new Set(others)].filter(allowed);
+}
+
+/** The repository's project executor selection, resolved as the runner resolves it; undefined when the project is unrestricted. */
+async function turnSelection(ctx: Ctx, t: TaskRecord): Promise<{ repoKey: string; selection: ProjectSelection | undefined } | null> {
+  let s: Strategy;
+  try { s = loadStrategy(ctx); } catch { return null; }
+  const repo = t.repo && !t.repo.identityUnverified ? t.repo : await resolvePolicyRepo(ctx, t.brief.repo);
+  return { repoKey: repo.key, selection: projectSnapshot(ctx, s, repo.key).selection };
+}
+
+/** At queue commit: the project policy still allows the chosen executor, or the turn is admitted again. */
+function revalidateSelection(ctx: Ctx, repoKey: string, executor: string): void {
+  let s: Strategy;
+  try { s = loadStrategy(ctx); } catch { return; }
+  const selection = projectSnapshot(ctx, s, repoKey).selection;
+  if (selection && !selection.executors.includes(executor)) throw new CoreError("conflict", "Project policy changed while the turn was admitted");
 }
 
 const policyHold = (e: CoreError): TurnHold => ({ reason: e.message, ...(e.hint?.startsWith("plugin ") ? { plugin: e.hint.slice(7) } : {}) });
@@ -127,15 +157,21 @@ const policyHold = (e: CoreError): TurnHold => ({ reason: e.message, ...(e.hint?
  * brief and executor, then the route decision over the executors that can run the turn. The prior executor resumes its session
  * while policy still admits it; otherwise the first admitted executor replays the thread. A veto, or no admitted executor, holds it.
  */
-async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; guard: () => void } | TurnHold> {
+async function admitTurn(ctx: Ctx, t: TaskRecord, live = false): Promise<{ executor: string; guard: () => void } | TurnHold> {
   const prior = sessionAgent(t)!;
   const { applyPolicy } = await import("../plugins/policy");
-  const context = () => { const x = readTask(ctx, t.id); return JSON.stringify(x && { executor: sessionAgent(x), state: x.state, attempts: x.attempts.length, kind: x.kind, repo: x.brief.repo, worktree: turnWorktree(x) }); };
+  const context = () => { const x = readTask(ctx, t.id); return JSON.stringify(x && { executor: sessionAgent(x), state: x.state, attempts: x.attempts.length, kind: x.kind, repo: x.brief.repo, repoKey: x.repo?.key, identityUnverified: x.repo?.identityUnverified, worktree: turnWorktree(x) }); };
   const placement = t.placement?.mode ?? (t.placement?.requested === "current" || t.placement?.requested === "new" ? t.placement.requested : "auto");
   try {
     const delegate = await applyPolicy(ctx, "delegate", { goal: t.brief.goal, repo: t.brief.repo, kind: t.kind ?? null, requestedExecutor: prior, placement },
       { contextFingerprint: context, eligibleRunnerIds: [prior], allowedPlacements: [placement], validateDelegate: () => false, ...admissionLifetime(ctx) });
-    const route = await applyPolicy(ctx, "route", { taskId: t.id, candidates: turnCandidates(ctx, t, prior) }, { contextFingerprint: context, ...admissionLifetime(ctx) });
+    // A repository identity that project policy cannot establish holds the turn rather than failing it in the runner.
+    const project = await turnSelection(ctx, t).catch((e: unknown) => { if (e instanceof CoreError && e.code === "invalid_input") return { hold: { reason: e.message } }; throw e; });
+    if (project && "hold" in project) return project.hold;
+    // A live delivery types into the prior executor's running session, so only that executor can take it.
+    const candidates = turnCandidates(ctx, t, prior, project?.selection);
+    if (!candidates.length || (live && !candidates.includes(prior))) return { reason: `No executor that project policy allows for ${project?.repoKey ?? "this repository"} can run this task's next turn` };
+    const route = await applyPolicy(ctx, "route", { taskId: t.id, candidates: live ? [prior] : candidates }, { contextFingerprint: context, ...admissionLifetime(ctx) });
     if (route.params.decision !== "route") throw new CoreError("invalid_input", "Invalid route policy receipt");
     const admitted = route.params.input.candidates;
     const executor = admitted.includes(prior) ? prior : admitted[0];
@@ -143,7 +179,7 @@ async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; g
       const plugins = [...new Set(Object.values(route.excludedBy))];
       return { reason: `No executor is admitted for this task's next turn${plugins.length ? ` (excluded by plugin ${plugins.join(", ")})` : ""}`, ...(plugins.length === 1 ? { plugin: plugins[0] } : {}) };
     }
-    return { executor, guard: () => { delegate.revalidate(); route.revalidate(); } };
+    return { executor, guard: () => { delegate.revalidate(); route.revalidate(); if (project) revalidateSelection(ctx, project.repoKey, executor); } };
   } catch (e) {
     if (e instanceof CoreError && (e.code === "not_allowed" || e.code === "plugin_timeout")) return policyHold(e);
     throw e;
@@ -151,50 +187,70 @@ async function admitTurn(ctx: Ctx, t: TaskRecord): Promise<{ executor: string; g
 }
 
 /** Tell each sender of a held turn's messages why they wait, once per set of pending messages. */
-async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRunner): Promise<void> {
+export async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRunner): Promise<void> {
   const pending = store.pendingFor(ctx, `task:${id}`);
   const last = pending.at(-1);
   if (!last) return;
-  appendActivity(ctx, { kind: "message", level: "warn", text: `Messages to task ${id} are held: ${hold.reason}`, taskId: id });
+  const senders = [...new Set(pending.map(m => m.from).filter(f => f !== `task:${id}`))];
+  if (senders.some(from => !store.byRequest(ctx, `task:${id}`, `held:${last.id}:${from}`)))
+    appendActivity(ctx, { kind: "message", level: "warn", text: `Messages to task ${id} are held: ${hold.reason}`, taskId: id });
   const body = `Messages to task ${id} are held by project policy and stay pending: ${hold.reason}. They are delivered with the next message once policy admits a turn.`;
-  for (const from of new Set(pending.map(m => m.from).filter(f => f !== `task:${id}`))) await report(ctx, id, from, "[held]", body, `held:${last.id}:${from}`, spawn);
+  for (const from of senders) await report(ctx, id, from, "[held]", body, `held:${last.id}:${from}`, spawn);
 }
 
 /**
  * Start the task's next message turn after fresh policy admission (ADR 0015), retrying when the policy context changed meanwhile.
  * A held turn leaves its messages pending, records why in the task's activity, and reports it to their senders unless quiet.
+ * Policy that still changes on the third admission holds the turn too.
  */
 export async function beginTurn(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean; quiet?: boolean } = {}): Promise<TurnDelivery> {
   for (let attempt = 0; ; attempt++) {
     const t = readTask(ctx, id);
     const blocked = turnBlocked(ctx, t);
-    if (blocked || !t) return { delivery: blocked ?? "closed" };
-    const admitted = await admitTurn(ctx, t);
+    if (blocked && blocked !== "live" || !t) return { delivery: blocked ?? "closed" };
+    if (blocked === "live" && !sessionAgent(t)) return { delivery: "live_unavailable" };
+    const admitted = await admitTurn(ctx, t, blocked === "live");
     if (!("executor" in admitted)) {
       if (!o.quiet) await reportHold(ctx, id, admitted, spawn);
       return { delivery: "held", hold: admitted };
     }
-    try { return { delivery: startTurnIfIdle(ctx, id, spawn, { replay: o.replay, executor: admitted.executor, guard: admitted.guard }) }; }
-    catch (e) { if (attempt < 2 && e instanceof CoreError && e.code === "conflict") continue; throw e; }
+    let hold: TurnHold;
+    try {
+      if (blocked === "live") { admitted.guard(); return { delivery: "live" }; }
+      return { delivery: startTurnIfIdle(ctx, id, spawn, { replay: o.replay, executor: admitted.executor, guard: admitted.guard }) };
+    } catch (e) {
+      if (!(e instanceof CoreError && e.code === "conflict")) throw e;
+      if (attempt < 2) continue;
+      // Policy kept changing under admission: the messages wait for the next send rather than failing it.
+      hold = { reason: `Project policy changed while this task's next turn was admitted (${e.message})` };
+    }
+    if (!o.quiet) await reportHold(ctx, id, hold, spawn);
+    return { delivery: "held", hold };
   }
 }
+
+/** A local interactive run whose terminal remains under pacer control. */
+export const liveRun = (t: TaskRecord) => !!t.run && !t.run.host && !t.run.takeover && t.takeover?.state !== "driving" && existsSync(join(t.run.dir, "interactive.json"));
 
 export function deliver(ctx: Ctx, to: string, spawn?: SpawnRunner): Promise<TurnDelivery> {
   const id = taskOf(to);
   if (!id) return Promise.resolve({ delivery: "pull" });
+  const t = readTask(ctx, id);
+  const blocked = turnBlocked(ctx, t);
+  if (blocked && blocked !== "live") return Promise.resolve({ delivery: blocked });
   return beginTurn(ctx, id, spawn);
 }
 
-const label = (p: string) => p === "human" ? "the user" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
+const label = (p: string) => p === "human" ? "the user" : p === "broker" ? "pacer" : p.startsWith("external:") ? `planner ${p.slice(9)}` : `task ${p.slice(5)}`;
 
-export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[]): string {
+export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[], o: { live?: boolean } = {}): string {
   const parent = parentOf(ctx, `task:${task.id}`) ?? "human";
   const blocks = messages.map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) ---\n${m.body}`);
   return [
     `You are continuing pacer task ${task.id} in the same workspace. New messages:`,
     ...blocks,
     "---",
-    `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report. This turn runs headless: do not run \`pacer report\`.`,
+    o.live ? `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report.` : `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report. This turn runs headless: do not run \`pacer report\`.`,
     `To message another participant or ask a question, run: pacer msg send --to <participant> "<text>" [--question]`,
     "Do not commit.",
   ].join("\n\n");
@@ -222,7 +278,7 @@ export function claimTurnMessages(ctx: Ctx, task: TaskRecord): { turnId: string;
   return { turnId, messages };
 }
 
-async function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): Promise<void> {
+export async function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): Promise<void> {
   const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
     body: `${head} ${readable(body).slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
   if (!r.duplicate) { void notifyMessage(ctx, r.message); await deliver(ctx, parent, spawn); }
@@ -242,7 +298,7 @@ function readable(text: string): string {
 }
 
 /** Who reads this task's run-end report: its origin. Work children report through dispatch.review; legacy tasks have no reader. */
-function reportReader(ctx: Ctx, t: TaskRecord): string | null {
+export function reportReader(ctx: Ctx, t: TaskRecord): string | null {
   const work = getWork(ctx, t.id);
   if (work?.parentId) return null;
   return t.origin ?? null;
@@ -258,7 +314,7 @@ function rejectedResume(t: TaskRecord): boolean {
 }
 
 /** A report the agent itself sent, as opposed to a run-end report pacer wrote for an earlier run. */
-const agentReport = (m: Message) => m.kind === "report" && !/^(report|undelivered):/.test(m.requestId ?? "");
+export const agentReport = (m: Message) => m.kind === "report" && !/^(report|undelivered):/.test(m.requestId ?? "");
 
 /**
  * After a run settles: report to the parent once per attempt, then deliver anything that arrived meanwhile.
@@ -324,7 +380,5 @@ export function assertOpen(ctx: Ctx, to: string): void {
     throw new CoreError("conflict", `Task ${id}'s worktree was cleaned up, so it cannot take another message turn`,
       "Start a new task, or retry this one to restore its worktree from its branch.", { reason: "msg_worktree_unavailable" });
   }
-  if (t.interactionMode === "conversation" && participantKind(to) === "launched") {
-    throw new CoreError("conflict", "Messages to live conversations arrive in a later release", undefined, { reason: "msg_live_unavailable" });
-  }
+
 }

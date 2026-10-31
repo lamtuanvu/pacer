@@ -87,7 +87,7 @@ export function restoreHooks(doc: HookDoc, fmt: HookFormat, removed: RemovedHook
 export function isPacerHook(command: string, planner: string): boolean {
   const escapedPlanner = planner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return typeof command === "string" && /pacer|cli\.(ts|js)/.test(command)
-    && new RegExp(`\\s(guard --planner|status --hook|session-start --planner) ${escapedPlanner}$`).test(command);
+    && new RegExp(`\\s(guard --planner|status --hook|session-start --planner|msg hook (?:session|stop|prompt) --planner) ${escapedPlanner}$`).test(command);
 }
 
 /** Keep group and hook indices stable: Codex trust entries refer to both. */

@@ -107,7 +107,7 @@ test('work_rows_nest_children_and_omit_unknown_facts', () => {
   // Attention follows Needs you: the snapshot's failed item for t-0409 counts, an unlisted child failure does not.
   expect(nodes.find(node => node.id === 't-0409')!.attention).toBe('bad');
   expect(root.children[0]!.attention).toBe('none');
-  expect(nodes.find(node => node.id === 't-0409')!.host).toEqual({ name: 'This Mac', kind: 'local' });
+  expect(nodes.find(node => node.id === 't-0409')!.host).toEqual({ name: 'Local Mac', kind: 'local' });
   // Without a snapshot the row's own state is the only evidence.
   expect(taskTree({ tasks: workTasks(rows) }, { now: 1 }).find(node => node.id === 'w-root')!.children[0]!.attention).toBe('bad');
 });

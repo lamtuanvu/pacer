@@ -65,12 +65,19 @@ export function executorEligibility(executor: ExecutorRow, now: number) {
     : eligibility;
 }
 
-export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary) {
-  const historical = (account.usedPct !== null || account.spendUsdWeek != null)
-    && (account.stale !== false || account.eligibility?.budget === "unknown");
-  if (!historical) return null;
-  const ageS = account.capturedAt == null || !account.eligibility ? null
-    : Math.max(0, account.eligibility.evaluatedAt - account.capturedAt);
+/** Legacy readings remain visible, but freshness requires explicit, timed evidence. */
+export function accountUsageHistorical(account: import("../api/read-model/types").AccountSummary, now = Date.now()/1000) {
+  return (account.usedPct != null || account.spendUsdWeek != null)
+    && (account.stale !== false || account.eligibility?.budget === "unknown"
+      || account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now
+      || (account.resetsAt != null && account.resetsAt <= now)
+      || (account.capturedAt != null && now - account.capturedAt > 86400));
+}
+
+export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary, now = account.eligibility?.evaluatedAt ?? Date.now()/1000) {
+  if (!accountUsageHistorical(account, now)) return null;
+  const ageS = account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now || !account.eligibility ? null
+    : Math.max(0, now - account.capturedAt);
   return ageS === null ? "Stale reading · check account usage"
     : `Reading ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} old`;
 }
@@ -111,4 +118,11 @@ export function executorWeekUsage(executor: ExecutorRow, snapshot: ClientSnapsho
   const window = account?.window === "weekly" ? "week" : account?.window ?? "week";
   const reset = account?.resetsAt == null ? "" : ` · resets ${new Date(account.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" })}`;
   return `${percentage(executor.usedPct)} of ${window}${reset}`;
+}
+
+/** Account pace is meaningful only while a measured budget window is current. */
+export function accountBudgetStatus(account: import("../api/read-model/types").AccountSummary, now = Date.now()/1000) {
+  if (account.usedPct == null && account.spendUsdWeek == null) return {...paceStatus("unknown"),label:"Usage unknown"};
+  if (accountUsageHistorical(account, now)) return {...paceStatus("unknown"),label:"Stale reading",tone:"warn" as const,glyph:"!"};
+  return paceStatus(account.verdict);
 }

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { buildLocal, localBuildVersion, versionFromDescription } from "../scripts/build";
+import { dirname, join, resolve } from "node:path";
+import { versionFromDescription } from "../scripts/build";
 import { tmpDir } from "./helpers";
 
 test("local build versions combine package version and git describe", () => {
@@ -20,13 +20,14 @@ test("local version falls back to package.json when Git is not installed", () =>
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "7.8.9" }));
   const script = resolve(import.meta.dir, "..", "scripts", "build.ts");
   const result = Bun.spawnSync([process.execPath, "-e", `import { localBuildVersion } from ${JSON.stringify(script)}; console.log(localBuildVersion(${JSON.stringify(root)}));`], {
-    env: { ...process.env, PATH: "" },
+    // An empty PATH makes Bun use its default executable search path.
+    env: { ...process.env, PATH: root },
   });
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString().trim()).toBe("7.8.9");
 });
 
-test("local build embeds the package version in a standalone binary without Git", async () => {
+test("local build embeds the package version in a standalone source archive", () => {
   const root = tmpDir();
   mkdirSync(join(root, "src", "update"), { recursive: true });
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "7.8.9" }));
@@ -34,9 +35,18 @@ test("local build embeds the package version in a standalone binary without Git"
     copyFileSync(resolve(import.meta.dir, "..", "src", "update", name), join(root, "src", "update", name));
   }
   writeFileSync(join(root, "src", "cli.ts"), 'import { currentVersion } from "./update/version"; console.log(`pacer ${currentVersion()}`);');
-  expect(localBuildVersion(root)).toBe("7.8.9");
-  writeFileSync(join(root, "package.json"), JSON.stringify({ version: "7.8.9+12.gabc1234" }));
-  await buildLocal(root);
+  const script = resolve(import.meta.dir, "..", "scripts", "build.ts");
+  // A source archive can live below a checkout. Stop ancestor discovery in this
+  // child only, retaining PATH and the keychain stub used during local signing.
+  const build = Bun.spawnSync([process.execPath, "-e", `
+    import { buildLocal, localBuildVersion } from ${JSON.stringify(script)};
+    import { writeFileSync } from "node:fs";
+    const root = ${JSON.stringify(root)};
+    if (localBuildVersion(root) !== "7.8.9") throw Error("archive did not use package version");
+    writeFileSync(root + "/package.json", JSON.stringify({version: "7.8.9+12.gabc1234"}));
+    await buildLocal(root);
+  `], { env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) } });
+  expect(build.exitCode, build.stderr.toString()).toBe(0);
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "9.9.9" }));
   const result = Bun.spawnSync([join(root, "dist", "pacer"), "--version"], { cwd: tmpDir() });
   expect(result.exitCode).toBe(0);

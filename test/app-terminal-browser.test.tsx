@@ -48,6 +48,19 @@ browserTest("terminal page creates, selects, renames, splits and closes tabs wit
     await page.getByRole("button",{name:"New terminal",exact:true}).click();
     await tabs.nth(1).waitFor();
     await expect(tabs.count()).resolves.toBe(2);
+    for (const width of [375, 640, 1440]) {
+      await page.setViewportSize({width,height:900});
+      for (const name of ["New terminal in…", "More terminal actions"]) {
+        const trigger=page.getByRole("button",{name,exact:true});
+        await trigger.click();
+        await page.waitForFunction(()=>document.activeElement?.getAttribute("role")==="menuitem");
+        await page.keyboard.press("End");
+        await page.keyboard.press("Escape");
+        await page.getByRole("menu").waitFor({state:"detached"});
+        await expect(trigger.getAttribute("aria-expanded")).resolves.toBe("false");
+        await expect(trigger.evaluate(node=>document.activeElement===node)).resolves.toBe(true);
+      }
+    }
     await tabs.nth(1).focus();await page.keyboard.press("ArrowLeft");
     await expect(tabs.nth(0).getAttribute("aria-selected")).resolves.toBe("true");
     await page.getByRole("button",{name:"More terminal actions"}).click();
@@ -57,10 +70,24 @@ browserTest("terminal page creates, selects, renames, splits and closes tabs wit
     await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(1);
     await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
     await expect(page.getByRole("region",{name:/Terminal:/}).count()).resolves.toBe(2);
+    const countBeforeCollapse = await page.evaluate(() => (globalThis as any).terminalTest.records.length);
+    await page.getByRole("separator", {name:"Resize terminal split"}).focus();
+    await page.keyboard.press("Meta+Backslash");
+    await page.waitForFunction(() => document.querySelectorAll('[role="region"][aria-label^="Terminal:"]').length === 1);
+    await expect(page.getByRole("tab", {name:"Build",exact:true}).evaluate(node => document.activeElement === node)).resolves.toBe(true);
+    await expect(page.evaluate(() => (globalThis as any).terminalTest.records.length)).resolves.toBe(countBeforeCollapse);
+    await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
+    await page.waitForFunction(() => document.querySelectorAll('[role="region"][aria-label^="Terminal:"]').length === 2);
+    const countBeforeButtonCollapse = await page.evaluate(() => (globalThis as any).terminalTest.records.length);
+    await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
+    await page.waitForFunction(() => document.activeElement?.id.endsWith("-tab") && document.activeElement.textContent === "Build");
+    expect(await page.getByRole("region",{name:/Terminal:/}).count()).toBe(1);
+    expect(await page.evaluate(() => (globalThis as any).terminalTest.records.length)).toBe(countBeforeButtonCollapse);
     await page.getByRole("button",{name:"Kill Build"}).click();
     await page.getByRole("heading",{name:/close terminal/i}).waitFor();
     await page.getByRole("button",{name:"Stop and close"}).click();
     await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(0);
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "tab" && document.activeElement.getAttribute("aria-selected") === "true");
   }finally{await browser.close();}
 }, 30_000);
 
@@ -119,3 +146,34 @@ browserTest("terminal output search finds a match and reports missing text by ke
     await expect(page.getByText("No match").count()).resolves.toBe(1);
   }finally{await browser.close();}
 },30_000);
+
+browserTest("panel auto-creates once, reuses on reopen, and stays empty after killing until reopened", async () => {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/terminal-browser.tsx"], target: "browser", plugins: [{ name: "stub-panel-pty", setup(builder) {
+    builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "panel-stub" }));
+    builder.onLoad({ filter: /.*/, namespace: "panel-stub" }, () => ({ contents: "export const LazyTerminal = () => null;", loader: "js" }));
+  } }] });
+  expect(build.success).toBe(true);
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate(() => { location.hash = "embedded"; });
+    await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, await build.outputs[0]!.text());
+    const tabs = page.getByRole("tab");
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+    await page.getByRole("button", { name: "Kill terminal", exact: true }).click();
+    await page.getByRole("button", { name: "Stop and close" }).click();
+    await page.getByText("No terminals open", { exact: true }).waitFor();
+    await page.waitForTimeout(2200);
+    expect(await tabs.count()).toBe(0);
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+  } finally { await browser.close(); }
+}, 30_000);

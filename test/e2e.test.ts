@@ -5,7 +5,7 @@ import { fakeCtx, withLoginIndicators, tmpDir } from "./helpers";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 
-function setup(executors: Record<string, string>, strategy: string) {
+function setup(executors: Record<string, string>, strategy: string, inheritedEnv = process.env) {
   const home = tmpDir();
   withLoginIndicators(fakeCtx({ home }));
   const pacerHome = join(home, ".pacer");
@@ -21,7 +21,9 @@ function setup(executors: Record<string, string>, strategy: string) {
   }
   const repo = join(home, "repo");
   mkdirSync(repo);
-  const env: Record<string, string | undefined> = { ...process.env, HOME: home, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
+  // Routing's login indicator honors CODEX_HOME before HOME. Keep it with the
+  // fixture's fake auth file even when the invoking shell selects another account.
+  const env: Record<string, string | undefined> = { ...inheritedEnv, HOME: home, CODEX_HOME: join(home, ".codex"), PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${inheritedEnv.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
   // The CLI fixture acts as the user, even when the test runner itself is an executor.
   delete env.PACER_ROLE;
   delete env.PACER_TASK_ID;
@@ -37,7 +39,7 @@ function delegateWait(env: Record<string, string | undefined>, repo: string, ext
 const CODEX_OK = 'case " $* " in *" app-server "*) printf \'{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":1,"windowDurationMins":10080,"resetsAt":2000000000}}}}\\n\'; exit 0;; esac; out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo hi > fixed.txt; echo "Created fixed.txt; acceptance passes." > "$out"';
 
 test("delegate --wait runs codex through a detached runner and verifies the result", () => {
-  const { repo, env } = setup({ codex: CODEX_OK }, "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  const { repo, env } = setup({ codex: CODEX_OK }, "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n", { ...process.env, CODEX_HOME: tmpDir(), OPENAI_API_KEY: "", CODEX_API_KEY: "" });
   const r = delegateWait(env, repo);
   expect(r.code).toBe(0);
   expect(r.task.state).toBe("done");

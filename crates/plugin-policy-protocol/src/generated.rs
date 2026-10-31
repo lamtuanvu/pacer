@@ -63,6 +63,7 @@ pub mod error {
 ///          "job",
 ///          "notify",
 ///          "message",
+///          "liveness",
 ///          "machine",
 ///          "assistant",
 ///          "discovery.found"
@@ -108,6 +109,7 @@ pub struct CapabilityEventsSubscribeParams {
 ///    "job",
 ///    "notify",
 ///    "message",
+///    "liveness",
 ///    "machine",
 ///    "assistant",
 ///    "discovery.found"
@@ -164,6 +166,8 @@ pub enum CapabilityEventsSubscribeParamsTypesItem {
     Notify,
     #[serde(rename = "message")]
     Message,
+    #[serde(rename = "liveness")]
+    Liveness,
     #[serde(rename = "machine")]
     Machine,
     #[serde(rename = "assistant")]
@@ -197,6 +201,7 @@ impl ::std::fmt::Display for CapabilityEventsSubscribeParamsTypesItem {
             Self::Job => f.write_str("job"),
             Self::Notify => f.write_str("notify"),
             Self::Message => f.write_str("message"),
+            Self::Liveness => f.write_str("liveness"),
             Self::Machine => f.write_str("machine"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
@@ -225,6 +230,7 @@ impl ::std::str::FromStr for CapabilityEventsSubscribeParamsTypesItem {
             "job" => Ok(Self::Job),
             "notify" => Ok(Self::Notify),
             "message" => Ok(Self::Message),
+            "liveness" => Ok(Self::Liveness),
             "machine" => Ok(Self::Machine),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),
@@ -2718,6 +2724,7 @@ impl<'de> ::serde::Deserialize<'de> for PolicyBeforeResultReason {
 ///        "job",
 ///        "notify",
 ///        "message",
+///        "liveness",
 ///        "machine",
 ///        "assistant",
 ///        "discovery.found"
@@ -2839,6 +2846,7 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Pol
 ///    "job",
 ///    "notify",
 ///    "message",
+///    "liveness",
 ///    "machine",
 ///    "assistant",
 ///    "discovery.found"
@@ -2895,6 +2903,8 @@ pub enum PolicyEventType {
     Notify,
     #[serde(rename = "message")]
     Message,
+    #[serde(rename = "liveness")]
+    Liveness,
     #[serde(rename = "machine")]
     Machine,
     #[serde(rename = "assistant")]
@@ -2928,6 +2938,7 @@ impl ::std::fmt::Display for PolicyEventType {
             Self::Job => f.write_str("job"),
             Self::Notify => f.write_str("notify"),
             Self::Message => f.write_str("message"),
+            Self::Liveness => f.write_str("liveness"),
             Self::Machine => f.write_str("machine"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
@@ -2956,6 +2967,7 @@ impl ::std::str::FromStr for PolicyEventType {
             "job" => Ok(Self::Job),
             "notify" => Ok(Self::Notify),
             "message" => Ok(Self::Message),
+            "liveness" => Ok(Self::Liveness),
             "machine" => Ok(Self::Machine),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),

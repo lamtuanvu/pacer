@@ -1,5 +1,6 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { Icon } from "./icons";
 import { Button } from "./Button";
 import { classNames } from "./classNames";
 
@@ -35,8 +36,9 @@ interface Drag { key: string; from: number; over: number; pointer: number }
  * Ordered list with a pointer drag handle. Move up, Move down and Remove buttons are the
  * keyboard path; focus stays on the moved item and a polite live region announces the result.
  */
-export function SortableList({ label, items, onReorder, onRemove, disabled, renderExtra, iconControls = false }: {
+export function SortableList({ label, items, onReorder, onRemove, disabled, renderExtra, iconControls = false, layout }: {
   iconControls?: boolean;
+  layout?: "executor";
   label: string;
   items: readonly SortableItem[];
   onReorder: (keys: string[]) => void;
@@ -71,7 +73,7 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
   };
 
   const finalIndex = (state: Drag, clientY: number) => {
-    const rows = [...(list.current?.children ?? [])] as HTMLElement[];
+    const rows = [...(list.current?.querySelectorAll(":scope > [data-sortable-key]") ?? [])] as HTMLElement[];
     return rows.filter((row, at) => at !== state.from && row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2 < clientY).length;
   };
   const startDrag = (event: JSX.TargetedPointerEvent<HTMLSpanElement>, index: number) => {
@@ -100,7 +102,7 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
     }
   };
 
-  return <div className={classNames("pc-sortable", iconControls && "pc-sortable--icons")}>
+  return <div className={classNames("pc-sortable", iconControls && "pc-sortable--icons", layout && `pc-sortable--${layout}`)}>
     <ol ref={list} className="pc-sortable__list" aria-label={label} tabIndex={-1}>
       {items.map((item, index) => <li key={item.key} data-sortable-key={item.key}
         className={classNames("pc-sortable__item", drag?.key === item.key && "pc-sortable__item--dragging",
@@ -114,16 +116,18 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
           {item.leading}<div className="pc-sortable__content"><strong className="pc-sortable__label" title={item.label}>{item.displayLabel ?? item.label}</strong>{item.detail}</div>
           {item.trailing}<div className="pc-sortable__actions">
             {index > 0 && <Button size="sm" variant={iconControls ? "quiet" : "secondary"} data-sortable-control="up" aria-label={`Move up: ${item.label}`} disabled={disabled}
-              onClick={() => move(index, index - 1, ["up", "down"])}>{iconControls ? <span aria-hidden="true">↑</span> : "Move up"}</Button>}
+              onClick={() => move(index, index - 1, ["up", "down"])}>{iconControls ? <Icon name="chevron-up"/> : "Move up"}</Button>}
             {index < items.length - 1 && <Button size="sm" variant={iconControls ? "quiet" : "secondary"} data-sortable-control="down" aria-label={`Move down: ${item.label}`} disabled={disabled}
-              onClick={() => move(index, index + 1, ["down", "up"])}>{iconControls ? <span aria-hidden="true">↓</span> : "Move down"}</Button>}
+              onClick={() => move(index, index + 1, ["down", "up"])}>{iconControls ? <Icon name="chevron-down"/> : "Move down"}</Button>}
             {onRemove && <Button size="sm" variant="quiet" data-sortable-control="remove" aria-label={`Remove: ${item.label}`} disabled={disabled}
-              onClick={() => remove(index)}>{iconControls ? <span aria-hidden="true">×</span> : "Remove"}</Button>}
+              onClick={() => remove(index)}>{iconControls ? <Icon name="close"/> : "Remove"}</Button>}
           </div>
         </div>
         {renderExtra?.(item, index)}
       </li>)}
+      {layout === "executor" && <li className="pc-sortable__drop-guide" aria-hidden="true">Drag an executor here to move it to the end</li>}
     </ol>
+    {layout === "executor" && <p className="pc-sortable__help">Drag to reorder, or use the Move up and Move down buttons with the keyboard. Use + to add an available executor.</p>}
     <p className="pc-sortable__status" role="status" aria-live="polite">{announcement}</p>
   </div>;
 }

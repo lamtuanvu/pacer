@@ -13,7 +13,6 @@ import { opencodeConfigPath } from "../install/opencode";
 import { launchFor, launchModeFor } from "../exec/launch";
 import { validateExecution } from "../config/execution";
 import { execProcess } from "../exec/process";
-import { agentDelegationControl } from "../plugins/agent-session";
 import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
@@ -57,7 +56,8 @@ export function observeClaudeCanary(output:string,entry:string):CanaryResult {
 const checkedVersions=new Map<string,string>();
 const versionKey=(binary:string)=>{try{return `${binary}:${statSync(binary).mtimeMs}`;}catch{return binary;}};
 export class EnforcementUnverified extends Error{constructor(readonly agent:string){super(`${agent} version has not been checked in this process`);}}
-export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string,opts:{cachedVersionOnly?:boolean}={}):Promise<EnforcementTarget> {
+/** The target for `runnerId` without its version; throws when no strict launch is possible. Spawns nothing. */
+function localTarget(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):Omit<EnforcementTarget,"version"> {
   const runner=strategy.runners[runnerId],cfg=strategy.providers[runnerId];
   if(!runner||!cfg||runner.host)throw new CoreError("not_allowed","Strict native control requires a local executor");
   const executable:Partial<Record<typeof runner.agent,string>>={"claude-code":"claude",codex:"codex",cursor:"cursor-agent",opencode:"opencode"};
@@ -65,22 +65,26 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
   if(!command)throw new CoreError("not_allowed",`No native control adapter for ${runner.agent}`);
   const binary=ctx.which(command);
   if(!binary)throw new CoreError("not_allowed",`Executor ${runner.agent} is not installed`);
-  let version:string|undefined;
-  if(opts.cachedVersionOnly){
-    version=checkedVersions.get(versionKey(binary));
-    if(!version)throw new EnforcementUnverified(runner.agent);
-  } else {
-    const versionResult=await ctx.run([binary,"--version"],5000);
-    version=/\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9]+)?/.exec(versionResult.stdout)?.[0];
-    if(versionResult.code!==0||!version)throw new CoreError("not_allowed",`Could not verify ${runner.agent} version`);
-    checkedVersions.set(versionKey(binary),version);
-  }
   if(!strategy.accounts[runner.account])throw new CoreError("not_allowed","Executor account is unavailable");
   const controlFiles=controlFilesFor(ctx,strategy,runnerId,repo);
   // The same precedence as a strict attempt: only an explicit runner session makes it interactive.
   const launchMode=launchModeFor(cfg,validateExecution(strategy.execution),{managed:true}).mode;
   const launch=launchFor({...cfg,session:launchMode},"__prompt__","__repo__","__run__","__task__");
-  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode,launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
+  return {runner:runnerId,account:runner.account,agent:runner.agent,binary,controlFiles,launchMode,launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
+}
+export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string,opts:{cachedVersionOnly?:boolean}={}):Promise<EnforcementTarget> {
+  const base=localTarget(ctx,strategy,runnerId,repo),binary=base.binary;
+  let version:string|undefined;
+  if(opts.cachedVersionOnly){
+    version=checkedVersions.get(versionKey(binary));
+    if(!version)throw new EnforcementUnverified(base.agent);
+  } else {
+    const versionResult=await ctx.run([binary,"--version"],5000);
+    version=/\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9]+)?/.exec(versionResult.stdout)?.[0];
+    if(versionResult.code!==0||!version)throw new CoreError("not_allowed",`Could not verify ${base.agent} version`);
+    checkedVersions.set(versionKey(binary),version);
+  }
+  return {...base,version};
 }
 /** The native control files a probe of `runnerId` in `repo` depends on; reads no process. */
 function controlFilesFor(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):string[] {
@@ -165,6 +169,28 @@ export async function enforcementExclusion(ctx:Ctx,strategy:Strategy,runnerId:st
   } catch(error) {
     return error instanceof Error?error.message:"Native subagent control is unverified";
   }
+}
+export type StrictReadiness = {ready:true}|{ready:false;code:"interactive"|"unsupported"|"unverified"|"unavailable";detail:string};
+/**
+ * Whether `runnerId` can plausibly run strict managed work now, from stored state only: it spawns no `--version`
+ * and runs no probe. A stored, unexpired certificate counts; its fingerprint is checked only when this process
+ * already knows the version. The runner's own strict check stays authoritative at launch.
+ */
+export function strictReadiness(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):StrictReadiness {
+  let target:Omit<EnforcementTarget,"version">;
+  try {target=localTarget(ctx,strategy,runnerId,repo);}
+  catch(error) {return {ready:false,code:"unavailable",detail:error instanceof Error?error.message:"Executor is unavailable"};}
+  const version=checkedVersions.get(versionKey(target.binary));
+  const unsupported=probeSupportReason({...target,version:version??""},repo);
+  if(unsupported)return {ready:false,code:unsupported===STRICT_INTERACTIVE_REASON?"interactive":"unsupported",detail:unsupported};
+  if(version){
+    const status=certificateStatus(ctx,{...target,version});
+    return status.state==="certified"?{ready:true}:{ready:false,code:"unverified",detail:status.reason??"Native subagent control is unverified"};
+  }
+  const row=dispatchDatabase(ctx).query<{expires:number},[string]>("SELECT expires FROM enforcement_certificates WHERE target=?").get(key({...target,version:""}));
+  if(!row)return {ready:false,code:"unverified",detail:"Native subagent control has not been verified"};
+  if(row.expires<=ctx.now)return {ready:false,code:"unverified",detail:"Native subagent control verification expired"};
+  return {ready:true};
 }
 /**
  * What the schedule will do for this row. tick probes the scheduled repository,
@@ -286,6 +312,8 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
   const target=await resolveEnforcementTarget(ctx,strategy,runnerId,repo);
   const unsupported=probeSupportReason(target,repo);
   if(unsupported)return {state:"uncertified",reason:unsupported};
+  // Loaded on demand: the plugin host reaches the op table, and task delegation reads this module synchronously.
+  const {agentDelegationControl}=await import("../plugins/agent-session");
   const control=await agentDelegationControl(ctx,{agent:target.agent,version:target.version});
   if(control.mechanism!=="hook")return {state:"uncertified",reason:"This native control adapter does not yet have a host-observed canary"};
   const cfg=strategy.providers[runnerId],account=strategy.accounts[target.account];

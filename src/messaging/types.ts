@@ -3,7 +3,7 @@ import { CoreError } from "../core/errors";
 
 export const MSG_KINDS = ["message", "question", "answer", "report", "nudge", "close"] as const;
 export type MsgKind = typeof MSG_KINDS[number];
-export type ParticipantKind = "human" | "external" | "launched";
+export type ParticipantKind = "human" | "external" | "launched" | "broker";
 export const RELATIONS = ["self", "parent", "child", "sibling", "descendant", "ancestor", "top_peer", "same_tree", "none"] as const;
 export type Relation = typeof RELATIONS[number];
 export type MsgStatus = "held" | "pending" | "delivered" | "read";
@@ -14,8 +14,8 @@ export interface Message {
   createdAt: number; deliveredAt: number | null; readAt: number | null; turnId: string | null;
 }
 
-export const participantSchema = z.string().regex(/^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/);
-const kindMatch = z.enum(["human", "external", "launched", "any"]);
+export const participantSchema = z.string().regex(/^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/);
+const kindMatch = z.enum(["human", "external", "launched", "broker", "any"]);
 export const ruleSchema = z.object({
   effect: z.enum(["allow", "deny"]),
   from_kind: kindMatch.optional(),
@@ -45,6 +45,9 @@ export const messagingConfigSchema = z.object({
     backoff_max_s: z.number().int().min(10).default(900),
     max_nudges: z.number().int().min(0).default(3),
     nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).default(["relaxed", "normal"]),
+    // How long an external or human participant may block others before the human is alerted.
+    escalate_after_s: z.number().int().min(10).default(900),
+    retry_delivery: z.boolean().default(true),
   }).strict().prefault({}),
   hooks: z.object({ stop: z.enum(["block", "inject_only", "off"]).default("block"), stop_release_after: z.number().int().min(1).default(2) }).strict().prefault({}),
   grants: z.object({ user_started_tasks: z.enum(["on", "off"]).default("on") }).strict().prefault({}),
@@ -52,10 +55,17 @@ export const messagingConfigSchema = z.object({
   keep_worktree_days: z.number().int().min(0).max(3650).default(7),
 }).strict();
 export type MessagingConfig = z.infer<typeof messagingConfigSchema>;
+/** Whether tasks a human starts are registered as managed work by default (`grants.user_started_tasks`). */
+export const userStartedGrants = (config?: MessagingConfig): boolean => (config?.grants.user_started_tasks ?? "on") === "on";
 
 export const messagingOverrideSchema = z.object({
   rules: z.array(ruleSchema).max(50).optional(),
   max_turns: z.number().int().positive().max(10000).optional(),
+  liveness: z.object({
+    interval_s: z.number().int().min(10).optional(),
+    max_nudges: z.number().int().min(0).optional(),
+    escalate_after_s: z.number().int().min(10).optional(),
+  }).strict().optional(),
 }).strict();
 export type MessagingOverride = z.infer<typeof messagingOverrideSchema>;
 

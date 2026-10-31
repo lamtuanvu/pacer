@@ -1,8 +1,8 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
 import { afterAll, afterEach, beforeEach } from "bun:test";
-import { rmSync, realpathSync } from "node:fs";
-import { userInfo } from "node:os";
-import { join, resolve, dirname, basename } from "node:path";
+import { rmSync, realpathSync, mkdirSync, existsSync } from "node:fs";
+import { tmpdir, userInfo } from "node:os";
+import { join, resolve, dirname, basename, delimiter } from "node:path";
 import { cleanupTestTmp } from "./helpers";
 import { setMachineReaders } from "../src/engine/machine";
 import { cleanupFixtureResources } from "./fixture-cleanup";
@@ -32,8 +32,32 @@ const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
 const toolchainHome = process.env.HOME ?? userInfo().homedir;
 process.env.CARGO_HOME ??= join(toolchainHome, ".cargo");
 process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
+// Both helper roots and the isolated HOME are created under the caller's TMPDIR.
+// It may live inside a checkout (or point there through a symlink). Stop Git's
+// upward discovery at that canonical boundary, while allowing real repositories
+// and linked worktrees inside our fixtures to be discovered normally.
+let gitCeiling = realpathSync(tmpdir());
+// Git's ceiling list has no escaping for its path delimiter. A delimiter-free
+// ancestor is equivalent for these allocations unless reaching it crosses a repo.
+// Fail closed in that case; never silently let fixtures inherit that repository.
+while (gitCeiling.includes(delimiter)) {
+  const hasGitMarker = existsSync(join(gitCeiling, ".git"));
+  const looksBare = existsSync(join(gitCeiling, "HEAD")) && existsSync(join(gitCeiling, "objects"));
+  if (hasGitMarker || looksBare) {
+    throw new Error("Cannot isolate Git discovery: temporary parent crosses a repository with a path-list delimiter");
+  }
+  gitCeiling = dirname(gitCeiling);
+}
+process.env.GIT_CEILING_DIRECTORIES = [
+  process.env.GIT_CEILING_DIRECTORIES,
+  gitCeiling,
+].filter(Boolean).join(delimiter);
 sweepTestRoots();
 const isolatedHome = createTestRoot("pacer-test-home-");
+// Contain raw os.tmpdir()/mkdtemp allocations as well as helper-managed fixtures.
+const isolatedTmp = join(isolatedHome, "tmp");
+mkdirSync(isolatedTmp, { mode: 0o700 });
+for (const key of ["TMPDIR", "TMP", "TEMP"]) process.env[key] = isolatedTmp;
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 delete process.env.PACER_ROLE;

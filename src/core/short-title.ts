@@ -1,5 +1,15 @@
+import { balancedPrefix, generatedGoalTitle, goalTitle } from "./goal-title";
 /** Compact fallback for surfaces without CSS layout (status lines and notifications). */
 export function clipTitle(title: string): string {
+  const points = Array.from(title);
+  if (points.length <= 60) return title;
+  const prefix = points.slice(0, 59).join("");
+  const boundary = prefix.lastIndexOf(" ");
+  return (balancedPrefix(boundary > 0 ? prefix.slice(0, boundary) : prefix) || "Task") + "…";
+}
+
+// Read compatibility for labels generated before bracket-safe clipping was introduced.
+function legacyClipTitle(title: string): string {
   const points = Array.from(title);
   if (points.length <= 60) return title;
   const prefix = points.slice(0, 59).join("");
@@ -26,7 +36,7 @@ function isPath(token: string): boolean {
 }
 
 /** A compact display label; never changes the goal used to execute a task. */
-export function shortTitle(goal: string): string {
+export function shortTitle(goal: string, clip = clipTitle): string {
   // Bound all parsing work, including regexes, even for very large briefs.
   const input = goal.slice(0, 400);
   let basename = "";
@@ -50,24 +60,24 @@ export function shortTitle(goal: string): string {
     cleaned = cleaned.replace(/\s+/g, " ").trim();
     for (const part of cleaned.split(/[.!?;:,](?:\s|$)|\s[—–]\s/)) {
       const clause = part.replace(leadingMarkers, "").trim();
-      if (clause) return clipTitle(capitalize(clause));
+      if (clause) return clip(capitalize(clause));
     }
   }
   // Only use a path basename when code or URLs did not also supply content.
-  return clipTitle(capitalize((text === input && basename) || "Task"));
+  return clip(capitalize((text === input && basename) || "Task"));
 }
 
 // Cache by id across reloaded records, invalidating if a goal changes.
 const legacyTitles = new Map<string, {goal: string; title: string}>();
 const legacyTitleLimit = 1000;
 export function taskTitle(task: { id?: string; title?: string; brief: { goal: string } }): string {
-  if (task.title?.trim()) return clipTitle(task.title.trim());
+  if (task.title?.trim()) return clipTitle(fullTaskTitle(task));
   const goal = task.brief.goal;
   if (task.id) {
     const cached = legacyTitles.get(task.id);
     if (cached?.goal === goal) return cached.title;
   }
-  const title = shortTitle(goal);
+  const title = clipTitle(goalTitle(goal));
   if (task.id) {
     if (legacyTitles.size >= legacyTitleLimit) legacyTitles.delete(legacyTitles.keys().next().value!);
     legacyTitles.set(task.id, {goal, title});
@@ -75,10 +85,15 @@ export function taskTitle(task: { id?: string; title?: string; brief: { goal: st
   return title;
 }
 
-/** Complete display text for layout-aware clients, including records with generated short titles. */
+/** Explicit labels stay intact; legacy generated labels are re-derived from the brief. */
 export function fullTaskTitle(task: { title?: string; brief: { goal: string } }): string {
   const title = task.title?.trim();
   const goal = task.brief.goal.trim();
-  if (!title || title === clipTitle(goal) || title === shortTitle(goal)) return goal || title || "Task";
-  return title;
+  if (!title || generatedGoalTitle(title, goal) || title === clipTitle(goal) || title === shortTitle(goal) || title === shortTitle(goal, legacyClipTitle)) return safeDisplayTitle(goalTitle(goal, false));
+  return safeDisplayTitle(title);
+}
+
+/** Keep filesystem locations out of display text, including native title tooltips. */
+function safeDisplayTitle(title: string): string {
+  return title.replace(/(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?\/)[^\s<>`]+)/g, (_, lead: string, path: string) => lead + (path.split(/[\\/]/).filter(Boolean).at(-1) ?? "file"));
 }
