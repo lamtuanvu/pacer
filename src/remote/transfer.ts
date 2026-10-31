@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import type { HostCfg } from "../config/hosts";
 import { taskWorktreePath } from "../supervisor/worktree";
 import { ask } from "../core/tasks";
-import { readTask, updateTask } from "../tasks/store";
+import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { pluginRegistry } from "../plugins";
@@ -41,9 +41,20 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
   // observed there is never stable failure evidence for this caller.
   const fail = (reason: string): TransferResult => ({ ok: false, reason });
   const git = (...args: string[]) => ctx.run(["git", "-C", task.brief.repo, ...args], 60000);
+  const owned = readTask(ctx, task.id)?.executorProvider === "pacer-exec-direct";
   const matchesPersisted = (grant?: PersistedFetchGrant): boolean => {
     const current = readTask(ctx, task.id), saved = current?.run;
-    return !!current && !!saved && current.brief.repo === task.brief.repo &&
+    return !!current && !!saved &&
+      (!owned || (current.state === "running" && !current.stopPending &&
+        current.executorProvider === "pacer-exec-direct" &&
+        current.startIntent?.attempt === run.attempt &&
+        current.startIntent.providerId === current.executorProvider &&
+        current.startIntent.dir === run.dir &&
+        current.executorExitReceipt?.attempt === run.attempt &&
+        current.executorExitReceipt.providerId === current.executorProvider &&
+        current.executorExitReceipt.dir === run.dir &&
+        current.executorExitReceipt.startedAt === run.startedAt)) &&
+      current.brief.repo === task.brief.repo &&
       saved.attempt === run.attempt && saved.host === run.host &&
       saved.remoteWorktree === run.remoteWorktree && saved.baseSha === run.baseSha &&
       saved.remoteBranch === run.remoteBranch &&
@@ -55,6 +66,14 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     if (!matchesPersisted()) return fail("remote transfer task or run changed");
     await receiveQuestion(ctx,task,host,run);
     if (!matchesPersisted()) return fail("remote transfer task or run changed");
+    const priorIntent = owned ? readTask(ctx, task.id)?.remoteTransferIntent : undefined;
+    if (priorIntent && (priorIntent.attempt !== run.attempt ||
+      priorIntent.providerId !== "pacer-exec-direct" || priorIntent.dir !== run.dir ||
+      priorIntent.startedAt !== run.startedAt ||
+      ![`pacer/${task.id}`, `pacer/${task.id}-r${run.attempt}`].includes(priorIntent.branch) ||
+      priorIntent.oldHead !== "" && !/^[a-f0-9]{40,64}$/.test(priorIntent.oldHead)))
+      return fail("remote transfer destination changed");
+    if (priorIntent) { branch = priorIntent.branch; ref = `refs/heads/${branch}`; }
     const exists = await git("show-ref", "--verify", "--quiet", ref);
     if (exists.code !== 0 && exists.code !== 1) return fail(exists.stderr.trim() || "local branch check failed");
     if (!run.remoteWorktree || !run.baseSha) return fail("remote run has no worktree or base");
@@ -65,11 +84,20 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
       current = head.stdout.trim();
       const ahead = await git("rev-list", "--count", `${run.baseSha}..${current}`);
       if (ahead.code) return fail("local branch ancestry check failed");
-      if (ahead.stdout.trim() !== "0") {
+      if (!priorIntent && ahead.stdout.trim() !== "0") {
         branch += `-r${run.attempt}`;
         ref = `refs/heads/${branch}`;
         current = "";
       }
+    }
+    if (owned && !priorIntent) {
+      withTaskLock(ctx, task.id, () => {
+        if (!matchesPersisted() || readTask(ctx, task.id)?.remoteTransferIntent)
+          throw new Error("remote transfer owner changed before destination admission");
+        updateTask(ctx, task.id, record => { record.remoteTransferIntent = {
+          attempt: run.attempt, providerId: "pacer-exec-direct", dir: run.dir,
+          startedAt: run.startedAt, branch, oldHead: current }; });
+      });
     }
     if (run.remoteBranch !== remoteBranch || run.host !== host.alias)
       return fail("remote run does not match the configured host and branch");
@@ -94,6 +122,8 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     if (!claimed || !verified) return fail("remote bundle was not finalized");
     const { authority, ticket } = claimed;
     const { head, commits } = verified;
+    if (priorIntent && current !== priorIntent.oldHead && current !== head)
+      return fail("remote transfer destination differs from the verified bundle");
     // Git cannot fetch from /dev/fd/0 on macOS. Unbundle the immutable host
     // snapshot into the object database, then compare-and-swap only our ref.
     const imported = await withFinalizedClaimedBundleInput(authority, ticket, grant, async input => {
@@ -146,6 +176,13 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
 /** A branch name alone is not evidence that this remote result was received. */
 export async function transferred(ctx: Ctx, task: TaskRecord): Promise<boolean> {
   if (!task.run?.transferredHead) return false;
-  const ref = await ctx.run(["git", "-C", task.brief.repo, "rev-parse", "--verify", `refs/heads/pacer/${task.id}`], 10000);
+  const owned = task.executorProvider === "pacer-exec-direct";
+  const intent = task.remoteTransferIntent;
+  if (owned && (!intent || intent.attempt !== task.run.attempt ||
+    intent.providerId !== task.executorProvider || intent.dir !== task.run.dir ||
+    intent.startedAt !== task.run.startedAt ||
+    ![`pacer/${task.id}`, `pacer/${task.id}-r${task.run.attempt}`].includes(intent.branch))) return false;
+  const branch = owned ? intent!.branch : `pacer/${task.id}`;
+  const ref = await ctx.run(["git", "-C", task.brief.repo, "rev-parse", "--verify", `refs/heads/${branch}`], 10000);
   return ref.code === 0 && ref.stdout.trim() === task.run.transferredHead;
 }

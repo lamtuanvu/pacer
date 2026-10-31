@@ -3,7 +3,7 @@ import { z } from "zod";
 /** Fixed IDs name reviewed scripts; they are never remote shell text. */
 export const HOST_RUNNER_SCRIPTS = [
   "CODEX_USAGE", "PROBE", "CHECK_REPO", "SET_IDENTITY",
-  "PREPARE", "QUESTION", "PREFLIGHT", "BUNDLE_OUT",
+  "PREPARE", "PREPARE_RECOVER", "QUESTION", "PREFLIGHT", "BUNDLE_OUT",
   "CLEAN", "BINARY", "SESSION_FILES", "SESSION_PIPE",
   "START", "REPORT", "READ_FROM", "STOP",
 ] as const;

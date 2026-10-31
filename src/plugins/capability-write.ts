@@ -187,6 +187,12 @@ export async function prepareWriteAuthority(
         const canonical = fs.realpathSync(logical);
         const fd = fs.openSync(canonical, WRITE_DIRECTORY);
         state.fds.add(fd);
+        if (descriptor.rootIdentity) {
+          const linked = fs.lstatSync(logical), opened = fs.fstatSync(fd);
+          if (!linked.isDirectory() || !same(descriptor.rootIdentity, linked) ||
+            !same(descriptor.rootIdentity, opened))
+            denied("write root changed since owner claimed it");
+        }
         root = {
           logical,
           canonical,
@@ -197,6 +203,8 @@ export async function prepareWriteAuthority(
         state.roots.set(logical, root);
         rootCurrent(root);
       }
+      if (descriptor.rootIdentity && !same(descriptor.rootIdentity, fs.fstatSync(root.directories.get("")!.fd)))
+        denied("write root does not match the owning run");
       const parts = rel.split(sep);
       let parent = root.directories.get("")!;
       let absent = false;
@@ -397,11 +405,11 @@ async function write(
   state: State,
   r: Resource,
   parent: Directory,
-  text: string,
+  text: string | Buffer,
   mode = 0o600,
   expectedImage?: OwnerFileImage | null,
 ) {
-  const bytes = Buffer.from(text, "utf8");
+  const bytes = Buffer.isBuffer(text) ? text : Buffer.from(text, "utf8");
   const existing = target(state, r, parent);
   if (expectedImage !== undefined) {
     try {
@@ -563,6 +571,7 @@ async function answerOwnedWrite(
   params: Record<string, unknown>,
   mode = 0o600,
   expectedImage?: OwnerFileImage | null,
+  privateBytes?: Buffer,
 ): Promise<{ ok: true }> {
   const operation =
     method === "capability.fs.write"
@@ -585,7 +594,7 @@ async function answerOwnedWrite(
   if (
     operation === "write" &&
     (typeof params.text !== "string" ||
-      Buffer.byteLength(params.text, "utf8") > 4194304)
+      (privateBytes ? privateBytes.length : Buffer.byteLength(params.text, "utf8")) > 4194304)
   )
     invalid("write text exceeds bounded UTF8 limit");
   if (params.recursive !== undefined && typeof params.recursive !== "boolean")
@@ -610,7 +619,7 @@ async function answerOwnedWrite(
         state,
         r,
         parent,
-        params.text as string,
+        privateBytes ?? params.text as string,
         mode,
         expectedImage,
       );
@@ -713,6 +722,21 @@ export async function writeOwnerFile(
     mode,
     captured,
   );
+}
+
+/** Private binary capture path. Peer fs.write remains bounded UTF-8 text only. */
+export async function writeOwnerBytes(
+  authority: CallAuthority,
+  scopes: readonly string[],
+  path: string,
+  bytes: Buffer,
+  mode: number,
+): Promise<{ ok: true }> {
+  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 0o700 || (mode & ~0o700) !== 0)
+    invalid("invalid private owner write mode");
+  if (!Buffer.isBuffer(bytes)) invalid("private owner bytes must be a buffer");
+  return answerOwnedWrite(authority, scopes, "capability.fs.write",
+    { path, text: "" }, mode, undefined, Buffer.from(bytes));
 }
 
 /** Peer writes always retain the protocol 0600 policy. */

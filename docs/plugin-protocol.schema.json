@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.8.0",
-  "version": "1.8.0",
+  "title": "pacer plugin protocol 1.9.0",
+  "version": "1.9.0",
   "$defs": {
     "pluginMetadata": {
       "oneOf": [
@@ -567,6 +567,7 @@
                   "identity.sign",
                   "net.p2p",
                   "fs.write",
+                  "worktree",
                   "usage.state",
                   "hosts"
                 ]
@@ -869,6 +870,7 @@
                       "identity.sign",
                       "net.p2p",
                       "fs.write",
+                      "worktree",
                       "usage.state",
                       "hosts"
                     ]
@@ -951,6 +953,7 @@
               "identity.sign",
               "net.p2p",
               "fs.write",
+              "worktree",
               "usage.state",
               "hosts"
             ]
@@ -4068,6 +4071,7 @@
             "CHECK_REPO",
             "SET_IDENTITY",
             "PREPARE",
+            "PREPARE_RECOVER",
             "QUESTION",
             "PREFLIGHT",
             "BUNDLE_OUT",
@@ -4235,6 +4239,7 @@
             "CHECK_REPO",
             "SET_IDENTITY",
             "PREPARE",
+            "PREPARE_RECOVER",
             "QUESTION",
             "PREFLIGHT",
             "BUNDLE_OUT",
@@ -4315,6 +4320,7 @@
             "CHECK_REPO",
             "SET_IDENTITY",
             "PREPARE",
+            "PREPARE_RECOVER",
             "QUESTION",
             "PREFLIGHT",
             "BUNDLE_OUT",
@@ -4658,6 +4664,676 @@
       },
       "required": [
         "available"
+      ],
+      "additionalProperties": false
+    },
+    "executor.run.params": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "rev"
+              ],
+              "additionalProperties": false
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runDir": {
+              "type": "number",
+              "const": 1
+            },
+            "effect": {
+              "type": "object",
+              "properties": {
+                "argv": {
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "timeoutMs": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1800000
+                },
+                "stdin": {
+                  "type": "string",
+                  "maxLength": 262144
+                },
+                "env": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "secretEnv": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
+                  }
+                },
+                "detached": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "argv",
+                "cwd",
+                "timeoutMs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "task",
+            "attempt",
+            "runDir"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "rev"
+              ],
+              "additionalProperties": false
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runDir": {
+              "type": "number",
+              "const": 1
+            },
+            "owned": {
+              "type": "object",
+              "properties": {
+                "placement": {
+                  "type": "string",
+                  "enum": [
+                    "current",
+                    "new"
+                  ]
+                },
+                "timeoutMs": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1800000
+                },
+                "session": {
+                  "type": "string",
+                  "const": "interactive"
+                },
+                "executor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "resume": {
+                  "type": "object",
+                  "properties": {
+                    "startedAt": {
+                      "type": "number"
+                    },
+                    "logFile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "worktree": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "startedAt",
+                    "logFile"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "placement",
+                "timeoutMs",
+                "executor",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "task",
+            "attempt",
+            "runDir",
+            "owned"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "rev"
+              ],
+              "additionalProperties": false
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runDir": {
+              "type": "number",
+              "const": 1
+            },
+            "remote": {
+              "type": "object",
+              "properties": {
+                "timeoutMs": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1800000
+                },
+                "executor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "resume": {
+                  "type": "object",
+                  "properties": {
+                    "startedAt": {
+                      "type": "number"
+                    },
+                    "logFile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "startedAt",
+                    "logFile"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "timeoutMs",
+                "executor",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "task",
+            "attempt",
+            "runDir",
+            "remote"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "executor.run.result": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "done",
+                    "failed"
+                  ]
+                },
+                "exitCode": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "report": {
+                  "type": "string",
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "status",
+                "exitCode",
+                "report"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "launched"
+                },
+                "pid": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "report": {
+                  "type": "string",
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "status",
+                "pid",
+                "report"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "takeover": {
+              "type": "boolean"
+            },
+            "attempt": {
+              "type": "object",
+              "properties": {
+                "executor": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actualModel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dispatchSettingsHash": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "number"
+                },
+                "endedAt": {
+                  "type": "number"
+                },
+                "exitCode": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "timedOut": {
+                  "type": "boolean"
+                },
+                "limitHit": {
+                  "type": "boolean"
+                },
+                "log": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "brokenReason": {
+                  "type": "string"
+                },
+                "routing": {
+                  "$ref": "#/$defs/executor.run.result___schema0"
+                },
+                "usageAtStart": {
+                  "$ref": "#/$defs/executor.run.result___schema1"
+                },
+                "usageAtEnd": {
+                  "$ref": "#/$defs/executor.run.result___schema2"
+                }
+              },
+              "required": [
+                "executor",
+                "model",
+                "startedAt",
+                "endedAt",
+                "exitCode",
+                "timedOut",
+                "limitHit",
+                "log"
+              ],
+              "additionalProperties": false
+            },
+            "exec": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "stdout": {
+                  "type": "string",
+                  "maxLength": 262144
+                },
+                "stderr": {
+                  "type": "string",
+                  "maxLength": 262144
+                },
+                "timedOut": {
+                  "type": "boolean"
+                },
+                "stdoutOverflow": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "stdout",
+                "stderr",
+                "timedOut"
+              ],
+              "additionalProperties": false
+            },
+            "report": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "backend": {
+              "type": "string"
+            },
+            "worktree": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "partial": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "attempt",
+            "exec",
+            "report"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "executor.run.result___schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/executor.run.result___schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/executor.run.result___schema0"
+          }
+        }
+      ]
+    },
+    "executor.run.result___schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/executor.run.result___schema1"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/executor.run.result___schema1"
+          }
+        }
+      ]
+    },
+    "executor.run.result___schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/executor.run.result___schema2"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/executor.run.result___schema2"
+          }
+        }
+      ]
+    },
+    "executor.stop.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000
+        },
+        "remote": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "executor.stop.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
+      ],
+      "additionalProperties": false
+    },
+    "executor.sessionState.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "executor.sessionState.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "const": "builtin"
+        },
+        "handle": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "state",
+        "host",
+        "handle"
       ],
       "additionalProperties": false
     },
@@ -7119,6 +7795,316 @@
       ],
       "additionalProperties": false
     },
+    "capability.hosts.prepareOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.prepareOwned.result": {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "worktree",
+        "branch"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.claimOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.claimOwned.result": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "remoteDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "logFile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "dir",
+        "worktree",
+        "remoteDir",
+        "branch",
+        "startedAt",
+        "logFile"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.startOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.startOwned.result": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.pollOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.pollOwned.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "exitCode"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.readOwnedOutput.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.readOwnedOutput.result": {
+      "type": "object",
+      "properties": {
+        "stdoutBase64": {
+          "type": "string",
+          "maxLength": 349528
+        },
+        "stderrBase64": {
+          "type": "string",
+          "maxLength": 349528
+        }
+      },
+      "required": [
+        "stdoutBase64",
+        "stderrBase64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.stopOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.stopOwned.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.transferOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.transferOwned.result": {
+      "type": "object",
+      "properties": {
+        "transferred": {
+          "type": "boolean"
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reviewWorktree": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "transferred"
+      ],
+      "additionalProperties": false
+    },
     "capability.hosts.open.params": {
       "type": "object",
       "properties": {
@@ -7160,6 +8146,7 @@
             "CHECK_REPO",
             "SET_IDENTITY",
             "PREPARE",
+            "PREPARE_RECOVER",
             "QUESTION",
             "PREFLIGHT",
             "BUNDLE_OUT",
@@ -8030,12 +9017,16 @@
         "timeoutMs": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 600000
+          "maximum": 1800000
         },
         "cwd": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 262144
         },
         "env": {
           "type": "object",
@@ -8177,6 +9168,437 @@
       },
       "required": [
         "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.params": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+            },
+            "rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "rev"
+          ],
+          "additionalProperties": false
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runDir": {
+          "type": "number",
+          "const": 1
+        }
+      },
+      "required": [
+        "task",
+        "attempt",
+        "runDir"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.result": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stopRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stopRun.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.inspectRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.inspectRun.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.claimRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.claimRun.result": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "rev"
+          ],
+          "additionalProperties": false
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runDir": {
+          "type": "number",
+          "const": 1
+        },
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "workdir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "logFile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "task",
+        "attempt",
+        "runDir",
+        "dir",
+        "workdir",
+        "startedAt",
+        "logFile"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.pollRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.pollRun.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stdoutBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stderrBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lastOutputAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "interactive": {
+          "type": "boolean"
+        },
+        "stopPending": {
+          "type": "boolean"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "needs-input",
+                    "turn-ended",
+                    "done",
+                    "failed"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                "at": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "status",
+                "summary",
+                "at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "pid",
+        "exitCode",
+        "startedAt",
+        "stdoutBytes",
+        "stderrBytes",
+        "lastOutputAt",
+        "interactive",
+        "stopPending",
+        "report"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.readRunOutput.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.readRunOutput.result": {
+      "type": "object",
+      "properties": {
+        "stdoutBase64": {
+          "type": "string",
+          "maxLength": 349528
+        },
+        "stderrBase64": {
+          "type": "string",
+          "maxLength": 349528
+        }
+      },
+      "required": [
+        "stdoutBase64",
+        "stderrBase64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.completeReportedRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.completeReportedRun.result": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "failed"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        "at": {
+          "type": "number"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "status",
+        "summary",
+        "at",
+        "exitCode"
       ],
       "additionalProperties": false
     },
@@ -8591,6 +10013,174 @@
       },
       "required": [
         "ok"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.inspect.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.inspect.result": {
+      "type": "object",
+      "properties": {
+        "top": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "main": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sub": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "busy": {
+          "type": "boolean"
+        },
+        "existingWorkdir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "top",
+        "main",
+        "sub",
+        "dirty",
+        "busy",
+        "existingWorkdir"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.resolveBase.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.resolveBase.result": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"
+        }
+      },
+      "required": [
+        "base",
+        "sha"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.createOrReuse.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "baseSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "baseSha"
+      ],
+      "additionalProperties": false
+    },
+    "capability.worktree.createOrReuse.result": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "workdir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^pacer\\/t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "baseSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"
+        },
+        "reused": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "workdir",
+        "branch",
+        "baseSha",
+        "reused"
       ],
       "additionalProperties": false
     },

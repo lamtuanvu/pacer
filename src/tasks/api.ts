@@ -29,8 +29,8 @@ import { appendLabel } from "./labels";
 import { executorExclusion } from "../executors/availability";
 import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
 import { machineGuard } from "../engine/machine";
@@ -78,6 +78,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+    ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
@@ -112,15 +113,28 @@ export function selfCommand(argv: string[] = process.argv, execPath: string = pr
   return /\.(ts|js|mjs)$/.test(script) ? [execPath, script] : [execPath];
 }
 
+/** Where detached runners write their output, so a runner that dies says why. */
+export const runnerLogPath = (ctx: Pick<Ctx, "pacerHome">) => join(ctx.pacerHome, "logs", "runner.log");
+
+function openRunnerLog(ctx: Ctx): number | "ignore" {
+  try {
+    mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true, mode: 0o700 });
+    return openSync(runnerLogPath(ctx), "a", 0o600);
+  } catch { return "ignore"; } // A missing log never blocks a launch.
+}
+
 const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => {
   const [cmd, ...pre] = selfCommand();
-  const child = spawn(cmd, [...pre, "_run", taskId], {
-    detached: true,
-    stdio: "ignore",
-    env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
-  });
-  child.unref();
-  return child.pid;
+  const log = openRunnerLog(ctx);
+  try {
+    const child = spawn(cmd, [...pre, "_run", taskId], {
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+    });
+    child.unref();
+    return child.pid;
+  } finally { if (log !== "ignore") closeSync(log); }
 };
 
 /** Persist admission before invoking even an injected launcher. Never clear an
@@ -394,14 +408,131 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   const handedOver = t.handover?.state === "handed-over";
   if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
+    !t.startIntent) {
+    return withTaskLock(ctx, id, () => {
+      const latest = readTask(ctx, id);
+      if (!latest || latest.state !== "running" || !latest.stopPending ||
+        latest.startIntent || !latest.run || latest.run.dir !== t.run!.dir ||
+        latest.run.attempt !== t.stopPending!.attempt || latest.childPid ||
+        existsSync(`${latest.run.dir}/pid`) || existsSync(`${latest.run.dir}/exit`)) return latest ?? t;
+      return updateTask(ctx, id, current => {
+        const deadline = current.stopPending?.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        delete current.run;
+        delete current.runnerPid;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null,
+          model: null, files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    });
+  }
+  if (t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    t.stopPending && t.run?.host) {
+    try {
+      const { stopOwnedRemoteExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, run = t.run;
+      const verified = t.executorExitReceipt?.attempt === run.attempt &&
+        t.executorExitReceipt.providerId === t.executorProvider &&
+        t.executorExitReceipt.dir === run.dir &&
+        t.executorExitReceipt.startedAt === run.startedAt;
+      if (!verified)
+        await stopOwnedRemoteExecutorAttempt(ctx, pluginRegistry(ctx), id, run.attempt, intent.graceMs);
+      return withTaskLock(ctx, id, () => {
+        const latest = readTask(ctx, id), receipt = latest?.executorExitReceipt;
+        if (!latest || latest.state !== "running" || latest.executorProvider !== "pacer-exec-direct" ||
+          latest.stopPending?.requestedAt !== intent.requestedAt ||
+          latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+          latest.run.startedAt !== run.startedAt || !receipt ||
+          receipt.attempt !== run.attempt || receipt.providerId !== latest.executorProvider ||
+          receipt.dir !== run.dir || receipt.startedAt !== run.startedAt) return latest ?? t;
+        return updateTask(ctx, id, current => {
+          const deadline = current.stopPending?.reason === "deadline";
+          current.attempts.push({ executor: run.executor, model: null,
+            startedAt: run.startedAt, endedAt: Date.now() / 1000,
+            exitCode: receipt.exitCode, timedOut: !!deadline, limitHit: false, log: run.logFile });
+          delete current.stopPending; delete current.pendingAttempt;
+          delete current.childPid; delete current.runnerPid;
+          current.state = deadline ? "failed" : "stopped";
+          current.result = { status: deadline ? "failed" : "stopped", executor: run.executor,
+            model: null, files: "", report: deadline ?
+              "Remote executor deadline reached; exit verified" :
+              "Remote executor exited after stop was requested", backend: "direct" };
+        });
+      });
+    } catch { /* Preserve pending remote stop for another exact reconciliation. */ }
+    return readTask(ctx, id) ?? t;
+  }
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
+    try {
+      const { inspectOwnedExecutorRun } = await import("../plugins/executor-run-state");
+      const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      if (observed.state === "running") {
+        await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
+        observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      }
+      if (observed.state === "exited" && observed.exitCode !== null) {
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (checked.state !== "exited" || checked.exitCode !== observed.exitCode) return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: checked.exitCode! };
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: checked.exitCode!, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: deadline ? "Executor deadline reached; wrapper exit verified" :
+                "Executor exited after stop was requested", backend: "direct" };
+          });
+        });
+      }
+    } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
+    return readTask(ctx, id) ?? t;
+  }
   const run = t.run, current = run && run.attempt > t.attempts.length;
   const deadRun = (t.state === "running" || t.state === "stopped") && current && !alive(t.runnerPid);
+  const preparedOwnedRun = t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    !t.run && !t.stopPending && !alive(t.runnerPid) &&
+    (!!t.worktreeIntent || !!t.runClaim || !!t.baseFetchIntent?.sha ||
+      !!t.remotePrepareIntent);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
     // Repository IO yields; an independent runner may have settled meanwhile.
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
+    if (latest.stopPending && latest.executorProvider && latest.state === "running" &&
+      !latest.run && !latest.childPid && !alive(latest.runnerPid)) {
+      return updateTask(ctx, id, current => {
+        if (!current.stopPending || current.run || current.childPid) return;
+        const deadline = current.stopPending.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null, model: null,
+          files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    }
     const runLive = !!run && (!!run.host || !!(r && (r.alive || r.exit !== null)));
     const relaunch = (): TaskRecord => {
       let lease: string;
@@ -422,12 +553,13 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null);
       return t;
     }
-    if (deadRun && runLive) {
+    if ((preparedOwnedRun || deadRun) && (runLive || preparedOwnedRun)) {
       // A committed handover gets one immediate replacement; a failed one falls back to the 60 s throttle.
       const firstReplacement = handedOver && t.handover!.replacementAt === undefined;
       if (firstReplacement || !t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) return relaunch();
       return readTask(ctx, id)!;
     }
+    if (latest.stopPending && latest.executorProvider && deadRun) return latest;
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
     if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
       return updateTask(ctx, id, (x) => {
@@ -498,6 +630,20 @@ export async function settleLiveReleases(): Promise<void> {
 export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {}): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
+  if (t.stopPending) return t;
+  if (t.executorProvider && t.state === "running") return withTaskLock(ctx, id, () => {
+    const current = readTask(ctx, id);
+    if (!current || current.stopPending || current.state !== "running" || !current.executorProvider) return current;
+    if (current.executorProvider === "pacer-exec-direct" && current.run?.host &&
+      current.remoteTransferIntent?.attempt === current.run.attempt &&
+      current.remoteTransferIntent.dir === current.run.dir &&
+      current.remoteTransferIntent.startedAt === current.run.startedAt && !current.run.transferredHead)
+      throw new CoreError("conflict", "remote transfer is in progress; retry stop after it settles");
+    return updateTask(ctx, id, row => {
+      row.stopPending = {attempt: row.run?.attempt ?? row.attempts.length + 1,
+        requestedAt: Date.now() / 1000, providerId: row.executorProvider!, graceMs: 5000, reason: "user"};
+    });
+  });
   if (t.state === "needs_input") {
     const stopped = updateTask(ctx, id, x => {
       x.state = "stopped";
@@ -527,6 +673,6 @@ export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {
       if (host && t.run.remoteDir) void new RemoteRunIO(ctx, host, t.run.remoteDir, t.run.dir)
         .stop({ graceMs: 5000, sleep: ms => Bun.sleep(ms) }).catch(() => { /* a live supervisor retries the stop */ });
     } catch { /* retain the stop flag for the supervisor when config is unavailable */ }
-  } else if (t.childPid) killTree(t.childPid, "SIGTERM");
+  } else if (updated.childPid) killTree(updated.childPid, "SIGTERM");
   return updated;
 }

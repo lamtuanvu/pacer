@@ -9,6 +9,9 @@ export const WRAPPER_VERSION = 1;
 export const WRAPPER_SH = `#!/bin/sh
 # pacer attempt wrapper v${WRAPPER_VERSION}
 D="$1"; shift
+# Bookkeeping files are private; the agent keeps the umask the wrapper was started with.
+pacer_umask=$(umask)
+umask 077
 pacer_admission="\${PACER_COMPLETION_NONCE:-$PACER_ADMISSION_SESSION}"
 unset PACER_ADMISSION_SESSION PACER_ADMISSION_DIR PACER_COMPLETION_NONCE
 echo $$ > "$D/pid.tmp" && /bin/mv "$D/pid.tmp" "$D/pid"
@@ -23,7 +26,7 @@ finish() {
 }
 on_term() { if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; fi; finish 143; }
 trap on_term TERM INT HUP
-if [ -f "$D/stdin" ]; then "$@" < "$D/stdin" > "$D/stdout" 2> "$D/stderr" & else "$@" < /dev/null > "$D/stdout" 2> "$D/stderr" & fi
+if [ -f "$D/stdin" ]; then (umask "$pacer_umask"; exec "$@") < "$D/stdin" > "$D/stdout" 2> "$D/stderr" & else (umask "$pacer_umask"; exec "$@") < /dev/null > "$D/stdout" 2> "$D/stderr" & fi
 child=$!
 echo "$child" > "$D/child"
 wait "$child"

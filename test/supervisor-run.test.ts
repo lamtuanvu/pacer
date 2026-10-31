@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { readOutput, readRun, startRun, stopRun } from "../src/supervisor/run";
 import { killTree } from "../src/exec/process";
 import { tmpDir } from "./helpers";
-import { processIdentity } from "../src/update/desktop/process-identity";
 
 const until = async (f: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(25); } };
 const env = { PATH: process.env.PATH };
@@ -52,28 +51,6 @@ test("stopRun ends a TERM-respecting run with exit 143", async () => {
   expect(readRun(dir).alive).toBe(false);
 });
 
-test("identity-checked stop refuses a changed session host without signalling", async () => {
-  const dir = tmpDir();
-  const started = startRun({ dir, argv: ["sleep", "30"], cwd: tmpDir(), env, session: "pty" }) as { pid: number };
-  await until(() => existsSync(join(dir, "child")));
-  const child = Number(readFileSync(join(dir, "child"), "utf8"));
-  const hostIdentity = processIdentity(started.pid)!;
-  const childIdentity = processIdentity(child)!;
-  expect(await stopRun(dir, { graceMs: 100, expectedIdentities: { host: { ...hostIdentity, birth: "wrong" }, child: childIdentity } })).toEqual({ code: 137, killed: false });
-  expect(readRun(dir).alive).toBe(true);
-  await stopRun(dir, { graceMs: 100 });
-}, 30_000);
-
-test("identity-checked stop terminates only the recorded terminal shell", async () => {
-  const dir = tmpDir();
-  const started = startRun({ dir, argv: ["sleep", "30"], cwd: tmpDir(), env, session: "pty" }) as { pid: number };
-  await until(() => existsSync(join(dir, "child")));
-  const child = Number(readFileSync(join(dir, "child"), "utf8"));
-  const result = await stopRun(dir, { graceMs: 2000, expectedIdentities: { host: processIdentity(started.pid)!, child: processIdentity(child)! } });
-  expect(result.killed).toBe(false);
-  await until(() => readRun(dir).exit !== null);
-}, 30_000);
-
 test("stopRun waits for a delayed exit receipt after the owned wrapper dies", async () => {
   const dir = tmpDir(), script = join(dir, "run.sh");
   writeFileSync(script, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
@@ -107,6 +84,8 @@ test("stopRun does not forge an exit after the wrapper vanishes", async () => {
   writeFileSync(join(dir, "child"), "0");
   try {
     await until(() => readRun(dir).alive);
+    await expect(stopRun(dir, { graceMs: 200, requireRecordedExit: true }))
+      .rejects.toThrow("detached run stop has no recorded exit");
     expect(await stopRun(dir, { graceMs: 200 })).toEqual({ code: 137, killed: false });
     expect(existsSync(join(dir, "exit"))).toBe(false);
   } finally {
@@ -134,7 +113,7 @@ test("stopRun does not signal a process that replaced the wrapper during readine
   try {
     await until(() => readRun(dir).alive);
     let switched = false;
-    const stopped = await stopRun(dir, { graceMs: 500, sleep: async ms => {
+    await expect(stopRun(dir, { graceMs: 500, requireRecordedExit: true, sleep: async ms => {
       if (!switched) {
         switched = true;
         process.kill(proc.pid, "SIGTERM");
@@ -143,8 +122,8 @@ test("stopRun does not signal a process that replaced the wrapper during readine
         writeFileSync(join(dir, "child"), "0");
       }
       await Bun.sleep(Math.min(ms, 20));
-    } });
-    expect(stopped).toEqual({ code: 137, killed: false });
+    } })).rejects.toThrow("detached run stop has no recorded exit");
+    expect(await stopRun(dir, { graceMs: 100 })).toEqual({ code: 137, killed: false });
     expect(staleSignals).toBe(0);
     expect(existsSync(join(dir, "exit"))).toBe(false);
   } finally {

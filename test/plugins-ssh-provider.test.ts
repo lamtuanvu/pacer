@@ -468,6 +468,8 @@ test("SSH provider rejects unissued operations and foreign sessions before spawn
     { ...request, script: "BINARY", args: ["a".repeat(64), "upload"] },
     { ...request, args: ["--anything"] },
     { ...request, script: "PREPARE", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"] },
+    { ...request, script: "PREPARE_RECOVER", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"], env: { HOME: "/wrong" } },
+    { ...request, script: "PREPARE_RECOVER", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"], secretEnv: { TOKEN: "secret-ref" } },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "clone"] },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "check", "extra"] },
     { ...request, script: "CHECK_REPO", args: ["", "check"] },
