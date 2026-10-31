@@ -42,7 +42,7 @@ export function Failure({task, query, reload, tree, retryOnly = false}: {retryOn
       const response = result as {retry?: {task_id?: string; id?: string}; task_id?: string};
       const id = response.retry?.task_id ?? response.retry?.id ?? response.task_id ?? task.id;
       setNotice("Retry requested. Previous attempts remain in the trace."); reload();
-      location.hash = hrefFor(routes.task(id, query));
+      location.hash = hrefFor(routes.workspace(id), query);
     });
   };
   const stop = state.snapshot?.attention?.filter(item => item.taskId === task.id).flatMap(item => item.actions).find(item => item.op === "task.stop" || item.op === "dispatch.stop");

@@ -4,7 +4,7 @@ import { buildApp } from '../app/build';
 import { mkdir } from 'node:fs/promises';
 
 const browserTest = test.skipIf(!process.env.PACER_TEST_BROWSER);
-const evidence = '.work/reviews/interactive-workspace-terminal';
+const evidence = '.work/reviews/workspace-first-conflicts/terminal';
 
 async function bundle(entrypoint = 'test/fixtures/workspace-browser.tsx') {
   const result = await Bun.build({
@@ -63,12 +63,14 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
   if (held) await page.locator('.pc-terminal-pane').evaluate(node => { node.scrollTop = node.scrollHeight; });
 }
 
-browserTest('workspace opens interactively, preserves history/selection on handback and never resizes a hidden tab', async () => {
+browserTest('workspace watches until explicit control, preserves history/selection on handback and never resizes a hidden tab', async () => {
   const source = await bundle();
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await open(page, source, false, 'dark');
+    expect(await page.evaluate(() => (window as any).terminalSockets[0].sent.filter((f: any) => ['take', 'size'].includes(f.type)))).toEqual([]);
+    await page.getByRole('button', { name: 'Take control', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.pc-terminal-view')?.getAttribute('data-session-control') === 'true', undefined, { timeout: 3000 });
     expect(await page.evaluate(() => (window as any).terminalSockets[0].sent.filter((f: any) => f.type === 'take'))).toEqual([{ type: 'take' }]);
     await page.locator('.xterm-helper-textarea').press('x');
@@ -88,7 +90,7 @@ browserTest('workspace opens interactively, preserves history/selection on handb
     await page.waitForTimeout(900);
     expect(await page.evaluate(() => (window as any).terminalSockets[1].sent.filter((f: any) => f.type === 'take'))).toEqual([]);
     // Explicitly resume, then hide the tab behind a shell and resize the viewport.
-    await page.getByRole('button', { name: 'Take over', exact: true }).click();
+    await page.getByRole('button', { name: 'Take control', exact: true }).click();
     await page.getByRole('button', { name: 'Hand back', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Your shell · Fixture', exact: false }).first().click();
     await page.waitForTimeout(300);
@@ -110,7 +112,7 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
       await open(page, source, true, theme);
       await page.screenshot({ path: `${evidence}/${phase}/${viewport.width}-${theme}-occupied.png`, fullPage: true });
       if (process.env.PACER_CAPTURE_BASELINE) {
-        await page.getByRole('button', { name: 'Take over', exact: true }).click();
+        await page.getByRole('button', { name: 'Take control', exact: true }).click();
         // Baseline driving image is a visual fixture: grant control after the explicit toolbar click.
         await page.waitForTimeout(300);
         await page.evaluate(() => (window as any).terminalSockets.at(-1).frame({ type: 'control', controller: 'app', you: true }));
@@ -138,6 +140,7 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
           scroll: pane.scrollWidth > pane.clientWidth,
           screen: screen.getBoundingClientRect().width, mount: mount.getBoundingClientRect().width,
           documentWidth: document.documentElement.scrollWidth, viewport: innerWidth,
+          actions: [...topbar.querySelectorAll('button,a,.pc-workspace-panel-details b,.pc-workspace-panel-details span')].filter(node => node.getBoundingClientRect().width > 0).map(node => ({label:node.getAttribute('aria-label')??node.textContent,left:node.getBoundingClientRect().left,right:node.getBoundingClientRect().right})),
           topbar: topbar.getBoundingClientRect().right, right: right?.getBoundingClientRect().right, escaped,
         };
       });
@@ -150,12 +153,15 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
       expect(metrics.topbar).toBeLessThanOrEqual(viewport.width);
       if (metrics.right !== undefined) expect(metrics.right).toBe(viewport.width);
       expect(metrics.escaped).toBe(0);
+      for (const action of metrics.actions) {
+        expect(action.left, action.label??'header action').toBeGreaterThanOrEqual(0);
+        expect(action.right, action.label??'header action').toBeLessThanOrEqual(viewport.width);
+      }
       const color = await page.locator('.xterm-rows span').filter({ hasText: 'Low contrast agent' }).first().evaluate(node => getComputedStyle(node).color);
       const channels = color.match(/\d+/g)!.slice(0,3).map(Number).map(value => { const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4; });
       expect((channels[0]!*0.2126+channels[1]!*0.7152+channels[2]!*0.0722+0.05)/0.05).toBeGreaterThanOrEqual(4.5);
-      const take = page.getByRole('button', { name: 'Take over', exact: true });
-      expect(await page.getByRole('button', { name: 'Take control', exact: true }).count()).toBe(0);
-      expect(await take.getAttribute('class')).toContain('pc-btn--quiet');
+      const take = page.getByRole('button', { name: 'Take control', exact: true });
+      expect(await take.getAttribute('class')).toContain('pc-btn--secondary');
       expect(await take.getAttribute('class')).not.toContain('pc-icon-button--bad');
       await take.click();
       await page.getByRole('dialog').waitFor();
@@ -170,12 +176,14 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
 }, 60_000);
 
 
-browserTest('available workspace reconnect resumes the same renderer and reacquires control without a forced take', async () => {
+browserTest('explicitly controlled workspace reconnect resumes the same renderer and reacquires control without a forced take', async () => {
   const source = await bundle();
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await open(page, source, false, 'dark');
+    await page.getByRole('button', { name: 'Take control', exact: true }).click();
+    await page.getByRole('button', { name: 'Hand back', exact: true }).waitFor();
     const renderer = await page.locator('.xterm').elementHandle();
     await page.evaluate(() => (window as any).terminalSockets[0].drop());
     await page.waitForTimeout(1000);

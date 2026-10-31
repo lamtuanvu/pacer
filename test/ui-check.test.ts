@@ -296,3 +296,9 @@ test("anchored menu permits only its measured viewport assignments", () => {
     expect(checkUiSource(path, source.replace('element.style', 'neighbor.style'))).not.toEqual([]);
   }
 });
+
+test("frame scroll clearance permits only measured work-header height", () => {
+  const source = 'root.style.setProperty("--pc-work-header-height", `${workHeader?.getBoundingClientRect().height ?? 0}px`);';
+  expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);
+  for (const bad of [source.replace("--pc-work-header-height", "height"), source.replace(".height", ".width"), source.replace("?? 0", "?? 20"), source.replace("root.style", "other.style")]) expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
+});

@@ -68,7 +68,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const page = visible.slice(0, shown);
   const summary = treeSummary(roots, Date.now() / 1000);
   const sessionHref = taskHref(query.repo ? `repo=${encodeURIComponent(query.repo)}` : "");
-  const href = (id: string) => withQuery(`#/tasks/${encodeURIComponent(id)}`, query);
+  const href = (id: string) => withQuery(`#/workspace?task=${encodeURIComponent(id)}`, query);
   const viewHref = (id: string, view: TaskCardView) => withQuery(`#/workspace?task=${encodeURIComponent(id)}&panel=${view === "brief" ? "notes" : view}`, query);
   // The panel follows the selection only while that task is still listed; a filter or search that hides it hands the panel to the first card.
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);

@@ -81,7 +81,7 @@ test("narrow Dispatch keeps the spec order, repo default, Needs you link and tou
   expect(html).toContain('All 3');
   expect(html).not.toContain('Add dark mode to the web header');
   expect(html).toContain("pc-narrow-attention--bad");
-  expect(html).toContain("/failure");
+  expect(html).toContain("#/workspace?task=t-0409");
   expect(html).toContain(">Inspect</span>");
 });
 

@@ -27,7 +27,7 @@ test('Tasks rows open the task directly without repeated control actions',()=>{
  const html=renderToString(<SessionsList recent={{data:[view(task)]}}/>);
  expect(html).toContain(`>${taskHeading(task.fullTitle!)}</a>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
- expect(html).toContain(`href="#/tasks/ended"`);
+ expect(html).toContain(`href="#/workspace?task=ended"`);
  expect(html).not.toContain('Take over');
  expect(html).not.toContain('View result');
  expect(view({...task,fullTitle:undefined}).title).toBe(task.title!);
@@ -40,8 +40,8 @@ test('Task navigator identifies the selected task and preserves the repo filter'
  expect(html).not.toContain('pc-task-card');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
- expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
- expect(html).toContain('href="#/tasks/ended?repo=lamtuanvu%2Fpacer"');
+ expect(html).toContain('href="#/workspace?task=running-task&amp;repo=lamtuanvu%2Fpacer"');
+ expect(html).toContain('href="#/workspace?task=ended&amp;repo=lamtuanvu%2Fpacer"');
  expect(html).not.toContain('All tasks');
 });
 
