@@ -50,16 +50,16 @@ function useDispatchStyles() {
 }
 
 const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) => !s.snapshot?.attention?.some(a => a.id === item.id && a.since === item.since);
-const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/tasks/${encodeURIComponent(id)}`, query);
+const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?task=${encodeURIComponent(id)}`, query);
 
 /** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery) {
   return item.actions.slice(0, count).map((action, i) => {
     if (action.op === "task.answer") {
-      return <TextAction key={i} href={withQuery(`#/needs-you?answer=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
+      return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
     if (item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label))) {
-      return <TextAction key={i} href={withQuery(`#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "review" ? "review" : "failure"}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction>;
+      return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId)}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction>;
     }
     return <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
   });
@@ -74,7 +74,7 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = f
   const more = card.kind === "task" && card.items.length > 1 ? ` · ${card.items.length - 1} more` : "";
   const destination = item.taskId && ["question", "failed", "review"].includes(item.kind) ? {
     label: item.kind === "question" ? "Answer" : item.kind === "failed" ? "Inspect failures" : "Review",
-    href: item.kind === "question" ? `#/needs-you?answer=${encodeURIComponent(item.taskId)}` : `#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "failed" ? "failure" : "review"}`,
+    href: `#/workspace?task=${encodeURIComponent(item.taskId)}`,
   } : null;
   if (narrow && destination) return <li data-attention-id={item.id} className="pc-dispatch-card"><ListRowLink className={`pc-narrow-attention pc-narrow-attention--${bad ? "bad" : item.kind === "review" ? "review" : "warn"}`} href={withQuery(destination.href, query)}><StatusGlyph status={item.kind === "review" ? { ...status, tone: "info", glyph: "●" } : status} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={title}>{title}</strong><span className="pc-attn-card__caption muted" title={caption}>{caption}</span></span><span className="pc-narrow-attention__action">{item.kind === "failed" ? "Inspect" : destination.label}</span></ListRowLink></li>;
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
@@ -120,7 +120,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
   const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && roots.some(n => n.id === t.id)).length;
   const runningNow = byState("running"), queued = byState("queued");
   if (narrow) return <section className="pc-narrow-running" aria-labelledby="running-title"><SectionHeading variant="headline" id="running-title">Running</SectionHeading>
-    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : roots.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label}{(() => { const start = snapshot.tasks.find(task => task.id === node.id)?.attemptStartedAt; return start ? ` · running ${elapsed(now - start)}` : ""; })()} · {node.repo}</span></span></ListRowLink>)}
+    {workError ? <div><ErrorMessage error={workError} /><Button onClick={onWorkReload}>Try again</Button></div> : roots.filter(node => snapshot.tasks.some(task => task.id === node.id && task.state === "running")).map(node => <ListRowLink key={node.id} href={withQuery(`#/workspace?task=${encodeURIComponent(node.id)}`, query)} className="pc-narrow-running__row"><AgentMark agent={node.agents[0] ?? "local"} size={20} labelled={false} /><span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption">{node.state.label}{(() => { const start = snapshot.tasks.find(task => task.id === node.id)?.attemptStartedAt; return start ? ` · running ${elapsed(now - start)}` : ""; })()} · {node.repo}</span></span></ListRowLink>)}
   </section>;
   return <section aria-busy={busy || undefined} className={`pc-card-section pc-live-dispatch${busy ? " pc-query-refreshing" : ""}`} aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading variant="headline" id="live-dispatch">Live dispatch</SectionHeading>
@@ -134,7 +134,7 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
         : running && node.state.tone === "info" ? { ...node.state, label: "Working" } : node.state;
       const why = task?.queue?.detail ?? task?.brokenReason ?? (task?.retryOf ? "Retried on executor" : null);
       const lead = node.agents.length > 1 ? `${node.agents.length} agents` : task?.executor ? executorLabel(task.executor) : "Not assigned";
-      return <li key={node.id}><ListRowLink layout="dispatch" className="pc-dispatch-decision" href={withQuery(`#/tasks/${encodeURIComponent(node.id)}`, query)}>
+      return <li key={node.id}><ListRowLink layout="dispatch" className="pc-dispatch-decision" href={withQuery(`#/workspace?task=${encodeURIComponent(node.id)}`, query)}>
         <span className="pc-dispatch-caption">{node.updatedAt ? clock(node.updatedAt, now) : ""}</span>
         <span className="pc-dispatch-decision__task"><strong className="pc-ellipsis" title={node.title}>{node.title}</strong><span className="pc-dispatch-caption pc-dispatch-decision__repo pc-ellipsis">{node.repo}{node.children.length > 0 ? ` · ${node.children.length} subtasks` : ""}</span></span>
         <span><Pill tone="neutral">{task?.kind ?? "Unclassified"}</Pill></span>
@@ -318,7 +318,7 @@ export function EmptyDispatch({ query, sampleTask }: { query: RouteQuery; sample
 export function SampleTask({ query }: { query: RouteQuery }) {
   const action = useAction();
   const { state } = useTaskContext();
-  return <><Button size="sm" disabled={!state.connected} title={!state.connected ? "pacer is offline" : undefined} busy={action.busy} onClick={() => void action.run<{ task_id: string }>("onboarding.try", {}, result => { location.hash = withQuery(`#/tasks/${encodeURIComponent(result.task_id)}`, query); })}>Try a sample task</Button><ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}</>;
+  return <><Button size="sm" disabled={!state.connected} title={!state.connected ? "pacer is offline" : undefined} busy={action.busy} onClick={() => void action.run<{ task_id: string }>("onboarding.try", {}, result => { location.hash = withQuery(`#/workspace?task=${encodeURIComponent(result.task_id)}`, query); })}>Try a sample task</Button><ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}</>;
 }
 function FirstRunData({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
   const { state } = useTaskContext();
@@ -395,7 +395,7 @@ function useAttentionKeys(query: RouteQuery) {
     const actions: Record<string, () => void> = {
       j: () => move(1), k: () => move(-1),
       Enter: () => { const active = document.activeElement as HTMLElement; (["BUTTON", "A"].includes(active?.tagName) ? active : active?.closest("[data-attention-id]")?.querySelector<HTMLElement>(".pc-list-row__actions button, .pc-list-row__actions a"))?.click(); },
-      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/tasks/${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
+      v: () => { const item = selected(); location.hash = withQuery(item?.taskId ? `#/workspace?task=${encodeURIComponent(item.taskId)}` : "#/needs-you", current.current.query); },
       x: () => { const item = selected(); if (current.current.connected && item && state.features.ops.has("attention.dismiss")) void runner.run(`${item.id}:dismiss`, { label: "Dismiss", op: "attention.dismiss", params: { id: item.id } }, gone(item)); },
     };
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "dispatch", run: actions[key] ?? (() => {

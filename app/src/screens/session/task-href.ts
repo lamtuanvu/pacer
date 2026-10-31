@@ -1,2 +1,2 @@
-/** The task route link for a card or row, carrying the list's query (repository scope) along. */
-export const taskHref=(query='')=>(id:string)=>`#/tasks/${encodeURIComponent(id)}${query?(query.startsWith('?')?query:`?${query}`):''}`;
+/** Primary task links open the workspace while retaining the list scope. */
+export const taskHref=(query='')=>(id:string)=>`#/workspace?task=${encodeURIComponent(id)}${query?`&${query.replace(/^\?/, '')}`:''}`;

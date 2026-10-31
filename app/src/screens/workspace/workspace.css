@@ -41,6 +41,11 @@
 
 .pc-workspace-session-toggle.pc-btn>svg{width:calc(var(--size-10) + var(--size-1));height:calc(var(--size-10) + var(--size-1))}.pc-workspace-session-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
 
+.pc-workspace-state{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-6);max-width:100%;min-width:0}
+.pc-workspace-state>p,.pc-workspace-state>h2{margin:0}
+/* Leave room for explicit session actions while narrow titles truncate. */
+.pc-app--narrow .pc-topbar__context:has(.pc-workspace-panel-details){flex:1;min-width:0}
+.pc-app--narrow .pc-workspace-panel-details{width:100%;max-width:100%}
 
 /* Identity text yields before the agent mark and canonical status pill. */
 .pc-workspace-panel-details{flex:1;width:100%}.pc-workspace-panel-details>.pc-agent-mark,.pc-workspace-panel-details>.pc-pill{flex:none}

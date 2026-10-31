@@ -84,3 +84,36 @@ test('editor handoff preserves file locations and escapes URI delimiters',async(
  const file={path:'src/a #b.ts',line:4,column:2} as import('../src/session/files').SessionFileResult;
  expect(workspaceEditorHref('/tmp/work tree',file)).toBe('vscode://file/tmp/work%20tree/src/a%20%23b.ts:4:2');
 });
+
+test('primary task links open an exact workspace and preserve scope',async()=>{
+ const {taskHref:rowHref}=await import('../app/src/screens/session/task-href');
+ const {taskHref}=await import('../app/src/model/tasks');
+ expect(rowHref('repo=api&scope=all')('a /b')).toBe('#/workspace?task=a%20%2Fb&repo=api&scope=all');
+ expect(taskHref('a /b')).toBe('#/workspace?task=a%20%2Fb');
+});
+
+test('stopped results and absent acceptance never promise review or checks',async()=>{
+ const {renderToString}=await import('preact-render-to-string');
+ const {NowCard,Acceptance}=await import('../app/src/screens/trace/Overview');
+ const fixture=(await import('./fixtures/ui/task-get.json')).default;
+ const task={...fixture,state:'stopped',review:null,brief:{...fixture.brief,acceptance:''},acceptance:{state:'none'},derived:{files:'unavailable'}} as unknown as import('../src/core/task-detail').TaskDetail;
+ const html=renderToString(<><NowCard task={task} compact/><Acceptance task={task}/></>);
+ expect(html).toContain('Task stopped');expect(html).not.toContain('Ready for your review');
+ expect(html).toContain('No automatic checks configured');expect(html).not.toContain('Runs when the session ends');
+});
+
+test('queued workspace explains the recorded wait and the next step',async()=>{
+ const {workspaceWait}=await import('../app/src/screens/workspace/Workspace');
+ const fixture=(await import('./fixtures/ui/task-get.json')).default;
+ expect(workspaceWait({...fixture,state:'queued',queue:{reason:'paused'}} as never)).toEqual({reason:'Delegation is paused.',next:'Resume delegation from Dispatch to let this task start.'});
+ expect(workspaceWait({...fixture,state:'queued',queue:null} as never).reason).toBe('Waiting for an executor to start this task.');
+});
+
+test('compact metrics show one unavailable message rather than fabricated zeros',async()=>{
+ const {renderToString}=await import('preact-render-to-string');
+ const {CostTiles}=await import('../app/src/screens/trace/Overview');
+ const fixture=(await import('./fixtures/ui/task-get.json')).default;
+ const html=renderToString(<CostTiles task={{...fixture,attempts:[],tokens:undefined,derived:{files:'unavailable'}} as never} compact/>);
+ expect(html).not.toContain('>0<');
+ expect(html.match(/Some task metrics are unavailable/g)).toHaveLength(1);
+});

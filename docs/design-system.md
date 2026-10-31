@@ -613,6 +613,11 @@ The frame's assistant clearance adapters expose measured dock height through
 `--pc-assistant-header-height` (nonnegative CSS pixels). AppFrame owns these
 read-only layout measurements; the open launcher clamps below that header.
 Neither channel accepts user input or changes the closed launcher's spacing.
+The same frame observer exposes the measured top bar inside the narrow work
+scroller as `--pc-work-header-height`. That scroller uses it only for
+`scroll-padding-top`, so native focus and nearest scrolling clear the sticky
+header without changing inline panel layout or content spacing. The checker
+allows only the exact measured height assignment, with zero when absent.
 
 Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.
 
@@ -730,8 +735,7 @@ Earlier-attempt panels show metadata because the current service has no replay
 operation for a selected historical attempt.
 
 The open panel owns the top-bar context and actions. Following agent terminals
-are read-only until Take over; Hand back releases control. End session keeps the
-existing confirmation. Shells reuse the terminal client and xterm. The right
+are read-only until the secondary **Take control** action; **Hand back** releases control. **Stop task** confirms the task stop. Queued tasks show a service-derived reason and next step without opening a session request; final states compose NowCard, Acceptance and TaskActions in the center. Compact CostTiles omit unmeasured values and show one unavailable message. The right inspector avoids repeating the center status and acceptance. Shells reuse the terminal client and xterm. The right
 inspector provides Overview, Changes and Notes; selecting a change opens a middle
 diff panel. `NowCard`, `CostTiles` and `Acceptance` own the shared overview patterns
 and compact presentation. All geometry and appearances use generated tokens,
@@ -890,9 +894,8 @@ dot, ellipsized title, 18px host chip and mono repository, then status and token
 Session toggles and collapsed 26px icon targets or expanded 28px minimum rows are
 sibling controls, with independent keyboard targets. The Tasks tree supplies status
 and attention vocabulary. The frame's active-panel actions live right of search;
-board IconButtons are quiet 28px controls with native title tooltips; only the
-end-session action uses bad tone. Takeover and handback retain the shared hover,
-focus, busy and touch-target treatments, with plain ownership text in the header. Session control remains owned by the panel, with confirmation on
+board IconButtons are quiet 28px controls with native title tooltips, secondary
+labelled Take control and bad stop-task tone. Session control remains owned by the panel, with confirmation on
 end; file panels hand local workspace paths to VS Code's registered file URI handler.
 Desktop geometry uses generated tokens; live status respects reduced motion.
 
@@ -912,7 +915,9 @@ search, status and app chrome keep their normal app-theme tokens. Production
 consumers include workspace sessions, shell/split terminals, and conversation
 terminals via LinkedTerminal. Overview previews use plain task.log output.
 Workspace passes `externalControls` to TerminalView so its
-shared frame toolbar owns takeover/handback without a second action row. The
+shared frame toolbar owns takeover/handback without a second action row. It sets
+`autoControl={false}` for read-only entry while leaving live control capability
+available for explicit Take control. Handback preserves the renderer and output. The
 terminal retains its status, Screen reader control, errors and reconnect action.
 Followers scroll at normal font size and retain PTY
 dimensions; only a visible controller fits/resizes. No upstream provenance changes.
