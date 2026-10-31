@@ -17,11 +17,34 @@ export interface CallResources {
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
-    mode?: "codex-live";
+    mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
+    /** Host-only bounded input, never provided through the plugin RPC. */
+    input?: Uint8Array;
+    inputSha256?: string;
   }[];
+  /** Exact, one-use host operations issued by the owning service call, never by a plugin RPC. */
+  hosts?: HostOperationResource[];
+  /** One-use, host-issued binary SSH stages. Never derived from plugin RPC params. */
+  bundleStages?: BundleStageResource[];
   stores: { id: string; path: string; kind: "cache" | "cursors"; version?: number; root?: string }[];
 }
-export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null }
+export interface HostOperationResource {
+  alias: string;
+  hostFingerprint: string;
+  script: string;
+  args: string[];
+  timeoutMs: number;
+  maxBytes: number;
+}
+export interface BundleStageResource {
+  alias: string;
+  hostFingerprint: string;
+  args: [string, string, string];
+  argv: string[];
+  timeoutMs: number;
+  maxBytes: number;
+}
+export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null; /** Only the private owner-bound host stream may omit a wall deadline. */ ownerBoundStream?: boolean }
 
 /** Host-issued immutable resources. Never construct these from plugin RPC params. */
 export class CallAuthority {
@@ -35,6 +58,7 @@ export class CallAuthority {
   private operation = false;
   private readonly issuedAt = Date.now();
   private readElapsed = 0;
+  private readonly usedHostOperations = new Set<number>();
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null) {
@@ -48,6 +72,16 @@ export class CallAuthority {
     for (const list of [this.resources.reads, this.resources.commands, this.resources.stores]) {
       for (const value of list) Object.freeze(value);
       Object.freeze(list);
+    }
+    if (this.resources.hosts) {
+      for (const value of this.resources.hosts) { Object.freeze(value.args); Object.freeze(value); }
+      Object.freeze(this.resources.hosts);
+    }
+    if (this.resources.bundleStages) {
+      for (const value of this.resources.bundleStages) {
+        Object.freeze(value.args); Object.freeze(value.argv); Object.freeze(value);
+      }
+      Object.freeze(this.resources.bundleStages);
     }
     if (this.resources.writes) {
       for (const resource of this.resources.writes) { Object.freeze(resource.operations); Object.freeze(resource); }
@@ -77,6 +111,18 @@ export class CallAuthority {
   assertGranted(name: string): void {
     this.assertActive();
     if (!this.grants.has(name)) throw new CoreError("capability_denied", `${name} is not granted to the owning call`);
+  }
+  /** Consume before provider effects; another session cannot reuse this call's grant. */
+  consumeHostOperation(request: HostOperationResource): void {
+    this.assertGranted("hosts");
+    const issued = this.resources.hosts ?? [];
+    const at = issued.findIndex((resource, index) => !this.usedHostOperations.has(index) &&
+      resource.alias === request.alias && resource.hostFingerprint === request.hostFingerprint &&
+      resource.script === request.script && resource.timeoutMs >= request.timeoutMs &&
+      resource.maxBytes >= request.maxBytes &&
+      resource.args.length === request.args.length && resource.args.every((arg, i) => arg === request.args[i]));
+    if (at < 0) throw new CoreError("capability_denied", "host operation is not issued for this call");
+    this.usedHostOperations.add(at);
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {
     this.assertActive();
@@ -114,6 +160,7 @@ export class CallAuthority {
   }
 }
 export function createCallAuthority(ctx: Ctx, resources: CallResources, options: AuthorityOptions): CallAuthority {
-  if (!Number.isFinite(options.deadlineMs)) throw new CoreError("invalid_input", "call deadline must be finite");
+  if (!Number.isFinite(options.deadlineMs) && !(options.ownerBoundStream && options.deadlineMs === Infinity && options.signal))
+    throw new CoreError("invalid_input", "call deadline must be finite");
   return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome);
 }

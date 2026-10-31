@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { uninstallPlanner } from "../src/install/uninstall";
 import { readManifest, type Manifest } from "../src/install/manifest";
 import { sha256 } from "../src/install/fsx";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
 import type { Ctx } from "../src/types";
 
 interface FileImage { text: string; mode: number }
@@ -55,6 +56,26 @@ function setup(agent: string) {
   return { home, ctx, get calls(){try{return readFileSync(callLog,"utf8").trim().split("\n").filter(Boolean).map(line=>JSON.parse(line));}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return [];throw error;}}, fixture, snapshot };
 }
 
+async function cleanupReplay(f: ReturnType<typeof setup>): Promise<void> {
+  try { await shutdownPlugins(f.ctx); }
+  finally { rmSync(f.home, { recursive: true, force: true }); }
+}
+
+test("recorded install replay cleanup reaps its bundled planner child", async () => {
+  const f = setup("codex");
+  let pid: number | undefined;
+  try {
+    await uninstallPlanner(f.ctx, "codex");
+    const report = (await pluginRegistry(f.ctx).doctor(f.ctx, "pacer-planners"))[0];
+    pid = report?.pid ?? undefined;
+    if (typeof pid !== "number") throw new Error("bundled planner fixture did not start");
+    expect(() => process.kill(pid!, 0)).not.toThrow();
+  } finally {
+    await cleanupReplay(f);
+  }
+  expect(() => process.kill(pid!, 0)).toThrow();
+});
+
 for (const agent of ["claude-code", "codex", "cursor", "opencode"]) {
   test(`${agent} recorded host install uninstalls to exact original bytes and file modes`, async () => {
     const f = setup(agent);
@@ -69,7 +90,7 @@ for (const agent of ["claude-code", "codex", "cursor", "opencode"]) {
       expect(f.calls).toEqual(f.fixture.uninstall.calls);
       expect(f.snapshot()).toEqual(f.fixture.before);
       expect(readManifest(f.ctx)).toEqual({ version: 1, planners: {} });
-    } finally { rmSync(f.home, { recursive: true, force: true }); }
+    } finally { await cleanupReplay(f); }
   });
   test(`${agent} recorded undo preserves a user edit made after install`, async () => {
     const f = setup(agent);
@@ -84,6 +105,6 @@ for (const agent of ["claude-code", "codex", "cursor", "opencode"]) {
       expect(statSync(path).mode & 0o777).toBe(beforeMode);
       expect(readFileSync(join(f.home, "unrelated.txt"), "utf8")).toBe("Unrelated fixture content: 界\n");
       expect(readManifest(f.ctx).planners).toEqual({});
-    } finally { rmSync(f.home, { recursive: true, force: true }); }
+    } finally { await cleanupReplay(f); }
   });
 }

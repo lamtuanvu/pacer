@@ -18,6 +18,8 @@ testing = []
 pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.2.0" }
 pacer-plugin-decision-protocol = { path = "../plugin-decision-protocol", version = "0.2.0" }
 pacer-plugin-install-protocol = { path = "../plugin-install-protocol", version = "0.2.0" }
+pacer-plugin-hosts-protocol = { path = "../plugin-hosts-protocol", version = "0.2.0" }
+pacer-plugin-exec-protocol = { path = "../plugin-exec-protocol", version = "0.2.0" }
 pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.2.0" }
 serde.workspace = true
 serde_json.workspace = true

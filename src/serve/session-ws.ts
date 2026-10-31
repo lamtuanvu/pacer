@@ -7,6 +7,7 @@ import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { admitRemoteViewer } from '../remote/viewer-admission';
 export interface SessionWS { socket?:Socket; decoder:WireDecoder; from?:number; replay?:{frames:Frame[];next:number;started:boolean} }
 const names=new Map<number,string>(Object.entries(FrameType).map(([k,v])=>[v,k]));
 /** JSON messages carry the named frame type plus the original body fields. */
@@ -106,6 +107,12 @@ async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string)
    const timer=setTimeout(()=>{socket.destroy();reject(Error('session connection timeout'));},2000);
    socket.once('connect',()=>{clearTimeout(timer);resolve();});socket.once('error',e=>{clearTimeout(timer);reject(e);});
   });}catch{socket.destroy();return offline();}
+  if(existsSync(join(dir,'session.bridge.pid'))){
+   try{
+    const reason=await admitRemoteViewer(socket);
+    if(reason){socket.destroy();return new Response(reason,{status:reason.includes('capacity')?503:409});}
+   }catch(error){socket.destroy();return new Response(String(error),{status:503});}
+  }
   if(server.upgrade(req,{data:{socket,decoder:new WireDecoder(),from}}))return;
   socket.destroy();return new Response('WebSocket upgrade required',{status:426});
  }catch{return new Response('Session not found',{status:404});}

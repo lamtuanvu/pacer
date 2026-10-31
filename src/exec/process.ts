@@ -36,6 +36,10 @@ export interface ExecSpec {
   stdin?: string;
   /** Keep JSON-RPC stdin open until stdout contains this response id. */
   stdinUntilResponseId?: number;
+  /** Existing host-owned descriptor, inherited as the child's stdin. Caller retains ownership. */
+  stdinFd?: number;
+  /** Immutable bounded binary input, streamed as the child's stdin. */
+  stdinBlob?: Blob;
   env: Record<string, string | undefined>;
   timeoutMs: number;
   logFile?: string;
@@ -63,7 +67,10 @@ function spawn(spec: ExecSpec) {
     // Tools that resolve paths from $PWD (OpenCode does) must see the child's
     // directory, not the parent's.
     env: { ...(spec.env ?? process.env), PWD: spec.cwd },
-    stdin: spec.stdinUntilResponseId !== undefined ? "pipe" : spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
+    stdin: spec.stdinUntilResponseId !== undefined ? "pipe"
+      : spec.stdinFd !== undefined ? spec.stdinFd
+      : spec.stdinBlob !== undefined ? spec.stdinBlob
+      : spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });

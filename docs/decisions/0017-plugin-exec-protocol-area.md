@@ -1,0 +1,9 @@
+# ADR 0017: Plugin execution protocol area for the 0.2 SDK
+
+Status: Proposed, 2026-10-30
+
+The SP08 duplex process contracts and staged SP09 executor contracts (plugin protocol 1.7.0) push the generated `pacer-plugin-protocol` crate past CRATE-3's 10,000-line limit. Generate the complete `executor.*` and `capability.process.*` definition areas in the independent publishable `pacer-plugin-exec-protocol` 0.2 crate. These are execution wire contracts, including bounded process effects and their receipts. Every definition in this area has a local schema reference closure. The generic manifest, lifecycle and call metadata types remain in `pacer-plugin-protocol`; no layer-0 protocol area depends on another.
+
+The Rust SDK depends on the new area and preserves the `pacer_plugin::types::Executor*` and `CapabilityProcess*` names through its re-export facade. Direct Rust consumers of the root `pacer_plugin_protocol` crate import those execution types from `pacer_plugin_exec_protocol` instead. Re-exporting them from the root crate would require a dependency between layer-0 protocol areas, contrary to CRATE-4 and the independent-area design. This direct import change is the same boundary used by the decision, agent-session, install and hosts protocol areas. The immutable 0.1 release lane remains unchanged.
+
+The generated Rust layout changes no JSON wire field, TypeScript validator or runtime SSH behavior. Publish the independent protocol area crates, including hosts and execution, before the 0.2 SDK. Generation freshness, generated-line limits, dependency layering, SDK facade round trips, crate archive checks and external-consumer compilation cover the area. This decision grants no milestone or live-validation exception.

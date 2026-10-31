@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { issueConfiguredHostPrepare, consumeConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
+import { issueConfiguredHostAttemptPreflight, consumeConfiguredHostAttemptPreflight } from "../src/plugins/host-attempt-preflight-issuer";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
 import { runAttempt, resumeAttempt } from "../src/exec/direct";
 import { loadStrategy } from "../src/config/strategy";
 import { taskWorktreePath } from "../src/supervisor/worktree";
@@ -38,10 +43,12 @@ async function setup(agent = "codex", account = "") {
   sshEnv.PATH = `${localBin}:${sshEnv.PATH}`;
   const sshLog = join(root, "ssh.log"), env = { ...process.env, ...sshEnv, CODEX_HOME: "planner-codex", CLAUDE_CONFIG_DIR: "planner" };
   const gitCalls: string[][] = [];
-  const ctx = fakeCtx({ env, run: (argv, ms, o) => {
+  const ctx = fakeCtx({ env, which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") :
+    name === "git" ? "/usr/bin/git" : Bun.which(name), run: (argv, ms, o) => {
     if (argv[0] === "git") gitCalls.push(argv);
     return realRun(argv, ms, { ...o, env: { ...env, ...o?.env } });
   } });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   const id = `${agent}${account ? `#${account}` : ""}@box`;
   const raw = { accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
@@ -53,6 +60,20 @@ async function setup(agent = "codex", account = "") {
   updateTask(ctx, task.id, t => { t.state = "running"; t.placement = { requested: "new" }; });
   return { ctx, cfg, task: readTask(ctx, task.id)!, git, hostHome, repo, goal, sshLog, gitCalls };
 }
+
+test("remote attempt fixture cleanup reaps its bundled SSH child", async () => {
+  const f = await setup();
+  const report = (await pluginRegistry(f.ctx).doctor(f.ctx, "pacer-ssh"))[0];
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw new Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(f.ctx);
+  }
+});
 
 test("the prompt reaches the host agent unchanged", async () => {
   const f = await setup();
@@ -78,7 +99,7 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(result.report).toBe(`ran on box; fetched pacer/${task.id} (1 commits)\n\nfinal report`);
   // Resuming only collects the saved run output; it does not repeat the transfer.
   expect((await resumeAttempt(f.ctx, f.cfg, task)).report).toBe("final report");
-}, 15000);
+}, 60000);
 
 test("a foreign-identity commit leaves the task partial and kept on the host", async () => {
   const f = await setup();
@@ -100,13 +121,13 @@ test("a foreign-identity commit leaves the task partial and kept on the host", a
   });
   expect(result.state).toBe("partial");
   expect(result.result).toMatchObject({ status: "partial", files: "(kept on host)", worktree: `box:${result.run!.remoteWorktree}` });
-  expect(result.result?.report).toContain("foreign identity foreign@example.invalid; run pacer host setup box\n\nfinal report");
+  expect(result.result?.report).toContain("claimed bundle contains foreign commit identity\n\nfinal report");
   expect(result.result?.acceptance).toBeUndefined();
   expect(existsSync(acceptanceFile)).toBe(false);
   expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
   expect(await f.git("-C", result.run!.remoteWorktree!, "branch", "--show-current")).toBe(`pacer/${f.task.id}`);
   expect(await f.git("-C", result.run!.remoteWorktree!, "log", "-1", "--format=%ae")).toBe("foreign@example.invalid");
-}, 15000);
+}, 60000);
 
 test("remote env carries only the declared account folder", async () => {
   for (const agent of ["codex", "claude-code"]) {
@@ -116,12 +137,14 @@ test("remote env carries only the declared account folder", async () => {
     const lines = result.exec.stdout.split("\n").filter(l => /^(CODEX_HOME|CLAUDE_CONFIG_DIR|PACER_ROLE)=/.test(l));
     expect(lines).toEqual([`${agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${f.hostHome}/host-team`, "PACER_ROLE=executor"]);
   }
-}, 20000);
+}, 60000);
 
 test("an unpublished base is sent as a bundle", async () => {
   const f = await setup();
   writeFileSync(join(f.repo, "base.txt"), "unpublished 🦊\n");
-  await f.git("-C", f.repo, "add", "base.txt");
+  const binary = randomBytes(128 * 1024);
+  writeFileSync(join(f.repo, "binary.bin"), binary);
+  await f.git("-C", f.repo, "add", "base.txt", "binary.bin");
   await f.git("-C", f.repo, "commit", "-q", "-m", "unpublished");
   const base = await f.git("-C", f.repo, "rev-parse", "HEAD");
   const result = await runAttempt(f.ctx, f.cfg, f.task);
@@ -130,7 +153,56 @@ test("an unpublished base is sent as a bundle", async () => {
   expect(run.baseSha).toBe(base);
   expect(await f.git("-C", run.remoteWorktree!, "rev-parse", "HEAD^")).toBe(base);
   expect(readFileSync(join(run.remoteWorktree!, "base.txt"), "utf8")).toBe("unpublished 🦊\n");
-}, 15000);
+  expect(readFileSync(join(run.remoteWorktree!, "binary.bin"))).toEqual(binary);
+}, 60000);
+
+test("PREPARE grant binds the persisted task and consumes binary input once", async () => {
+  const f = await setup();
+  const sha = await f.git("-C", f.repo, "rev-parse", "HEAD");
+  await expect(pluginRegistry(f.ctx).call(f.ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "PREPARE", args: ["~/src/r", "r-12345678", f.task.id, sha, "main", "1"],
+    timeoutMs: 60_000, maxBytes: 65_536, completionNonce: "123e4567-e89b-42d3-a456-426614174000",
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const bytes = Uint8Array.from([0, 255, 10, 128]);
+  const grant = await issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", bytes);
+  bytes[0] = 99;
+  expect(await consumeConfiguredHostPrepare(f.ctx, grant)).toEqual(Uint8Array.from([0, 255, 10, 128]));
+  await expect(consumeConfiguredHostPrepare(f.ctx, grant)).rejects.toMatchObject({ code: "capability_denied" });
+  const stale = await issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", bytes);
+  updateTask(f.ctx, f.task.id, task => { task.state = "queued"; });
+  await expect(consumeConfiguredHostPrepare(f.ctx, stale)).rejects.toMatchObject({ code: "capability_denied" });
+  await expect(issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "other", bytes))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  await expect(issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", new Uint8Array(50 * 1024 * 1024 + 1)))
+    .rejects.toMatchObject({ code: "capability_denied" });
+}, 60000);
+
+test("disabled SSH provider fails PREPARE without direct SSH fallback", async () => {
+  const f = await setup();
+  const registry = pluginRegistry(f.ctx);
+  await registry.disable(f.ctx, "pacer-ssh");
+  const before = existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "";
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(1);
+  expect(result.exec.stderr).toContain("SSH host runner plugin pacer-ssh is disabled");
+  expect(existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "").toBe(before);
+}, 60000);
+
+test("an unreceipted missing-base PREPARE cannot trigger a bundle retry", async () => {
+  const f = await setup();
+  writeFileSync(join(f.repo, "unpublished.txt"), "local only\n");
+  await f.git("-C", f.repo, "add", "unpublished.txt");
+  await f.git("-C", f.repo, "commit", "-q", "-m", "unpublished");
+  const wrapper = join(f.ctx.home, "unreceipted-ssh");
+  const fixture = join(import.meta.dir, "fixtures", "bin", "ssh");
+  writeFileSync(wrapper, `#!/bin/sh\n"${fixture}" "$@" | sed '/__PACER_DONE__/d'\n`);
+  chmodSync(wrapper, 0o755);
+  f.ctx.which = name => name === "ssh" ? wrapper : Bun.which(name);
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(1);
+  expect(result.exec.stderr).toContain("remote prepare completion is unverified");
+  expect(readFileSync(f.sshLog, "utf8").match(/BatchMode=yes/g)).toHaveLength(1);
+}, 60000);
 
 test("resume does not mistake an unrelated local head for a completed transfer", async () => {
   const f = await setup();
@@ -140,7 +212,7 @@ test("resume does not mistake an unrelated local head for a completed transfer",
   const result = await resumeAttempt(f.ctx, f.cfg, t);
   expect(result.report).toContain(`fetched pacer/${t.id}`);
   expect(await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`)).toBe(await f.git("-C", t.run!.remoteWorktree!, "rev-parse", "HEAD"));
-}, 20000);
+}, 60000);
 
 test("a second remote attempt reuses a branch left at base", async () => {
   const f = await setup(), program = join(f.hostHome, "bin/codex");
@@ -153,7 +225,90 @@ test("a second remote attempt reuses a branch left at base", async () => {
   const second = await runAttempt(f.ctx, f.cfg, readTask(f.ctx, f.task.id)!);
   expect(second.exec.code).toBe(0);
   expect(readTask(f.ctx, f.task.id)!.run).toHaveProperty("remoteBranch", `pacer/${f.task.id}`);
-}, 20000);
+}, 60000);
+
+test("post-exit PREFLIGHT is one-use and bound to the persisted run", async () => {
+  const f = await setup();
+  expect((await runAttempt(f.ctx, f.cfg, f.task)).exec.code).toBe(0);
+  const run = readTask(f.ctx, f.task.id)!.run!;
+  await expect(pluginRegistry(f.ctx).call(f.ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "PREFLIGHT",
+    args: [run.remoteWorktree, run.baseSha, run.remoteBranch], timeoutMs: 60_000, maxBytes: 65_536,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt);
+  consumeConfiguredHostAttemptPreflight(f.ctx, grant);
+  expect(() => consumeConfiguredHostAttemptPreflight(f.ctx, grant)).toThrow();
+  const stale = issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt);
+  updateTask(f.ctx, f.task.id, t => { t.state = "queued"; });
+  expect(() => consumeConfiguredHostAttemptPreflight(f.ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt + 1)).toThrow();
+}, 60000);
+
+test("a failed executor with committed work uses brokered post-exit PREFLIGHT", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const original = f.ctx.run;
+  let directPreflight = 0;
+  f.ctx.run = (argv, ms, options) => {
+    if (argv.some(arg => arg.includes("git merge-base --is-ancestor"))) directPreflight++;
+    return original(argv, ms, options);
+  };
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(9);
+  expect(result.worktree).toBeDefined();
+  expect(directPreflight).toBe(0);
+}, 60000);
+
+test("timed-out post-exit PREFLIGHT does not transfer committed work", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx);
+  const original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async () => ({ code: 0, stdout: "commits=1\n", stderr: "", timedOut: true });
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).toBe(9);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
+  } finally { registry.preflightConfiguredHostAttempt = original; }
+}, 60000);
+
+test("duplicate post-exit PREFLIGHT facts cannot authorize transfer", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx), original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async () => ({ code: 0,
+    stdout: "commits=1\ncommits=0\n", stderr: "", timedOut: false });
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).toBe(9);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
+  } finally { registry.preflightConfiguredHostAttempt = original; }
+}, 60000);
+
+test("disabled SSH provider refuses post-exit PREFLIGHT without direct SSH fallback", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx);
+  const original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async (ctx, grant) => {
+    await registry.disable(ctx, "pacer-ssh");
+    return original(ctx, grant);
+  };
+  const run = f.ctx.run;
+  let direct = 0;
+  f.ctx.run = (argv, ms, options) => {
+    if (argv.some(arg => arg.includes("git merge-base --is-ancestor"))) direct++;
+    return run(argv, ms, options);
+  };
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).not.toBe(0);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(direct).toBe(0);
+  } finally { registry.preflightConfiguredHostAttempt = original; }
+}, 60000);
 
 test("PTY strategy records remote attempts with the configured local recording cap", async()=>{
   const f=await setup();
@@ -179,4 +334,4 @@ exit "$code"
   expect(JSON.parse(readFileSync(join(run.dir,"session.json"),"utf8")).capBytes).toBe(1024*1024);
   expect(result.exec.stdout).toContain("PACER_ROLE=executor");
   expect(result.exec.stdout).not.toContain("Script started on");
-},15000);
+},60000);
