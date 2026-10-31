@@ -75,7 +75,7 @@ const summary = (over: object) => ({ agent: 'codex', source: 'Codex sign-in', us
 
 test('Accounts: status pill with a fix link only where the fix can work', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
-    summary({ name: 'team', executors: [executor.id] }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
+    summary({ name: 'team', executors: [executor.id], stale: false, capturedAt: 1000 }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
   for (const label of ['On pace', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   // Sign-in help remains available for the signed-out native account and Ark CLI endpoint.
   // Other fixture rows deliberately omit usageCheck: they offer no usage action, while reconnect guidance stays available.

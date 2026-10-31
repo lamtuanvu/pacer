@@ -2,13 +2,20 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { down, liveRoot, up, type Session } from "../scripts/live/core";
-import { authorizeSeedPluginRemove, ownedRemovalTree, REMOVE_LOCKS } from "../scripts/live/plugin-remove";
+import type { Session } from "../scripts/live/core";
 import { refusal } from "../scripts/live/guard";
 import { refusedOp } from "../scripts/live/proxy";
 import { REMOVE_FIXTURE_ID } from "../scripts/live/seed";
+import { assertPacerHomeAllowed } from "../src/ctx";
+import { liveTestCheckout } from "./live-checkout";
+
+const checkout = liveTestCheckout();
+const { down, liveRoot, up } = await import(`${checkout}/scripts/live/core.ts`) as typeof import("../scripts/live/core");
+const { authorizeSeedPluginRemove, ownedRemovalTree, REMOVE_LOCKS } = await import(`${checkout}/scripts/live/plugin-remove.ts`) as typeof import("../scripts/live/plugin-remove");
 
 test("the seeded D8 exception removes only its exact fixture, once, through the public proxy", async () => {
+  // Fail before creating any fixture files if its checkout lives under real ~/.pacer.
+  assertPacerHomeAllowed(join(liveRoot, "remove-preflight", "home"));
   const session = await up(`remove-${randomUUID().slice(0, 8)}`, undefined, liveRoot, "plugin-remove");
   try {
     const base = `http://127.0.0.1:${session.port}`;
