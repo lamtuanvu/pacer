@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { blockText } from "../src/install/blocks";
 import { codexMcpBlock, installCodex } from "./install-plugin-adapter";
-import { policyText } from "../src/install/policy";
+import { policyText } from "../plugins/pacer-planners/policy";
 import { runInstall } from "./install-plugin-adapter";
 import { uninstallPlanner } from "./install-plugin-adapter";
 import { fakeCtx } from "./helpers";

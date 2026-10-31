@@ -40,6 +40,16 @@ interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: bo
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
+export const NETWORK_ENV = ["HTTP_PROXY","HTTPS_PROXY","NO_PROXY","http_proxy","https_proxy","no_proxy","SSL_CERT_FILE","SSL_CERT_DIR","NODE_EXTRA_CA_CERTS","ssl_cert_file","ssl_cert_dir","node_extra_ca_certs"] as const;
+const ARK_ENV = ["ARK_API_KEY","ARK_BASE_URL","ARK_PROFILE","ARK_PROJECT_NAME","ARK_REGION"] as const;
+function minimalEnvironment(env: Readonly<Record<string, string | undefined>>, executable:string): Record<string, string> {
+  const base=["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"];
+  const extra=executable==="notify-send"?["DBUS_SESSION_BUS_ADDRESS","DISPLAY","WAYLAND_DISPLAY","XDG_RUNTIME_DIR"]
+    :executable==="arkcli"?[...NETWORK_ENV,...ARK_ENV]
+    :executable==="opencode"?[...NETWORK_ENV]:[];
+  return Object.fromEntries([...base,...extra]
+    .flatMap(key => typeof env[key] === "string" ? [[key, env[key]]] : []));
+}
 const same = (a: Stats, b: Stats) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.mode === b.mode;
 
 /** Issuance-time snapshot, before untrusted plugin execution; never pin on first RPC. */
@@ -206,7 +216,7 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   validatePin(pin);
   authority.assertActive(); state.busy = true;
   try {
-    const env: Record<string, string> | undefined = pin.context ? Object.assign(Object.create(null), pin.context.env) : undefined;
+    const env: Record<string, string> = pin.context ? Object.assign(Object.create(null), pin.context.env) : minimalEnvironment(authority.ctx.env,args[0]!);
     const secrets: string[] = [];
     for (const [name, ref] of Object.entries(pin.context?.secretEnv ?? {})) {
       const resolved = await resolveBoundCredential(authority, ref);
@@ -285,7 +295,7 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
     validatePin(pin);
     const start = () => spawn(pin.canonical!, argv.slice(1), {
       stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" || pin.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      ...(pin.mode === "prepare-bundle" || pin.mode === "prepare-recover" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
+      env: pin.mode === "prepare-bundle" || pin.mode === "prepare-recover" || pin.mode === "binary-upload" || pin.mode === "start-input" ? authority.ctx.env : env,
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
     child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();

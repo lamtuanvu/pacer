@@ -4743,7 +4743,7 @@ pub struct CapabilityNetHttpBodyStageChunkResult {
 ///        },
 ///        "secretRef": {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -4836,7 +4836,7 @@ pub struct CapabilityNetHttpParams {
 ///    },
 ///    "secretRef": {
 ///      "type": "string",
-///      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -4857,7 +4857,7 @@ pub struct CapabilityNetHttpParamsAuthorization {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -4878,7 +4878,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -5224,7 +5224,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpResultBodyVariant1Handl
 ///  "properties": {
 ///    "ref": {
 ///      "type": "string",
-///      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -5244,7 +5244,7 @@ pub struct CapabilitySecretsCheckParams {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -5265,7 +5265,7 @@ impl ::std::convert::From<CapabilitySecretsCheckParamsRef> for ::std::string::St
 impl ::std::str::FromStr for CapabilitySecretsCheckParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsCheckParamsRef {
@@ -5319,7 +5319,7 @@ pub struct CapabilitySecretsCheckResult {
 ///  "properties": {
 ///    "ref": {
 ///      "type": "string",
-///      "pattern": "^endpoint\\/[a-z0-9][a-z0-9-]*$"
+///      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -5339,7 +5339,7 @@ pub struct CapabilitySecretsResolveParams {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^endpoint\\/[a-z0-9][a-z0-9-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -5360,14 +5360,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^endpoint\\/[a-z0-9][a-z0-9-]*$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^endpoint\\/[a-z0-9][a-z0-9-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -6817,7 +6810,7 @@ pub struct DiagnosticPingResult {
 ///              "anyOf": [
 ///                {
 ///                  "type": "string",
-///                  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///                  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///                },
 ///                {
 ///                  "type": "null"
@@ -6889,7 +6882,7 @@ pub struct DiagnosticPingResult {
 ///            "anyOf": [
 ///              {
 ///                "type": "string",
-///                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///              },
 ///              {
 ///                "type": "null"
@@ -6977,7 +6970,7 @@ pub struct EndpointLaunchEnvParams {
 ///      "anyOf": [
 ///        {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        },
 ///        {
 ///          "type": "null"
@@ -7044,7 +7037,7 @@ pub struct EndpointLaunchEnvParamsAccount {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -7065,7 +7058,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -7197,7 +7190,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsAccountName {
 ///      "anyOf": [
 ///        {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        },
 ///        {
 ///          "type": "null"
@@ -7264,7 +7257,7 @@ pub struct EndpointLaunchEnvParamsAccountsItem {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -7285,7 +7278,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -7465,7 +7458,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsPacerHome {
 ///      "type": "object",
 ///      "additionalProperties": {
 ///        "type": "string",
-///        "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///        "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///      },
 ///      "propertyNames": {
 ///        "type": "string"
@@ -7491,7 +7484,7 @@ pub struct EndpointLaunchEnvResult {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -7512,7 +7505,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -7549,7 +7542,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvResultSecretEnvValue {
 ///      "anyOf": [
 ///        {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        },
 ///        {
 ///          "type": "null"
@@ -7587,7 +7580,7 @@ pub struct EndpointModelsParams {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -7608,7 +7601,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -7802,7 +7795,7 @@ pub struct EndpointModelsResultVariant0ModelsItem {
 ///          "anyOf": [
 ///            {
 ///              "type": "string",
-///              "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///              "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///            },
 ///            {
 ///              "type": "null"
@@ -7869,7 +7862,7 @@ pub struct EndpointModelsResultVariant0ModelsItem {
 ///            "anyOf": [
 ///              {
 ///                "type": "string",
-///                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///                "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///              },
 ///              {
 ///                "type": "null"
@@ -7923,7 +7916,7 @@ pub struct EndpointModelsResultVariant0ModelsItem {
 ///    },
 ///    "configRef": {
 ///      "type": "string",
-///      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///    },
 ///    "env": {
 ///      "type": "object",
@@ -8004,7 +7997,7 @@ pub struct EndpointTestParams {
 ///      "anyOf": [
 ///        {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        },
 ///        {
 ///          "type": "null"
@@ -8071,7 +8064,7 @@ pub struct EndpointTestParamsAccount {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -8092,7 +8085,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -8224,7 +8217,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountName {
 ///      "anyOf": [
 ///        {
 ///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///        },
 ///        {
 ///          "type": "null"
@@ -8291,7 +8284,7 @@ pub struct EndpointTestParamsAccountsItem {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -8312,7 +8305,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -8429,7 +8422,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountsItemName {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
 ///}
 /// ```
 /// </details>
@@ -8450,7 +8443,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -10361,7 +10354,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -11913,7 +11906,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -20894,10 +20887,16 @@ fn validate_string_13<T>(
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
-        ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
+        ::regress::Regex::new(
+                "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$",
+            )
+            .unwrap()
     });
     if PATTERN.find(value).is_none() {
-        return Err("doesn't match pattern \"^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$\"".into());
+        return Err(
+            "doesn't match pattern \"^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$\""
+                .into(),
+        );
     }
     Ok(construct(value.to_string()))
 }
@@ -20906,12 +20905,10 @@ fn validate_string_14<T>(
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
-        ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$").unwrap()
+        ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
     });
     if PATTERN.find(value).is_none() {
-        return Err(
-            "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\"".into(),
-        );
+        return Err("doesn't match pattern \"^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$\"".into());
     }
     Ok(construct(value.to_string()))
 }

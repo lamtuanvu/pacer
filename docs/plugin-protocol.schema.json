@@ -3646,6 +3646,21 @@
                   "minLength": 1,
                   "maxLength": 4096
                 },
+                "goalLength": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "goalHash": {
+                  "type": "string",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
+                "repoKey": {
+                  "type": "string",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
                 "kind": {
                   "anyOf": [
                     {
@@ -3777,6 +3792,16 @@
                 "note": {
                   "type": "string",
                   "maxLength": 4096
+                },
+                "noteLength": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "noteHash": {
+                  "type": "string",
+                  "minLength": 64,
+                  "maxLength": 64
                 },
                 "kind": {
                   "anyOf": [
@@ -4754,7 +4779,7 @@
                   },
                   "additionalProperties": {
                     "type": "string",
-                    "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                    "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                   }
                 },
                 "detached": {
@@ -5790,7 +5815,7 @@
           "anyOf": [
             {
               "type": "string",
-              "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
             },
             {
               "type": "null"
@@ -5899,7 +5924,7 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                      "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                     },
                     {
                       "type": "null"
@@ -5971,7 +5996,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                    "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                   },
                   {
                     "type": "null"
@@ -6053,7 +6078,7 @@
           },
           "additionalProperties": {
             "type": "string",
-            "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+            "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
           }
         }
       },
@@ -6081,7 +6106,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                  "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                 },
                 {
                   "type": "null"
@@ -6148,7 +6173,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                    "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                   },
                   {
                     "type": "null"
@@ -6237,7 +6262,7 @@
         },
         "configRef": {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         }
       },
       "required": [
@@ -9228,7 +9253,7 @@
                 "properties": {
                   "secretRef": {
                     "type": "string",
-                    "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+                    "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
                   }
                 },
                 "required": [
@@ -12062,7 +12087,7 @@
           "properties": {
             "secretRef": {
               "type": "string",
-              "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
             },
             "scheme": {
               "default": "Bearer",
@@ -12138,7 +12163,7 @@
       "properties": {
         "ref": {
           "type": "string",
-          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         }
       },
       "required": [
@@ -12334,7 +12359,7 @@
       "properties": {
         "ref": {
           "type": "string",
-          "pattern": "^endpoint\\/[a-z0-9][a-z0-9-]*$"
+          "pattern": "^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\\/[a-z0-9][a-z0-9-]*)$"
         }
       },
       "required": [
