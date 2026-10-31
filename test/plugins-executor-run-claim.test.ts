@@ -33,9 +33,9 @@ function fixture() {
       executable, executableIdentity: { dev: binary.dev, ino: binary.ino, size: binary.size,
         mtimeMs: binary.mtimeMs, mode: binary.mode },
       env: { PATH: ctx.env.PATH ?? "/usr/bin:/bin" } } };
-  const call = async (issued = true) => {
+  const call = async (issued = true, extra: Record<string, unknown> = {}) => {
     const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
-      ...(issued ? { executorClaim: resource } : {}) } as any,
+      ...(issued ? { executorClaim: { ...resource, ...extra } } : {}) } as any,
     { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
     try {
       return await answerCapability(ctx, { id: manifest.id, manifest }, "capability.process.claimRun",
@@ -109,6 +109,25 @@ test("pending stop and provider swap refuse run claim without a new effect", asy
       expect(readTask(ctx, task.id)?.run).toBeUndefined();
     } finally { cleanup(); }
   }
+});
+
+test("an in-place claim refuses a checkout another task occupied after the grant was issued", async () => {
+  const { ctx, task, call, cleanup } = fixture();
+  try {
+    const top = realpathSync(task.brief.repo), nested = join(top, "nested");
+    mkdirSync(nested);
+    // Admission passed; another task starts in place inside the same checkout before the claim.
+    const other = createTask(ctx, { brief: { goal: "other", repo: nested }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, other.id, current => {
+      current.state = "running";
+      current.runnerPid = process.pid;
+      current.placement = { requested: "current", mode: "current", why: "fixture" };
+    });
+    await expect(call(true, { inPlaceTop: top })).rejects.toMatchObject({ code: "capability_denied" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+    expect(existsSync(join(ctx.pacerHome, "runs", task.id))).toBe(false);
+  } finally { cleanup(); }
 });
 
 test("run claim binds one start and a lost start receipt cannot authorize another launch", async () => {

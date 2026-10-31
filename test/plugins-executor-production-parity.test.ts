@@ -7,6 +7,7 @@ import { runOwnedDirectCurrent, runOwnedDirectNew } from "../src/plugins/executo
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerOwnedRemoteOutput, answerOwnedRemotePoll, answerOwnedRemoteStart } from "../src/plugins/executor-remote-run";
 import { STRICT_INTERACTIVE_REASON, certifyExecutor, planStrictClaudeLaunch, resolveEnforcementTarget, strictClaudeLaunch } from "../src/dispatch/enforcement";
+import { providerOwnedTakeover, takeoverAvailability, takeoverTask } from "../src/session/takeover";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { runTask } from "../src/tasks/runner";
 import { registerWork } from "../src/dispatch/work";
@@ -284,3 +285,28 @@ test("new placement keeps the agent environment construction of the built-in pat
     expect(out.report).toContain(`executor ${task.id} unset`);
   } finally { cleanup(); }
 });
+
+test("an owned claude-code headless run reports take over unavailable and keeps running", async () => {
+  const release = join(tmpdir(), `pacer-takeover-release-${process.pid}-${Date.now()}`);
+  const { ctx, repo, cleanup } = fixture(runners("claude-code", "headless"), {
+    claude: `#!/bin/sh\nif [ "$1" = --version ]; then echo '2.1.281 (Claude Code)'; exit 0; fi\nwhile [ ! -f '${release}' ]; do sleep 0.1; done\nexit 0\n` });
+  try {
+    const task = selected(ctx, repo, "claude-code");
+    const running = runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers["claude-code"] as ProviderCfg, task);
+    let live = readTask(ctx, task.id)!;
+    for (let i = 0; i < 200 && !(live.run && existsSync(join(live.run.dir, "pid"))); i++) {
+      await Bun.sleep(50);
+      live = readTask(ctx, task.id)!;
+    }
+    expect(live.run?.agentSession).toBeDefined();
+    expect(takeoverAvailability(live)).toEqual({ available: false, reason: providerOwnedTakeover });
+    await expect(takeoverTask(ctx, task.id)).rejects.toMatchObject({ code: "conflict", message: providerOwnedTakeover });
+    const after = readTask(ctx, task.id)!;
+    expect(existsSync(join(after.run!.dir, "takeover.json"))).toBe(false);
+    expect(after.takeover).toBeUndefined();
+    const pid = Number(readFileSync(join(after.run!.dir, "pid"), "utf8").trim());
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    writeFileSync(release, "");
+    expect((await running).exec.code).toBe(0);
+  } finally { rmSync(release, { force: true }); cleanup(); }
+}, 30_000);

@@ -19,7 +19,7 @@ test("generated prose names current executor methods and route status, and keeps
   const doc = renderPluginProtocolDoc();
   for (const text of ["## UI contributions", "`contributes.ui` has a fixed schema", "Protocol 1.9.0 adds",
     "owns production direct attempts", "with no built-in fallback",
-    "Conversations, take over, remote full/PTY and interactive sessions"]) expect(doc).toContain(text);
+    "Conversations, remote full/PTY and interactive sessions", "a provider-owned run reports it unavailable"]) expect(doc).toContain(text);
   for (const stale of ["reports unavailable for production dispatch", "has not switched", "no production caller",
     "Other production SSH paths still require caller cutover", "staged local attempt"]) expect(doc).not.toContain(stale);
   const prose = doc.slice(doc.indexOf("Protocol 1.9.0 adds"), doc.indexOf("Peers explicitly negotiate"));
