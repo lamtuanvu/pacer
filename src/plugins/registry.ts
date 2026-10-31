@@ -2,7 +2,7 @@ import { cachedStrategy, hostFingerprint as driftFingerprint, matchesHostFingerp
 import {ReadOwner} from "./read-owner";
 import {EventSubscription} from "./event-subscription";
 import {answerTaskCapability} from "./task-capability";
-import {POLICY_CAPABILITY_METHODS, POLICY_OBSERVATIONS_FEATURE, pluginMetadata} from "./policy-protocol";
+import {POLICY_CAPABILITY_METHODS, POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE, pluginMetadata, type PolicyBeforeParams} from "./policy-protocol";
 import type { PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
@@ -1431,9 +1431,11 @@ export class PluginRegistry {
     const healthy=(e:Entry|undefined)=>!!e?.manifest&&Object.hasOwn(e.manifest.contributes,"policy")&&["idle","starting","ready","failing"].includes(e.state);
     for(const e of this.entries.values()) {
       if(e.bundled||cfg.disabled.includes(e.id)||!cfg.installed[e.id]||healthy(e)) continue;
-      if(cfg.installed[e.id]!.policy===true||(e.manifest&&Object.hasOwn(e.manifest.contributes,"policy"))) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
+      // An unreadable old manifest may have been a policy plugin before grants
+      // carried the policy marker. Closed mode cannot prove otherwise.
+      if(cfg.installed[e.id]!.policy===true||(cfg.installed[e.id]!.policy===undefined&&!e.manifest)||Object.hasOwn(e.manifest?.contributes??{},"policy")) out.set(e.id,`${e.state}${e.error?`: ${e.error}`:""}`);
     }
-    for(const [id,grant] of Object.entries(cfg.installed)) if(grant.policy===true&&!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))) out.set(id,this.entries.has(id)?"no longer contributes policy":"plugin folder is missing");
+    for(const [id,grant] of Object.entries(cfg.installed)) if(grant.policy!==false&&!cfg.disabled.includes(id)&&!out.has(id)&&!healthy(this.entries.get(id))&&!this.entries.get(id)?.manifest) out.set(id,this.entries.has(id)?"manifest is unreadable":"plugin folder is missing");
     return [...out].sort(([a],[b])=>a.localeCompare(b)).map(([id,reason])=>({id,reason}));
   }
   private eventTimerState():void {
@@ -1762,13 +1764,13 @@ export class PluginRegistry {
       e.process = proc; e.processGeneration = generation;e.processObservationFingerprint=e.observationFingerprint;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions",POLICY_OBSERVATIONS_FEATURE], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions",POLICY_OBSERVATIONS_FEATURE,POLICY_REDACTION_METADATA_FEATURE], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
         if (major !== PLUGIN_PROTOCOL_MAJOR) throw new CoreError("plugin_refused", `plugin speaks protocol ${hello.data.protocol}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`);
         if (hello.data.id !== manifest.id || hello.data.version !== manifest.version) throw new CoreError("plugin_refused", `handshake identity ${hello.data.id}@${hello.data.version} does not match the manifest ${manifest.id}@${manifest.version}`);
-        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2) || (feature === "fileWriteChunks" && Number(hello.data.protocol.split(".")[1]) >= 4) || (feature === "plannerInstallTransactions" && Number(hello.data.protocol.split(".")[1]) >= 4) || (feature===POLICY_OBSERVATIONS_FEATURE&&Number(hello.data.protocol.split(".")[1])>=6)) : []);
+        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2) || (feature === "fileWriteChunks" && Number(hello.data.protocol.split(".")[1]) >= 4) || (feature === "plannerInstallTransactions" && Number(hello.data.protocol.split(".")[1]) >= 4) || (feature===POLICY_OBSERVATIONS_FEATURE&&Number(hello.data.protocol.split(".")[1])>=6) || (feature===POLICY_REDACTION_METADATA_FEATURE&&Number(hello.data.protocol.split(".")[1])>=8)) : []);
         e.pluginProtocol = hello.data.protocol;
         e.served = ["diagnostic", ...hello.data.contributes.filter(p => p !== "diagnostic" && Object.hasOwn(manifest.contributes, p))];
         this.setState(ctx, e, "ready");
@@ -2069,6 +2071,16 @@ export class PluginRegistry {
             });
             authority.assertActive();
           }
+          if(method==="policy.before"&&!proc.supports(POLICY_REDACTION_METADATA_FEATURE)) {
+            const policy=input as PolicyBeforeParams;
+            if(policy.decision==="delegate") {
+              const {goalLength: _length,goalHash: _hash,repoKey: _repoKey,...oldInput}=policy.input;
+              input={...policy,input:oldInput};
+            } else if(policy.decision==="review") {
+              const {noteLength: _length,noteHash: _hash,...oldInput}=policy.input;
+              input={...policy,input:oldInput};
+            }
+          }
           const request = proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
             { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress,
               stream: ownerBoundStream ? { streamId: (input as { streamId: string }).streamId, consume: options.onStreamProgress! } : undefined });
@@ -2136,7 +2148,7 @@ export class PluginRegistry {
     const covered = e.bundled || grantCovers(m, current);
     if (!covered && !grant) return { id, state: "needs_grant", needs, ...(surfaces.length ? { surfaces } : {}) };
     const policy = Object.hasOwn(m.contributes, "policy");
-    if (!e.bundled && (!covered || current?.version !== m.version || (current?.policy === true) !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, ...(policy ? { policy: true as const } : {}) });
+    if (!e.bundled && (!covered || current?.version !== m.version || current?.policy !== policy)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, surfaces, policy });
     await setPluginDisabled(ctx, id, false);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";

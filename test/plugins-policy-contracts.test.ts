@@ -32,7 +32,7 @@ test("policy config defaults open and rejects malformed policy instead of silent
   }
 });
 test("policy contracts expose bounded decision-specific amendments and policy activity", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.7.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.8.0");
   expect(ACTIVITY_KINDS).toContain("policy");
   expect(
     manifestSchema.safeParse({
@@ -186,7 +186,7 @@ test("older peers cannot use unnegotiated observation helpers or send requests",
     },
   });
   expect(writes.some((m) => m.method?.startsWith("capability."))).toBe(false);
-  expect(writes[0].result.protocol).toBe("1.7.0");
+  expect(writes[0].result.protocol).toBe("1.8.0");
 });
 
 test("older peers cannot bootstrap callbacks and unowned direct brokers still deny", async () => {
@@ -310,4 +310,16 @@ test("opposing reserved key presence is forbidden even when its token is invalid
     expect(schema.$defs.pluginMetadata.oneOf[index].properties[key]).toEqual({
       not: {},
     });
+});
+
+test("the SDK negotiates policyRedactionMetadata only at protocol 1.8.0 and later", async () => {
+  const { serve } = await import("@pacer/plugin");
+  for (const [protocol, expected] of [["1.7.0", ["policyObservations"]], ["1.8.0", ["policyObservations", "policyRedactionMetadata"]]] as const) {
+    const out: any[] = [];
+    async function* input() {
+      yield JSON.stringify({ jsonrpc: "2.0", id: 1, method: "plugin.hello", params: { protocol, features: ["policyObservations", "policyRedactionMetadata"], config: {}, grants: [] } });
+    }
+    await serve({ manifest: { id: "fx", version: "1.0.0", publisher: "t", host: "^1" }, input: input(), write: (l) => out.push(JSON.parse(l)) });
+    expect(out[0].result.features).toEqual([...expected]);
+  }
 });

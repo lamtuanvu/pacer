@@ -16,7 +16,7 @@ pub mod types {
     pub use pacer_plugin_install_protocol::*;
     pub use pacer_plugin_protocol::*;
     // Every protocol crate emits these; the entry crate's definitions take precedence.
-    pub use pacer_plugin_protocol::{PacerPluginProtocol170, VERSION, error};
+    pub use pacer_plugin_protocol::{PacerPluginProtocol180, VERSION, error};
 }
 
 pub use error::PluginError;
