@@ -40,12 +40,12 @@ export const needsYou = (s: SnapshotV2, scope: Scope): AttentionItem[] => cached
 export const otherReposNeedingYou = (s: SnapshotV2, scope: Scope): number => scope.repo === null ? 0 :
   needsYou(s, { repo: null }).length - needsYou(s, scope).length;
 export const running = (s: SnapshotV2, scope: Scope): TaskDataV2[] => cached(s, `running:${scope.repo}`, () =>
-  s.tasks.filter(t => active(t.state) && !t.dismissed && inScope(scope, t.repo)));
+  s.tasks.filter(t => (active(t.state)||!!t.activeAgentSessions) && !t.dismissed && inScope(scope, t.repo)));
 export const capacity = (s: SnapshotV2): ExecutorRow[] => s.executors ?? [];
 export const doneToday = (s: SnapshotV2, scope: Scope): TaskDataV2[] => cached(s, `doneToday:${scope.repo}`, () => {
   const since = s.today?.since;
   if (since === undefined) return [];
-  return s.tasks.filter(t => t.source !== "onboarding" && !active(t.state) && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
+  return s.tasks.filter(t => t.source !== "onboarding" && !active(t.state) && !t.activeAgentSessions && t.updatedAt >= since && inScope(scope, t.repo)).sort((a, b) => b.updatedAt - a.updatedAt);
 });
 /** The review queue is the review items, newest last. */
 export const reviewQueue = (s: SnapshotV2): AttentionItem[] => cached(s, "reviewQueue", () =>

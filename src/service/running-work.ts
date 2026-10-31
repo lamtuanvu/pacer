@@ -1,3 +1,6 @@
+import { pendingAgentChecks, agentCheckDirectory, stopAgentSessionChecks } from "../session/agents-checks";
+import { activeAgentSessions } from "../session/agents-state";
+import { agentSessionDirectory } from "../session/agents";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { listTasksWhere, readTask } from "../tasks/store";
@@ -12,7 +15,7 @@ import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { Ctx } from "../types";
 
 export interface RunningTask { taskId: string; runnerPacer: string | null; older: boolean }
-export interface RunningSession { kind: "task" | "terminal"; id: string; pacer: string | null; older: boolean; reopenToUpdate: boolean }
+export interface RunningSession { kind: "task" | "terminal" | "agent"; taskId?:string; id: string; pacer: string | null; older: boolean; reopenToUpdate: boolean }
 export interface RunningWork { pacer: string; tasks: RunningTask[]; sessions: RunningSession[] }
 export interface RunningWorkCounts { tasks: number; sessions: number; olderRunners: number; olderSessions: number; reopenToUpdate: number }
 
@@ -33,6 +36,15 @@ export async function runningWork(ctx: Ctx, current = currentVersion()): Promise
       const host = hostVersionView(dir, current);
       sessions.push({ kind: "task", id: t.id, pacer: host.pacer, older: host.older, reopenToUpdate: !host.supported });
     }
+  }
+  for(const check of pendingAgentChecks(ctx)){
+    if(readRun(agentCheckDirectory(ctx,check)).alive&&!tasks.some(t=>t.taskId===check.task))tasks.push({taskId:check.task,runnerPacer:current,older:false});
+  }
+  for(const session of activeAgentSessions(ctx)) {
+    const dir=agentSessionDirectory(ctx,session.task_id,session.id);
+    if(!readRun(dir).alive)continue;
+    const host=hostVersionView(dir,current);
+    sessions.push({kind:"agent",id:session.id,taskId:session.task_id,pacer:host.pacer,older:host.older,reopenToUpdate:!host.supported});
   }
   for (const terminal of await listTerminals(ctx)) {
     if (!terminal.live) continue;
@@ -106,9 +118,20 @@ export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
     }
     report.stopped.push(t.id);
   }
-  for (const terminal of await listTerminals(ctx)) {
+  await settleLiveReleases();
+  for(const check of pendingAgentChecks(ctx)){
+    try {
+      const stopped = await stopAgentSessionChecks(ctx,check.task,check.generation);
+      if(stopped&&!report.stopped.includes(check.task))report.stopped.push(check.task);
+    } catch {
+      report.skipped.push({id:check.task,reason:'its task checks or diff capture could not be stopped; checkout remains reserved'});
+    }
+  }
+  const agentHosts=activeAgentSessions(ctx).map(s=>({id:s.id,live:readRun(agentSessionDirectory(ctx,s.task_id,s.id)).alive,dir:agentSessionDirectory(ctx,s.task_id,s.id)}));
+  const terminalHosts=(await listTerminals(ctx)).map(t=>({...t,dir:terminalDirectory(ctx,t.id)}));
+  for (const terminal of [...agentHosts,...terminalHosts]) {
     if (!terminal.live) continue;
-    const dir = terminalDirectory(ctx, terminal.id), host = readSessionVersion(dir), pid = readRun(dir).pid;
+    const dir = terminal.dir, host = readSessionVersion(dir), pid = readRun(dir).pid;
     if (!host?.identity || pid === null || host.identity.pid !== pid || !sameProcess(processIdentity(pid), host.identity)) {
       report.skipped.push({ id: terminal.id, reason: "its session host identity could not be confirmed" }); continue;
     }

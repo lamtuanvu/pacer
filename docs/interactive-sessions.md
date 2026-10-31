@@ -42,3 +42,65 @@ commit for an existing checkout. Orca-owned tasks use the same baseline even
 without a built-in terminal record. Changes already committed before that baseline
 are excluded. Existing uncommitted edits and changes by other tools in a shared
 checkout cannot be assigned to an individual agent by Git alone.
+
+## Several agents in one task
+
+In Workspace, select a task and choose **+ → New agent session**. Each added agent
+belongs to that task, shares its existing local worktree, and has an independent
+conversation, recording, controller and reconnect address. Stable session numbers
+identify agents using the same account. Closing a panel leaves its session running;
+**End session** affects only that agent. **Start fresh conversation** retains earlier
+attempts with a fresh native identity; **Resume conversation** uses the recorded
+identity and original account/model. The account must remain available. Additional
+agents currently require the built-in local host, and respect executor and machine
+capacity. Wait until the primary task has published its workspace and a confirmed
+local backend before adding agents, including tasks using the current checkout.
+The service verifies that the workspace still belongs to the task's repository.
+Another task's live or waiting agent, or pending final checks, reserves overlapping paths; legacy retries
+cannot transfer such a checkout to a different task. End added sessions before
+moving their primary task to Orca or a remote host. Additional Orca and remote
+sessions are currently unsupported and refused.
+
+Added-session creation, fresh retry and native resume pass both delegation and
+routing plugin policy before changing the task's checks, review or session attempt.
+Receipts are revalidated after native preparation and immediately before launch.
+Route exclusions can refuse the selected executor; identity-preserving amendments
+are supported. An amendment that changes the task kind, executor or workspace is
+refused even in open policy mode: an appended session cannot move its parent.
+
+Workspace session reads follow service lifecycle invalidations rather than
+per-panel timers. Cross-client changes and unexpected process exits are observed
+on the service's next lifecycle pump (normally within 15 seconds), including
+when every agent panel is hidden or closed.
+
+The additive protocol 3 operations are `session.agent.list`, `.get`, `.create`,
+`.end`, `.retry` and `.resume`. Creation takes `task_id`, `request_id`, `executor`
+and `request`; mutations take `task_id`, session `id` and `expect_rev`. Repeating an
+identical creation request returns the same session. Conflicting revisions or
+account bindings require a refresh. The existing `session.create`, `session.end`,
+`session.resume` and `task.session` operations retain their original meanings.
+
+New conversations invalidate the prior task checks and review. Task acceptance
+waits until the primary run and all added sessions have ended, then records one
+check for the latest session generation. The checker retains a supervised receipt
+across service reconnects. Task stop also stops its added agents and checker;
+cleanup and review wait for active agents and pending checks.
+
+**Stop all** durably cancels the exact pending checker generation, including one
+that has not claimed or launched acceptance yet. It terminates a running checker
+and waits for diff capture to finish before releasing the checkout reservation.
+Cancelled checks do not publish acceptance results, and the stop report includes
+cancelled pending work even when no child had launched. A later session generation
+is not cancelled by an older stop request.
+
+Added-session attempt recordings and final-check generation directories are not
+pruned by the primary session retention setting. Retained history can grow without
+a lifetime disk bound. Reservation reads and the lifecycle pump share a
+generation-aware cache: explicit exit evidence retires a naturally ended attempt
+from warm idle probes, without rewriting its history. Ambiguous starts and runs
+without exit evidence remain observable. A new attempt invalidates the cache.
+Reservation reads pin the database file before SQLite acquisition and verify its
+identity after reading. A concurrent replacement returns a retryable conflict
+and discards the cached view, even when the replacement reuses a generation.
+Cold reads and registry mutations still load retained history; this is not a
+lifetime history or disk bound. Safe archival/pruning remains follow-up work.

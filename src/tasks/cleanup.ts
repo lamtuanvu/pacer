@@ -1,3 +1,5 @@
+import { agentChecksPending } from "../session/agents-checks";
+import { agentWorkspaceBusy } from "../session/agents-state";
 import { randomBytes } from "node:crypto";
 import { type BigIntStats, existsSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
@@ -166,8 +168,11 @@ export async function cleanTask(ctx: Ctx, id: string, o: { dryRun?: boolean; for
 
 /** Caller holds this task's clean lock, or all retry ancestors' locks in sorted order. */
 async function cleanTaskLocked(ctx: Ctx, id: string, o: { dryRun?: boolean; force?: boolean } = {}): Promise<CleanResult> {
+  return withLock(ctx, "agent-sessions", () => cleanTaskSessionsLocked(ctx, id, o), {staleMs:600000});
+}
+async function cleanTaskSessionsLocked(ctx: Ctx, id: string, o: { dryRun?: boolean; force?: boolean }): Promise<CleanResult> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
-  const shared = (t: TaskRecord, path: string) => listTasksWhere(ctx).some(other => other.id !== t.id
+  const shared = (t: TaskRecord, path: string) => agentWorkspaceBusy(ctx,path) || listTasksWhere(ctx).some(other => other.id !== t.id
     && [other.worktree, other.result?.worktree, other.run?.workdir, other.brief.repo].some(p => {
       if (!p) return false;
       const a = cachedPath(p).real, b = cachedPath(path).real;
@@ -177,6 +182,7 @@ async function cleanTaskLocked(ctx: Ctx, id: string, o: { dryRun?: boolean; forc
   const current = readTask(ctx, id);
   for (const t of current && cleanableChain(ctx, current) ? [current] : []) {
     try {
+      if(agentChecksPending(ctx,t.id)||agentWorkspaceBusy(ctx,t.worktree??t.run?.workdir??t.brief.repo)){kept.push({id:t.id,reason:"worktree has an active agent session or pending checks"});continue;}
       const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
       if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
       if (host) {

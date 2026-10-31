@@ -6,6 +6,10 @@ import { buildModelInventory } from "../dispatch/inventory";
 import { meetsRequirements } from "../dispatch/candidates";
 import { MissingStrategyError } from "../config/strategy";
 import { authorizeWorkGrant, getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { workspaceBusy } from '../session/agents-state';
+import { withLockSync } from '../core/lock';
+import { agentChecksPending, superviseAgentSessionChecks, stopAgentSessionChecks } from "../session/agents-checks";
+import { activeAgentSessions } from "../session/agents-state";
 import { dispatchDatabase } from "../dispatch/store";
 import { revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
@@ -81,6 +85,7 @@ export function summarizeTask(t: TaskRecord): Record<string, unknown> {
 }
 export function taskReview(ctx: Ctx, id: string, accepted: boolean, kind?: string, note?: string): {recorded:true} {
   const t=taskStatus(ctx,id); if(!t)throw new Error(`unknown task ${id}`);
+  if(agentChecksPending(ctx,id)||activeAgentSessions(ctx).some(s=>s.task_id===id))throw new CoreError("conflict","End this task’s agent sessions and wait for its checks before reviewing its result");
   if(kind && !(KINDS as readonly string[]).includes(kind))throw new Error(`unknown kind "${kind}"`);
   appendLabel(ctx,{type:"task_review",task_id:id,accepted,kind:kind??t.kind,note:note??null,executor:t.result?.executor??null});
   updateTask(ctx,id,x=>{x.review={accepted,kind:kind??t.kind,note:note??null,at:ctx.now};x.resolved="reviewed";});
@@ -287,6 +292,8 @@ function commitDelegate(
   if (!repo && Object.values(policies.projects).some(p => p.executors)) throw new CoreError("invalid_input", "Resolve the repository before delegating with project policies");
   if (repo) requirePolicyIdentity(ctx, repo);
   requireProjectExecutor(repo ? resolveProjectSelection(s, repo.key, policies.projects) : undefined, input.executor);
+  return withLockSync(ctx,'session-create',()=>{
+  if(input.reuseWorktree&&workspaceBusy(ctx,input.reuseWorktree))throw new CoreError('conflict','Another task owns the retained checkout');
   const task = createTask(ctx, {
     title: input.title?.trim() || goalTitle(input.brief.goal),
     brief: input.brief,
@@ -310,6 +317,7 @@ function commitDelegate(
   });
   else { handed = true; launchTaskRunner(ctx, task.id, spawnFn, lease); }
   return readTask(ctx,task.id)!;
+  },{timeoutMs:0,staleMs:600000,conflict:true});
   } finally { if (!handed) finishWorkSync(ctx, lease); }
 }
 
@@ -423,6 +431,7 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
   }
   if (!stopped() && !ctx.readOnly) await (await import("../exec/live")).reapLiveWorkers(ctx);
   if (!stopped()) await drainMachineWaits(ctx, spawn);
+  if (!stopped() && !ctx.readOnly) superviseAgentSessionChecks(ctx);
 }
 
 /**
@@ -446,7 +455,8 @@ export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 
     const currentCtx = {...ctx, now: ctx.now + (Date.now() - started) / 1000};
     await (await import("./drain")).drainQueue(currentCtx);
     const t = await superviseTask(currentCtx, id);
-    if (!t || isTerminal(t) || Date.now() >= deadline) return t;
+    if (!t || (isTerminal(t)&&!agentChecksPending(currentCtx,id)&&!activeAgentSessions(currentCtx).some(s=>s.task_id===id)) || Date.now() >= deadline) return t;
+    superviseAgentSessionChecks(currentCtx);
     await Bun.sleep(pollMs);
   }
 }
@@ -467,6 +477,12 @@ export async function settleLiveReleases(): Promise<void> {
 export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {}): TaskRecord | null {
   const t = readTask(ctx, id);
   if (!t) return null;
+  if(agentChecksPending(ctx,id)||activeAgentSessions(ctx).some(s=>s.task_id===id)){
+    if(isTerminal(t))updateTask(ctx,id,x=>{x.state="stopped";if(x.result)x.result.status="stopped";});
+    const agentRelease = import("../session/agents").then(async m => {await m.stopTaskAgentSessions(ctx,id);await stopAgentSessionChecks(ctx,id);});
+    const trackedRelease:Promise<void> = agentRelease.catch(error=>{console.error("Could not stop task agent sessions:",error instanceof Error?error.message:"stop failed");}).finally(()=>liveReleases.delete(trackedRelease));
+    liveReleases.add(trackedRelease);
+  }
   if (t.state === "needs_input") {
     const stopped = updateTask(ctx, id, x => {
       x.state = "stopped";
@@ -480,7 +496,7 @@ export function taskStop(ctx: Ctx, id: string, options: { signal?: boolean } = {
     }
     return stopped;
   }
-  if (isTerminal(t)) return t;
+  if (isTerminal(t)) return readTask(ctx,id)!;
   const runnerAlive = t.state === "running" && alive(t.runnerPid);
   const updated = updateTask(ctx, id, (x) => {
     if (TERMINAL_STATES.includes(x.state)) return;

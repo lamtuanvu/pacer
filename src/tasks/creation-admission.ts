@@ -10,6 +10,7 @@ interface CreationAdmissionOptions {
   /** Each caller keeps its actual existing eligibility rules; no fallback strategy. */
   validateCurrent:(input:Readonly<CreationInput>,policyCount:number)=>void;
   validateAmend:(input:Readonly<CreationInput>)=>boolean;
+  strictAmendments?:boolean;
   eligibleRunnerIds?:readonly string[];
   allowedPlacements?:readonly CreationInput["placement"][];
   additionalDirectories?:readonly string[];
@@ -53,7 +54,7 @@ export async function prepareCreationAdmission(ctx:Ctx,input:CreationInput,optio
   };
   const receipt=await applyPolicy(ctx,"delegate",input,{
     contextFingerprint:options.contextFingerprint,eligibleRunnerIds:options.eligibleRunnerIds,allowedPlacements:options.allowedPlacements,
-    validateDelegate:options.validateAmend,...admissionLifetime(ctx,options.signal,options.deadline),
+    validateDelegate:options.validateAmend,strictAmendments:options.strictAmendments,...admissionLifetime(ctx,options.signal,options.deadline),
   });
   if(receipt.params.decision!=="delegate") throw new CoreError("invalid_input","Invalid creation policy receipt");
   const authorized=structuredClone(receipt.params.input),policyCount=receipt.snapshot.policies.length;
@@ -61,6 +62,8 @@ export async function prepareCreationAdmission(ctx:Ctx,input:CreationInput,optio
   let used=false;
   return {
     input:structuredClone(authorized),policies:policyCount,
+    /** Early preparation guard only; final effects still require consume. */
+    revalidate:()=>{receipt.revalidate();options.validateCurrent(authorized,policyCount);},
     async consume<T>(effect:(permit:{input:Readonly<CreationInput>;revalidate:()=>void})=>T):Promise<T> {
       if(used) throw new CoreError("conflict","Delegation admission was already consumed");
       if(effect.constructor.name==="AsyncFunction") throw new CoreError("invalid_input","Admission effect must be synchronous");

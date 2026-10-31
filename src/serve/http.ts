@@ -22,7 +22,7 @@ import { triggerHandover } from "../tasks/handover-service";
 import { recoverFixtureHandover } from "../service/upgrade";
 import { compiledNativeFixture } from "../update/desktop/native-fixture";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
-import { sessionWebSocket, upgradeSession, upgradeTerminal, type SessionWS } from "./session-ws";
+import { sessionWebSocket, upgradeSession, upgradeTerminal, upgradeAgentSession, type SessionWS } from "./session-ws";
 import { isExecutorSession } from "../install/role";
 import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
@@ -142,6 +142,7 @@ export function startServer(
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
       const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
+      const agentSessionRoute=pathname.match(/^\/v3\/tasks\/([A-Za-z0-9_-]+)\/agent-sessions\/([0-9a-f-]{36})\/session$/);
       const terminalRoute=pathname.match(/^\/v3\/terminals\/([0-9a-f-]{36})\/session$/);
       const hosts = [`127.0.0.1:${publicPort}`, `localhost:${publicPort}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
@@ -203,7 +204,7 @@ export function startServer(
           }
           if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
           const site = req.headers.get("sec-fetch-site");
-          if (((sessionRoute || terminalRoute) && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
+          if (((sessionRoute || terminalRoute || agentSessionRoute) && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
               (!["GET", "HEAD"].includes(req.method) &&
                (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
             return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
@@ -227,6 +228,10 @@ export function startServer(
       const captureResponse = await desktopCaptureRoute(req, getCtx());
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
+      if (agentSessionRoute) {
+        if (workGrant || isExecutorSession(requestCtx())) return new Response("forbidden\n", {status:403});
+        return upgradeAgentSession(req,server,getCtx(),agentSessionRoute[1]!,agentSessionRoute[2]!);
+      }
       if (terminalRoute) {
         if (workGrant || isExecutorSession(requestCtx())) return new Response("forbidden\n", { status: 403 });
         return upgradeTerminal(req, server, getCtx(), terminalRoute[1]!);

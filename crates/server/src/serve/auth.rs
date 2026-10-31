@@ -184,17 +184,12 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     if path == "/v2/session/exchange" || path == "/v3/session/exchange" {
         return reject(StatusCode::FORBIDDEN, "forbidden\n", None);
     }
+    // Every task-owned session endpoint, including independent agent sessions,
+    // requires Origin even for cookie-authenticated GET/WebSocket requests.
     let session_route = api
-        && path
-            .get(4..)
-            .and_then(|rest| rest.strip_prefix("tasks/"))
-            .and_then(|rest| rest.strip_suffix("/session"))
-            .is_some_and(|id| {
-                !id.is_empty()
-                    && id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            });
+        && ((path.starts_with("/v2/tasks/") || path.starts_with("/v3/tasks/"))
+            || path.starts_with("/v3/terminals/"))
+        && path.ends_with("/session");
     let local_origin = hosts
         .iter()
         .any(|host| header("origin") == Some(format!("http://{host}").as_str()));

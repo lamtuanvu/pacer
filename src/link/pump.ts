@@ -1,3 +1,4 @@
+import { agentSessionsRevision } from '../session/agents-state';
 import { readProjectStrategies, type ProjectStrategyFile } from "../config/project-strategies";
 import { buildExecutors } from "../api/read-model/capacity";
 import { resume, type PauseState } from "../core/pause";
@@ -129,6 +130,14 @@ async function pumpResolution(ctx: Ctx, task: TaskRecord): Promise<TaskRecord> {
 }
 
 export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<OutboxEvent[]> {
+  const lifecycleEvents:OutboxEvent[]=[];
+  const agentRevision=agentSessionsRevision(ctx),agentSeen=join(ctx.pacerHome,'link','agent-sessions-seen.json');
+  const priorAgentRevision=readJson<string>(agentSeen);
+  if(priorAgentRevision!==agentRevision){
+   if(priorAgentRevision!==null||agentRevision!==createHash('sha256').update('[]').digest('hex')){const event:OutboxEvent={type:'config',data:{area:'agent-sessions',at:ctx.now}};const report=await deps.publish(ctx,[event]);lifecycleEvents.push(event);if(report.transports.includes('outbox'))writeJsonAtomic(agentSeen,agentRevision);}
+   else writeJsonAtomic(agentSeen,agentRevision);
+  }
+
   // Expiry is independent of status refresh: even a failing provider must clear clients.
   const expiredEvents:OutboxEvent[]=[];
   const pausePath=join(ctx.pacerHome,"state","pause.json"),paused=readJson<PauseState>(pausePath);
@@ -145,7 +154,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   await drainQueue(ctx).catch(() => {});
   const latest=readLatest(ctx),out:OutboxEvent[]=[]; let st:Status;
   try{st=await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
-    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...expiredEvents,...out];}
+    if(prev?.body!==body)out.push(alert({key:"status-error",level:"error",title:"Status could not be refreshed",body,error:body,at:ctx.now})); if(out.length)await deps.publish(ctx,out); return [...lifecycleEvents,...expiredEvents,...out];}
   const hold=readJson<{mode:string;until:number}>(join(ctx.pacerHome,"state","mode-hold.json"));
   const holdEndedPath=join(ctx.pacerHome,"state","mode-hold-ended.json");
   if(hold&&hold.until<=ctx.now&&readJson<number>(holdEndedPath)!==hold.until){
@@ -257,5 +266,5 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   if(quotaChanged && report?.transports.includes("outbox"))writeJsonAtomic(quotaPath,quotaSeen);
   // Only acknowledge changes after the durable alert reached the link outbox.
   if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
-  return [...expiredEvents,...out];
+  return [...lifecycleEvents,...expiredEvents,...out];
 }

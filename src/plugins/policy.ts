@@ -9,7 +9,7 @@ import type {PolicyBeforeParams} from "./policy-protocol";
 
 type Decision = PolicyBeforeParams["decision"];
 type Input<D extends Decision> = Extract<PolicyBeforeParams,{decision:D}>["input"];
-export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"signal"|"deadline"> {
+export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"strictAmendments"|"signal"|"deadline"> {
   /** Fresh synchronous task/project/candidate/authority context, checked again before effects. */
   contextFingerprint: () => string;
 }

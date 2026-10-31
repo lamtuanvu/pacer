@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { resolveRoute, routes, hrefFor } from '../app/src/router';
 import { uiHref } from '../app/src/data/actions';
 import { actionRoute } from '../app/src/tray/model';
-import { workspaceTasks } from '../app/src/screens/workspace/Workspace';
+import { workspaceTasks, workspaceTaskNodes } from '../app/src/screens/workspace/Workspace';
 import type { ClientTask } from '../src/view-model/snapshot';
 
 test('task page replaces trace, result and failure destinations without losing scope',()=>{
@@ -116,4 +116,10 @@ test('compact metrics show one unavailable message rather than fabricated zeros'
  const html=renderToString(<CostTiles task={{...fixture,attempts:[],tokens:undefined,derived:{files:'unavailable'}} as never} compact/>);
  expect(html).not.toContain('>0<');
  expect(html.match(/Some task metrics are unavailable/g)).toHaveLength(1);
+});
+
+test('an ended primary with a live added agent stays in the active task tree',()=>{
+ const tasks=[{id:'parent',goal:'Existing task',state:'done',activeAgentSessions:2,executor:'codex',updatedAt:1}] as ClientTask[];
+ const nodes=workspaceTaskNodes(tasks,[],undefined,100000);
+ expect(nodes[0]).toMatchObject({active:true,state:{live:true,label:'Working'}});
 });

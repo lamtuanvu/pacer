@@ -1,4 +1,6 @@
 import { authorizeRoute } from "./policy-route";
+import { requireAgentWorkspaceBackend } from '../session/agents-state';
+import { agentChecksPending } from "../session/agents-checks";
 import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
@@ -348,7 +350,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           requirePolicyIdentity(ctx, repo);
           if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
-          const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }).filter(t => t.id !== id));
+          const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }).filter(t => t.id !== id),ctx);
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
@@ -490,11 +492,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       };
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
-      task = updateTask(ctx, id, t => {
+      task = await withLock(ctx,'session-create',async()=>{
+       requireAgentWorkspaceBackend(ctx,id,attemptedBackend,!!resolveRunner(s,pick!)?.host);
+       return updateTask(ctx, id, t => {
         if(!resuming) routeAdmission!.revalidate();
         t.pendingAttempt = { routing, usageAtStart };
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
-      });
+       });
+      },{staleMs:600000});
       if(!resuming) routeAdmission!.checkpoint(task);
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
       if (!resuming) {
@@ -710,7 +715,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
-      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, (task.brief.acceptanceTimeoutMin ?? 10) * 60_000, task.brief.pipefail);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, agentChecksPending(ctx,id)?undefined:task.brief.acceptance, ctx.env, (task.brief.acceptanceTimeoutMin ?? 10) * 60_000, task.brief.pipefail);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;

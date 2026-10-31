@@ -17,6 +17,7 @@ export function ErrorMessage({ error }: { error: unknown }) {
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
+  if(op.startsWith("session.agent."))return JSON.stringify([state.invalidations,state.snapshot?.machine?.agentSessionsRevision]);
   const budget = budgetResourceRevision(op, state.invalidations, state.snapshot?.accounts);
   if (budget !== undefined) return budget;
   if (op === "task.list") return JSON.stringify([state.invalidations, state.snapshot?.tasks.map(t=>[t.id,t.rev,t.state,t.updatedAt])]);

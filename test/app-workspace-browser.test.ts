@@ -13,6 +13,102 @@ const countedTerminal: import('bun').BunPlugin = {
   `}));
  }
 };
+// Catches task navigation moving out of the actual scrollport (including behind
+// the variable-height narrow header), rather than merely remaining in the DOM.
+for (const width of [1440, 375]) for (const theme of ['light', 'dark'] as const) {
+ browserTest(`workspace long Notes retain usable task tabs after wheel scrolling at ${width}px ${theme}`, async () => {
+  const result = await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+  expect(result.success).toBe(true);
+  const css = (await buildApp()).find(f => f.path === 'app.css')!.text;
+  const browser = await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true,timeout:15000});
+  try {
+   const page = await browser.newPage({viewport:{width,height:900},colorScheme:theme});
+   page.setDefaultTimeout(3000);page.setDefaultNavigationTimeout(10000);
+   await page.route('http://pacer.test/**', r => r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+   await page.goto('http://pacer.test/?mode=longnotes&header=full#/workspace?task=workspace-task');
+   await page.addStyleTag({content:css});
+   await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+   await page.evaluate(t => document.documentElement.dataset.theme = t, theme);
+   const tabs = page.getByRole('tablist',{name:'Task details',exact:true});
+   await tabs.waitFor();
+   if (width === 375) {
+    await page.mouse.move(200,600);await page.mouse.wheel(0,650);
+    await page.waitForTimeout(250);
+   }
+   await tabs.getByRole('tab',{name:'Notes',exact:true}).click();
+   const notes = page.getByRole('tabpanel',{name:'Notes',exact:true});
+   await notes.getByText('Requirement 80:',{exact:false}).waitFor();
+   await page.locator('.pc-workspace-task.pc-tab-swap').waitFor({state:'detached'});
+   const metrics = () => tabs.evaluate(node => {
+    const rect = node.getBoundingClientRect(), header = document.querySelector('.pc-topbar')!.getBoundingClientRect();
+    const nav = document.querySelector('.pc-bottom-bar')?.getBoundingClientRect();
+    const luminance = (color:string) => color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i]!,0);
+    const background = luminance(getComputedStyle(node).backgroundColor);
+    return {top:rect.top,bottom:rect.bottom,headerBottom:header.bottom,navTop:nav?.top??innerHeight,
+     overflow:document.documentElement.scrollWidth>innerWidth,
+     targets:[...node.querySelectorAll('[role="tab"]')].map(tab => {const r=tab.getBoundingClientRect(),foreground=luminance(getComputedStyle(tab).color);return {hit:tab.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),height:r.height,contrast:(Math.max(foreground,background)+.05)/(Math.min(foreground,background)+.05)};}),
+     scroll:[...document.querySelectorAll('*')].filter(n=>n.scrollTop>0).map(n=>({name:n.className,top:n.scrollTop})),
+     contentTop:document.querySelector('.pc-workspace-task__body')!.getBoundingClientRect().top};
+   });
+   const before = await metrics();
+   const artifact = process.env.PACER_TABS_EVIDENCE;
+   if(artifact)await page.screenshot({path:`${artifact}/${width}-${theme}-before-wheel.png`});
+   // Pointer stays over Notes; no scrollTop assignment, forced click or layout override.
+   await page.mouse.move(width===375?200:1300,500);
+   await page.mouse.wheel(0,650);await page.waitForTimeout(250);
+   const after = await metrics();
+   if(artifact){await page.screenshot({path:`${artifact}/${width}-${theme}-after-wheel.png`});await Bun.write(`${artifact}/${width}-${theme}.json`,JSON.stringify({before,after},null,2));}
+   expect(after.contentTop).toBeLessThan(before.contentTop-300);
+   expect(after.top).toBeGreaterThanOrEqual(after.headerBottom-1);
+   expect(after.bottom).toBeLessThanOrEqual(after.navTop);
+   expect(after.overflow).toBe(false);
+   for(const target of after.targets){expect(target.hit).toBe(true);expect(target.height).toBeGreaterThanOrEqual(width===375?44:28);expect(target.contrast).toBeGreaterThanOrEqual(4.5);}
+   // Reach the end through more ordinary wheels; summary must clear bottom nav.
+   await page.mouse.wheel(0,5000);await page.waitForTimeout(250);
+   const end = await metrics();
+   expect(end.top).toBeGreaterThanOrEqual(end.headerBottom-1);
+   for(const target of end.targets)expect(target.hit).toBe(true);
+   const summary = await notes.getByRole('heading',{name:'Summary',exact:true}).boundingBox();
+   expect(summary!.y).toBeGreaterThan(end.bottom);
+   expect(summary!.y+summary!.height).toBeLessThan(end.navTop);
+   if(artifact){await page.screenshot({path:`${artifact}/${width}-${theme}-end.png`});await Bun.write(`${artifact}/${width}-${theme}-end.json`,JSON.stringify({end,summary},null,2));}
+   // Hit tests above run before real clicks, so auto-scrolling cannot mask loss.
+   for(const name of ['Overview','Changes','Notes']) {
+    const tab=tabs.getByRole('tab',{name,exact:true});await tab.click();
+    expect(await tab.getAttribute('aria-selected')).toBe('true');
+    expect(await page.getByRole('tabpanel',{name,exact:true}).count()).toBe(1);
+   }
+   const overview=tabs.getByRole('tab',{name:'Overview',exact:true});
+   await overview.focus();await page.keyboard.press('ArrowRight');
+   const changes=tabs.getByRole('tab',{name:'Changes',exact:true});
+   expect(await changes.evaluate(n=>n===document.activeElement)).toBe(true);
+   expect(await changes.getAttribute('aria-selected')).toBe('true');
+   expect(await changes.evaluate(n=>getComputedStyle(n).outlineStyle)).not.toBe('none');
+   await page.keyboard.press('End');
+   expect(await tabs.getByRole('tab',{name:'Notes',exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+   await page.emulateMedia({reducedMotion:'reduce'});
+   await page.keyboard.press('Home');
+   expect(await overview.getAttribute('aria-selected')).toBe('true');
+   expect(await page.locator('.pc-tab-leave').count()).toBe(0);
+   if(width===375) {
+    // Header wrapping changes while mounted; a token-sized fixed top is wrong.
+    await tabs.getByRole('tab',{name:'Notes',exact:true}).click();
+    await page.mouse.move(200,500);await page.mouse.wheel(0,650);await page.waitForTimeout(250);
+    for(const resized of [560,375]) {
+     await page.setViewportSize({width:resized,height:900});
+     await page.waitForFunction(() => {
+      const header=document.querySelector('.pc-topbar')!;
+      return Math.abs(parseFloat(getComputedStyle(document.querySelector('.pc-app')!).getPropertyValue('--pc-frame-header-height'))-header.getBoundingClientRect().height)<1;
+     });
+     const reflow=await metrics();
+     expect(reflow.top).toBeGreaterThanOrEqual(reflow.headerBottom-1);
+     for(const target of reflow.targets)expect(target.hit).toBe(true);
+     if(artifact)await Bun.write(`${artifact}/${width}-${theme}-reflow-${resized}.json`,JSON.stringify(reflow,null,2));
+    }
+   }
+  } finally {await browser.close();}
+ },20000);
+}
 browserTest('workspace resumes pending takeover and can control existing interactive sessions without a duplicate takeover',async()=>{
  const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[{name:'terminal-fixture',setup(builder){builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:'stub',namespace:'terminal-fixture'}));builder.onLoad({filter:/.*/,namespace:'terminal-fixture'},()=>({loader:'tsx',contents:`import {h} from 'preact';import {useEffect,useState} from 'preact/hooks';export function LazyTerminal(p){const [you,setYou]=useState(false);useEffect(()=>{if(p.takeRequested){setYou(true);p.onTakeSent?.();}},[p.takeRequested]);useEffect(()=>{if(p.control&&p.autoControl!==false&&!['following','childfile'].includes(new URLSearchParams(location.search).get('mode')))setYou(true);},[]);useEffect(()=>{p.onControlChange?.(you);p.onActions?.({release:()=>setYou(false),find(){},clear(){},reader(){}});},[you]);return h("div",{"aria-label":"Terminal fixture"},[you?"Driving":"Following",h("button",{onClick:()=>p.onOpenFile?.('src/a.ts')},"Open terminal file")]);}`}));}}]});
  expect(result.success).toBe(true);
@@ -297,8 +393,8 @@ browserTest('workspace menu remains pointer reachable after panel resizing and v
    const box=await page.getByRole('menu',{name:'New panel',exact:true}).boundingBox();
    expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
   }
-  await page.getByRole('menuitem',{name:'New task in this worktree…',exact:true}).click();
-  await page.getByRole('dialog',{name:'New task in this worktree',exact:true}).waitFor();
+  await page.getByRole('menuitem',{name:'New agent session…',exact:true}).click();
+  await page.getByRole('dialog',{name:'New agent session',exact:true}).waitFor();
  } finally {await browser.close();}
 },15000);
 
@@ -476,3 +572,64 @@ browserTest('workspace header contains full identity, status and actions at inte
   }
  } finally { await browser.close(); }
 }, 30000);
+
+browserTest('new interactive agents stay under one task and use independent sessions and revisions',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ expect(result.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(4000);
+  await page.route('http://127.0.0.1:9876/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://127.0.0.1:9876/#/workspace?task=workspace-task');await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  await page.addStyleTag({content:(await buildApp()).find(f=>f.path==='app.css')!.text});
+  for(const request of ['Inspect authentication','Inspect persistence']){
+   await page.getByRole('button',{name:'New panel',exact:true}).click();await page.getByRole('menuitem',{name:'New agent session…',exact:true}).click();
+   const dialog=page.getByRole('dialog',{name:'New agent session',exact:true});await dialog.waitFor();
+   await dialog.getByRole('button',{name:'Agent',exact:true}).click();await page.getByRole('option').filter({hasText:'codex'}).click();
+   await dialog.getByRole('textbox',{name:'Request',exact:true}).fill(request);
+   await dialog.getByRole('button',{name:'Start agent session',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  }
+  await page.getByRole('tab',{name:'Codex · Session 1',exact:false}).waitFor();await page.getByRole('tab',{name:'Codex · Session 2',exact:false}).waitFor();
+  expect(await page.getByRole('button',{name:'Select task: Inspect workspace session',exact:true}).count()).toBe(1);
+  expect(page.url()).toContain('task=workspace-task');
+  await page.getByRole('button',{name:'End session',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click();
+  await page.getByRole('button',{name:'Resume conversation',exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Codex · Session 1',exact:false}).click();await page.getByRole('button',{name:'End session',exact:true}).waitFor();
+  const calls=await page.evaluate(()=>(window as any).workspaceParams.filter((c:any)=>c.op==='session.agent.create'||c.op==='session.agent.end'));
+  expect(calls.filter((c:any)=>c.op==='session.agent.create')).toHaveLength(2);
+  expect(calls.every((c:any)=>c.params.task_id==='workspace-task')).toBe(true);
+  expect(calls.find((c:any)=>c.op==='session.agent.end').params.id).toBe('00000000-0000-4000-8000-000000000002');
+  expect(await page.evaluate(()=>(window as any).workspaceCalls.includes('session.create'))).toBe(false);
+ }finally{await browser.close();}
+},20000);
+
+browserTest('real 30-second idle workspace stays within five reads with zero and multiple hidden and visible agents',async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});expect(result.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{await Promise.all([0,3].map(async count=>{
+  const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(4000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/#/workspace?task=workspace-task');await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  await page.addStyleTag({content:(await buildApp()).find(f=>f.path==='app.css')!.text});
+  await page.getByRole('button',{name:'New panel',exact:true}).waitFor();
+  for(let n=0;n<count;n++){
+   await page.evaluate(()=>(window as any).workspaceAgentEvent('create'));
+   const row=page.locator('.pc-workspace-session-row').filter({hasText:`Session ${n+1}`});await row.waitFor();await row.click();
+  }
+  if(count)expect(await page.getByRole('tab',{name:/Codex · Session/}).count()).toBe(count);
+  await page.waitForTimeout(500);
+  const start=await page.evaluate(()=>(window as any).workspaceCalls.length),at=Date.now();
+  await page.waitForTimeout(30000);
+  const reads=await page.evaluate(n=>(window as any).workspaceCalls.slice(n),start);
+  await Bun.write(`.work/reviews/pr509-session-corrections/idle-${count}.json`,JSON.stringify({sessions:count,visible:count?1:0,hidden:Math.max(0,count-1),elapsedMs:Date.now()-at,reads},null,2));
+  expect(reads.length).toBeLessThanOrEqual(5);
+  // A second client's creation, then a service-observed exit, updates the retained panels.
+  await page.evaluate(()=>(window as any).workspaceAgentEvent('create'));
+  const row=page.locator('.pc-workspace-session-row').filter({hasText:`Session ${count+1}`});await row.waitFor();await row.click();
+  await page.getByRole('button',{name:'End session',exact:true}).waitFor();
+  await page.evaluate(()=>(window as any).workspaceAgentEvent('exit'));
+  await page.getByRole('button',{name:'Start fresh conversation',exact:true}).waitFor();
+  await page.screenshot({path:`.work/reviews/pr509-session-corrections/workspace-${count}.png`,fullPage:true});
+  await page.close();
+ }));}finally{await browser.close();}
+},45000);

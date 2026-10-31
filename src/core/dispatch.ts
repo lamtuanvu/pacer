@@ -73,7 +73,7 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
     if (!ro.store.available) ro.uncertainty.push(makeReason("tasks_unavailable", "info"));
   }
   const strict = deps.taskId ? getWork(ctx,deps.taskId)?.options.delegationEnforcement === "strict" : brief.delegationEnforcement !== "cooperative";
-  const use = slotUse((ro ? slotTasksReadOnly(ro.store) : listTasksWhere(ctx, {states: SLOT_STATES, all: true})).filter(t=>t.id!==deps.taskId));
+  const use = slotUse((ro ? slotTasksReadOnly(ro.store) : listTasksWhere(ctx, {states: SLOT_STATES, all: true})).filter(t=>t.id!==deps.taskId),ctx);
   const allowed = new Set<string>();
   for (const runner of existing.ranked) {
     const host = strategy.runners[runner.id].host;

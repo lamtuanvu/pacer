@@ -1,9 +1,11 @@
+import { withLock } from '../core/lock';
 import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
 import { advertiseHandover, commitHandoverIfRequested, withAttemptWork, withdrawHandover } from "../tasks/handover";
 import { probeAgentSession } from "../session/agent-probe";
 import { conversationIdentity } from "../session/native-identity";
 import { conversationActivity } from "../session/conversation";
+import { workspaceBusy } from "../session/agents-state";
 import { prepareAgentSession, agentSessionCapabilities } from "../plugins/agent-session";
 import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
@@ -433,7 +435,8 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
     }
   }
-  const busy = listTasksWhere(ctx, { states: ["running"] }).some(t => { const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo); return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid) && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/")); });
+  const placement = await withLock(ctx,'session-create',async()=>{
+  const busy = workspaceBusy(ctx,task.worktree ?? top,task.id);
   let resolved = task.worktree ? { mode: realpathSafe(task.worktree) === realpathSafe(task.brief.repo) ? "current" as const : "new" as const, why: "reuse task worktree" } : resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
   let note = "", workdir = task.brief.repo, mode: "current" | "new" = resolved.mode;
   if (mode === "new" && "error" in git) {
@@ -443,7 +446,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     }
     note = `ran in place: ${git.error}\n\n`; mode = "current"; resolved = { mode: "current", why: resolved.why };
   }
-  if (mode === "current" && (busy || (resolved.why === "strategy default" && !("error" in git) && git.dirty))) {
+  if ((!!task.worktree && busy) || mode === "current" && (busy || (resolved.why === "strategy default" && !("error" in git) && git.dirty))) {
     const reason = busy ? "another pacer task is running in the current worktree; in-place execution refused" : "current worktree has uncommitted changes";
     return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
   }
@@ -473,6 +476,10 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       updateTask(ctx, task.id, t => { t.baseBranch = base.base; t.baseSha = base.sha; });
     }
   }
+  if(workspaceBusy(ctx,workdir,task.id)){
+    const reason='another pacer task owns the selected worktree; execution refused';
+    return outcome(cfg,startedAt,{code:1,stdout:'',stderr:reason,timedOut:false},log,reason);
+  }
   const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, existsSync(strategyPath(ctx)) ? loadStrategy(ctx) : undefined, cfg.id);
   if (guard) return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: guard, timedOut: false }, log, guard);
   const attempt = task.attempts.length + 1, rdir = runDir(ctx, task.id, attempt);
@@ -487,6 +494,10 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, mode, why: resolved.why };
     t.worktree = workdir;
   });
+  return {workdir,mode,note,rdir,attempt};
+  },{staleMs:600000});
+  if('exec' in placement)return placement;
+  const {workdir,mode,rdir,attempt}=placement;let {note}=placement;
   const brief = conversation ? task.brief.goal : mode === "new"
     ? buildPrompt({ ...task.brief, repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id, !!ctx.env.PACER_WORK_GRANT)
     : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);

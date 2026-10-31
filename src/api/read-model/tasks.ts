@@ -1,3 +1,4 @@
+import { activeAgentSessions } from "../../session/agents-state";
 import { fullTaskTitle } from "../../core/short-title";
 import { repoFor, registeredRepo, listRepos, labelsFor } from "../../core/repos";
 import { taskData } from "../../link/pump";
@@ -8,21 +9,24 @@ import { unreadCounts } from "../../messaging/store";
 import type { ApiTask } from "./types";
 
 type UnreadCounts = ReturnType<typeof unreadCounts>;
-export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts): ApiTask {
+export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts, activeCount?:number): ApiTask {
  const unread=(counts??unreadCounts(ctx,"human",[t.id])).get(t.id);
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
- return {...taskData(t),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
+ const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
+ return {...taskData(t),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  const repos=records.map(t=>t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const});
  const labels=labelsFor([...listRepos({...ctx,readOnly:true},repos),...repos]);
  const counts=unreadCounts(ctx,"human",records.map(t=>t.id));
- return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts));
+ const active=new Map<string,number>();
+ for(const s of activeAgentSessions(ctx))active.set(s.task_id,(active.get(s.task_id)??0)+1);
+ return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts,active.get(t.id)??0));
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
- return rows.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
+ return rows.filter(t=>(!!t.activeAgentSessions||["queued","running"].includes(t.state))||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
 }
 export type AttentionTask = Pick<TaskData, "state" | "review" | "resolved" | "dismissed" | "retriedBy" | "reviewRequest" | "acceptanceState">;
 export function taskAttentionReason(t: AttentionTask): "checks_failed" | "incomplete" | "review_requested" | null {

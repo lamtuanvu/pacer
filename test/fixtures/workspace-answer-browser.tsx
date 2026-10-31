@@ -35,7 +35,7 @@ const api = { async call(op: string, params: any): Promise<any> {
   if (op === "task.list") return { tasks: tasks() };
   if (op === "dispatch.list") return { tasks: options.retained ? [{ ...root, rootId: root.id, parentId: null, depth: 0 }, { ...task, rootId: root.id, parentId: root.id, depth: 1 }] : [] };
   if (op === "dispatch.tree") return { nodes: [], totals: {} };
-  if (op === "terminal.list") return [];
+  if (op === "terminal.list" || op === "session.agent.list") return [];
   if (op === "task.session") return { host: "none", live: false, takeover: { available: false } };
   if (op === "task.log") return { stdout: "Fixture output", stderr: "" };
   if (op === "msg.send") {
