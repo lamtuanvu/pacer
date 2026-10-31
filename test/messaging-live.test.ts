@@ -2,7 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { readActivity } from "../src/activity/log";
+import { writeProjectStrategy } from "../src/config/project-strategies";
+import { loadStrategy } from "../src/config/strategy";
+import { resolvePolicyRepo } from "../src/core/project-policy";
+import { projectReferences } from "../src/engine/project-routing";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
 import type { RunState } from "../src/supervisor/run";
@@ -29,9 +34,9 @@ function fakeSession(dir: string) {
   return { ready, input, events, hub, sock };
 }
 
-function setup(o: { mode?: "conversation" | "task"; takeover?: boolean } = {}) {
+function setup(o: { mode?: "conversation" | "task"; takeover?: boolean; repo?: string } = {}) {
   const ctx = fakeCtx();
-  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const t = createTask(ctx, { brief: { goal: "g", repo: o.repo ?? tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   const dir = tmpDir();
   const conversation = (o.mode ?? "conversation") === "conversation";
   writeFileSync(join(dir, "interactive.json"), JSON.stringify({ reportToken: "x", ...(conversation ? { interactionMode: "conversation" } : {}) }));
@@ -143,6 +148,27 @@ test("concurrent live ticks claim one turn and type once", async () => {
   await Promise.all([1, 2, 3].map(() => liveTick(ctx, readTask(ctx, id)!, run, state(), deps)));
   expect(session.input.filter(b => b.toString() === "\r")).toHaveLength(1);
   expect(readTask(ctx, id)!.liveTurn?.id).toBe(`${id}#live.1`);
+});
+
+test("a live delivery that project policy now refuses is held once with its reason and stays pending", async () => {
+  const { ctx, id, dir, run } = setup({ repo: gitRepo() });
+  ctx.run = realRun;
+  const session = fakeSession(dir);
+  await session.ready;
+  // Admitted at send time; then the repository's project selection drops the session's executor.
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders: {claude-code: {}, codex: {}, cursor: {}}\n");
+  const repo = await resolvePolicyRepo(ctx, readTask(ctx, id)!.brief.repo);
+  updateTask(ctx, id, t => { t.repo = repo; });
+  await writeProjectStrategy(ctx, repo.key, projectReferences(loadStrategy(ctx), ["cursor"]), 0);
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(session.input).toHaveLength(0);
+  expect(store.pendingFor(ctx, `task:${id}`).map(m => m.body)).toEqual(["hi"]);
+  const reports = store.inbox(ctx, "human").filter(m => m.from === `task:${id}` && m.body.includes("[held]"));
+  expect(reports).toHaveLength(1);
+  expect(reports[0]!.body).toContain("project policy allows");
+  expect(readActivity(ctx).entries.filter(e => e.text.startsWith(`Messages to task ${id} are held`))).toHaveLength(1);
 });
 
 test("a viewer holding control blocks delivery and leaves the messages pending", async () => {

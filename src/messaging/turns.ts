@@ -187,13 +187,15 @@ async function admitTurn(ctx: Ctx, t: TaskRecord, live = false): Promise<{ execu
 }
 
 /** Tell each sender of a held turn's messages why they wait, once per set of pending messages. */
-async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRunner): Promise<void> {
+export async function reportHold(ctx: Ctx, id: string, hold: TurnHold, spawn?: SpawnRunner): Promise<void> {
   const pending = store.pendingFor(ctx, `task:${id}`);
   const last = pending.at(-1);
   if (!last) return;
-  appendActivity(ctx, { kind: "message", level: "warn", text: `Messages to task ${id} are held: ${hold.reason}`, taskId: id });
+  const senders = [...new Set(pending.map(m => m.from).filter(f => f !== `task:${id}`))];
+  if (senders.some(from => !store.byRequest(ctx, `task:${id}`, `held:${last.id}:${from}`)))
+    appendActivity(ctx, { kind: "message", level: "warn", text: `Messages to task ${id} are held: ${hold.reason}`, taskId: id });
   const body = `Messages to task ${id} are held by project policy and stay pending: ${hold.reason}. They are delivered with the next message once policy admits a turn.`;
-  for (const from of new Set(pending.map(m => m.from).filter(f => f !== `task:${id}`))) await report(ctx, id, from, "[held]", body, `held:${last.id}:${from}`, spawn);
+  for (const from of senders) await report(ctx, id, from, "[held]", body, `held:${last.id}:${from}`, spawn);
 }
 
 /**

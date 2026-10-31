@@ -15,7 +15,7 @@ import { rootOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
-import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportReader } from "./turns";
+import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportHold, reportReader } from "./turns";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
@@ -63,7 +63,10 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
   if (!betweenTurns(t, s)) return;
   if (s.controller) return setBlocked(ctx, t, true);
   // Admission is fresh at the point the live driver claims the next turn, including broker nudges.
-  if ((await beginTurn(ctx, t.id, undefined, { quiet: true })).delivery !== "live") return;
+  const admission = await beginTurn(ctx, t.id, undefined, { quiet: true });
+  // A refusal after the message was admitted at send time is reported once per pending set; the messages stay pending.
+  if (admission.delivery === "held" && admission.hold) return reportHold(ctx, t.id, admission.hold);
+  if (admission.delivery !== "live") return;
   // Admission may have awaited a plugin while the agent started another turn or a viewer took over.
   if (!stillBetweenTurns(ctx, t.id, run, deps)) return;
   const root = rootOf(ctx, to);
