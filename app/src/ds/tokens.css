@@ -287,6 +287,7 @@
   --size-17: 17px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
+  --shadow-command: 0 24px 64px -12px rgb(0 0 0 / .4), 0 2px 6px rgb(0 0 0 / .12);
   --shadow-tray-menu: 0 8px 24px var(--shadow-tray-menu-tint);
   --shadow-agent-failure: inset 0 0 0 1px var(--bad-line);
   --shadow-choice-selected: 0 0 0 1px var(--ink);

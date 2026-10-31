@@ -916,3 +916,12 @@ shared frame toolbar owns takeover/handback without a second action row. The
 terminal retains its status, Screen reader control, errors and reconnect action.
 Followers scroll at normal font size and retain PTY
 dimensions; only a visible controller fits/resizes. No upstream provenance changes.
+
+### Command menu elevation
+
+The command menu uses `shadow-command` in both themes, preserving the CommandMenu
+board's two-layer 24px/64px and 2px/6px elevation geometry. Shadow pigment is fixed
+black, like the Workspace menu and Answer sheet boards, rather than `ink`: text
+ink becomes light in dark mode and produces a glow. The border and surface still
+follow theme tokens. Semantics, keyboard behavior, density and consumers are
+unchanged; `CommandPalette` remains the production consumer.

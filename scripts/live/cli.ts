@@ -1,3 +1,4 @@
+import { exerciseSettings } from './settings';
 import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -27,6 +28,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   inspect and control sandbox UI
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
+  settings --id <id>              exercise fixed file-only settings save/reject/restore (seeded sandbox)
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
@@ -149,6 +151,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "updater") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
     await exerciseUpdater(loadSession(id));
+    return 0;
+  }
+  if (command === "settings") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live settings --id <id>");
+    await exerciseSettings(loadSession(id));
     return 0;
   }
   // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.
