@@ -64,7 +64,7 @@ for(const peer of ['old','no-feature'] as const)test(`actual ${peer} peer cannot
  const {ctx,registry}=setup('normal',peer);try{
   const result=await registry.call<any>(ctx,'raw-observer','diagnostic.ping',{mode:'reads'});
   const entry=(registry as any).entries.get('raw-observer');
-  expect(entry.pluginProtocol).toBe(peer==='old'?'1.4.0':'1.9.0');expect(entry.process.supports('policyObservations')).toBe(false);
+  expect(entry.pluginProtocol).toBe(peer==='old'?'1.4.0':'1.10.0');expect(entry.process.supports('policyObservations')).toBe(false);
   expect(result.codes).toEqual(['capability_denied','capability_denied']);
   expect(entry.readOwner).toBeUndefined();
  }finally{await registry.shutdown();}

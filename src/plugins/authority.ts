@@ -32,6 +32,11 @@ export interface CallResources {
   /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
   executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
     workdir: string; dir: string; dirIdentity: { dev: number; ino: number }; startedAt: number };
+  /** One host-issued Orca terminal-worker attempt; the broker resolves its host-only session by this opaque id. */
+  orcaAttempt?: { taskId: string; attempt: number; providerId: string; executor: string; session: string };
+  /** The task's recorded Orca live worker, for one executor.stop or executor.sessionState call. */
+  orcaLive?: { taskId: string; attempt: number; providerId: string; worker: string; terminal: string;
+    incarnation?: string; action: "stop" | "inspect"; why?: string };
   /** Exact host-issued local Git placement; the plugin never selects a path or argv. */
   worktree?: { taskId: string; rev: number; attempt: number; providerId: string;
     homePath: string; homeReal: string; homeIdentity: { dev: number; ino: number };
@@ -133,6 +138,7 @@ export class CallAuthority {
   private remotePrepareUsed = false;
   private remoteStopUsed = false;
   private remoteTransferUsed = false;
+  private orcaLiveUsed = false;
   private remotePrepared?: { taskId: string; attempt: number; worktree: string; branch: string };
   private claimedDetachedRun?: ClaimedRun;
   private readonly detach: () => void;
@@ -212,6 +218,8 @@ export class CallAuthority {
       Object.freeze(this.resources.executorObserve.dirIdentity);
       Object.freeze(this.resources.executorObserve);
     }
+    if (this.resources.orcaAttempt) Object.freeze(this.resources.orcaAttempt);
+    if (this.resources.orcaLive) Object.freeze(this.resources.orcaLive);
     if (this.resources.remotePrepare) Object.freeze(this.resources.remotePrepare);
     if (this.resources.remoteStop) Object.freeze(this.resources.remoteStop);
     if (this.resources.remoteTransfer) Object.freeze(this.resources.remoteTransfer);
@@ -274,6 +282,21 @@ export class CallAuthority {
     if (!grant || this.detachedInspectUsed || grant.taskId !== taskId || grant.attempt !== attempt)
       throw new CoreError("capability_denied", "detached inspection is not issued for this call");
     this.detachedInspectUsed = true;
+    return grant;
+  }
+  orcaAttemptGrant(taskId: string, attempt: number): NonNullable<CallResources["orcaAttempt"]> {
+    this.assertGranted("orca");
+    const grant = this.resources.orcaAttempt;
+    if (!grant || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "Orca attempt is not issued for this call");
+    return grant;
+  }
+  consumeOrcaLive(taskId: string, attempt: number, action: "stop" | "inspect"): NonNullable<CallResources["orcaLive"]> {
+    this.assertGranted("orca");
+    const grant = this.resources.orcaLive;
+    if (!grant || this.orcaLiveUsed || grant.taskId !== taskId || grant.attempt !== attempt || grant.action !== action)
+      throw new CoreError("capability_denied", "Orca live worker is not issued for this call");
+    this.orcaLiveUsed = true;
     return grant;
   }
   worktreeGrant(taskId: string, attempt: number): NonNullable<CallResources["worktree"]> {

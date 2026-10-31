@@ -22,7 +22,7 @@ test("generated prose names current executor methods and route status, and keeps
     "Conversations, remote full/PTY and interactive sessions", "a provider-owned run reports it unavailable"]) expect(doc).toContain(text);
   for (const stale of ["reports unavailable for production dispatch", "has not switched", "no production caller",
     "Other production SSH paths still require caller cutover", "staged local attempt"]) expect(doc).not.toContain(stale);
-  const prose = doc.slice(doc.indexOf("Protocol 1.9.0 adds"), doc.indexOf("Peers explicitly negotiate"));
+  const prose = doc.slice(doc.indexOf("Protocol 1.9.0 adds"), doc.indexOf("Protocol 1.10.0 adds"));
   for (const name of ["executor.run", "executor.stop", "executor.sessionState"]) {
     expect(EXTENSION_METHODS[name]).toBeDefined();
     expect(prose).toContain(`\`${name}\``);
@@ -36,4 +36,14 @@ test("generated prose names current executor methods and route status, and keeps
   }
   expect(CAPABILITIES).toContain("worktree");
   expect(prose).toContain("`worktree`");
+});
+
+test("generated prose names the 1.10.0 Orca executor surface", () => {
+  const doc = renderPluginProtocolDoc();
+  const prose = doc.slice(doc.indexOf("Protocol 1.10.0 adds"), doc.indexOf("Peers explicitly negotiate"));
+  expect(prose).toContain("`pacer-exec-orca`");
+  expect(prose).toContain("`worker-start --terminal`");
+  for (const name of Object.keys(CAPABILITY_METHODS).filter(name => name.startsWith("capability.orca.")))
+    expect(prose).toContain(`\`${name.split(".").at(-1)}\``);
+  expect(CAPABILITIES).toContain("orca");
 });

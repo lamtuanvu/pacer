@@ -237,6 +237,7 @@ fn plugin_area(name: &str) -> &'static str {
     } else if name.starts_with("executor.")
         || name.starts_with("capability.process.")
         || name.starts_with("capability.worktree.")
+        || name.starts_with("capability.orca.")
     {
         "plugin-exec-protocol"
     } else if policy_definition(name) {

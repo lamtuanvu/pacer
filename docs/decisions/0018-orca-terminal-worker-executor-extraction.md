@@ -1,6 +1,6 @@
 # 0018 — Orca executor uses pacer-composed terminal launches
 
-Status: proposed with amendment 0.18.0 (ARCH-4 and P8); adopted only on maintainer merge. Supersedes the unmerged draft `0007-orca-user-settings-execution.md`.
+Status: accepted with amendment 0.18.0 (ARCH-4 and P8), merged on 2026-10-31 in #523. Supersedes the unmerged draft `0007-orca-user-settings-execution.md`.
 
 ## Context
 
@@ -17,3 +17,13 @@ Pacer's #461 backend already launches Claude Code and Codex in an Orca terminal 
 ## Consequences and alternatives
 
 The plugin adds a narrow task-owned Orca capability surface and persistent start/closure state, but removes the built-in Orca execution path under ARCH-12. The nested command is a deliberate, constrained exception to the usual argv-only subprocess pattern: the outer Orca CLI is always spawned with argv, while the inner command is generated exclusively from validated host launch tokens and shell-quoted. A generic shell/string broker, worker-start `--agent` under Orca settings, and forced-Orca failure semantics are rejected because they change #461 behavior or weaken proof. Live Orca validation and independent review remain required; this ADR grants no exception.
+
+### Implemented split (SP10)
+
+The SP10 implementation puts more on the host side than the extraction plan listed for the plugin. ARCH-4 and §1 of this decision allow this split:
+
+- The host makes every Orca CLI call: client, setup, placement, terminal, worker start, lookup, read, release, stop, close and cleanup. It also parses Orca output, runs the supervision loop behind `capability.orca.wait`, maps outcomes, recovers uncertain starts and handles live lanes (`src/plugins/orca-attempt.ts`, `src/plugins/orca-host.ts`, `src/exec/orca/`).
+- `pacer-exec-orca` sequences these coarse, attempt-bound effects. Its own decisions are the call order, the bounded uncertain-start lookup and the keep-alive request.
+- The provider maps the wait result and a failed start to an outcome (`mapWait`, `mapFailedStart`). The host computes the same mapping and refuses a mismatch. The duplication is deliberate: the provider proposes the outcome and the host checks it.
+- Free-text `pacer send` into a live Orca lane is a host-owned guarded effect. The host checks that the lane's agent is still in the foreground, then types the text through its own Orca client, whether or not the provider is enabled. Release of a kept-alive lane goes through the provider's `executor.stop`. If the provider is disabled, its call fails or it returns an invalid result, the host closes the exact recorded worker and terminal itself, because closure is host authority.
+- `executor.sessionState` for `host: "orca"` is staged. The provider and capability are implemented and tested, but no host feature calls them yet.

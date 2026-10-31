@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import * as launch from "../src/exec/launch";
 import { computeStatus } from "../src/engine/status";
-import { makeOrcaBackend } from "../src/exec/orca/backend";
+import { makeOrcaBackend } from "../src/plugins/executor-orca";
+import { inProcessOrca } from "./fixtures/orca/in-process";
 import { DEFAULT_EXECUTION } from "../src/config/execution";
 import { createTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
@@ -91,7 +92,7 @@ test.each([
   ]);
   ctx.run = f.run;
   const task = createTask(ctx, {brief: {goal: "test", repo: "/work/app"}, kind: null, requestedExecutor: null, timeoutS: 10});
-  const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}});
+  const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}}, inProcessOrca({sleep: async () => {}}));
   const out = await backend.runAttempt(ctx, s.providers[id], task);
   expect(out.backend).toBe("orca");
   expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(true);

@@ -2,8 +2,10 @@ import { z } from "zod";
 import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
 import { secretReference } from "./http-protocol";
 
-/** Staged SP09 contribution: only the existing direct backend is named. */
-export const executorContribution = z.object({ backends: z.tuple([z.literal("direct")]) }).strict();
+/** A provider names exactly one backend: the direct owner (1.9.0) or the Orca terminal-worker owner (1.10.0). */
+export const executorContribution = z.object({
+  backends: z.union([z.tuple([z.literal("direct")]), z.tuple([z.literal("orca")])]),
+}).strict();
 /** Availability receives a host-selected public strategy projection, never raw config or credentials. */
 export const executorAvailableParams = z.object({
   strategy: z.object({ name: z.string().min(1).max(128) }).strict(),
@@ -50,7 +52,25 @@ export const executorOwnedRemoteRunParams = z.object({
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
   }).strict(),
 }).strict();
-export const executorRunParams = z.union([executorEffectRunParams, executorOwnedRunParams, executorOwnedRemoteRunParams]);
+const orcaReason = z.string().min(1).max(4096);
+/**
+ * 1.10.0 Orca terminal-worker attempt. The host selects task, revision, attempt, runner and timeout; the plugin
+ * supplies no argv, environment, path, worktree, terminal or credential.
+ */
+export const executorOrcaRunParams = z.object({
+  task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
+  orca: z.object({ executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+    session: z.literal("interactive").optional() }).strict(),
+}).strict();
+/** Before any worker may exist: the host runs the logged direct route, or records the refusal. */
+export const executorOrcaRunDisposition = z.object({
+  orca: z.union([z.object({ fallback: z.object({ reason: orcaReason }).strict() }).strict(),
+    z.object({ refused: z.object({ reason: orcaReason }).strict() }).strict()]),
+}).strict();
+
+export const executorRunParams = z.union([executorEffectRunParams, executorOwnedRunParams, executorOwnedRemoteRunParams,
+  executorOrcaRunParams]);
 
 /** The files the eventual executor owner must preserve for current task and session readers. */
 export const RUN_DIR_CONTRACT = {
@@ -87,15 +107,18 @@ export const executorAttemptOutcome = z.object({
   report: z.string().max(65_536), backend: z.string().optional(), worktree: z.string().max(4096).optional(),
   partial: z.string().optional(),
 }).strict();
-export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome]);
+export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome, executorOrcaRunDisposition]);
 export const executorStopParams = z.object({ taskId, attempt: positive,
   graceMs: z.number().int().nonnegative().max(25_000), remote: z.literal(true).optional() }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
 /** Read-only session state; uncertainty cannot authorize a replacement launch. */
 export const executorSessionStateParams = z.object({ taskId, attempt: positive }).strict();
-export const executorSessionStateResult = z.object({
-  state: z.enum(["running", "exited", "uncertain"]), host: z.literal("builtin"), handle: z.null(),
-}).strict();
+/** `orca` (1.10.0) names the live worker's exact terminal handle; the direct owner reports `builtin` and no handle. */
+export const executorSessionStateResult = z.union([
+  z.object({ state: z.enum(["running", "exited", "uncertain"]), host: z.literal("builtin"), handle: z.null() }).strict(),
+  z.object({ state: z.enum(["running", "exited", "uncertain"]), host: z.literal("orca"),
+    handle: z.string().min(1).max(256).nullable() }).strict(),
+]);
 export const executorProgress = z.object({
   phase: z.enum(["driving", "testing", "needs-input", "starting", "working", "idle", "lost-contact"]),
   lastOutputAt: z.number().finite().nullable(), lastChangeAt: z.number().finite().nullable(),
@@ -111,12 +134,12 @@ export const executorRunEvent = z.discriminatedUnion("kind", [
 
 /** Full attempt outcome, stop and recovery remain later SP09 slices. */
 export const EXECUTOR_METHODS = {
-  "executor.available": { description: "Report bundled direct provider readiness for a host-selected credential-free strategy name; route admission remains host-owned.",
+  "executor.available": { description: "Report bundled provider readiness for a host-selected credential-free strategy name; route admission remains host-owned.",
     params: executorAvailableParams, result: executorAvailableResult, deadlineMs: 10_000 },
-  "executor.run": { description: "Owned direct attempt or compatibility local process effect, each under exact host-issued grants.",
+  "executor.run": { description: "Owned direct attempt, Orca terminal-worker attempt or compatibility local process effect, each under exact host-issued grants.",
     params: executorRunParams, result: executorRunResult, deadlineMs: 0 },
-  "executor.stop": { description: "Stop the exact persisted local or remote attempt under a one-use host-issued stop grant.",
+  "executor.stop": { description: "Stop the exact persisted local or remote attempt, or the task's recorded Orca live worker, under a host-issued stop grant.",
     params: executorStopParams, result: executorStopResult, deadlineMs: 30_000 },
-  "executor.sessionState": { description: "Read the running, exited or uncertain state of one host-issued persisted local executor session.",
+  "executor.sessionState": { description: "Read the running, exited or uncertain state of one host-issued persisted local executor session or Orca live worker.",
     params: executorSessionStateParams, result: executorSessionStateResult, deadlineMs: 5_000 },
 } as const;

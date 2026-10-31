@@ -10,10 +10,10 @@ const entry = (subject: string): InboxEntry => ({ outcome: "succeeded", subject,
 
 test("a missing or corrupt orca.json loads as empty state", () => {
   const ctx = fakeCtx();
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {}, groups: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, starting: {}, strays: {}, removed: {}, groups: {} });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), "not json");
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {}, groups: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, starting: {}, strays: {}, removed: {}, groups: {} });
 });
 
 test("updateOrcaState persists coordinator, run and workers", () => {
@@ -24,7 +24,7 @@ test("updateOrcaState persists coordinator, run and workers", () => {
     s.workers.ctx_1 = { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 };
   });
   expect(loadOrcaState(ctx)).toEqual({
-    coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {},
+    coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {}, unclosed: {}, starting: {}, strays: {}, removed: {},
     workers: { ctx_1: { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 } },
     groups: {},
   });

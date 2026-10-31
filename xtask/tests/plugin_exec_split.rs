@@ -5,6 +5,7 @@ fn in_exec_area(name: &str) -> bool {
     name.starts_with("executor.")
         || name.starts_with("capability.process.")
         || name.starts_with("capability.worktree.")
+        || name.starts_with("capability.orca.")
 }
 
 #[test]
@@ -25,9 +26,11 @@ fn process_and_executor_types_have_an_independent_bounded_area() {
     assert!(!core.contains("pub struct CapabilityProcessSpawnParams"));
     assert!(!core.contains("pub struct ExecutorAvailableParams"));
     assert!(!core.contains("pub struct CapabilityWorktreeInspectParams"));
+    assert!(!core.contains("pub struct CapabilityOrcaStartParams"));
     assert!(execution.contains("pub struct CapabilityProcessSpawnParams"));
     assert!(execution.contains("pub struct ExecutorAvailableParams"));
     assert!(execution.contains("pub struct CapabilityWorktreeInspectParams"));
+    assert!(execution.contains("pub struct CapabilityOrcaStartParams"));
     assert!(!execution.contains("pub struct CallMetadata"));
     for area in [core, execution] {
         let lines = area
