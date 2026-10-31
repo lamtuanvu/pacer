@@ -11,7 +11,7 @@ toml = "0.8"
 typify = "0.4"
 schemars = "0.8"
 quote = "1"
-syn = { version = "2", features = ["visit-mut"] }
+syn = { version = "3", features = ["visit-mut"] }
 prettyplease = "0.2"
 serde.workspace = true
 serde_json.workspace = true
