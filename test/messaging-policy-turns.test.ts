@@ -9,9 +9,10 @@ import { sendMessage } from "../src/messaging/send";
 import * as store from "../src/messaging/store";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { loadStrategy } from "../src/config/strategy";
-import { resolveRepo } from "../src/core/repos";
+import { resolveRepo, resolvePolicyRepo } from "../src/core/repos";
 import { projectReferences } from "../src/engine/project-routing";
 import * as projectPolicy from "../src/core/project-policy";
+import { deliver } from "../src/messaging/turns";
 
 /** A task that finished on codex with a resumable session, under a policy plugin that allows everything so far. */
 function settled(repo = tmpDir()) {
@@ -58,6 +59,29 @@ test("an executor policy now excludes reroutes the turn to an admitted one that 
   expect(t.pendingTurn?.session).toBeUndefined();
   expect(t.requestedExecutor).toBe("cursor");
   expect(f.spawned).toEqual([f.id]);
+});
+
+test("a changed project selection excludes the prior executor from a continuation", async () => {
+  const f = settled();
+  const repo = await resolvePolicyRepo(f.ctx, f.repo);
+  updateTask(f.ctx, f.id, t => { t.repo = repo; });
+  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ["cursor"]), 0);
+  const r = await f.send("continue on selected executor");
+  expect(r.hold).toBeUndefined();
+  expect(r.delivery).toBe("turn_started");
+  expect(readTask(f.ctx, f.id)?.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
+  expect(f.decisions().at(-1)?.input.candidates).toEqual(["cursor"]);
+});
+
+test("a changed project selection with no runnable candidate holds the continuation", async () => {
+  const f = settled();
+  const repo = await resolvePolicyRepo(f.ctx, f.repo);
+  updateTask(f.ctx, f.id, t => { t.repo = repo; });
+  // A selected runner reference removed from the strategy leaves the task pending.
+  await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
+  const r = await f.send("wait for selected runner");
+  expect(r.delivery).toBe("held");
+  expect(store.pendingFor(f.ctx, `task:${f.id}`)).toHaveLength(1);
 });
 
 test("a policy veto holds the turn: messages stay pending, the task keeps its result, and the sender learns why", async () => {
@@ -264,4 +288,16 @@ test("a policy-held answer replayed with its request id stays open while held, t
   store.claimPending(f.ctx, `task:${f.id}`, t.pendingTurn!.id);
   expect((await answer()).delivery).toBe("queued");
   expect(readTask(f.ctx, f.id)!.question?.answer).toBe("same.txt");
+});
+
+test("a broker delivery uses the project selection, as a send does", async () => {
+  const f = settled();
+  const repo = await resolvePolicyRepo(f.ctx, f.repo);
+  updateTask(f.ctx, f.id, t => { t.repo = repo; });
+  store.insertMessage(f.ctx, { taskId: f.id, rootId: `task:${f.id}`, from: "broker", to: `task:${f.id}`, kind: "nudge", body: "nudge", replyTo: null, requestId: "nudge:1" });
+  await writeProjectStrategy(f.ctx, repo.key, ["opencode#missing@local"], 0);
+  expect((await deliver(f.ctx, `task:${f.id}`, () => 1)).delivery).toBe("held");
+  await writeProjectStrategy(f.ctx, repo.key, projectReferences(loadStrategy(f.ctx), ["cursor"]), 1);
+  expect((await deliver(f.ctx, `task:${f.id}`, () => 1)).delivery).toBe("turn_started");
+  expect(readTask(f.ctx, f.id)?.pendingTurn).toMatchObject({ executor: "cursor", replay: true });
 });

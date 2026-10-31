@@ -160,7 +160,7 @@ const policyHold = (e: CoreError): TurnHold => ({ reason: e.message, ...(e.hint?
 async function admitTurn(ctx: Ctx, t: TaskRecord, live = false): Promise<{ executor: string; guard: () => void } | TurnHold> {
   const prior = sessionAgent(t)!;
   const { applyPolicy } = await import("../plugins/policy");
-  const context = () => { const x = readTask(ctx, t.id); return JSON.stringify(x && { executor: sessionAgent(x), state: x.state, attempts: x.attempts.length, kind: x.kind, repo: x.brief.repo, worktree: turnWorktree(x) }); };
+  const context = () => { const x = readTask(ctx, t.id); return JSON.stringify(x && { executor: sessionAgent(x), state: x.state, attempts: x.attempts.length, kind: x.kind, repo: x.brief.repo, repoKey: x.repo?.key, identityUnverified: x.repo?.identityUnverified, worktree: turnWorktree(x) }); };
   const placement = t.placement?.mode ?? (t.placement?.requested === "current" || t.placement?.requested === "new" ? t.placement.requested : "auto");
   try {
     const delegate = await applyPolicy(ctx, "delegate", { goal: t.brief.goal, repo: t.brief.repo, kind: t.kind ?? null, requestedExecutor: prior, placement },
