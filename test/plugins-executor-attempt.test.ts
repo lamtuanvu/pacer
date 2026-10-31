@@ -47,6 +47,33 @@ test("host claims a private attempt directory and binds fake plugin progress to 
   } finally { cleanup(); }
 });
 
+test("a pacer home created under a 022 umask still claims a private attempt directory", async () => {
+  // Regression: `mkdirSync(pacerHome, { recursive: true })` leaves the home 0755, and every local direct run failed to start.
+  const { home, ctx, task, cleanup } = fixture();
+  try {
+    chmodSync(ctx.pacerHome, 0o755);
+    const result = await runOwnedExecutorAttempt(ctx,
+      { call: async () => ({ status: "done", exitCode: 0, report: "fixture complete" }) }, "fx-executor", task.id, "codex", home);
+    expect(result).toMatchObject({ status: "done" });
+    expect(lstatSync(join(ctx.pacerHome, "runs")).mode & 0o777).toBe(0o700);
+    expect(lstatSync(readTask(ctx, task.id)!.run!.dir).mode & 0o777).toBe(0o700);
+  } finally { cleanup(); }
+});
+
+test("host refuses a pacer home that others can write before plugin invocation", async () => {
+  for (const mode of [0o775, 0o757]) {
+    const { home, ctx, task, cleanup } = fixture();
+    let called = false;
+    try {
+      chmodSync(ctx.pacerHome, mode);
+      await expect(runOwnedExecutorAttempt(ctx, { call: async () => { called = true; return {}; } },
+        "fx-executor", task.id, "codex", home)).rejects.toMatchObject({ code: "conflict" });
+      expect(called).toBe(false);
+      expect(readTask(ctx, task.id)?.run).toBeUndefined();
+    } finally { chmodSync(ctx.pacerHome, 0o700); cleanup(); }
+  }
+});
+
 test("host refuses symlinked, permissive, and stale attempt directories before plugin invocation", async () => {
   for (const bad of ["symlink", "permissive", "stale"] as const) {
     const { home, ctx, task, cleanup } = fixture();
