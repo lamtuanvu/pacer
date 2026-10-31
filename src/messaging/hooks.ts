@@ -57,6 +57,7 @@ export async function stopHook(ctx: Ctx, kind: PlannerKind, input: unknown): Pro
       const row = getLiveness(ctx, me)!;
       // The broker alerts the human about an escalated participant.
       if (row.escalatedAt === null) upsertLiveness(ctx, { node: me, reason: row.reason || "unread_external", since: row.since, attempts: row.attempts,
+        nudges: row.nudges,
         nextAt: row.nextAt, progressMark: row.progressMark, stalledAt: row.stalledAt ?? ctx.now, escalatedAt: ctx.now });
       return "";
     }

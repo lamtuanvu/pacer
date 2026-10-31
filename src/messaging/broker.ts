@@ -50,10 +50,13 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const mark = progressMark(ctx, stall, snapshot);
         const changed = old?.progressMark !== mark || old.reason !== stall.reason;
         const row: LivenessUpsert = old && !changed ? { ...old } : {
-          node, reason: stall.reason, since: ctx.now, attempts: 0, nextAt: ctx.now,
+          node, reason: stall.reason, since: ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         row.reason = stall.reason;
+        const nudged = stall.reason === "cycle";
+        // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
+        if (ctx.now < row.nextAt && nudged && allowed && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
         let acted = false;
         let stallNow = false;
@@ -64,16 +67,16 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             acted = true;
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
-        } else if (stall.reason === "cycle") {
-          if (!stall.deepest || !allowed) stallNow = true;
+        } else if (nudged) {
+          if (!stall.deepest || !allowed || row.nudges >= config.max_nudges) stallNow = true;
           else if (node === stall.deepest && !cycleTargets.has(node)) {
             cycleTargets.add(node);
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: your conversation is waiting on you (cycle: ${chain}). Answer the open question, ask your parent, or report.`,
-              replyTo: null, requestId: `nudge:${node}:${row.attempts + 1}` });
+              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
             await deliver(ctx, node, deps.spawnRunner);
-            acted = true;
+            row.nudges++; acted = true;
           }
         } else if (stall.reason === "unread_external") {
           if (!allowed || ctx.now >= row.since + config.escalate_after_s) {
@@ -85,11 +88,14 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         }
         if (acted) {
           row.attempts++;
-          row.nextAt = ctx.now + Math.min(config.interval_s * 2 ** row.attempts, config.backoff_max_s);
+          // Nudges back off by nudge count; delivery retries and human reminders by their own attempts.
+          row.nextAt = ctx.now + Math.min(config.interval_s * 2 ** (nudged ? row.nudges : row.attempts), config.backoff_max_s);
           actions++;
         }
-        if (stallNow || (acted && row.attempts >= config.max_nudges)) {
+        // Delivery retries keep going on their backoff, but the node is shown as stalled after max_nudges of them.
+        if (stallNow || (nudged && row.nudges >= config.max_nudges) || (stall.reason === "undelivered" && acted && row.attempts >= config.max_nudges)) {
           row.stalledAt ??= ctx.now;
+          row.escalatedAt ??= ctx.now;
           const id = taskOf(node), task = id ? readTask(ctx, id) : null;
           if (task && ["done", "partial"].includes(task.state) && !task.review && !task.reviewRequest) {
             try { requestReview(ctx, id!, { note: "This conversation is stalled and needs a decision." }); }
@@ -97,7 +103,8 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           }
         }
         upsertLiveness(ctx, row);
-        if (row.stalledAt || row.escalatedAt) publishRow(ctx, row, node);
+        // Escalation is published when it happens or the row moves, not again on every tick.
+        if ((row.stalledAt || row.escalatedAt) && (acted || row.stalledAt !== old?.stalledAt || row.escalatedAt !== old?.escalatedAt)) publishRow(ctx, row, node);
       }
       return { stalls: stalls.length, actions };
     }, { timeoutMs: 0, staleMs: 10 * 60_000 });

@@ -11,11 +11,11 @@ import type { TaskRecord } from "../src/tasks/types";
 test("liveness rows upsert, read and clear", () => {
   const ctx = fakeCtx();
   expect(live.getLiveness(ctx, "task:t-1")).toBeNull();
-  live.upsertLiveness(ctx, { node: "task:t-1", reason: "undelivered", since: 10, attempts: 1, nextAt: 70, progressMark: "p1", stalledAt: null, escalatedAt: null });
+  live.upsertLiveness(ctx, { node: "task:t-1", reason: "undelivered", since: 10, attempts: 1, nudges: 0, nextAt: 70, progressMark: "p1", stalledAt: null, escalatedAt: null });
   expect(live.getLiveness(ctx, "task:t-1")).toMatchObject({ reason: "undelivered", since: 10, attempts: 1, nextAt: 70, progressMark: "p1", hookBlocks: 0, hookSet: null });
-  live.upsertLiveness(ctx, { node: "task:t-1", reason: "cycle", since: 10, attempts: 2, nextAt: 130, progressMark: "p1", stalledAt: 120, escalatedAt: null });
+  live.upsertLiveness(ctx, { node: "task:t-1", reason: "cycle", since: 10, attempts: 2, nudges: 1, nextAt: 130, progressMark: "p1", stalledAt: 120, escalatedAt: null });
   expect(live.getLiveness(ctx, "task:t-1")).toMatchObject({ reason: "cycle", attempts: 2, stalledAt: 120 });
-  live.upsertLiveness(ctx, { node: "human", reason: "unread_human", since: 5, attempts: 0, nextAt: 5, progressMark: null, stalledAt: null, escalatedAt: null });
+  live.upsertLiveness(ctx, { node: "human", reason: "unread_human", since: 5, attempts: 0, nudges: 0, nextAt: 5, progressMark: null, stalledAt: null, escalatedAt: null });
   expect(live.listLiveness(ctx).map(r => r.node).sort()).toEqual(["human", "task:t-1"]);
   live.clearLiveness(ctx, "task:t-1");
   expect(live.getLiveness(ctx, "task:t-1")).toBeNull();
