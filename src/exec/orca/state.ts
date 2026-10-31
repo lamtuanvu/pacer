@@ -23,7 +23,9 @@ export interface UncertainStart { taskId: string; attempt?: number; terminal: st
  * A worker-start pacer recorded before the effect. Until a dispatch, a refusal or an uncertain record replaces it, the
  * terminal may hold a worker: a later pass reconciles it like an uncertain start and never starts another.
  */
-export interface StartIntent { taskId: string; attempt: number; terminal: string; run: string; requestId: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
+export interface StartIntent { taskId: string; attempt: number; terminal: string; run: string; requestId: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number;
+  /** The runner process that recorded the intent; while it lives, only it settles the start. */
+  pid?: number }
 /** A pacer-owned terminal whose close returned no receipt proof; a later pass retries the close. */
 export interface UnclosedTerminal { taskId: string; terminal: string; worktreeId?: string; at: number }
 /** Orca's initial terminal handles, recorded before pacer's agent terminal existed: the only terminals a stray sweep may close. */

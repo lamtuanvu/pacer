@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { pidAlive } from "../../link/pid";
 import { worktreeDirty } from "../../supervisor/worktree";
 import { releaseOrcaTerminalWorkSync } from "../../update/desktop/admission";
 import { listTasksWhere, updateTask } from "../../tasks/store";
@@ -269,7 +270,7 @@ export async function reconcileOrcaWork(ctx: Ctx): Promise<void> {
   await withLock(ctx, "coordinator", async () => {
     updateOrcaState(ctx, s => {
       for (const [terminal, intent] of Object.entries(s.starting)) {
-        if (ctx.now - intent.at < START_INTENT_STALE_S) continue;
+        if (ctx.now - intent.at < START_INTENT_STALE_S || (intent.pid !== undefined && pidAlive(intent.pid))) continue;
         s.uncertain[terminal] ??= { taskId: intent.taskId, attempt: intent.attempt, terminal, run: intent.run, worktree: intent.worktree, at: intent.at };
         delete s.starting[terminal];
       }

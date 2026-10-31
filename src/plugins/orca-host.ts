@@ -249,3 +249,34 @@ export async function findLiveAnswerWorker(ctx: Ctx, c: OrcaClient, task: TaskRe
   const worker = loadOrcaState(ctx).workers[asked.live.worker];
   return { asked, live: asked.live, worktree: worker?.worktree ?? asked.worktree ?? null };
 }
+
+export interface Mapped { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string; launchBroken?: string }
+
+/** The attempt outcome a supervised wait means (#461); only a reported or settled worker is released rather than stopped. */
+export function mapWait(w: WaitResult): Mapped {
+  switch (w.kind) {
+    case "done":
+      return {
+        code: w.outcome === "succeeded" ? 0 : 1, timedOut: false, settled: true,
+        summary: [w.subject, w.body].filter((x) => x.trim()).join("\n\n") || `worker_done: ${w.outcome}`,
+      };
+    case "settled":
+      return {
+        code: w.state === "succeeded" ? 0 : 1, timedOut: false, settled: !w.needsStop, ...(w.tail === undefined ? {} : { tail: w.tail }),
+        summary: `orca worker ${w.state} without a worker_done report${w.error ? ` (${w.error})` : ""}`,
+      };
+    case "timeout":
+      return { code: 1, timedOut: true, settled: false, summary: "orca worker timed out at the task timeout; stopped it" };
+    case "stopped":
+      return { code: 1, timedOut: false, settled: false, summary: "stopped by the planner; stopped the orca worker" };
+  }
+}
+
+/** A worker that did not start ready; an agent-launch failure marks the attempt broken. */
+export function mapFailedStart(start: { stage?: string; failedStage?: string; lastError?: string | null }): Mapped {
+  const launchBroken = /agent[ _-]?launch|launch[ _-]?agent/i.test(start.failedStage ?? "")
+    ? `orca agent launch failed: ${start.lastError ?? "no error given"}` : undefined;
+  return { code: 1, timedOut: false, settled: true,
+    summary: `orca worker failed to start at ${start.failedStage ?? start.stage ?? "an unknown stage"}: ${start.lastError ?? "no error given"}`,
+    ...(launchBroken ? { launchBroken } : {}) };
+}

@@ -12,9 +12,10 @@ import type { AttemptOutcome } from "../exec/direct";
 import { OrcaClient } from "../exec/orca/client";
 import { withLock } from "../exec/orca/state";
 import type { CallResources } from "./authority";
+import { pluginsConfig } from "./config";
 import { executorAttemptOutcome, executorOrcaRunDisposition, executorSessionStateResult, executorStopResult } from "./executor-protocol";
 import { ORCA_DEFAULTS, ORCA_PROVIDER, OrcaAttemptSession, type OrcaRouteDeps } from "./orca-attempt";
-import { liveAgentProblem } from "./orca-host";
+import { liveAgentProblem, releaseLive } from "./orca-host";
 
 export { ORCA_PROVIDER, type OrcaRouteDeps } from "./orca-attempt";
 
@@ -63,7 +64,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
     try {
       raw = await caller.call(ctx, ORCA_PROVIDER, "executor.run", {
         task: { id: task.id, rev: readTask(ctx, task.id)?.rev ?? task.rev }, attempt: session.attempt, runDir: 1,
-        orca: { executor: cfg.id, model: cfg.model ?? null, timeoutMs: Math.min(task.timeoutS * 1000, 30 * 60 * 1000),
+        orca: { executor: cfg.id, model: cfg.model ?? null, timeoutMs: Math.max(1, Math.min(Math.ceil(task.timeoutS * 1000), 30 * 60 * 1000)),
           ...(task.interactionMode === "conversation" ? { session: "interactive" as const } : {}) },
       }, { resources: { ...empty(), orcaAttempt: { taskId: task.id, attempt: session.attempt, providerId: ORCA_PROVIDER,
         executor: cfg.id, session: session.id } }, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + SETUP_BUDGET_MS });
@@ -73,8 +74,11 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
       return fallback(deps, ctx, cfg, task, onSpawn, rescued.fallback, session.lines);
     }
     const disposition = executorOrcaRunDisposition.safeParse(raw);
-    if (disposition.success && session.preStart) {
-      const choice = disposition.data.orca;
+    const choice = disposition.success ? disposition.data.orca : undefined;
+    // A refusal must be the host's own; a fallback needs a host-recorded reason or effects the host can abandon.
+    const accepted = !!choice && ("refused" in choice ? session.hostRefused && session.phase === "fallback"
+      : session.preStart && session.phase !== "new" && session.phase !== "checked");
+    if (choice && accepted) {
       if ("refused" in choice) {
         const at = Date.now() / 1000, reason = choice.refused.reason;
         return { exec: { code: 1, stdout: "", stderr: reason, timedOut: false }, report: reason, backend: "orca",
@@ -91,7 +95,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
       JSON.stringify(outcome.data) === JSON.stringify(executorAttemptOutcome.parse(session.outcome)))
       return session.outcome;
     // A direct route after a possible start, or an outcome the host did not record, settles by phase and fails.
-    const refusal = new CoreError("conflict", disposition.success ? "Orca provider chose a direct route after a worker may have started"
+    const refusal = new CoreError("conflict", disposition.success ? "Orca provider chose a direct route the host did not issue"
       : "Orca provider outcome is not the host-recorded attempt outcome");
     const rescued = await session.rescue(refusal);
     if ("fallback" in rescued) return fallback(deps, ctx, cfg, task, onSpawn, rescued.fallback, session.lines);
@@ -114,6 +118,11 @@ function liveOps(caller: OrcaExecutorCaller): LiveWorkerOps {
       const live = readTask(ctx, task.id)?.live ?? task.live;
       if (!live || live.backend !== "orca") return;
       const attempt = Math.max(1, (readTask(ctx, task.id)?.attempts.length ?? task.attempts.length));
+      // Closure stays host authority (ADR 0018): a disabled provider never leaves a live agent behind.
+      if (pluginsConfig(ctx).disabled.includes(ORCA_PROVIDER)) {
+        await releaseLive(ctx, new OrcaClient(ctx.run, ctx.env), readTask(ctx, task.id) ?? task, why);
+        return;
+      }
       const raw = await caller.call(ctx, ORCA_PROVIDER, "executor.stop", { taskId: task.id, attempt, graceMs: 0 }, {
         resources: { ...empty(), orcaLive: { taskId: task.id, attempt, providerId: ORCA_PROVIDER, worker: live.worker,
           terminal: live.terminal, ...(live.incarnation ? { incarnation: live.incarnation } : {}), action: "stop", why } },

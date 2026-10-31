@@ -1,4 +1,4 @@
-import { PluginError, serve, type Handler, type HostClient } from "@pacer/plugin";
+import { type ExecutorOrcaDisposition, type ExecutorOrcaRunInput, PluginError, serve, type Handler, type HostClient } from "@pacer/plugin";
 import { z } from "zod";
 import { manifest } from "./manifest";
 export { manifest } from "./manifest";
@@ -52,14 +52,14 @@ export function mapFailedStart(start: Started): { mapped: Mapped; launchBroken?:
  * The #461 terminal-worker attempt, sequenced over host-issued Orca effects. Fallback is chosen only before a
  * worker can exist; an uncertain start is looked up a bounded number of times and never retried or replaced.
  */
-async function runOrca(params: z.infer<typeof runInput>, host: HostClient, signal: AbortSignal,
+async function runOrca(params: ExecutorOrcaRunInput, host: HostClient, signal: AbortSignal,
   sleep: (ms: number) => Promise<void>): Promise<unknown> {
   const ids = { taskId: params.task.id, attempt: params.attempt };
   const call = <T>(method: string, extra: Record<string, unknown> = {}): Promise<T> => {
     if (signal.aborted) throw new PluginError("plugin_unavailable", "Orca attempt was cancelled; the host settles its effects");
     return host.call<T>(method, { ...ids, ...extra });
   };
-  const fallback = (reason: string) => ({ orca: { fallback: { reason } } });
+  const fallback = (reason: string): ExecutorOrcaDisposition => ({ orca: { fallback: { reason } } });
   const abandon = async (reason: string) =>
     fallback((await call<{ reason: string }>("capability.orca.abandon", { reason })).reason);
 
@@ -68,7 +68,7 @@ async function runOrca(params: z.infer<typeof runInput>, host: HostClient, signa
   if (live.kind === "attached") return supervise(call, true, null);
 
   const prepared = await call<{ ok: true } | { ok: false; reason: string; refuse: boolean }>("capability.orca.prepare");
-  if (!prepared.ok) return prepared.refuse ? { orca: { refused: { reason: prepared.reason } } } : fallback(prepared.reason);
+  if (!prepared.ok) return prepared.refuse ? { orca: { refused: { reason: prepared.reason } } } satisfies ExecutorOrcaDisposition : fallback(prepared.reason);
   const placed = await call<{ ok: true } | { ok: false; reason: string }>("capability.orca.place");
   if (!placed.ok) return abandon(placed.reason);
   const terminal = await call<{ ok: true } | { ok: false; reason: string }>("capability.orca.terminal");

@@ -19,7 +19,8 @@ const wire = <T>(value: T): T => value === undefined ? value : JSON.parse(JSON.s
  */
 export function inProcessOrca(options: { sleep?: (ms: number) => Promise<void>; calls?: string[];
   /** Simulate a provider that dies when it reaches this capability call. */ failOn?: string;
-  /** Replace provider handlers, for example with a misbehaving provider. */ handlers?: Record<string, Handler> } = {}): OrcaExecutorCaller {
+  /** Replace provider handlers, for example with a misbehaving provider. */ handlers?: Record<string, Handler>;
+  /** Shorten the owning call's deadline to exercise cancellation. */ deadlineMs?: number } = {}): OrcaExecutorCaller {
   const parsed = manifestSchema.parse(manifest);
   const handlers = { ...createHandlers(options.sleep ? { sleep: options.sleep } : {}), ...options.handlers };
   return {
@@ -27,7 +28,7 @@ export function inProcessOrca(options: { sleep?: (ms: number) => Promise<void>; 
       if (pluginId !== parsed.id) throw Error(`unexpected provider ${pluginId}`);
       const def = EXTENSION_METHODS[method]!;
       const input = def.params.parse(wire(params));
-      const authority = createCallAuthority(ctx, call.resources, { deadlineMs: Date.now() + call.deadlineMs,
+      const authority = createCallAuthority(ctx, call.resources, { deadlineMs: Date.now() + (options.deadlineMs ?? call.deadlineMs),
         grants: parsed.capabilities.map(capability => capability.name) });
       try {
         const host = { call: async (m: string, p: unknown) => {

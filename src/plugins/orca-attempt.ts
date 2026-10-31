@@ -26,8 +26,8 @@ import { ensureCoordinator, gitInfo, realpathSafe } from "../exec/orca/setup";
 import { updateOrcaState, withLock } from "../exec/orca/state";
 import { type WaitResult, waitForWorker } from "../exec/orca/wait";
 import { CoreError } from "../core/errors";
-import { checkedWorktree, findLiveAnswerWorker, liveAgentProblem, liveLaneWorktree, prepareOrca, type Ready, releaseLive,
-  releaseStoppedLane, settleWorker, waitLine, workerSpec } from "./orca-host";
+import { checkedWorktree, findLiveAnswerWorker, liveAgentProblem, liveLaneWorktree, mapFailedStart, type Mapped, mapWait, prepareOrca,
+  type Ready, releaseLive, releaseStoppedLane, settleWorker, waitLine, workerSpec } from "./orca-host";
 
 export const ORCA_PROVIDER = "pacer-exec-orca";
 
@@ -55,7 +55,7 @@ export const ORCA_DEFAULTS: OrcaRouteDeps = {
 
 /** Wire shape of a started worker. */
 export interface StartedWire { kind: "started"; dispatchId: string; state: string | null; stage: string | null; failedStage: string | null; lastError: string | null }
-type Phase = "new" | "prepared" | "placed" | "terminal" | "refused" | "uncertain" | "started" | "settled" | "fallback" | "done";
+type Phase = "new" | "checked" | "reattaching" | "prepared" | "placed" | "terminal" | "refused" | "uncertain" | "started" | "settled" | "fallback" | "done";
 
 const sessions = new Map<string, OrcaAttemptSession>();
 export const orcaSession = (id: string): OrcaAttemptSession | undefined => sessions.get(id);
@@ -128,22 +128,37 @@ export class OrcaAttemptSession {
     return join(dir, `${this.task.id}.${this.cfg.id}.log`);
   }
   /** Whether the effects so far still allow a logged direct fallback: no worker can exist. */
-  get preStart(): boolean { return ["new", "prepared", "placed", "terminal", "refused", "fallback"].includes(this.phase); }
+  get preStart(): boolean { return ["new", "checked", "prepared", "placed", "terminal", "refused", "fallback"].includes(this.phase); }
+  /** Set only when the host's own placement refused the attempt; a provider cannot claim a refusal. */
+  hostRefused = false;
 
   /** An interactive lane's escalation keeps its worker; an answer reattaches to it instead of starting a fresh one. */
   async liveAnswer(): Promise<{ kind: "none" } | { kind: "fallback"; reason: string } | { kind: "attached"; dispatchId: string }> {
     this.expect("new");
     const { ctx, c, cfg, task, deps } = this;
     const reattach = await findLiveAnswerWorker(ctx, c, task, cfg.id);
-    if (!reattach) return { kind: "none" };
+    if (!reattach) { this.phase = "checked"; return { kind: "none" }; }
     const { live, worktree } = reattach;
     const { worker: dispatchId, terminal } = live;
+    // A direct attempt must never share the worktree with the lane's live agent: release it before falling back.
+    const fallBack = async (reason: string) => {
+      await releaseLive(ctx, c, reattach.asked, `the answer runs directly: ${reason}`, this.log).catch(() => {});
+      this.phase = "fallback";
+      return { kind: "fallback" as const, reason: bounded(reason) };
+    };
     const git = await gitInfo(ctx.run, task.brief.repo);
-    if ("error" in git) { this.phase = "fallback"; return { kind: "fallback", reason: bounded(git.error) }; }
+    if ("error" in git) return fallBack(git.error);
     const coord = await ensureCoordinator(ctx, c, git.top);
-    if ("error" in coord) { this.phase = "fallback"; return { kind: "fallback", reason: bounded(coord.error) }; }
+    if ("error" in coord) return fallBack(coord.error);
     this.coordinatorCache = coord;
     this.startedAt = deps.now() / 1000;
+    // From the first ownership change on, the live worker belongs to this attempt: a failure stops it, never falls back.
+    this.mode = "reattach";
+    this.reattachLive = live;
+    this.dispatchId = dispatchId;
+    this.terminal = terminal;
+    this.worktree = worktree;
+    this.phase = "reattaching";
     // The answering attempt takes ownership, so `pacer send` and the next answer find the worker under this task.
     const owned = { ...live, since: ctx.now };
     if (reattach.asked.id !== task.id) updateTask(ctx, reattach.asked.id, t => {
@@ -174,6 +189,10 @@ export class OrcaAttemptSession {
         // A fresh attempt follows; the released worker's lines belong to no outcome.
         this.lines.length = 0;
         this.startedAt = deps.now() / 1000;
+        this.mode = "fresh";
+        delete this.reattachLive; delete this.dispatchId;
+        this.terminal = null; this.worktree = null;
+        this.phase = "checked";
         return { kind: "none" };
       }
     } else {
@@ -185,11 +204,6 @@ export class OrcaAttemptSession {
     this.book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal, ...(live.incarnation ? { incarnationId: live.incarnation } : {}) }));
     this.prompt = buildPrompt({ ...task.brief, repo: worktree ? `the existing Orca worktree at ${worktree}` : task.brief.repo }, task.id);
     this.before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
-    this.mode = "reattach";
-    this.reattachLive = live;
-    this.dispatchId = dispatchId;
-    this.terminal = terminal;
-    this.worktree = worktree;
     this.start = { dispatchId, state: "ready" };
     this.phase = "started";
     return { kind: "attached", dispatchId };
@@ -197,12 +211,12 @@ export class OrcaAttemptSession {
 
   async prepare(): Promise<{ ok: true; agent: "claude" | "codex"; model: string | null; placement: "new-child" | "existing"; notes: string[] }
     | { ok: false; reason: string; refuse: boolean }> {
-    this.expect("new");
+    this.expect("checked");
     const { ctx, c, cfg, task, deps } = this;
     let p;
     try { p = await prepareOrca(ctx, c, cfg, task, this.ex); }
     catch (e) { this.phase = "fallback"; return { ok: false, reason: bounded(message(e)), refuse: false }; }
-    if (!p.ok) { this.phase = "fallback"; return { ok: false, reason: bounded(p.reason), refuse: !!p.refuse }; }
+    if (!p.ok) { this.phase = "fallback"; this.hostRefused = !!p.refuse; return { ok: false, reason: bounded(p.reason), refuse: !!p.refuse }; }
     this.p = p;
     updateTask(ctx, task.id, t => { t.baseBranch = p.base; t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, ...p.resolved }; if (!task.retryOf) delete t.worktree; });
     this.startedAt = deps.now() / 1000;
@@ -378,12 +392,12 @@ export class OrcaAttemptSession {
           this.duplicate = true;
           throw new CoreError("conflict", "an Orca worker start for this attempt is already recorded; a second start is refused");
         }
-        s.starting[terminal] = { taskId: task.id, attempt: this.attempt, terminal, run: p.run, requestId, worktree: this.created, at: ctx.now };
+        s.starting[terminal] = { taskId: task.id, attempt: this.attempt, terminal, run: p.run, requestId, worktree: this.created, at: ctx.now, pid: process.pid };
       });
     });
     this.phase = "uncertain";
     this.log(`start intent ${requestId} recorded for ${terminal}`);
-    const forgetIntent = () => withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.starting[terminal]; }); });
+    const forgetIntent = () => withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.starting[terminal]; delete s.uncertain[terminal]; }); });
     let ws: Awaited<ReturnType<OrcaClient["workerStart"]>> | null = null;
     try { ws = await c.workerStart({ spec: this.prompt, terminal, worktree: this.selector, run: p.run, from: p.coordinator }); }
     catch (e) { this.uncertain = message(e); }
@@ -425,7 +439,7 @@ export class OrcaAttemptSession {
     if (found?.kind !== "found") deny("no worker was found for this terminal");
     const dispatchId = (found as Extract<WorkerLookup, { kind: "found" }>).dispatchId;
     await this.bind({ dispatchId, state: (found as Extract<WorkerLookup, { kind: "found" }>).state === "failed" ? "failed" : "ready" });
-    await withLock(this.ctx, "coordinator", async () => { updateOrcaState(this.ctx, s => { delete s.starting[this.terminal!]; }); })
+    await withLock(this.ctx, "coordinator", async () => { updateOrcaState(this.ctx, s => { delete s.starting[this.terminal!]; delete s.uncertain[this.terminal!]; }); })
       .catch(e => this.log(`clearing the start intent failed: ${message(e)}`));
     return this.started();
   }
@@ -469,7 +483,7 @@ export class OrcaAttemptSession {
         const admission = this.admission!;
         this.book("admission release", () => deps.admission.finish(ctx, admission));
         await this.discard();
-        await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.starting[terminal]; }); })
+        await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.starting[terminal]; delete s.uncertain[terminal]; }); })
           .catch(e => this.log(`clearing the start intent failed: ${message(e)}`));
       } else await this.keep(`terminal close failed: ${closed.failure}`);
       return this.unstartedOutcome(`Orca did not create the worker (${this.uncertain}). Direct fallback was skipped.`);
@@ -516,10 +530,6 @@ export class OrcaAttemptSession {
     } catch (e) {
       this.log(`worker registration failed; continuing supervision: ${String(e)}`);
     }
-    if (p.placement.kind === "new-child" && !this.worktree) {
-      await this.abort();
-      throw new Error(`orca worker ${dispatchId} returned no worktree path for new-child placement; stopped it without verifying the original repository`);
-    }
   }
 
   /** Supervise until worker_done, settlement, the task timeout or a stop; a cancelled owning call counts as a stop. */
@@ -544,7 +554,8 @@ export class OrcaAttemptSession {
     this.endedAt = deps.now() / 1000;
     const text = (value: string) => value.slice(-65_536);
     switch (waited.kind) {
-      case "done": return { kind: "done", outcome: waited.outcome.slice(0, 256), subject: text(waited.subject), body: text(waited.body) };
+      // Each half stays small enough that the provider's joined summary fits the finish contract.
+      case "done": return { kind: "done", outcome: waited.outcome.slice(0, 256), subject: waited.subject.slice(-32_000), body: waited.body.slice(-32_000) };
       case "settled": return { kind: "settled", state: waited.state.slice(0, 256), error: waited.error === null ? null : waited.error.slice(0, 4096),
         ...(waited.tail === undefined ? {} : { tail: text(waited.tail) }), ...(waited.needsStop === undefined ? {} : { needsStop: waited.needsStop }) };
       default: return waited;
@@ -571,9 +582,17 @@ export class OrcaAttemptSession {
     this.readTail = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
   }
 
+  /** The host's own reading of the worker's end; the provider's mapping must agree with it. */
+  private mapped(): Mapped {
+    if (this.mode === "fresh" && this.start?.state !== "ready") return mapFailedStart(this.start ?? {});
+    if (!this.lastWait) deny("the Orca worker is still supervised");
+    return mapWait(this.lastWait!);
+  }
+
   /** Release a settled worker or stop an unsettled one; the receipt goes to the lease. */
   async settle(settled: boolean): Promise<void> {
     this.expect("started");
+    if (settled !== this.mapped().settled) throw new CoreError("conflict", "Orca provider settlement does not match the supervised worker");
     if (this.mode === "fresh" && this.start?.state === "ready" && !this.lastWait) deny("the Orca worker is still supervised");
     if (this.mode === "reattach" && !this.lastWait) deny("the Orca worker is still supervised");
     if (this.endedAt === undefined) this.endedAt = this.deps.now() / 1000;
@@ -591,10 +610,15 @@ export class OrcaAttemptSession {
     return this.task.interactionMode === "conversation" && readTask(this.ctx, this.task.id)?.live?.worker === this.dispatchId;
   }
 
-  async finish(m: { code: number; timedOut: boolean; settled: boolean; summary: string; tail?: string; launchBroken?: string; keepAlive: boolean }): Promise<AttemptOutcome> {
+  async finish(m: Mapped & { keepAlive: boolean }): Promise<AttemptOutcome> {
     this.expect("started", "settled");
     const { ctx, c, cfg, task, deps } = this, dispatchId = this.dispatchId!, terminal = this.terminal!;
     const adm = deps.admission, admission = this.admission!;
+    // The outcome is the host's reading of its own supervision; the provider's mapping is checked, not trusted.
+    const own = this.mapped();
+    if (m.code !== own.code || m.timedOut !== own.timedOut || m.settled !== own.settled || (m.launchBroken ?? null) !== (own.launchBroken ?? null))
+      throw new CoreError("conflict", "Orca provider outcome does not match the supervised worker");
+    m = { ...own, keepAlive: m.keepAlive };
     const keepAlive = m.keepAlive && this.phase === "started" && this.keepAliveAllowed();
     if (!keepAlive && this.phase === "started") await this.settle(m.settled);
     if (keepAlive && m.code !== 0 && m.tail === undefined) await this.failureTail();
@@ -677,7 +701,13 @@ export class OrcaAttemptSession {
     const why = message(error);
     if (this.phase === "done" && this.outcome) return { outcome: this.outcome };
     if (this.duplicate && this.phase === "terminal") { await this.abandon(why); throw error; }
-    if (this.phase === "new" || this.phase === "fallback") return { fallback: `the Orca executor plugin failed: ${why}` };
+    // Never checked: a live worker this answer would have reattached to must not share the worktree with a direct agent.
+    if (this.phase === "new") {
+      const live = await findLiveAnswerWorker(this.ctx, this.c, this.task, this.cfg.id).catch(() => null);
+      if (live) await releaseLive(this.ctx, this.c, live.asked, `the answer runs directly: ${why}`, this.log).catch(() => {});
+      return { fallback: `the Orca executor plugin failed: ${why}` };
+    }
+    if (this.phase === "checked" || this.phase === "fallback") return { fallback: `the Orca executor plugin failed: ${why}` };
     if (["prepared", "placed", "terminal", "refused"].includes(this.phase)) {
       const { reason } = await this.abandon(`the Orca executor plugin failed: ${why}`);
       return { fallback: reason };

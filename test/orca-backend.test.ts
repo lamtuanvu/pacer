@@ -1424,7 +1424,12 @@ test("a start intent its runner left behind is reconciled as an uncertain start 
     worktree: {id: x.wt, path: x.root, name: `pacer-${x.task.id}-codex`}, at}; });
   await reconcileHostWork({...x.ctx, now: at + START_INTENT_STALE_S - 1});
   expect(loadOrcaState(x.ctx).starting[terminal]).toBeDefined();
+  // A runner that still lives settles its own start, however long worker-start and its lookups take.
+  updateOrcaState(x.ctx, s => { s.starting[terminal]!.pid = process.pid; });
+  await reconcileHostWork({...x.ctx, now: at + 10 * START_INTENT_STALE_S});
+  expect(loadOrcaState(x.ctx).starting[terminal]).toBeDefined();
   expect(x.f.count(O("orchestration", "worker-list"))).toBe(0);
+  updateOrcaState(x.ctx, s => { delete s.starting[terminal]!.pid; });
   await reconcileHostWork({...x.ctx, now: at + START_INTENT_STALE_S});
   const state = loadOrcaState(x.ctx);
   expect(state.starting).toEqual({});
@@ -1501,4 +1506,114 @@ test("executor.sessionState reports the live worker's exact terminal through the
   const settled = askedLane(y);
   expect(await orcaLiveSessionState(y.ctx, readTask(y.ctx, settled.id)!)).toEqual({state: "exited", host: "orca", handle: terminal});
   expect(y.f.count(O("orchestration", "worker-stop"))).toBe(0);
+});
+
+test("a cancelled owning call ends supervision; the host stops the worker and closes its terminal without fallback", async () => {
+  const x = setup([
+    [O("orchestration", "check"), envelope({messages: []})],
+    [O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})],
+  ], {}, {}, [], {deadlineMs: 300});
+  updateTask(x.ctx, x.task.id, t => { t.timeoutS = 60; });
+  // Real Orca calls take time; yield so the owning call's deadline timer can fire.
+  const ctx = {...x.ctx, run: async (...a: Parameters<typeof x.ctx.run>) => { await Bun.sleep(2); return x.ctx.run(...a); }};
+  const started = Date.now();
+  await expect(x.backend.runAttempt(ctx, x.cfg, readTask(x.ctx, x.task.id)!)).rejects.toBeDefined();
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", dispatch, "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(x.direct).toBe(0);
+  expect(loadOrcaState(x.ctx).workers).toEqual({});
+});
+
+test("brief shell metacharacters reach only worker-start --spec, never the composed terminal command", async () => {
+  const x = setup();
+  const goal = `Fix it; $(touch /tmp/pwned) \`id\` "quoted" 'single' && echo done | tee x > y`;
+  updateTask(x.ctx, x.task.id, t => { t.brief.goal = goal; });
+  await x.backend.runAttempt(x.ctx, x.cfg, readTask(x.ctx, x.task.id)!);
+  const create = x.f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))!;
+  const command = arg(create, "--command");
+  for (const piece of ["$(touch", "`id`", "Fix it", "tee x"]) expect(command).not.toContain(piece);
+  expect(command.startsWith("exec env ")).toBe(true);
+  const start = x.f.calls.find(a => a[2] === "worker-start")!;
+  expect(arg(start, "--spec")).toContain(goal);
+  expect(start.filter(a => a.includes(goal))).toHaveLength(1);
+});
+
+test("a reattach that fails after the answer is typed stops the live worker and never runs the answer directly", async () => {
+  const x = setup([liveWorker, agentInForeground, [O("terminal", "send"), envelope({})]], {}, {
+    admission: {begin: () => { throw Error("Desktop update maintenance is reserved"); }, bind: bindOrcaWorkSync, finishOrca: finishOrcaWorkSync, finish: finishWorkSync},
+  });
+  const asked = askedLane(x);
+  const retry = answerOf(x, asked, "go with B");
+  await expect(x.backend.runAttempt(x.ctx, x.cfg, retry)).rejects.toBeDefined();
+  expect(sendsOf(x.f.calls, "go with B")).toHaveLength(1);
+  expect(x.direct).toBe(0);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(readTask(x.ctx, retry.id)?.live).toBeUndefined();
+});
+
+test("a provider that skips the live-answer check cannot place a worker; the lane's live worker is released before direct runs", async () => {
+  const handlers = {"executor.run": async (params: unknown, host: HostClient) =>
+    host.call("capability.orca.prepare", {taskId: (params as {task: {id: string}}).task.id, attempt: 1})};
+  const x = setup([liveWorker, agentInForeground], {}, {}, [], {handlers});
+  const asked = askedLane(x);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, answerOf(x, asked, "go with B"));
+  expect(out.backend).toBe("direct");
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "create")).toBe(false);
+  expect(readFileSync(x.directLog, "utf8")).toContain("Orca attempt is new; this effect is not issued now");
+});
+
+test("a refusal the host did not make is not accepted; the host abandons its effects and falls back", async () => {
+  const handlers = {"executor.run": async (params: unknown, host: HostClient) => {
+    const ids = {taskId: (params as {task: {id: string}}).task.id, attempt: 1};
+    for (const step of ["liveAnswer", "prepare", "place", "terminal"]) await host.call(`capability.orca.${step}`, ids);
+    return {orca: {refused: {reason: "provider says no"}}};
+  }};
+  const x = setup([], {}, {}, [], {handlers});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(true);
+  expect(x.f.count(O("orchestration", "worker-start"))).toBe(0);
+  expect(await lease(x)).toBe(false);
+});
+
+test("a provider outcome that disagrees with host supervision is refused and the worker is settled by the host", async () => {
+  const handlers = {"executor.run": async (params: unknown, host: HostClient) => {
+    const ids = {taskId: (params as {task: {id: string}}).task.id, attempt: 1};
+    for (const step of ["liveAnswer", "prepare", "place", "terminal", "start", "wait"]) await host.call(`capability.orca.${step}`, ids);
+    return host.call("capability.orca.finish", {...ids, code: 0, timedOut: false, settled: true, summary: "all good", keepAlive: false});
+  }};
+  const x = setup([[O("orchestration", "check"), envelope({messages: [{id: "m1", type: "worker_done", subject: "done", body: "broke it",
+    payload: JSON.stringify({taskId: "TASK", dispatchId: dispatch, outcome: "failed"})}], deliveryId: "d1"})]], {}, {}, [], {handlers});
+  await expect(x.backend.runAttempt(x.ctx, x.cfg, x.task)).rejects.toMatchObject({code: "conflict"});
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", dispatch, "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(x.direct).toBe(0);
+});
+
+test("a large worker_done report stays within the outcome contract", async () => {
+  const body = "x".repeat(300_000);
+  const x = setup([[O("orchestration", "check"), envelope({messages: [{id: "m1", type: "worker_done", subject: "done", body,
+    payload: JSON.stringify({taskId: "TASK", dispatchId: dispatch, outcome: "succeeded"})}], deliveryId: "d1"})]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.exec.code).toBe(0);
+  expect(out.exec.stdout.length).toBeLessThanOrEqual(262_144);
+  expect(out.report.endsWith("x".repeat(100))).toBe(true);
+});
+
+test("releasing a kept-alive lane while the provider is disabled stays host closure: the worker is stopped and its terminal closed", async () => {
+  const x = setup();
+  const asked = askedLane(x);
+  const {pluginRegistry} = await import("../src/plugins");
+  writeFileSync(join(x.ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders: {codex: {}}\n");
+  await pluginRegistry(x.ctx).disable(x.ctx, "pacer-exec-orca");
+  const {releaseLiveWorker} = await import("../src/exec/live");
+  await releaseLiveWorker(x.ctx, readTask(x.ctx, asked.id)!, "the task was stopped");
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
 });

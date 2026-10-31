@@ -10,7 +10,7 @@ export type { HostFetchInput } from "./hosts";
 export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentDelegationControl, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
 export type {HostRunnerScript,HostRunnerSession,HostRunnerRequest,HostRunnerRunInput,HostRunnerRunResult,HostRunnerFetchResult} from "./host-runner";
 export { executorAvailableHandler } from "./executor";
-export type { ExecutorAvailableInput, ExecutorAvailableResult, ExecutorAvailableHandler } from "./executor";
+export type { ExecutorAvailableInput, ExecutorAvailableResult, ExecutorAvailableHandler, ExecutorOrcaRunInput, ExecutorOrcaDisposition } from "./executor";
 
 export interface PluginManifest {
   id: string; version: string; publisher: string; host: string;
