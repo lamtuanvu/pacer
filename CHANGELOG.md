@@ -52,6 +52,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Make the app behave like a desktop app instead of a web page: interface chrome is no longer selectable and uses the arrow cursor, the window no longer rubber-bands, navigation links no longer drag, and the webview's own right-click menu appears only in text fields, code, the terminal and selected content. Settings moves from `,` to ⌘, (Ctrl+, elsewhere); ⌘[ and ⌘] go back and forward; in the desktop app ⌘1–4 open the main sections and ⌘F opens find in the visible terminal.
+
 - Replace loading indicators with delayed, accessible page skeletons for tasks, lists, settings and Dispatch; keep loaded content visible during refresh.
 
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
