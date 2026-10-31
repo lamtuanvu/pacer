@@ -1,5 +1,6 @@
 import {expect, test} from "bun:test";
 import {evaluatePolicy, freezePolicySnapshot} from "../src/plugins/policy-evaluator";
+import {CoreError} from "../src/core/errors";
 
 const delegate = {decision:"delegate",input:{goal:"work",repo:"repo",kind:null,requestedExecutor:null,placement:"auto"}} as const;
 const snapshot = (mode:"open"|"closed"="open") => freezePolicySnapshot({mode,fingerprint:"generation1",policies:[{id:"z",generation:"1"},{id:"a",generation:"1"}]});
@@ -82,6 +83,15 @@ test("failure and actual serialized oversize obey mode without truncation",async
     await expect(evaluatePolicy(snapshot("closed"),delegate,{call})).rejects.toMatchObject({code:"not_allowed",message:"Policy decision failed"});
     expect((await evaluatePolicy(snapshot(),delegate,{call})).params).toEqual(delegate);
   }
+});
+test("plugin error mimicking a host key fault is attributed to the plugin",async()=>{
+  const failures:{pluginId:string;reason:string}[]=[];
+  const call=async()=>{throw new CoreError("plugin_refused","Policy hash key cannot be accessed safely");};
+  const result=await evaluatePolicy(snapshot(),delegate,{call,onFailure:event=>failures.push({pluginId:event.pluginId,reason:event.reason})});
+  expect(result.params).toEqual(delegate);
+  expect(failures).toHaveLength(2);
+  expect(failures[0]).toMatchObject({pluginId:"a",reason:expect.stringContaining("plugin_refused")});
+  await expect(evaluatePolicy(snapshot("closed"),delegate,{call})).rejects.toMatchObject({code:"not_allowed",hint:"plugin a"});
 });
 
 test("outer deadline aborts an uncooperative call and never visits later policies",async()=>{

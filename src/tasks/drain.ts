@@ -90,13 +90,14 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
       .sort((a, b) => (getWork(ctx,b.id)?.options.priority??0)-(getWork(ctx,a.id)?.options.priority??0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
     const budgetNow=deps.now??Date.now;
-    const policyDeadline=budgetNow()+10_000;
-    const openPolicy=policySummary(ctx).mode==="open";
+    let policyBudget=10_000;
+    const summary=policySummary(ctx);
+    const openPolicy=summary.mode==="open"&&summary.plugins>0;
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
-      if(openPolicy&&budgetNow()>=policyDeadline)break;
+      if(openPolicy&&policyBudget<=0)break;
       const task = waiting[index], s = deps.loadStrategy(ctx);
       const work=getWork(ctx,task.id);
       if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
@@ -157,16 +158,18 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         eligible.push(id);
       }
       let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>>;
+      const policyStarted=budgetNow();
       try {
         routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},task.id,eligible,{
-          strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),budgetDeadline:policyDeadline,
+          strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),
         });
       } catch (error) {
         // Route admission concerns this task only: hold it with the reason and keep draining.
         holdForPolicy(ctx, task.id, error);
         continue;
+      } finally {
+        if(openPolicy)policyBudget-=Math.max(0,budgetNow()-policyStarted);
       }
-      if(openPolicy&&budgetNow()>=policyDeadline)break;
       for(const [id,plugin] of Object.entries(routeAdmission.excludedBy)) ranking.excluded.push({id,reason:`excluded by plugin ${plugin}`});
       const permitted=routeAdmission.candidates;
       let policyChanged = false;

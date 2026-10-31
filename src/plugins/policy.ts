@@ -8,6 +8,7 @@ import {pluginRegistry} from "./index";
 import {pluginsConfig} from "./config";
 import {evaluatePolicy,type PolicyEvaluationOptions} from "./policy-evaluator";
 import type {PolicyBeforeParams} from "./policy-protocol";
+import {PolicyHashKeyError} from "./policy-key-error";
 
 type Decision = PolicyBeforeParams["decision"];
 type Input<D extends Decision> = Extract<PolicyBeforeParams,{decision:D}>["input"];
@@ -28,7 +29,7 @@ function readPolicyKey(ctx:Ctx,id:string):Buffer {
   mkdirSync(dir,{recursive:true,mode:0o700});
   const owner=typeof process.getuid==="function"?process.getuid():undefined;
   const parent=lstatSync(dir);
-  if(!parent.isDirectory()||(owner!==undefined&&parent.uid!==owner)) throw new CoreError("invalid_input","Policy hash key directory is not private");
+  if(!parent.isDirectory()||(owner!==undefined&&parent.uid!==owner)) throw new PolicyHashKeyError("Policy hash key directory is not private");
   chmodSync(dir,0o700);
   const temp=join(dir,`policy-hmac.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
   let created=false;
@@ -45,21 +46,21 @@ function readPolicyKey(ctx:Ctx,id:string):Buffer {
     }
   } finally {try {unlinkSync(temp);} catch(error) {if((error as NodeJS.ErrnoException).code!=="ENOENT") throw error;}}
   let fd:number;
-  try {fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);} catch {throw new CoreError("invalid_input","Policy hash key must be a private regular file");}
+  try {fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);} catch {throw new PolicyHashKeyError("Policy hash key must be a private regular file");}
   let master:Buffer;
   try {
     const stat=fstatSync(fd);
-    if(!stat.isFile()||(stat.mode&0o777)!==0o600||(owner!==undefined&&stat.uid!==owner)||stat.size!==32) throw new CoreError("invalid_input","Policy hash key must be an owned mode-0600 regular file with 32 bytes");
+    if(!stat.isFile()||(stat.mode&0o777)!==0o600||(owner!==undefined&&stat.uid!==owner)||stat.size!==32) throw new PolicyHashKeyError("Policy hash key must be an owned mode-0600 regular file with 32 bytes");
     master=readFileSync(fd);
   } finally {closeSync(fd);}
-  if(master.length!==32) throw new CoreError("invalid_input","Policy hash key is invalid");
+  if(master.length!==32) throw new PolicyHashKeyError("Policy hash key is invalid");
   return createHmac("sha256",master).update(id).digest();
 }
 function policyKey(ctx:Ctx,id:string):Buffer {
   try {return readPolicyKey(ctx,id);}
   catch(error) {
-    if(error instanceof CoreError) throw error;
-    throw new CoreError("invalid_input","Policy hash key cannot be accessed safely");
+    if(error instanceof PolicyHashKeyError) throw error;
+    throw new PolicyHashKeyError("Policy hash key cannot be accessed safely");
   }
 }
 function opaque(key:Buffer,value:unknown):string {return createHmac("sha256",key).update(JSON.stringify(canonical(value))).digest("hex");}
