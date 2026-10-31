@@ -98,7 +98,8 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 | `today` | Local midnight `since`, settled task count, accepted, rejected, failed (including limit) and settled counts by repo key |
 | `hosts` | Alias, SSH target, paused/down/checking/needs_setup/ready state, running count, max tasks, executor ids and mapped repo count |
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
-| `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
+| `policy` | Metadata-only `{mode: open | closed, plugins: number}`: configured failure mode and enabled policy plugin count, including enabled failing policies. No plugin starts or policy calls. Missing older-service metadata is unknown, never implied open or closed. Terminal labels use `policy: open` / `policy: closed (n plugins)`; width-constrained labels use `policy:open/n`, `policy:closed/n`, or `policy:unknown` (n is the enabled plugin count). |
+| `setup` | Complete flag, count of required items open, items with id, title, status and required flag, and the same `policy` metadata as the snapshot. `setup.check` also includes policy metadata. Closed mode with zero plugins is displayed explicitly. |
 
 Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
 `routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
@@ -134,7 +135,7 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.list { limit?, before?, repo?, states?, executor?, since? }` returns `{ tasks, next }` when any new filter/cursor parameter is supplied. Calls with only limit or no parameters retain the legacy summary array for the 2.x overlap. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
-Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }`; it creates a retry on the same executor and records answer/answeredAt on the original question. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
+Executor questions settle tasks as `needs_input` (label: Needs your answer). `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }` and records answer/answeredAt on the original question. When the task ran locally through the direct backend with a resumable native session (not managed work and not a conversation), the answer continues the original task: it is delivered as an `answer` message, the asking executor resumes its session in the same worktree, and `task` and `retry` both name the original task. That continuation passes the same project policy admission as a new attempt (delegate, then route). If policy now excludes the asking executor, an admitted executor replays the thread in a fresh session; if policy vetoes it or admits no executor, the answer falls back to a retry, which policy admits or refuses (`not_allowed`, hint `plugin <id>`) as it does a new delegation. Otherwise the answer creates a retry on the same executor. v2 clients get the same behavior: `retry` can name the original task, so do not assume it is a new one. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry or one continuation. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On an interactive lane (`task.delegate` with `interactive: true`) whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or idle for four hours.
 
 ## Events
 
@@ -719,6 +720,7 @@ Params JSON Schema:
       "items": {
         "type": "string",
         "enum": [
+          "policy",
           "plugin_state",
           "task_started",
           "task_settled",
@@ -2592,7 +2594,7 @@ Params JSON Schema:
 
 ### `task.answer`
 
-Answer an executor question and retry on the same executor. Conflicts unless awaiting input.
+Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.
 
 Params JSON Schema:
 
@@ -2801,6 +2803,138 @@ Params JSON Schema:
     "group": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+    },
+    "messaging": {
+      "type": "object",
+      "properties": {
+        "rules": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "effect": {
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "deny"
+                ]
+              },
+              "from_kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "external",
+                  "launched",
+                  "any"
+                ]
+              },
+              "to_kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "external",
+                  "launched",
+                  "any"
+                ]
+              },
+              "from_position": {
+                "type": "string",
+                "enum": [
+                  "top",
+                  "child",
+                  "any"
+                ]
+              },
+              "relation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "any"
+                  },
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "self",
+                        "parent",
+                        "child",
+                        "sibling",
+                        "descendant",
+                        "ancestor",
+                        "top_peer",
+                        "same_tree",
+                        "none"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "kinds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "message",
+                    "question",
+                    "answer",
+                    "report",
+                    "nudge",
+                    "close"
+                  ]
+                }
+              },
+              "repo": {
+                "type": "string",
+                "minLength": 1
+              },
+              "executor": {
+                "type": "string",
+                "minLength": 1
+              },
+              "grant": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "not_required"
+                ]
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "per_minute": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "max_bytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1048576
+                  },
+                  "confirm": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "effect"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "max_turns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 10000
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

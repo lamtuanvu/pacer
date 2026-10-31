@@ -177,7 +177,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (folder && !await (deps.confirm ?? confirmDeletion)(`Delete account home ${folder}?`)) throw Error('account removal cancelled');
       const stored=a.connection?.key;
       const removeKey=stored && ['file','keychain'].includes(stored) && (flags['delete-key'] || await (deps.confirm ?? confirmDeletion)(`Delete stored key for endpoint ${name}?`));
-      const {diff}=accounts.remove(ctx,name,{deleteHome: !!flags['delete-home']});
+      const {diff}=await accounts.remove(ctx,name,{deleteHome: !!flags['delete-home']});
       if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
@@ -201,11 +201,11 @@ export async function runnerCmd(args: string[], ctx: Ctx, deps: Pick<AccountDeps
     if(pos.length!==1) throw Error('a runner id is required');
     const parsed=parseRunnerId(pos[0]); if(!parsed) throw Error('invalid runner id');
     if(verb==='add') {
-      const {id, diff}=runners.add(ctx, {agent: parsed.agent, account: parsed.account ?? undefined, host: parsed.host ?? undefined, model: flags.model as string | undefined});
+      const {id, diff}=await runners.add(ctx, {agent: parsed.agent, account: parsed.account ?? undefined, host: parsed.host ?? undefined, model: flags.model as string | undefined});
       return ok(`Added runner ${id}.\n${diff}`);
     }
     if(verb==='rm') {
-      const {id, diff}=runners.remove(ctx,pos[0]);
+      const {id, diff}=await runners.remove(ctx,pos[0]);
       return ok(`Removed runner ${id}.\n${diff}`);
     }
     throw Error('usage: pacer runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>');

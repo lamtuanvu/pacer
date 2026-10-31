@@ -7,8 +7,9 @@ import { HostError, type HostSession } from "./host";
 export interface CaseContext {
   home: string; pluginsDir: string;
   install(name: FixtureName, overrides?: Parameters<typeof installFixture>[2]): string;
-  host(): Promise<HostSession>;
+  host(options?:{subscribe?:boolean}): Promise<HostSession>;
   sleep(ms: number): Promise<void>;
+  publishTaskEvent(id:string):Promise<void>;
 }
 export interface ConformanceCase { name: string; run(t: CaseContext): Promise<void> }
 
@@ -115,6 +116,24 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
 }
 
 export const CASES: ConformanceCase[] = [
+  {
+ name: 'bundled usage discovery refuses an installed canonical-id shadow',
+ async run(t) {
+  t.install('shadow');
+  const h = await t.host();
+  const listed = await h.call<{plugins:{id:string;bundled:boolean;version:string;state:string;contributes:string[];pid:number|null}[]}>('plugin.list');
+  const matches=listed.plugins.filter(p=>p.id==='pacer-usage');
+  assert(matches.length===1,'one canonical usage id is public');
+  const entry=matches[0]!;
+  assert(entry.bundled && entry.version!=='9.9.9' && entry.state!=='refused','installed shadow cannot replace or refuse the bundle');
+  assert(entry.contributes.includes('usage') && entry.pid===null,'usage is discovered without starting the lazy child');
+  assert(!listed.plugins.some(p=>p.id.includes('pacer-usage@')),'no synthetic installed alias');
+  const {reports}=await h.call<{reports:{id:string;ok:boolean;served:string[]}[]}>('plugin.doctor',{id:'pacer-usage'});
+  assert(reports.length===1 && reports[0]!.ok && reports[0]!.served.includes('usage'),'the actual bundled usage child remains healthy');
+  const log=readFileSync(join(t.home,'.pacer','logs','plugins','pacer-usage.log'),'utf8');
+  assert(log.includes('[refused] installed folder shadows the bundled plugin pacer-usage'),'canonical installed folder refusal is logged');
+ }
+},
   { name: "discovery and listing", async run(t) {
     for (const f of ["good", "old-protocol", "bad-manifest", "mismatch"] as const) t.install(f);
     const h = await t.host(), by = await listed(h);
@@ -221,6 +240,26 @@ export const CASES: ConformanceCase[] = [
     const end = Date.now() + 5000; while (Date.now() < end && alive(pid)) await t.sleep(50);
     assert(!alive(pid), "the plugin process is gone after the host exits");
   } },
+  ...(["task","activity"] as const).map(eventType=>({name:`observations: ${eventType} callback task reads work without public subscribe`,async run(t:CaseContext){
+    t.install("observations");
+    writeFileSync(join(t.home,".pacer","strategy.yaml"),`planner: claude-code\nproviders: {claude-code: {}}\nplugins:\n  config:\n    fx-observations:\n      types: [${eventType}]\n`);
+    const taskId="t-20261026-010203-abcd",pacerHome=join(t.home,".pacer");
+    // Persisted task JSON is the existing compatibility fixture format; all reads
+    // and event production below use the host's public protocol, not its registry.
+    mkdirSync(join(pacerHome,"tasks"),{recursive:true});
+    writeFileSync(join(pacerHome,"tasks",taskId+".json"),JSON.stringify({id:taskId,rev:1,createdAt:1,state:"queued",kind:null,requestedExecutor:null,timeoutS:60,attempts:[],brief:{goal:"observation fixture",repo:t.home}}));
+    const h=await t.host({subscribe:false});
+    await h.call("plugin.enable",{id:"fx-observations",grant:true});
+    assert((await listed(h))["fx-observations"]!.pid===null,"enable remains metadata-only");
+    const report=await doctor(h,"fx-observations");assert(report.ok,"actual doctor establishes generation observations");
+    await h.call("task.stop",{id:taskId});
+    if(eventType==="task")await t.publishTaskEvent(taskId);
+    const log=join(pacerHome,"logs","plugins","fx-observations.log");
+    assert(await eventually(()=>{try{return readFileSync(log,"utf8").includes(`"id":"${taskId}"`);}catch{return false;}}),"callback receives task event and reads task after bootstrap call settled");
+    const text=readFileSync(log,"utf8");assert(text.includes(`"type":"${eventType}"`)&&text.includes('"hasEffects":false'),"callback uses isolated read-only client");
+    assert(h.events.length===0,"host client did not subscribe to public events");
+    await h.close();assert(await eventually(()=>!alive(report.pid!)),"closing host retires observation process and timer");
+  }})),
 ];
 
 export const strategyText = "planner: claude-code\nproviders:\n  claude-code: {}\n";

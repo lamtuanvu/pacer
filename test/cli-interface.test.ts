@@ -13,7 +13,7 @@ function setup(){const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});w
 const summaryKeys=["title","task_id","goal","state","kind","requested_executor","placement","queue","attempts","result","review","resolved"].sort();
 test("CLI status and route pin JSON top-level keys",async()=>{
  const ctx=setup();
- expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors","paused","modeHold"].sort());
+ expect(Object.keys(JSON.parse((await main(["status","--json"],ctx)).out)).sort()).toEqual(["generatedAt","strategy","planner","mode","disabled","calendarPace","accounts","providers","executors","paused","modeHold","policy"].sort());
  expect(Object.keys(JSON.parse((await main(["route","debug","--json"],ctx)).out)).sort()).toEqual(["kind","ranked","excluded","uncertain"].sort());
 });
 test("brief-file and stdin preserve text and command flags override file fields",async()=>{
@@ -22,7 +22,7 @@ test("brief-file and stdin preserve text and command flags override file fields"
  writeFileSync(path,JSON.stringify(brief));
  const fromFile=await main(["delegate","--brief-file",path,"--kind","docs","--timeout-min","3","--worktree","new","--json"],ctx);
  expect(fromFile.code).toBe(0);const t=JSON.parse(fromFile.out);
- expect(Object.keys(t).sort()).toEqual(["title","id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source"].sort());
+ expect(Object.keys(t).sort()).toEqual(["title","id","createdAt","brief","kind","requestedExecutor","timeoutS","state","attempts","placement","repo","rev","source","origin"].sort());
  expect(t).toMatchObject({source:"cli",brief:{goal,repo:realpathSync(ctx.home),scope:"s"},kind:"docs",timeoutS:180,placement:{requested:"new",reason:"follow-up"}});
  const original=io.readBriefStdin;try{io.readBriefStdin=async()=>JSON.stringify(brief);const r=await main(["delegate","--brief-file","-","--goal","override","--title","  Queue fix  ","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).brief.goal).toBe("override");expect(JSON.parse(r.out).title).toBe("Queue fix");}finally{io.readBriefStdin=original;}
 });
@@ -38,7 +38,7 @@ test("brief validation is shared and executor CLI guard runs before reading stdi
  for(const raw of [{goal:42},{goal:"g",timeout_min:0},{goal:"g",worktree:"wrong"},{goal:"g",worktree_reason:"x".repeat(201)}])expect(()=>parseDelegateBrief(raw,ctx.home)).toThrow();
  expect(parseDelegateBrief({goal:"default"},ctx.home).brief.repo).toBe(ctx.home);
  const input=parseDelegateBrief({goal:"g",repo:"relative"},ctx.home);
- expect(()=>delegate(ctx,input,()=>1,loadStrategy(ctx))).toThrow("repo must be an absolute path");
+ await expect(delegate(ctx,input,()=>1,loadStrategy(ctx))).rejects.toThrow("repo must be an absolute path");
  ctx.env.PACER_ROLE="executor";
  const guarded=await main(["delegate","--brief-file","-"],ctx);
  expect(guarded.code).toBe(2);expect(guarded.err).toContain("pacer executors cannot delegate onward");

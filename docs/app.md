@@ -125,7 +125,9 @@ checklist and advance in place; the Setup route stays open. **Change** returns t
 planner selection without connecting integrations until the connection step.
 
 The connection card explains additions and edits in plain words. **Show the files**
-reveals technical paths and the undo command before consent. **Skip for now** leaves
+reveals technical paths and the undo command before consent. Tab into each long
+preview and use the Left and Right Arrow keys to scroll its full text horizontally.
+**Skip for now** leaves
 connection pending, with a return action in the rail. Restart open planner sessions
 after connecting. Executor checkboxes enable or block work, and arrow buttons save
 priority. **Looks right** confirms the list; an empty list offers the existing
@@ -207,7 +209,9 @@ Failed checks and incomplete results expose recovery actions. Ordinary completed
 runs keep verdict recording optional. Mixed attention has no bulk accept action.
 
 Acceptance records a verdict only; integrate branches separately. Send back needs
-a note and creates a linked retry on the same executor. Retry on another executor
+a note. A local task with a resumable session continues in that session with the
+note, after the same project policy admission as a new attempt; otherwise it creates
+a linked retry on the same executor. Retry on another executor
 also creates a linked attempt. Concurrent mutations report a conflict and refresh
 the result rather than overwriting another client's decision.
 

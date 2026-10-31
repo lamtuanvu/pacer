@@ -42,7 +42,7 @@ export async function tryDelegation(ctx: Ctx, deps: TryDeps = {}): Promise<TryRe
         const result = await ctx.run(["git", "-c", "core.hooksPath=/dev/null", "-C", repo, ...args], 10_000);
         if (result.code !== 0) throw new CoreError("invalid_input", "Could not create the first delegation repository", result.stderr.trim());
       }
-      const task = (deps.delegate ?? delegate)(ctx, {
+      const task = await (deps.delegate ?? delegate)(ctx, {
         repoRef: await resolvePolicyRepo(ctx, repo),
         source: "onboarding", kind: "docs", worktree: "current", timeoutMin: 15,
         brief: {repo, goal: "Summarize README.md in three bullet points into SUMMARY.md", acceptance: "test -s SUMMARY.md"},

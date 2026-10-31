@@ -124,6 +124,8 @@ test("conversation creation atomically claims files and retries the same request
   const repo = gitRepo(),
     ctx = fakeCtx({ run: realRun }),
     draft = createDraft(ctx);
+  // The real creation gateway now validates the same configured runner policy as tasks.
+  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  codex: {}\n");
   const file = await storeAttachment(ctx, {
     draftId: draft.id,
     batchId: "one",
@@ -189,6 +191,8 @@ test("conversation creation atomically claims files and retries the same request
 test("existing checkout is reserved at creation, including queued sessions", async () => {
   const repo = gitRepo(),
     ctx = fakeCtx({ run: realRun });
+  mkdirSync(ctx.pacerHome,{recursive:true});
+  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  codex: {}\n");
   const deps = {
     prepare: async () => ({
       repo: { key: "local:test", path: repo, label: "repo" },

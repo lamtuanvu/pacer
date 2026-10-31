@@ -53,3 +53,8 @@ test("a clean interactive exit without an explicit report is not success", async
   expect(await supervise({io: localRunIO(dir), deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast}))
     .toEqual({kind: "exited", code: 1});
 });
+
+test("asked when onPoll says the executor asked and ended its turn", async () => {
+  const dir = tmpDir(); startRun({ dir, argv: ["sleep", "30"], cwd: tmpDir(), env });
+  expect(await supervise({ io: localRunIO(dir), deadlineMs: Date.now() + 10_000, isStopped: () => false, onPoll: async () => "asked", ...fast })).toEqual({ kind: "asked", code: 143 });
+});

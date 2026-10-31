@@ -4,6 +4,7 @@
     "/needs-you",
     "/sessions",
     "/sessions/task-1",
+    "/sessions/task-1/answer",
     "/tasks",
     "/tasks/task-1",
     "/review/task-1",
@@ -61,6 +62,10 @@
     "/workspace?task=one&task=two",
     "/workspace?panel=session",
     "/workspace?task=one&panel=unknown",
-    "/workspace?task=one&x=1"
+    "/workspace?task=one&x=1",
+    "pacer://needs-you?answer=t-20261029-153500-a0f9",
+    "/sessions/task-1/answer/x",
+    "/tasks/task-1/answer",
+    "/sessions/task-1/other"
   ]
 }

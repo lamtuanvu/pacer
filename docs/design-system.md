@@ -525,10 +525,12 @@ Settings-specific component styles live in `screens/settings/settings.css` to ke
 
 Machines uses auto-fit cards with a 440px minimum, bounded by the container. Its board SettingRows use a label track capped at 240px, a flexible control track with a 220px floor, 20px gap and 12px block padding. Rows stack below 420px of the card body. ChoicePickers are 220px wide, capped by their control track after rows stack. At 456px of content the label track shrinks to 216px to fit the picker and 20px gap. Account policy labels, bare Takes work switch labels, and settings text actions keep at least 44px touch height on narrow or coarse-pointer layouts. The new 130px and 90px table dimensions are provisional local tokens.
 
+Accounts composes per-account Check usage controls from Button, Stack, Dialog and Disclosure. A compact result/progress line replaces the full JobProgress panel; provider guidance and deduplicated diagnostics share one initially collapsed, account-labelled Usage check details disclosure. AccountUsage opts out of useOperation job toasts; other consumers retain their existing notifications. Consent uses the shared dialog’s cancel-first focus, Escape dismissal and focus return. Running jobs are scoped to the account; status updates use polite live regions. No shared primitive API or upstream provenance changes.
+
 Accounts uses six board grid tracks: Account, Sign-in (130px), Quota (at least
-160px), Status (150px), Used by, and actions (32px). At container widths up to
-760px, every cell remains visible in labelled cards. More actions appears only
-for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
+160px), Status (150px), Used by, and actions (180px). At container widths up to
+960px, every cell remains visible in labelled cards. More actions appears only
+for accounts with existing sign-in or Ark CLI sign-in help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.

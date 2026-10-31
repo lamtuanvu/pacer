@@ -11,8 +11,8 @@ const registry = (plugins: any[], answer: (id: string, method: string, params: u
   return { calls, list: () => plugins, call: async (_ctx: unknown, id: string, method: string, params: unknown) => { calls.push([id, method, params]); return answer(id, method, params); } } as any;
 };
 
-test("protocol 1.5.0 has the pairing point, its method and the net.p2p capability", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.5.0");
+test("pairing arrived in 1.5.0: the pairing point, its method and the net.p2p capability", () => {
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.6.0");
   expect(EXTENSION_POINTS).toContain("pairing");
   expect(CAPABILITIES).toContain("net.p2p");
   const start = EXTENSION_METHODS["pairing.start"]!;

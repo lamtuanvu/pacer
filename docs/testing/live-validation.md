@@ -28,6 +28,22 @@ bun run live login --id ui-check
 
 `--seed ui` completes the derived setup checklist and supplies five sample tasks: waiting for review, failed with a removed worktree, partial, running, and accepted/done. The running task is a work-tree root with two subtasks, one accepted with 11,963 measured Codex tokens and one still running, so the Tasks tree shows a live token total without an executor. It also supplies task attention entries and quota readings for two accounts, reusing the UI fixtures in `test/fixtures/ui/`. The home (`#/`), review (`#/review`), sessions (`#/sessions`) and task detail routes can then display sample work. Unknown seed names are rejected before a sandbox is created; `--seed` is valid only for `up`.
 
+`--seed plugin-remove` includes the UI sample data and one inert installed plugin,
+`fx-live-remove`. It is solely for one `plugin.remove` request through the guarded
+public proxy. The proxy permits only `/v3`, a strict JSON body naming that ID,
+the sandbox app Origin/client headers, the recorded live service incarnation, and
+the exact private fixture tree under this checkout's `.work/live/<id>/home/plugins/`.
+It refuses changed content, extra files, symlinks, hardlinks, foreign ownership or
+permissions in the plugin, `strategy.yaml` and `home/orca/` lock paths, a held
+`plugins` or `plugin-settings` lock, and all other plugin IDs. An atomic claim file consumes permission
+before forwarding, so a failed or uncertain request cannot be retried; start a
+new sandbox for another attempt. The service still checks its normal session
+authentication. The ordinary D8 refusal below remains in force for every other
+`plugin.remove` request. After removal, confirm the response, absent folder and
+absent plugin list entry, then record the result in the live report. The
+`updater`, `repair` and Codex integration repair fixtures, and shells without a
+folder, still require `--seed ui`.
+
 All seed files are written under the sandbox's `home/`. In this mode only, `HOME` and tool config directories also point there. Synthetic account logs and empty login markers replace native account state. Status-only `launchctl`/`systemctl` stubs satisfy the setup check and refuse mutations; executor stubs refuse execution, so new work submitted there (`delegate`, `dispatch submit`) stays queued, waiting to retry its version check. These represent fixture readiness, not an installed service or authenticated accounts. The running tasks have no executor process, child PID or resumable run; PID 1 is used only as a liveness sentinel, never as a signal target. Use an unseeded sandbox for real executor validation. D3 and D8 still apply.
 
 The service and D8 guard proxy run detached from this checkout on two different free loopback ports, neither 4317. `session.json` records the public `port`, private `innerPort`, service `pid` and `proxyPid`. All clients use the public port (`PACER_PORT`); only the service binds `innerPort` via `--port`. Startup verifies the proxy identity, inner service identity and forwarded `/health`. Inspect `logs/serve.log` and `logs/proxy.log` if startup fails. `bun run live status` lists all sandboxes, including stopped ones retained with `--keep`.
@@ -46,7 +62,7 @@ bun run live up --id my-change --real-keychain
 
 ### M1 runtime and artifact layout
 
-To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority.
+To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 

@@ -1,4 +1,4 @@
-import { beginWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
+import { beginWorkSync, finishUnlaunchedWorkSync, validatePendingWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff } from "../tasks/diff";
 import { taskTitle } from "./short-title";
@@ -9,6 +9,10 @@ import { repoFor, requireRepoDirectory } from "./repos";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { executorName } from "../link/notification";
+import { admissionLifetime } from "../tasks/creation-admission";
+import { getWork,pendingChildren,requireWorkScope } from "../dispatch/work";
+import { readProjectStrategies } from "../config/project-strategies";
+import { loadStrategy,KINDS,MissingStrategyError } from "../config/strategy";
 import { boundedGitRead } from "./git";
 import { restoreTaskWorktree } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
@@ -16,7 +20,7 @@ import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
 import {
-  type DelegateInput, type SpawnRunner, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
+  type DelegateInput, type SpawnRunner, admissionCtx, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
 import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -25,6 +29,14 @@ import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
+import { callerParticipant, parentOf, rootOf } from "../messaging/participants";
+import * as msgStore from "../messaging/store";
+import { beginTurn, notifyMessage, readMessages } from "../messaging/turns";
+
+/** True when the next turn can resume the task's own native session. */
+function canContinue(ctx: Ctx, t: TaskRecord): boolean {
+  return !getWork(ctx, t.id) && t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
+}
 
 export { taskActivity } from "../tasks/activity";
 import { taskActivity } from "../tasks/activity";
@@ -84,15 +96,23 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
     if (!task) throw unknown(id);
     if (task.question && task.question.answer === undefined) throw new CoreError("conflict", "already asked; stop and wait for the answer");
     if (task.state !== "running") throw new CoreError("conflict", "task is not running");
-    return updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+    const asked = updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+    const parent = parentOf(ctx, `task:${id}`);
+    if (parent) {
+      const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "question", body: text, replyTo: null, requestId: `ask:${id}:${ctx.now}` });
+      if (!r.duplicate) void notifyMessage(ctx, r.message);
+    }
+    return asked;
   });
 }
 
-export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): TaskRecord {
+export async function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = spawnRunner, s?: Strategy): Promise<TaskRecord> {
+  admissionCtx(ctx);
   const lease = input.admissionLease ?? beginWorkSync(ctx, { kind: "launch", id: "delegate", label: "Delegating task" });
-  const create = () => {
+  const create = async () => {
+    const currentNow=admissionCtx(ctx).now;
     if (input.requestId) {
-      const prior = listTasksWhere(ctx, { updatedSince: ctx.now - 600 }).find(t => t.requestId === input.requestId && ctx.now - t.createdAt >= 0 && ctx.now - t.createdAt <= 600);
+      const prior = listTasksWhere(ctx, { updatedSince: currentNow - 600 }).find(t => t.requestId === input.requestId && currentNow - t.createdAt >= 0 && currentNow - t.createdAt <= 600);
       if (prior && (prior.brief.goal !== input.brief.goal || prior.brief.repo !== input.brief.repo)) {
         throw new CoreError("conflict", "request_id was already used for a different brief", "use a new request_id for a new task");
       }
@@ -100,14 +120,13 @@ export function delegate(ctx: Ctx, input: DelegateInput, spawn: SpawnRunner = sp
     }
     try {
       const admitted = { ...input, admissionLease: lease };
-      const task = s ? apiDelegate(ctx, admitted, spawn, s) : apiDelegate(ctx, admitted, spawn);
+      const task = await (s ? apiDelegate(ctx, admitted, spawn, s) : apiDelegate(ctx, admitted, spawn));
       if (!input.retryOf) taskActivity(ctx, task, "task_started", `Delegated “${taskTitle(task)}” to ${executorName(task.executor ?? task.requestedExecutor)}`);
       return task;
     } catch (e) { throw toCoreError(e); }
   };
-  // Delegate is synchronous for CLI/retry callers. This shares withLock's files;
-  // hashing keeps arbitrary client request ids out of filesystem paths.
-  try { return input.requestId === undefined ? create() : withLockSync(ctx, `delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create); }
+  // Serialize same-key decisions without holding a synchronous commit lock.
+  try { return await (input.requestId === undefined ? create() : withLock(ctx, `core-delegate-request-${createHash("sha256").update(input.requestId).digest("hex")}`, create)); }
   finally { finishUnlaunchedWorkSync(ctx, lease); }
 }
 
@@ -156,14 +175,38 @@ export interface ReviewOptions {
   expect_state?: TaskState;
   expectRev?: number;
 }
-type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord };
+type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>; beforeCommit?:()=>void; afterCommit?:(parent:TaskRecord,retry:TaskRecord)=>void; spawnRunner?: SpawnRunner; appAuthenticated?: boolean; participant?: string };
+
+/**
+ * Deliver a follow-up (answer or review feedback) as a message that resumes the task's own session.
+ * Returns null when no turn started; the message is then marked read so it never reaches a later turn,
+ * and the caller falls back to the legacy retry.
+ */
+async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answer" | "message"; body: string; replyTo: string | null; requestId: string }, deps: RetryDeps,
+  before?: () => void, undo?: () => void): Promise<ApiTask | null> {
+  const id = task.id, to = `task:${id}`;
+  const from = callerParticipant(ctx, { appAuthenticated: deps.appAuthenticated, participant: deps.participant }).id;
+  const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, to), from, to, kind: m.kind, body: m.body, replyTo: m.replyTo, requestId: m.requestId });
+  if (r.duplicate) return apiTask(ctx, readTask(ctx, id)!); // A retried request: the first one already acted.
+  void notifyMessage(ctx, r.message);
+  before?.();
+  // A policy hold falls back to the legacy retry, which project policy admits as a new attempt (a veto refuses it there).
+  if ((await beginTurn(ctx, id, deps.spawnRunner ?? spawnRunner, { quiet: true })).delivery === "turn_started") return apiTask(ctx, readTask(ctx, id)!);
+  undo?.();
+  msgStore.markRead(ctx, to, [r.message.id]);
+  return null;
+}
 
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
 ): Promise<{ task: ApiTask; retry?: ApiTask }> {
+  ctx={...ctx,env:{...ctx.env}};v={...v};
   const check = () => {
     const task = readTask(ctx, id);
     if (!task) throw unknown(id);
+    checkRev(ctx,task,v.expectRev);
+    if(v.kind!==undefined&&!(KINDS as readonly string[]).includes(v.kind))throw new CoreError("invalid_input",`unknown kind "${v.kind}"`);
+    if(ctx.env.PACER_WORK_GRANT)requireWorkScope(admissionCtx(ctx),ctx.env.PACER_WORK_GRANT,id,true);
     const verdict = v.verdict ?? (v.accepted === undefined ? undefined : v.accepted ? "accept" : "reject");
     if (!verdict || !["accept", "reject", "send_back", "retry"].includes(verdict)) {
       throw new CoreError("invalid_input", "give a verdict or accepted");
@@ -175,13 +218,29 @@ export async function review(
     }
     const executor = verdict === "send_back" ? task.result?.executor ?? task.attempts.at(-1)?.executor ?? task.requestedExecutor ?? undefined : v.executor;
     if (verdict === "send_back" && !executor) throw new CoreError("invalid_input", "task has no executor to send back to");
-    return { verdict, executor };
+    return { verdict, executor, task };
   };
-  const record = (verdict: ReviewVerdict, executor: string | undefined) => withTaskLock(ctx, id, () => {
+  const { verdict, executor, task:initialTask } = withTaskLock(ctx,id,check);
+  const reviewLease=beginWorkSync(ctx,{kind:"operation",id,label:"Reviewing task"});
+  try {
+  const strategy=()=>{try{return loadStrategy(ctx);}catch(error){if(error instanceof MissingStrategyError)return null;throw error;}};
+  const {applyPolicy}=await import("../plugins/policy");
+  const authorization=await applyPolicy(admissionCtx(ctx),"review",{
+    taskId:id,revision:initialTask.rev,state:initialTask.state,verdict,
+    ...(v.note!==undefined?{note:v.note}:{}),kind:(v.kind??initialTask.kind) as typeof KINDS[number]|null,
+    ...(executor?{executor}:{}),
+  },{...admissionLifetime(ctx),contextFingerprint:()=>JSON.stringify({task:readTask(ctx,id),work:getWork(ctx,id),children:pendingChildren(ctx,id),strategy:strategy(),projects:readProjectStrategies(ctx)})});
+  const validateReview=()=>{
+    const task=readTask(ctx,id);if(!task)throw unknown(id);checkRev(ctx,task,initialTask.rev);
+    authorization.revalidate();
+    validatePendingWorkSync(admissionCtx(ctx),reviewLease);
+    if(ctx.env.PACER_WORK_GRANT)requireWorkScope(admissionCtx(ctx),ctx.env.PACER_WORK_GRANT,id,true);
+  };
+  const record = (verdict: ReviewVerdict, executor: string | undefined, expected=initialTask.rev) => withTaskLock(ctx, id, () => {
     try {
       const current=readTask(ctx,id);
       if(!current)throw unknown(id);
-      checkRev(ctx,current,v.expectRev);
+      checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
       taskActivity(ctx, reviewed, "verdict", verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`);
@@ -190,15 +249,37 @@ export async function review(
     }
     return readTask(ctx, id)!;
   });
-  const { verdict, executor } = withTaskLock(ctx, id, check);
   if (verdict === "send_back" || verdict === "retry") {
-    // Start the retry first: a verdict is recorded only when its retry exists.
-    const result = await retry(ctx, id, { executor, ...(verdict === "send_back" ? { feedback: v.note } : {}) }, deps);
-    return { task: apiTask(ctx, record(verdict, executor)), retry: apiTask(ctx, readTask(ctx, result.retry.id) ?? result.retry) };
+    const current = readTask(ctx, id);
+    if (verdict === "send_back" && current && canContinue(ctx, current)) {
+      // The same checks as the legacy path: revision, policy admission, and no active retry.
+      validateReview();
+      const prior = current.retriedBy ? readTask(ctx, current.retriedBy) : null;
+      if (prior && ["queued", "running"].includes(prior.state)) throw new CoreError("conflict", `${id} already has an active retry ${prior.id}`);
+      const task = await continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, deps);
+      if (task) return { task, retry: task };
+    }
+    // Both policy decisions finish before the single guarded retry+verdict commit.
+    let reviewed:TaskRecord|undefined;
+    const result=await retry(ctx,id,{executor,expectRev:initialTask.rev,...(verdict==="send_back"?{feedback:v.note}:{})},{
+      ...deps,
+      beforeCommit:()=>{deps.beforeCommit?.();validateReview();},
+      afterCommit:(parent,child)=>{reviewed=record(verdict,executor,parent.rev);deps.afterCommit?.(reviewed,child);},
+    });
+    if(!reviewed)throw new CoreError("conflict","Review retry did not consume its admitted commit");
+    return {task:apiTask(ctx,reviewed),retry:apiTask(ctx,readTask(ctx,result.retry.id)??result.retry)};
   }
-  const task = record(verdict, executor);
+  const task=withTaskLock(ctx,id,()=>{validateReview();return record(verdict,executor);});
   await autoCleanTask(ctx, id);
   return { task: apiTask(ctx, task) };
+  } catch(error) {
+    // Policy fingerprints also cover task state. Preserve the public revision
+    // conflict projection when that task changed, including during the call.
+    if(error instanceof CoreError&&error.code==="conflict"){
+      const current=readTask(ctx,id);if(current)checkRev(ctx,current,initialTask.rev);
+    }
+    throw error;
+  } finally {finishUnlaunchedWorkSync(ctx,reviewLease);}
 }
 
 /** Dismisses every known id; unknown ids are returned, never thrown, so one bad id can't stop the rest. */
@@ -270,11 +351,12 @@ async function retryTask(
   const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
   let answerBase: string | undefined, answerFromBase = false;
+  let answerWorktree: string | undefined;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
     const worktree = [before.result?.worktree, before.worktree, !before.run?.host ? before.run?.workdir : undefined].find(p => p && p.startsWith("/"));
     if (worktree) {
       const head = await boundedGitRead(ctx.run, ["git", "-C", worktree, "rev-parse", "--verify", "HEAD"], 10_000);
-      if (head.code === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim())) answerBase = head.stdout.trim();
+      if (head.code === 0 && /^[0-9a-f]{40}$/.test(head.stdout.trim())) { answerBase = head.stdout.trim(); answerWorktree = worktree; }
       else if (!before.run?.host && !existsSync(worktree)) throw new CoreError("conflict", "the asking executor's worktree is unavailable; restore it before answering");
       else throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
     } else if (before.baseSha && before.worktreeReleased) {
@@ -305,7 +387,7 @@ async function retryTask(
         restored = result.path;
         missingBranch = result.missingBranch;
       }
-      return withTaskLock(ctx, id, () => {
+      const prepared = withTaskLock(ctx, id, () => {
         const task = readTask(ctx, id);
         if (!task) throw unknown(id);
         checkRev(ctx, task, o.expectRev);
@@ -319,6 +401,8 @@ async function retryTask(
         if (prior && ["queued", "running"].includes(prior.state)) {
           throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
         }
+        const workParent = getWork(ctx, task.id)?.parentId;
+        const origin = task.origin ?? (workParent ? `task:${workParent}` : undefined);
         // Restore retained branches above; a missing branch starts a fresh checkout.
         const reuseWorktree = missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
         const input: DelegateInput = {
@@ -333,27 +417,46 @@ async function retryTask(
           ...(executor ? { executor } : {}),
           ...(task.interactive ? { interactive: true } : {}),
           ...(task.group ? { group: task.group } : {}),
+          // The retry belongs to whoever the original belongs to, not to whoever retried it.
+          ...(origin ? { origin } : {}),
         };
-        let next: TaskRecord;
-        try {
-          next = (deps.delegate ?? ((c, i) => apiDelegate(c, i)))(ctx, input);
-        } catch (e) {
-          throw toCoreError(e);
-        }
-        if (readTask(ctx, next.id)) updateTask(ctx, next.id, (t) => {
-          t.retryOf = task.id;
-          if (o.fromPanel) t.fromPanel = true;
-          if (missingBranch) t.placement = {...t.placement, requested: t.placement?.requested ?? "new", why: "previous worktree and branch are gone; creating a new worktree"};
-        });
-        const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
-        const retried = readTask(ctx, next.id) ?? next;
-        taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
-        if (answerFromBase) taskActivity(ctx, retried, "message", `The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0, 12)}`);
-        return { retry: retried, of };
+        return {task,input,answering};
       });
+      const {task,input,answering}=prepared;
+      let linked=false;
+      const commitWith=(commit:()=>TaskRecord)=>withTaskLock(ctx,id,()=>{
+        const current=readTask(ctx,id);
+        if(!current || current.rev!==task.rev) throw new CoreError("conflict","Task changed during retry admission");
+        deps.beforeCommit?.();
+        const next=commit();
+        if(readTask(ctx,next.id)) updateTask(ctx,next.id,t=>{
+          t.retryOf=task.id;
+          if(o.fromPanel)t.fromPanel=true;
+          if(missingBranch)t.placement={...t.placement,requested:t.placement?.requested??"new",why:"previous worktree and branch are gone; creating a new worktree"};
+        });
+        const parent=updateTask(ctx,task.id,t=>{t.retriedBy=next.id;if(answering){t.question!.answer=o.answerText;t.question!.answeredAt=ctx.now;}});
+        linked=true;
+        const retried=readTask(ctx,next.id)??next;
+        taskActivity(ctx,retried,"retry",`Delegated “${taskTitle(retried)}” to ${executorName(retried.executor??retried.requestedExecutor)}`);
+        if(answerFromBase)taskActivity(ctx,retried,"message",`The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0,12)}`);
+        deps.afterCommit?.(parent,retried);
+        return next;
+      });
+      const admitted:DelegateInput={...input,commitWith,admissionTaskLock:id,admissionContext:()=>JSON.stringify(readTask(ctx,id)),
+        ...(answerWorktree?{admissionPaths:[answerWorktree],admissionPrepare:async()=>{
+          const head=await boundedGitRead(ctx.run,["git","-C",answerWorktree!,"rev-parse","--verify","HEAD"],10_000);
+          if(head.code!==0||head.stdout.trim()!==answerBase)throw new CoreError("conflict","Asking executor checkout changed during answer admission");
+        }}:{}),
+      };
+      let next:TaskRecord;
+      try {next=await (deps.delegate??delegate)(ctx,admitted);}
+      catch(error){throw toCoreError(error);}
+      if(!linked) throw new CoreError("conflict","Retry delegate did not consume its admitted commit");
+      const retried=readTask(ctx,next.id)??next;
+      return {retry:retried,of:readTask(ctx,id)!};
     };
     return locked(0);
-  }); } finally { finishUnlaunchedWorkSync(ctx, lease); }
+  }); } finally {finishUnlaunchedWorkSync(ctx,lease);}
 }
 
 /** Re-delegate a brief; serializes with answers on the same task. */
@@ -365,7 +468,28 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
-  const r = await retryTask(ctx, id, {...o, answerText:text}, deps);
+  const current = readTask(ctx, id);
+  let expectRev = o.expectRev;
+  if (current && canContinue(ctx, current)) {
+    // The same checks as the legacy path: revision, and an unanswered question.
+    checkRev(ctx, current, o.expectRev);
+    if (current.state !== "needs_input" || !current.question || current.question.answer !== undefined || current.retriedBy) {
+      throw new CoreError("conflict", "task is not waiting for an answer", undefined, { task: apiTask(ctx, current) });
+    }
+    const question = msgStore.thread(ctx, id).filter(m => m.kind === "question" && m.from === `task:${id}`).at(-1);
+    const setAnswer = (answer?: string) => updateTask(ctx, id, t => {
+      if (!t.question) return;
+      if (answer === undefined) { delete t.question.answer; delete t.question.answeredAt; } else { t.question.answer = answer; t.question.answeredAt = ctx.now; }
+    });
+    const task = await continueWithMessage(ctx, current, { kind: "answer", body: text, replyTo: question?.id ?? null, requestId: `answer:${id}:${current.rev}` }, deps,
+      () => setAnswer(text), () => setAnswer());
+    if (task) {
+      if (question) readMessages(ctx, question.to, [question.id]);
+      return { task, retry: task };
+    }
+    expectRev = readTask(ctx, id)?.rev;
+  }
+  const r = await retryTask(ctx, id, {...o, expectRev, answerText:text}, deps);
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 

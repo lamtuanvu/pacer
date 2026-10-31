@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin-protocol"
-version = "0.1.0"
+version = "0.2.0"
 publish = true
 description = "Generated wire types for the pacer plugin protocol."
 readme = "README.md"

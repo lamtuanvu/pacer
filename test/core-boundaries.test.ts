@@ -22,7 +22,7 @@ test("src/core imports nothing from src/exec/orca", () => {
 
 test("only the plugin host imports the bundled plugin list", () => {
   const src = join(import.meta.dir, "..", "src");
-  const allowed = new Set([join(src, "plugins", "index.ts"), join(src, "plugins", "run.ts"), join(src, "core", "plugins.ts")]);
+  const allowed = new Set([join(src, "plugins", "index.ts"), join(src, "plugins", "run.ts"), join(src, "plugins", "registry.ts"), join(src, "core", "plugins.ts")]);
   const offenders = files(src).filter(f => !allowed.has(f) && /from\s+["'][^"']*\/plugins\/bundled["']/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });

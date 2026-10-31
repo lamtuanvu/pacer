@@ -24,12 +24,12 @@ for(const request of [undefined,"auto"] as const)test(`automatic ${request} rule
  expect(resolvePlacement({...base,brief:{...brief,context:"uncommitted"}},"current",true)).toEqual({mode:"new",why:"another task is writing there"});
  for(const strategy of ["current","child-of-current","new-child"] as const)expect(resolvePlacement(base,strategy,false)).toEqual({mode:strategy==="current"?"current":"new",why:"strategy default"});
 });
-test("delegate validates and stores placement before spawning",()=>{
+test("delegate validates and stores placement before spawning",async ()=>{
  const ctx=fakeCtx(), b={...brief,repo:tmpDir()};
  for(const value of ["child-of-current","",null,123])expect(validateInput(s,{brief:b,worktree:value as any})).toContain("worktree must be one of current, new, auto");
  for(const reason of ["x".repeat(201),123,null])expect(validateInput(s,{brief:b,worktree_reason:reason as any})).toContain("worktree_reason must be a string of at most 200 characters");
- for(const worktree of ["current","new","auto"] as const){const t=delegate(ctx,{brief:b,worktree,worktree_reason:"x".repeat(200)},()=>undefined,s);expect(t.placement).toEqual({requested:worktree,reason:"x".repeat(200)});}
- expect(delegate(ctx,{brief:b},()=>undefined,s).placement).toEqual({requested:"auto"});
+ for(const worktree of ["current","new","auto"] as const){const t=(await delegate(ctx,{brief:b,worktree,worktree_reason:"x".repeat(200)},()=>undefined,s));expect(t.placement).toEqual({requested:worktree,reason:"x".repeat(200)});}
+ expect((await delegate(ctx,{brief:b},()=>undefined,s)).placement).toEqual({requested:"auto"});
 });
 test("resolved placement propagates through status and link",()=>{
  const t={rev:1,id:"t",state:"running",createdAt:1,kind:null,requestedExecutor:null,timeoutS:60,brief,attempts:[],worktree:"/new/path",placement:{requested:"new",mode:"new",why:"agent: <risky>"}} as TaskRecord;

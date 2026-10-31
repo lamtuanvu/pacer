@@ -1,5 +1,6 @@
 import { parseDispatchConfig } from "./dispatch";
 import type { DispatchConfig } from "../dispatch/types";
+import { parseMessagingConfig, type MessagingConfig } from "../messaging/types";
 import { validateTerminalOpen } from "../session/targets";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,15 +40,21 @@ export interface ProviderCfg {
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 
-export interface PluginGrant { version: string; capabilities: string[]; /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */ surfaces?: string[] }
-export interface PluginsCfg { disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
-export const EMPTY_PLUGINS: PluginsCfg = { disabled: [], installed: {}, config: {} };
+export interface PluginGrant { version: string; capabilities: string[]; /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */ surfaces?: string[]; /** The granted manifest contributed policy; closed mode keeps refusing while such a plugin cannot load. */ policy?: true }
+export interface PluginsCfg { policy: { mode: "open" | "closed" }; disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
+export const EMPTY_PLUGINS: PluginsCfg = { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
 
 const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
-  if (raw === undefined) return { disabled: [], installed: {}, config: {} };
-  if (!isObj(raw)) { p.push("plugins must be a mapping"); return { disabled: [], installed: {}, config: {} }; }
+  if (raw === undefined) return { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
+  if (!isObj(raw)) { p.push("plugins must be a mapping"); return { policy: { mode: "open" }, disabled: [], installed: {}, config: {} }; }
+  let mode: "open" | "closed" = "open";
+  if (raw.policy !== undefined) {
+    if (!isObj(raw.policy)) p.push("plugins.policy must be a mapping");
+    else if (raw.policy.mode !== undefined && raw.policy.mode !== "open" && raw.policy.mode !== "closed") p.push("plugins.policy.mode must be open or closed");
+    else mode = raw.policy.mode ?? "open";
+  }
   const disabled: string[] = [];
   if (raw.disabled !== undefined) {
     if (!Array.isArray(raw.disabled)) p.push("plugins.disabled must be a list of plugin ids");
@@ -62,7 +69,7 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
       if (typeof g.version !== "string" || !SEMVER.test(g.version)) p.push(`plugins.installed.${id}.version must be semver`);
       if (!Array.isArray(g.capabilities) || g.capabilities.some(c => typeof c !== "string")) p.push(`plugins.installed.${id}.capabilities must be a list of names`);
       else if (g.surfaces !== undefined && (!Array.isArray(g.surfaces) || g.surfaces.some(c => typeof c !== "string"))) p.push(`plugins.installed.${id}.surfaces must be a list of names`);
-      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String), ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}) };
+      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String), ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}), ...(g.policy === true ? { policy: true as const } : {}) };
     }
   }
   const config: Record<string, Record<string, unknown>> = {};
@@ -70,7 +77,7 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
     if (!isObj(raw.config)) p.push("plugins.config must be a mapping of plugin id to settings");
     else for (const [id, c] of Object.entries(raw.config)) { if (!isObj(c)) p.push(`plugins.config.${id} must be a mapping`); else config[id] = c; }
   }
-  return { disabled, installed, config };
+  return { policy: { mode }, disabled, installed, config };
 }
 
 export interface Strategy {
@@ -91,6 +98,7 @@ export interface Strategy {
   terminal?: {open:string};
   taskRetentionDays?: number;
   plugins?: PluginsCfg;
+  messaging?: MessagingConfig;
 }
 
 export class StrategyError extends Error {
@@ -270,10 +278,15 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   const plugins = parsePlugins(raw.plugins, p);
   let dispatch: DispatchConfig | undefined;
   try { dispatch = parseDispatchConfig(raw.dispatch); } catch (e) { p.push(e instanceof Error ? e.message : "invalid dispatch configuration"); }
+  let messaging: MessagingConfig | undefined;
+  if (raw.messaging !== undefined) {
+    try { messaging = parseMessagingConfig(raw.messaging); }
+    catch (e) { p.push(`messaging: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   if (p.length) throw new StrategyError(path, p);
   return {
     name, planner, accounts, hosts, runners, legacy, runnerAliases, providers, pacing, routing, taskRetentionDays: taskRetentionDays as number,
-    plugins, ...(dispatch ? {dispatch} : {}),
+    plugins, ...(dispatch ? {dispatch} : {}), ...(messaging ? {messaging} : {}),
     execution: isObj(raw.execution) ? raw.execution : {},
     classifier: isObj(raw.classifier) ? raw.classifier : {},
     ...(isObj(raw.terminal) && raw.terminal.open !== undefined ? {terminal:{open:validateTerminalOpen(String(raw.terminal.open))}} : {}),

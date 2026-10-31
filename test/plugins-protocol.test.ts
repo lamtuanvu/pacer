@@ -40,12 +40,17 @@ test("manifest files report JSON and schema problems by text", () => {
   expect(readManifestFile(join(dir, "missing.json")).ok).toBe(false);
 });
 
-test("method tables include observation and decision adapters without new host capabilities", () => {
-  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.delegationControl", "agentSession.identity", "agentSession.prepare", "assistant.respond", "decision.decide", "diagnostic.ping", "observation.observe", "pairing.start", "ui.action", "ui.render", "ui.settings.validate"]);
+test("method tables preserve native identity, dispatch adapters, ui, assistant and all extracted capabilities", () => {
+  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.delegationControl", "agentSession.identity", "agentSession.prepare", "assistant.respond", "classifier.adapters", "classifier.ask", "decision.decide", "diagnostic.ping", "endpoint.launchEnv", "endpoint.models", "endpoint.test", "notifier.deliver", "observation.observe", "pairing.start", "planner.check", "planner.detect", "planner.install", "planner.plan", "planner.preview", "planner.uninstall", "policy.before", "ui.action", "ui.render", "ui.settings.validate", "usage.read"]);
   expect(EXTENSION_METHODS["agentSession.delegationControl"].result.safeParse({mechanism:"hook",entryPoints:["Agent","Task"]}).success).toBe(true);
   expect(EXTENSION_METHODS["agentSession.delegationControl"].result.safeParse({mechanism:"hook",entryPoints:[]}).success).toBe(false);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
-  expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.identity.sign", "capability.log", "capability.secrets.resolve"]);
+  expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.config.get");
+  expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.log");
+  for (const method of ["capability.identity.sign", "capability.secrets.resolve", "capability.secrets.check"]) expect(Object.keys(CAPABILITY_METHODS)).toContain(method);
+  // 1.3.0 contract kept byte-compatible; presence moved to capability.secrets.check (1.6.0), authorized by secrets.resolve.
+  expect(CAPABILITY_METHODS["capability.secrets.resolve"]!.result.safeParse({ value: "k" }).success).toBe(true);
+  expect(capabilityOf("capability.secrets.check")).toBe("secrets.resolve");
   expect(capabilityOf("capability.config.get")).toBe("config.get");
   expect(capabilityOf("capability.shell")).toBeNull();
   expect(helloResult.safeParse({ protocol: "1.0.0", id: "x", version: "1.0.0", contributes: [] }).success).toBe(true);

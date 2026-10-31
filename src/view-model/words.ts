@@ -146,6 +146,7 @@ export function paceStatus(verdict: string): Status {
 export function attentionStatus(item: { kind: string; taskId?: string }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
   if (item.kind === "review") return waitingReview;
+  if (item.kind === "message") return status("Waiting on you", "warn", "!");
   if (item.kind === "failed" && (task?.state === "done" || task?.acceptanceState === "failed")) return status("Checks failed", "bad", "✕");
   if (task) return taskStatus(task);
   return ({ review: waitingReview, question: taskStates.needs_input!, failed: taskStates.failed!, limit: taskStates.limit!,
@@ -165,3 +166,50 @@ export const compactVerdictWords = (verdict: string): string =>
 
 /** Human-facing percentages never expose floating-point precision. */
 export const percentage = (value: number): string => `${Math.round(value)}%`;
+
+/** Policy metadata is independent of planner pacing mode; missing old-service data stays unknown. */
+export interface PolicySummary { mode: "open" | "closed"; plugins: number }
+export function policyWords(policy?: PolicySummary): string {
+  if (!policy) return "policy: unknown";
+  return policy.mode === "closed" ? `policy: closed (${policy.plugins} ${policy.plugins === 1 ? "plugin" : "plugins"})` : "policy: open";
+}
+/** What the mode does, without repeating the plugin count the closed words already carry (UI-15). */
+export function policyDetail(policy?: PolicySummary): string {
+  if (!policy) return "not reported by this service";
+  if (policy.mode === "closed") return "a failing plugin blocks the action";
+  return `${policy.plugins} enabled ${policy.plugins === 1 ? "plugin" : "plugins"} · a failing plugin is ignored`;
+}
+/** Visible app caption: the mode and its detail as text, not a hover-only title. */
+export const policyCaption = (policy?: PolicySummary): string => `${policyWords(policy)} · ${policyDetail(policy)}`;
+
+/** Width-constrained terminals: slash separates the mode from the enabled plugin count. */
+export function compactPolicyWords(policy?: PolicySummary): string {
+  return policy ? `policy:${policy.mode}/${policy.plugins}` : "policy:unknown";
+}
+/** Why the service refused a message, from its `data.reason`; never the raw code (UI-12, UI-13). */
+const messageRefusals: Record<string, string> = {
+  msg_forbidden: "You can't message this task.",
+  msg_node_closed: "This task no longer takes messages.",
+  msg_worktree_unavailable: "This task's worktree was cleaned up, so it can't continue. Retry it or start a new task.",
+  msg_cap_reached: "Too many messages at once. Wait a minute and send again.",
+  msg_too_large: "The answer is too long. Shorten it and send again.",
+  msg_live_unavailable: "This task can't take answers here yet. Answer it in its session.",
+  msg_request_mismatch: "This answer was already sent with different text. Refresh and try again.",
+};
+export const messageRefusalWords = (reason: unknown): string =>
+  typeof reason === "string" && Object.hasOwn(messageRefusals, reason) ? messageRefusals[reason]! : "The answer was not sent. Try again.";
+/** What became of a sent answer, from msg.send's `delivery`. */
+const answerDeliveries: Record<string, string> = {
+  turn_started: "Answer sent. The task is continuing.",
+  queued: "Answer sent. The task will continue next.",
+  pull: "Answer sent. The task will read it.",
+  held: "Answer held, not delivered yet: a messaging rule needs your confirmation first. The question stays open.",
+  closed: "Answer saved, but this task no longer takes messages.",
+  cap: "Answer saved, but the task can't continue now. It has reached its limit.",
+  live_unavailable: "Answer saved, but the task can't continue from here yet.",
+  no_session: "Answer saved, but the task has no session to continue.",
+};
+export const answerDeliveryWords = (delivery: unknown, hold?: { reason?: unknown }): string =>
+  // Project policy held the task's next turn: say why; the answer waits with the question still open.
+  delivery === "held" && typeof hold?.reason === "string" ? `Answer held, not delivered yet: project policy holds this task (${hold.reason}). The question stays open.`
+    : typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";

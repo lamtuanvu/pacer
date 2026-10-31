@@ -1,10 +1,13 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { captureClaudeRateLimits, statusLine } from "../src/install/statusline";
 import { computeStatus } from "../src/engine/status";
-import { fakeCtx } from "./helpers";
+
 
 function strategy(home: string) {
   return validateStrategy({

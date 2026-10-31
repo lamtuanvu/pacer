@@ -1,9 +1,12 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { claudeCachePaths, readClaude, captureClaudeStreamUsage, captureClaudeStreamUsageFile, claudeResultFromStream } from "../src/usage/claude";
 import { validateStrategy } from "../src/config/strategy";
-import { fakeCtx } from "./helpers";
+
 
 const SAMPLE = {
   five_hour: { used_percentage: 2, resets_at: 1791643200 },

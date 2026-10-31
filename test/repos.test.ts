@@ -34,7 +34,7 @@ test("delegate persists a supplied repo identity", async () => {
  const ctx=fakeCtx(),ref={key:"github.com/acme/api",label:"acme/api",path:"/api"};
  mkdirSync(ctx.pacerHome,{recursive:true});
  await Bun.write(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
- const t=delegate(ctx,{brief:{goal:"test",repo:ctx.home},repoRef:ref},()=>1,loadStrategy(ctx));
+ const t=(await delegate(ctx,{brief:{goal:"test",repo:ctx.home},repoRef:ref},()=>1,loadStrategy(ctx)));
  expect(t.repo).toEqual(ref);
 });
 

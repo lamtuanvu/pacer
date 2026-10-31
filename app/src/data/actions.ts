@@ -23,7 +23,7 @@ export function uiHref(params: Record<string, unknown>): string {
   const id = typeof params.id === "string" ? encodeURIComponent(params.id) : "";
   switch (params.view) {
     case "review": return id ? `#/tasks/${id}` : "#/needs-you";
-    case "task": return id ? `#/tasks/${id}` : "#/tasks";
+    case "task": return id ? `#/tasks/${id}${params.tab === "answer" ? "?tab=answer" : ""}` : "#/tasks";
     case "session": return id ? `#/workspace?task=${id}` : "#/workspace";
     case "settings": return `#${settingsPath(params.section)}`;
     default: return "#/";
@@ -41,6 +41,8 @@ export function createActionRunner(deps: ActionDeps) {
     state: (key: string): ActionState => states.get(key) ?? { status: "idle" },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     needsConfirm: (action: Action): string | null => action.confirm ?? null,
+    /** Fetches the snapshot again, for a screen that changed state outside run(). */
+    refetch: () => deps.refetch(),
     async run(key: string, action: Action, confirmDone?: (s: StoreState) => boolean): Promise<ActionState> {
       if (action.op === "ui.open") { deps.navigate(uiHref(action.params)); return set(key, { status: "done" }); }
       set(key, { status: "pending" });

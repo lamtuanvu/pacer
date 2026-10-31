@@ -27,7 +27,7 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);
-    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), state.activity.filter(entry => entry.taskId === id)]);
+    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), task?.messages, state.activity.filter(entry => entry.taskId === id)]);
   }
   return JSON.stringify(state.invalidations);
 }

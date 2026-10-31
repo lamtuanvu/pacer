@@ -26,12 +26,13 @@ export function v2Hello() {
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
-for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
+for (const op of ["account.usage.check", "limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
 for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
+for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
@@ -69,7 +70,8 @@ export const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWit
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='discovery.found')return null;
+ // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};

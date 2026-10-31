@@ -34,11 +34,11 @@ test("remote runners and ambiguous or missing defaults are refused", () => {
   expect(() => parse({...base, accounts: {...base.accounts, duplicate: {kind: "codex"}}})).toThrow("default");
   expect(() => parse({...base, accounts: {...base.accounts, personal: {kind: "codex", home: "~/.personal"}}})).toThrow("default");
 });
-test("executor aliases are validated and stored as canonical runner ids", () => {
+test("executor aliases are validated and stored as canonical runner ids", async () => {
   const s = parse(base); const ctx = fakeCtx();
   const input = {brief: {goal: "do work", repo: ctx.home}, executor: "byteplus"};
   expect(validateInput(s, input)).toEqual([]);
-  expect(delegate(ctx, input, () => undefined, s).requestedExecutor).toBe("opencode#byteplus");
+  expect((await delegate(ctx, input, () => undefined, s)).requestedExecutor).toBe("opencode#byteplus");
   expect(validateInput(s, {...input, executor: "claude-code#plan"}).join(";")).toContain("planner");
 });
 test("planner uses a declared runner model override", () => {
@@ -67,7 +67,7 @@ test("legacy blocked executor aliases still constrain canonical runners", async 
   const ctx = fakeCtx(); const s = parse(base);
   blockExecutor(ctx, "byteplus", undefined, "paused");
   expect((await computeStatus(ctx, s, {profile: null})).executors.excluded).toContainEqual(expect.objectContaining({id: "opencode#byteplus", account: "byteplus", reason: "Blocked by you"}));
-  expect(() => delegate(ctx, {brief: {goal: "work", repo: ctx.home}, executor: "byteplus"}, () => undefined, s)).toThrow("Blocked by you");
+  await expect(delegate(ctx, {brief: {goal: "work", repo: ctx.home}, executor: "byteplus"}, () => undefined, s)).rejects.toThrow("Blocked by you");
 });
 test("canonical identities reject conflicting model declarations", () => {
   expect(() => parse({...base, runners: {"opencode#byteplus": {model: "api/one"}, byteplus: {agent: "opencode", account: "byteplus", model: "api/two"}}})).toThrow("conflicting");

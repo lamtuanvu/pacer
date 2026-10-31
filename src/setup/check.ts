@@ -1,3 +1,4 @@
+import { policySummary } from "../plugins/policy";
 import { claudeHookChecks } from "../install/doctor-hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -66,7 +67,8 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
  try {
   const key=account&&account.source!=="default"?`${planner}#${strategy!.planner.account}`:planner;
   const record=key?readManifest(ctx).planners[key]:undefined;
-  // Moved legacy files are cleanup bookkeeping, not part of the working integration.
+  // Cheap readiness is a synchronous generic record check: no plugin startup or
+  // queued read can straddle settlement after this snapshot is captured.
   const live=record?.files.filter(f=>f.action!=="moved")??[];
   connected=live.length>0&&live.every(integrationIntact);
  }catch(e){errors.connect=e instanceof Error?e.message:String(e);}
@@ -81,7 +83,7 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
   ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors},ctx.now);
  const connect = result.items.find(i=>i.id==="connect");
  if(connect && connected)connect.detail="Configured · runtime invocation unverified. Run Settings Diagnostics for checks.";
- return {...result, integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
+ return {...result,...(!options.deferStatus?{policy:policySummary(ctx)}:{}), integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);

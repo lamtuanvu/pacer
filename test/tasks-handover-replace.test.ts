@@ -48,20 +48,25 @@ test("the sweep starts a replacement at once, but only once per handover", async
 });
 
 test("a handed-over strict task keeps one attempt, its guard token and its grant across a version bump", async () => {
-  const { ctx, id } = handedOver("sleep 1.5; echo resumed-output");
+  // The resumed child holds until the mid-run checks are done, so a slow resume cannot let it finish first.
+  const release = join(tmpDir(), "release");
+  const { ctx, id } = handedOver(`for i in $(seq 400); do [ -e '${release}' ] && break; sleep 0.05; done; echo resumed-output`);
   registerWork(ctx, id, { allowDelegation: true });
   const token = issueEnforcementToken(ctx, id, 1), grant = issueWorkGrant(ctx, id, 1);
   const running = runTask(ctx, id, deps);
-  await Bun.sleep(500);
-  const mid = readTask(ctx, id)!;
-  expect(mid.state).toBe("running");
-  expect(mid.attempts).toHaveLength(0);
-  expect(mid.run?.attempt).toBe(1);
-  expect(mid.runnerPacer).toBe(currentVersion());
-  expect(mid.handover).toMatchObject({ pacer: currentVersion(), identity: { pid: process.pid } });
-  expect(mid.handover?.state).toBeUndefined();
-  expect(() => authorizeEnforcementToken(ctx, token)).not.toThrow();
-  expect(() => authorizeWorkGrant(ctx, grant)).not.toThrow();
+  // The runner reattaches only after the task-kind decision, which starts a classifier plugin; wait for it, not a fixed time.
+  for (const end = Date.now() + 15_000; Date.now() < end && readTask(ctx, id)?.handover?.identity.pid !== process.pid;) await Bun.sleep(10);
+  try {
+    const mid = readTask(ctx, id)!;
+    expect(mid.state).toBe("running");
+    expect(mid.attempts).toHaveLength(0);
+    expect(mid.run?.attempt).toBe(1);
+    expect(mid.runnerPacer).toBe(currentVersion());
+    expect(mid.handover).toMatchObject({ pacer: currentVersion(), identity: { pid: process.pid } });
+    expect(mid.handover?.state).toBeUndefined();
+    expect(() => authorizeEnforcementToken(ctx, token)).not.toThrow();
+    expect(() => authorizeWorkGrant(ctx, grant)).not.toThrow();
+  } finally { writeFileSync(release, ""); }
   const done = await running;
   expect(done.attempts).toHaveLength(1);
   expect(done.result?.report).toContain("resumed-output");

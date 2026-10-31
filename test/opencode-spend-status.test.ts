@@ -1,5 +1,5 @@
 // OpenCode provider accounts through status, ranking and the read model.
-import {expect, test} from "bun:test";
+import {afterEach, expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {loadStrategy} from "../src/config/strategy";
@@ -7,13 +7,17 @@ import {computeStatus} from "../src/engine/status";
 import {buildAccounts} from "../src/api/read-model/capacity";
 import {rankExecutors} from "../src/engine/rank";
 import {writeEndpointState} from "../src/endpoints/state";
-import {fakeCtx} from "./helpers";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
 import {accountUsageFreshness} from "../src/view-model/capacity";
 import {accountEvidenceScope, recordExecutionEvidence} from "../src/core/evidence";
 
+import type { RunFn } from "../src/types";
+
+afterEach(cleanupUsageFixtures);
+
 const stats = readFileSync(join(import.meta.dir, "fixtures", "opencode-stats-cost.json"), "utf8");
-function setup(budget?: {weekly_usd: number}) {
-  const ctx = fakeCtx({run: async argv => argv[0] === "opencode" && argv[1] === "stats" ? {code: 0, stdout: stats, stderr: ""}
+function setup(budget?: {weekly_usd: number}, transport: {run?: RunFn} = {}) {
+  const ctx = fakeCtx({run: async (argv, timeoutMs, options) => transport.run ? transport.run(argv, timeoutMs, options) : argv[0] === "opencode" && argv[1] === "stats" ? {code: 0, stdout: stats, stderr: ""}
     : argv.slice(0, 3).join(" ") === "opencode auth list" ? {code: 0, stdout: JSON.stringify([{id: "openrouter", name: "OpenRouter", connections: []}]), stderr: ""}
     : {code: 1, stdout: "", stderr: ""}});
   mkdirSync(ctx.pacerHome, {recursive: true});
@@ -81,16 +85,17 @@ test("a newer healthy current cap recovers an execution quota failure despite ob
 });
 
 test("failed refresh of uncapped spend retains its historical label and observation age", async () => {
-  const ctx = setup(), s = loadStrategy(ctx);
+  const transport: {run?: RunFn} = {};
+  const ctx = setup(undefined, transport), s = loadStrategy(ctx);
   await computeStatus(ctx, s);
   ctx.now += 120;
-  ctx.run = async () => ({code: 1, stdout: "", stderr: "offline"});
+  transport.run = async () => ({code: 1, stdout: "", stderr: "offline"});
   const st = await computeStatus(ctx, s, {refreshAccounts: ["openrouter"], cacheOnly: false});
   const row = buildAccounts(st, s, ctx).find(a => a.name === "openrouter")!;
   expect(row.spendUsdWeek).toBe(46);
   expect(row.stale).toBe(true);
   expect(accountUsageFreshness(row)).toBe("Reading 2m old");
-  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · refresh to use");
+  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · check account usage");
   expect(st.providers[1]!.eligibility?.state).toBe("uncertain");
 });
 

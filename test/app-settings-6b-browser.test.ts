@@ -504,7 +504,7 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
         expect(tracks).toHaveLength(6);
         expect(tracks[1]).toBe(130);
         expect(tracks[3]).toBe(150);
-        expect(tracks[5]).toBe(32);
+        expect(tracks[5]).toBe(180);
         console.log('Accounts tracks at 1000px content:', tracks.join('/'));
         await assertHeaderBand(page);
       } else {
@@ -542,8 +542,8 @@ browserTest('Accounts six board tracks, conditional actions and labelled cards f
       expect(await page.getByRole('button', { name: 'Sign in', exact: true }).isVisible()).toBe(false);
       await page.getByRole('button', { name: 'More actions for ark', exact: true }).click();
       await page.getByText('Fix Ark CLI sign-in for ark', { exact: true }).click();
-      await page.getByRole('button', { name: 'Refresh usage for ark', exact: true }).click();
-      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'limits.refresh' && p.account === 'ark'));
+      await page.getByRole('button', { name: 'Check usage for ark', exact: true }).click();
+      await page.waitForFunction(() => (window as any).accountFixture.calls().some(([op, p]: any[]) => op === 'account.usage.check' && p.account === 'ark'));
       await checkCells();
       await page.close();
     }
