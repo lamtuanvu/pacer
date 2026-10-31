@@ -29,7 +29,7 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.8.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.9.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
@@ -86,8 +86,8 @@ export const manifestSchema = z.object({
   const hostRunners = HOSTS_EXTENSION_POINTS.filter(point => m.contributes[point] !== undefined);
   const hostGrants = m.capabilities.filter(c => (HOSTS_CAPABILITIES as readonly string[]).includes(c.name)).map(c => c.name);
   if ((hostRunners.length || hostGrants.length) && !hostFloorAtLeast(m.host, "1.7.0")) ctx.addIssue({ code: "custom", path: ["host"], message: `a manifest with ${[...hostRunners, ...hostGrants].join(", ")} sets host to >=1.7.0` });
-  if (m.capabilities.some(c => c.name === "worktree") && !hostFloorAtLeast(m.host, "1.8.0"))
-    ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with worktree sets host to >=1.8.0" });
+  if (m.capabilities.some(c => c.name === "worktree") && !hostFloorAtLeast(m.host, "1.9.0"))
+    ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with worktree sets host to >=1.9.0" });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
     if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });

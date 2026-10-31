@@ -25,7 +25,7 @@ test('endpoint test has its own fixed budget and structured state without changi
 });
 import {PLUGIN_PROTOCOL_VERSION,EXTENSION_METHODS,EXTENSION_POINTS,CAPABILITY_METHODS,capabilityOf,CAPABILITIES} from '../src/plugins/protocol';
 test('protocol 1.4 registers endpoint methods and write authority without changing the transport line cap',()=>{
- expect(MAX_LINE_BYTES).toBe(1048576);expect(PLUGIN_PROTOCOL_VERSION).toBe('1.8.0');expect(EXTENSION_POINTS).toContain('endpoint');expect(CAPABILITIES).toContain('fs.write');
+ expect(MAX_LINE_BYTES).toBe(1048576);expect(PLUGIN_PROTOCOL_VERSION).toBe('1.9.0');expect(EXTENSION_POINTS).toContain('endpoint');expect(CAPABILITIES).toContain('fs.write');
  expect(EXTENSION_METHODS['endpoint.models']).toBe(ENDPOINT_METHODS['endpoint.models']);
  for(const name of ['write','mkdir','remove','beginWrite','writeChunk','commitWrite','releaseWrite']){
   expect(CAPABILITY_METHODS[`capability.fs.${name}`]).toBeDefined();expect(capabilityOf(`capability.fs.${name}`)).toBe('fs.write');

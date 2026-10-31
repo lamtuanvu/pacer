@@ -115,7 +115,7 @@ export const EXECUTOR_METHODS = {
     params: executorAvailableParams, result: executorAvailableResult, deadlineMs: 10_000 },
   "executor.run": { description: "Owned direct attempt or compatibility local process effect, each under exact host-issued grants.",
     params: executorRunParams, result: executorRunResult, deadlineMs: 0 },
-  "executor.stop": { description: "Stop the matching staged local attempt.",
+  "executor.stop": { description: "Stop the exact persisted local or remote attempt under a one-use host-issued stop grant.",
     params: executorStopParams, result: executorStopResult, deadlineMs: 30_000 },
   "executor.sessionState": { description: "Read the running, exited or uncertain state of one host-issued persisted local executor session.",
     params: executorSessionStateParams, result: executorSessionStateResult, deadlineMs: 5_000 },

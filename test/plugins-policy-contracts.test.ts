@@ -32,7 +32,7 @@ test("policy config defaults open and rejects malformed policy instead of silent
   }
 });
 test("policy contracts expose bounded decision-specific amendments and policy activity", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.8.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.9.0");
   expect(ACTIVITY_KINDS).toContain("policy");
   expect(
     manifestSchema.safeParse({
@@ -186,7 +186,7 @@ test("older peers cannot use unnegotiated observation helpers or send requests",
     },
   });
   expect(writes.some((m) => m.method?.startsWith("capability."))).toBe(false);
-  expect(writes[0].result.protocol).toBe("1.8.0");
+  expect(writes[0].result.protocol).toBe("1.9.0");
 });
 
 test("older peers cannot bootstrap callbacks and unowned direct brokers still deny", async () => {
