@@ -1969,6 +1969,7 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "job",
         "notify",
         "message",
+        "liveness",
         "machine",
         "assistant",
         "discovery.found"
@@ -9394,6 +9395,7 @@ Params:
           "job",
           "notify",
           "message",
+          "liveness",
           "machine",
           "assistant",
           "discovery.found"

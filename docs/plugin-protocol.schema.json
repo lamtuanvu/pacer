@@ -90,6 +90,7 @@
             "job",
             "notify",
             "message",
+            "liveness",
             "machine",
             "assistant",
             "discovery.found"
@@ -7556,6 +7557,7 @@
               "job",
               "notify",
               "message",
+              "liveness",
               "machine",
               "assistant",
               "discovery.found"
