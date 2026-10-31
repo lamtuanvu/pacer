@@ -1617,3 +1617,19 @@ test("releasing a kept-alive lane while the provider is disabled stays host clos
   expect(closes(x.f.calls)).toHaveLength(1);
   expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
 });
+
+test("a host placement refusal stands even if the provider asks for direct or dies", async () => {
+  const fallbackInstead = {"executor.run": async (params: unknown, host: HostClient) => {
+    const ids = {taskId: (params as {task: {id: string}}).task.id, attempt: 1};
+    await host.call("capability.orca.liveAnswer", ids);
+    await host.call("capability.orca.prepare", ids);
+    return {orca: {fallback: {reason: "provider prefers direct"}}};
+  }};
+  for (const provider of [{handlers: fallbackInstead}, {failOn: "capability.orca.place"}]) {
+    const x = setup([[["git", "-C", repo, "status"], raw(" M file\n")]], {worktree: "current"}, {}, [], provider);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("orca");
+    expect(out.report).toContain("uncommitted changes");
+    expect(x.direct).toBe(0);
+  }
+});

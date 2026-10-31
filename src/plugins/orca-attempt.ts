@@ -131,6 +131,7 @@ export class OrcaAttemptSession {
   get preStart(): boolean { return ["new", "checked", "prepared", "placed", "terminal", "refused", "fallback"].includes(this.phase); }
   /** Set only when the host's own placement refused the attempt; a provider cannot claim a refusal. */
   hostRefused = false;
+  refusal = "";
 
   /** An interactive lane's escalation keeps its worker; an answer reattaches to it instead of starting a fresh one. */
   async liveAnswer(): Promise<{ kind: "none" } | { kind: "fallback"; reason: string } | { kind: "attached"; dispatchId: string }> {
@@ -216,7 +217,7 @@ export class OrcaAttemptSession {
     let p;
     try { p = await prepareOrca(ctx, c, cfg, task, this.ex); }
     catch (e) { this.phase = "fallback"; return { ok: false, reason: bounded(message(e)), refuse: false }; }
-    if (!p.ok) { this.phase = "fallback"; this.hostRefused = !!p.refuse; return { ok: false, reason: bounded(p.reason), refuse: !!p.refuse }; }
+    if (!p.ok) { this.phase = "fallback"; this.hostRefused = !!p.refuse; this.refusal = p.reason; return { ok: false, reason: bounded(p.reason), refuse: !!p.refuse }; }
     this.p = p;
     updateTask(ctx, task.id, t => { t.baseBranch = p.base; t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, ...p.resolved }; if (!task.retryOf) delete t.worktree; });
     this.startedAt = deps.now() / 1000;

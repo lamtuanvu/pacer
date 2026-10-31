@@ -59,6 +59,11 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
   // A work grant is a secret: it cannot go in a visible Orca terminal command, so delegating work runs directly.
   if (ctx.env.PACER_WORK_GRANT) return fallback(deps, ctx, cfg, task, onSpawn, "the task allows delegation, and its work grant cannot be placed in a visible Orca terminal command");
   const session = new OrcaAttemptSession(ctx, cfg, task, deps, ex);
+  const refused = (): AttemptOutcome => {
+    const at = Date.now() / 1000, reason = session.refusal || "the Orca placement was refused";
+    return { exec: { code: 1, stdout: "", stderr: reason, timedOut: false }, report: reason, backend: "orca",
+      attempt: { executor: cfg.id, model: cfg.model, startedAt: at, endedAt: at, exitCode: 1, timedOut: false, limitHit: false, log: "" } };
+  };
   try {
     let raw: unknown;
     try {
@@ -69,6 +74,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
       }, { resources: { ...empty(), orcaAttempt: { taskId: task.id, attempt: session.attempt, providerId: ORCA_PROVIDER,
         executor: cfg.id, session: session.id } }, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + SETUP_BUDGET_MS });
     } catch (error) {
+      if (session.hostRefused) return refused();
       const rescued = await session.rescue(error);
       if ("outcome" in rescued) return rescued.outcome;
       return fallback(deps, ctx, cfg, task, onSpawn, rescued.fallback, session.lines);
@@ -78,12 +84,10 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
     // A refusal must be the host's own; a fallback needs a host-recorded reason or effects the host can abandon.
     const accepted = !!choice && ("refused" in choice ? session.hostRefused && session.phase === "fallback"
       : session.preStart && session.phase !== "new" && session.phase !== "checked");
-    if (choice && accepted) {
-      if ("refused" in choice) {
-        const at = Date.now() / 1000, reason = choice.refused.reason;
-        return { exec: { code: 1, stdout: "", stderr: reason, timedOut: false }, report: reason, backend: "orca",
-          attempt: { executor: cfg.id, model: cfg.model, startedAt: at, endedAt: at, exitCode: 1, timedOut: false, limitHit: false, log: "" } };
-      }
+    // The host's own refusal stands whatever the provider returns: nothing runs in a placement the host refused.
+    if (session.hostRefused || (choice && accepted)) {
+      if (session.hostRefused || (choice && "refused" in choice)) return refused();
+      if (!choice || "refused" in choice) throw new CoreError("conflict", "unreachable Orca disposition");
       if (session.phase !== "fallback") {
         const { reason } = await session.abandon(choice.fallback.reason);
         return fallback(deps, ctx, cfg, task, onSpawn, reason, session.lines);
