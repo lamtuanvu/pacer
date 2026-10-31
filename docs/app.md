@@ -64,6 +64,19 @@ share it. Run `pacer open` again if it expires or has already been used.
 `pacer open --logout` signs out all browser sessions. Settings also shows this
 command under Sign out; run it in a terminal.
 
+## Read freshness
+
+Returning to a screen within two seconds can reuse its last successful read.
+Screens sharing the same service connection also share identical in-flight reads.
+Changed task/configuration events, reconnects and explicit refreshes request new
+data; a failed refresh keeps the last visible result and reports the error.
+Connections keep separate results, and unused query history is bounded.
+
+Repository branch choices are cached by the service for at most two seconds
+between reads, so a branch created outside pacer can take another read after that
+interval to appear. This picker cache does not replace the repository and working
+tree checks performed when starting work.
+
 ## Screens
 
 | Screen | What you can do |
