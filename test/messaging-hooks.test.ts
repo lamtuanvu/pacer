@@ -88,9 +88,18 @@ test("the prompt hook injects context for claude-code and codex and prints nothi
   expect(out.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
   expect(out.hookSpecificOutput.additionalContext).toContain("status?");
   send("external:codex:th", "codex please");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders: {claude-code: {}, codex: {}}\n");
   const text = await promptHook(ctx, "codex", { session_id: "th" });
   expect(text).toContain("codex please");
   expect(() => JSON.parse(text)).toThrow();
+});
+
+test("hooks of an agent kind that is not the configured planner neither inject nor block", async () => {
+  const { ctx, send } = setup("messaging:\n  hooks: {stop: block}\n");
+  send("external:codex:th", "codex please");
+  expect(await promptHook(ctx, "codex", { session_id: "th" })).toBe("");
+  expect(await stopHook(ctx, "codex", { session_id: "th", stop_hook_active: false })).toBe("");
+  expect(store.pendingFor(ctx, "external:codex:th")).toHaveLength(1);
 });
 
 test("rendering is bounded to 20 messages and 8 KiB", async () => {

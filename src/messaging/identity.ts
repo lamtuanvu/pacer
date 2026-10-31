@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs";
-import { isExecutorSession } from "../install/role";
+import { plannerPolicyApplies } from "../install/role";
 import type { Ctx } from "../types";
 
 export type PlannerKind = "claude-code" | "codex";
@@ -17,7 +17,7 @@ export function plannerEnvExport(kind: PlannerKind, sessionId: string | undefine
 /** SessionStart keeps the existing status hook as the source of budget context. */
 export async function sessionHook(ctx: Ctx, kind: PlannerKind, input: unknown, statusOutput?: () => Promise<string>): Promise<{ out: string }> {
   try {
-    if (!isExecutorSession(ctx, input) && ctx.env.CLAUDE_ENV_FILE) {
+    if (plannerPolicyApplies(ctx, kind, input) && ctx.env.CLAUDE_ENV_FILE) {
       const sid = input && typeof input === "object" && "session_id" in input && typeof input.session_id === "string"
         ? input.session_id : undefined;
       const line = plannerEnvExport(kind, sid);

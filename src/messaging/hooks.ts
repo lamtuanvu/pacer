@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isExecutorSession } from "../install/role";
+import { plannerPolicyApplies } from "../install/role";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import { plannerSessionId, type PlannerKind } from "./identity";
@@ -47,7 +47,7 @@ function render(pending: Message[]): string {
 export async function stopHook(ctx: Ctx, kind: PlannerKind, input: unknown): Promise<string> {
   try {
     if (effectivePolicy(ctx).config.hooks.stop !== "block") return "";
-    if (isExecutorSession(ctx, input)) return "";
+    if (!plannerPolicyApplies(ctx, kind, input)) return "";
     const me = plannerSessionId(kind, sessionOf(input));
     const pending = pendingFor(ctx, me);
     if (!pending.length) { clearHookBlocks(ctx, me); return ""; }
@@ -68,7 +68,7 @@ export async function stopHook(ctx: Ctx, kind: PlannerKind, input: unknown): Pro
 /** UserPromptSubmit hook stdout: JSON context for Claude Code, plain text for Codex. Fails open. */
 export async function promptHook(ctx: Ctx, kind: PlannerKind, input: unknown): Promise<string> {
   try {
-    if (isExecutorSession(ctx, input)) return "";
+    if (!plannerPolicyApplies(ctx, kind, input)) return "";
     const pending = pendingFor(ctx, plannerSessionId(kind, sessionOf(input)));
     if (!pending.length) return "";
     const text = `pacer: you have ${pending.length} message(s) waiting:\n${render(pending)}`;

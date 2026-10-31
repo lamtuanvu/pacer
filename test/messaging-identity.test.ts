@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { io } from "../src/install/stdin";
 import { plannerParticipant } from "../src/messaging/participants";
-import { plannerSessionId } from "../src/messaging/identity";
+import { plannerSessionId, sessionHook } from "../src/messaging/identity";
 import { fakeCtx, tmpDir } from "./helpers";
 
 test("planner identity uses session environment and sanitizes ids", () => {
@@ -45,4 +45,14 @@ test("SessionStart skips executor env writes and fails open on an unwritable fil
     const status = await main(["status", "--hook", "claude-code"], bad);
     expect((await main(["msg", "hook", "session", "--planner", "claude-code"], bad)).out).toBe(status.out);
   } finally { io.readStdin = original; }
+});
+
+test("SessionStart does not export an identity for a different configured planner", async () => {
+  const dir = tmpDir(), file = join(dir, "env");
+  writeFileSync(file, "existing=1\n");
+  const ctx = fakeCtx({ env: { CLAUDE_ENV_FILE: file } });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders: {claude-code: {}, codex: {}}\n");
+  expect(await sessionHook(ctx, "claude-code", { session_id: "abc" }, async () => "status")).toEqual({ out: "status" });
+  expect(readFileSync(file, "utf8")).toBe("existing=1\n");
 });
