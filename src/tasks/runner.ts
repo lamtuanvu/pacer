@@ -672,6 +672,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
               : runOwnedDirectCurrent(executionCtx, cfg, task));
         } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
+        // The runner's own log is the only place this failure is recorded before the task is lost.
+        console.error(`pacer: ${id} attempt failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
         const latest = readTask(ctx, id);
         if (owned && latest && TERMINAL_STATES.includes(latest.state)) return latest;
         if (owned && latest?.executorProvider === "pacer-exec-direct" &&

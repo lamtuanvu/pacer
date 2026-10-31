@@ -25,8 +25,8 @@ import { appendLabel } from "./labels";
 import { executorExclusion } from "../executors/availability";
 import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
 import { machineGuard } from "../engine/machine";
@@ -108,15 +108,28 @@ export function selfCommand(argv: string[] = process.argv, execPath: string = pr
   return /\.(ts|js|mjs)$/.test(script) ? [execPath, script] : [execPath];
 }
 
+/** Where detached runners write their output, so a runner that dies says why. */
+export const runnerLogPath = (ctx: Pick<Ctx, "pacerHome">) => join(ctx.pacerHome, "logs", "runner.log");
+
+function openRunnerLog(ctx: Ctx): number | "ignore" {
+  try {
+    mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true, mode: 0o700 });
+    return openSync(runnerLogPath(ctx), "a", 0o600);
+  } catch { return "ignore"; } // A missing log never blocks a launch.
+}
+
 const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => {
   const [cmd, ...pre] = selfCommand();
-  const child = spawn(cmd, [...pre, "_run", taskId], {
-    detached: true,
-    stdio: "ignore",
-    env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
-  });
-  child.unref();
-  return child.pid;
+  const log = openRunnerLog(ctx);
+  try {
+    const child = spawn(cmd, [...pre, "_run", taskId], {
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+    });
+    child.unref();
+    return child.pid;
+  } finally { if (log !== "ignore") closeSync(log); }
 };
 
 /** Persist admission before invoking even an injected launcher. Never clear an
