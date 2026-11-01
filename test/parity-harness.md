@@ -22,7 +22,8 @@ check changed JSON content, file mode, an extra empty directory and a symlink.
 
 Each `native` requirement must name an exercised operation. The candidate must
 advertise it through the test-only `_debug.native` registry and emit one exact
-`native <op>` stderr marker per call with `PACER_DEBUG_NATIVE=1`. The registry
+`native <op> <id>` stderr marker per correlated stdio call with
+`PACER_DEBUG_NATIVE=1`. HTTP calls emit `native <op>` without an ID. The registry
 excludes operations overridden by `PACER_FORWARD_OPS`. A production build without
 the test-only diagnostic cannot certify native parity with this driver. Equal
 forwarded results cannot certify a migration. There is no production debug endpoint.
