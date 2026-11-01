@@ -16,6 +16,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
 
+- Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added
