@@ -1,0 +1,122 @@
+{
+  "codes": [
+    {
+      "code": "capability_denied",
+      "http": 403,
+      "rpc": -32000
+    },
+    {
+      "code": "conflict",
+      "http": 409,
+      "rpc": -32000
+    },
+    {
+      "code": "internal",
+      "http": 500,
+      "rpc": -32000
+    },
+    {
+      "code": "invalid_input",
+      "http": 400,
+      "rpc": -32602
+    },
+    {
+      "code": "not_allowed",
+      "http": 403,
+      "rpc": -32000
+    },
+    {
+      "code": "not_found",
+      "http": 404,
+      "rpc": -32000
+    },
+    {
+      "code": "plugin_refused",
+      "http": 422,
+      "rpc": -32000
+    },
+    {
+      "code": "plugin_timeout",
+      "http": 504,
+      "rpc": -32000
+    },
+    {
+      "code": "plugin_unavailable",
+      "http": 503,
+      "rpc": -32000
+    },
+    {
+      "code": "rate_limited",
+      "http": 429,
+      "rpc": -32000
+    },
+    {
+      "code": "too_large",
+      "http": 413,
+      "rpc": -32000
+    },
+    {
+      "code": "unavailable",
+      "http": 503,
+      "rpc": -32000
+    },
+    {
+      "code": "unknown_executor",
+      "http": 404,
+      "rpc": -32000
+    },
+    {
+      "code": "unknown_op",
+      "http": 404,
+      "rpc": -32601
+    },
+    {
+      "code": "unknown_plugin",
+      "http": 404,
+      "rpc": -32000
+    },
+    {
+      "code": "unknown_task",
+      "http": 404,
+      "rpc": -32000
+    }
+  ],
+  "samples": [
+    {
+      "body": {
+        "error": {
+          "code": "conflict",
+          "message": "sample conflict",
+          "data": {}
+        }
+      },
+      "rpc": {
+        "code": -32000,
+        "message": "sample conflict",
+        "data": {
+          "code": "conflict"
+        }
+      }
+    },
+    {
+      "body": {
+        "error": {
+          "code": "conflict",
+          "message": "sample conflict",
+          "hint": "retry",
+          "data": {
+            "expected": 1
+          }
+        }
+      },
+      "rpc": {
+        "code": -32000,
+        "message": "sample conflict",
+        "data": {
+          "code": "conflict",
+          "hint": "retry"
+        }
+      }
+    }
+  ]
+}
