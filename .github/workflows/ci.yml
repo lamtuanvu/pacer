@@ -149,6 +149,9 @@ jobs:
       - name: Build the SQLite cross-runtime proof
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
+      - name: Build the task store parity probe
+        if: ${{ needs.changes.outputs.bun == 'true' }}
+        run: cargo build --locked -p pacer-store --bin task_store_probe
       - name: Install Linux test cross-build prerequisites
         if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}
         run: |
@@ -166,6 +169,7 @@ jobs:
         if: ${{ needs.changes.outputs.bun == 'true' }}
         env:
           PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
+          PACER_STORE_PROBE_BIN: ${{ github.workspace }}/target/debug/task_store_probe
         run: bun run test
       - name: Build
         if: ${{ needs.changes.outputs.bun == 'true' }}
