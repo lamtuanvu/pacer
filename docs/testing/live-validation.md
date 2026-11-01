@@ -83,8 +83,15 @@ Use the guarded public proxy for HTTP checks. To check the forward override in
 a separate sandbox, add `--native-forward-echo`; it fixes
 `PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
 `logs/serve.log` and the forwarding result as behavior notes in each report.
-The D3 guard refuses generic stdio calls, so report stdio live behavior as
-UNVERIFIED unless a dedicated guarded fixture exercises it.
+The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
+`--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
+fixture starts the sandbox's Rust front door with the sandbox home and Keychain
+stub. The native test binary is pinned inside the sandbox at `up`, so later Cargo
+builds cannot change the exercised bytes. The fixture sends protocol-3 `hello`,
+`test.echo`, then protocol-2 `hello`, and records
+the exact replies and native execution trace. It accepts no operation, path or
+environment override. The normal guarded `live pacer -- api --stdio` remains
+refused. Report native stdio as PASS only when this fixture passes.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 

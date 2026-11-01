@@ -88,8 +88,11 @@ export function loadSession(id?: string, base = liveRoot): Session {
   return session;
 }
 /** The checkout CLI the sandbox runs: the TypeScript core, or the Rust front door in front of it. */
-export function pacerArgv(session: Pick<Session, "frontDoor">): string[] {
-  return session.frontDoor === "rust" ? [join(checkout, "target/debug/pacer")] : [process.execPath, join(checkout, "src/cli.ts")];
+export function pacerArgv(session: Pick<Session, "frontDoor"> & Partial<Pick<Session, "root" | "nativeTestOps">>): string[] {
+  if (session.frontDoor === "rust") {
+    return [session.nativeTestOps && session.root ? join(session.root, "bin/native-pacer") : join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer")];
+  }
+  return [process.execPath, join(checkout, "src/cli.ts")];
 }
 export function sourceServiceMatchesExecutable(observed: string | null, session: Pick<Session, "frontDoor">, canonicalize: (path: string) => string = realpathSync): boolean {
   return observed !== null && observed === canonicalize(pacerArgv(session)[0]);
@@ -229,6 +232,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
+    if (nativeTestOps) cpSync(join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer"), join(root, "bin/native-pacer"));
     if (template) cpSync(resolve(template), join(root, "repo"), {
       recursive: true,
       filter: (source) => ![".git", ".work", "node_modules"].includes(basename(source)),
