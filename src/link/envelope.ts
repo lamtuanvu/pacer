@@ -24,11 +24,20 @@ export interface LinkSnapshot { attention?: import("../attention/types").Attenti
 export type CmdName = "check-setup" | "check-updates" | "update" | "focus" | "attach" | "delegate" | "retry" | "retry-all" | "dismiss" | "block" | "unblock" | "stop" | "use" | "refresh" | "strategy-build" | "notify-level" | "config-set" | "account-remove" | "runner-remove" | "open-terminal";
 export interface CmdData { target?:"orca"|"terminal"; cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const str = (v: unknown, max: number): string | null => typeof v === "string" ? v.slice(0, max) : null;
-const optStr = (v: unknown, max: number): string | null => typeof v === "string" && v.length > 0 ? v.slice(0, max) : null;
+// Keep a UTF-16 limit without leaving half of an astral character at its edge.
+const sliceText = (s: string, max: number): string => {
+  const result = s.slice(0, max);
+  const last = result.charCodeAt(result.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? result.slice(0, -1) : result;
+};
+const str = (v: unknown, max: number): string | null => typeof v === "string" ? sliceText(v, max) : null;
+const optStr = (v: unknown, max: number): string | null => {
+  if (typeof v !== "string" || v.length === 0) return null;
+  return sliceText(v, max) || null;
+};
 const num = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) ? v : null;
 const LEVELS: readonly Level[] = ["info", "warn", "error"];
-export function clip(s: string, max: number): string { return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 3))}...`; }
+export function clip(s: string, max: number): string { return s.length <= max ? s : `${sliceText(s, Math.max(0, max - 3))}...`; }
 function parseBudget(d: unknown): BudgetData | null {
   if (!isObj(d)) return null;
   const generatedAt = num(d.generatedAt), strategy = str(d.strategy, 128), planner = str(d.planner, 64), mode = str(d.mode, 32);
@@ -54,7 +63,7 @@ function parseTask(d: unknown): TaskData | null {
         ...(["user", "agent_exit", "failure"].includes(String(d.conversation.endReason)) ? {endReason: d.conversation.endReason as "user" | "agent_exit" | "failure"} : {}),
       },
     } : {}),
-    ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:d.placement.why.slice(0,240)}} : {}),
+    ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:sliceText(d.placement.why,240)}} : {}),
     ...(isObj(d.stopPending) && Number.isSafeInteger(d.stopPending.attempt) && (d.stopPending.attempt as number) > 0 &&
       num(d.stopPending.requestedAt) !== null && optStr(d.stopPending.providerId, 128) &&
       Number.isSafeInteger(d.stopPending.graceMs) && (d.stopPending.graceMs as number) >= 0 &&
@@ -76,7 +85,7 @@ function parseTask(d: unknown): TaskData | null {
     ...(optStr(d.brokenReason,500) ? {brokenReason:optStr(d.brokenReason,500)!} : {}),
     ...(num(d.attemptStartedAt) !== null ? {attemptStartedAt:num(d.attemptStartedAt)!} : {}),
     ...(isObj(d.progress) && typeof d.progress.phase === "string" && num(d.progress.files) !== null && num(d.progress.commits) !== null && num(d.progress.logBytes) !== null
-      ? { progress: { phase: d.progress.phase.slice(0, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files)!, commits: num(d.progress.commits)!, logBytes: num(d.progress.logBytes)! } } : {}),
+      ? { progress: { phase: sliceText(d.progress.phase, 16), lastOutputAt: num(d.progress.lastOutputAt), files: num(d.progress.files)!, commits: num(d.progress.commits)!, logBytes: num(d.progress.logBytes)! } } : {}),
     ...(typeof d.runnerAlive === "boolean" ? {runnerAlive:d.runnerAlive} : {}),
   };
 }
@@ -128,7 +137,7 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
     case "discovery.found": {
       const d = raw.data;
       if (!isObj(d) || typeof d.discoveryId !== "string" || !/^[a-z2-7]{26}$/.test(d.discoveryId) || typeof d.name !== "string" || typeof d.version !== "string") return null;
-      return { type: "discovery.found", data: { discoveryId: d.discoveryId, name: d.name.slice(0, 64), version: d.version.slice(0, 32) } };
+      return { type: "discovery.found", data: { discoveryId: d.discoveryId, name: sliceText(d.name, 64), version: sliceText(d.version, 32) } };
     }
     default: return null;
   }

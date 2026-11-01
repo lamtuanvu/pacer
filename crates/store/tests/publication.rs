@@ -163,6 +163,39 @@ process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(pars
 }
 
 #[test]
+fn astral_task_goal_boundary_matches_bun_publication_bytes() {
+    for (prefix, suffix) in [(199, ""), (198, "z")] {
+        let rust = tempfile::tempdir().unwrap();
+        let ts = tempfile::tempdir().unwrap();
+        let goal = format!("{}😀{suffix}", "x".repeat(prefix));
+        let raw = json!({"type":"task","data":{"id":"t","state":"running","goal":goal,"executor":format!("{}😀", "x".repeat(63)),"updatedAt":1}});
+        let event = parse_outbox_event(&raw).unwrap();
+        let report = publish(&ctx(rust.path()), &[event]);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        bun(
+            ts.path(),
+            &format!(
+                r#"
+import {{parseOutboxEvent}} from './src/link/envelope.ts';
+import {{publish}} from './src/link/publish.ts';
+const c={{home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{{}}}};
+const event=parseOutboxEvent({{type:'task',data:{{id:'t',state:'running',goal:'x'.repeat({prefix})+'😀'+'{suffix}',executor:'x'.repeat(63)+'😀',updatedAt:1}}}});
+const report=await publish(c,[event]);
+if(report.errors.length) throw new Error(report.errors.join(','));
+"#
+            ),
+        );
+        for file in ["link/outbox.jsonl", "link/latest.json"] {
+            assert_eq!(
+                fs::read(rust.path().join(".pacer").join(file)).unwrap(),
+                fs::read(ts.path().join(".pacer").join(file)).unwrap(),
+                "{file}, prefix {prefix}"
+            );
+        }
+    }
+}
+
+#[test]
 fn alternating_bun_and_rust_events_keep_sequence() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());

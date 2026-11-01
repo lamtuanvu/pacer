@@ -19,6 +19,19 @@ describe("link envelope", () => {
     }
   });
   test("four envelope types round trip", () => { for (const e of envs) expect(parseOutboxEvent(JSON.parse(JSON.stringify(e)))).toEqual(e); });
+test("task goal truncation keeps whole astral characters", () => {
+  const task = { type: "task", data: { id: "t", state: "running", updatedAt: 1, goal: "" } };
+  for (const [goal, expected] of [
+    ["x".repeat(199) + "😀", "x".repeat(199)],
+    ["x".repeat(198) + "😀z", "x".repeat(198) + "😀"],
+  ]) {
+    const parsed = parseOutboxEvent({ ...task, data: { ...task.data, goal } });
+    expect(parsed?.type === "task" && parsed.data.goal).toBe(expected);
+    expect(JSON.stringify(parsed)).not.toContain("\\ud83d");
+  }
+  const optional = parseOutboxEvent({ ...task, data: { ...task.data, executor: "x".repeat(63) + "😀" } });
+  expect(optional?.type === "task" && optional.data.executor).toBe("x".repeat(63));
+});
   test("rejects invalid version, type, missing data and malformed budget", () => {
     for (const x of [{ v: 2, type: "mode", data: {} }, { type: "what", data: {} }, { type: "mode" }, { type: "budget", data: { generatedAt: 1, strategy: "x", mode: "normal" } }]) expect(parseOutboxEvent(x)).toBeNull();
   });
