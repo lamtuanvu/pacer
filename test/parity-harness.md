@@ -16,13 +16,18 @@ significant. Other files are compared byte for byte. Responses and JSON state
 retain timestamps, IDs, paths and error details exactly. This intentionally
 conservative baseline may reject legitimate nondeterminism. A future port must
 add explicit correlation-preserving mappings with negative controls before
-relaxing comparisons. No default log or lock exclusions conceal persisted data.
+relaxing comparisons. No normalization is needed for the current test-only native
+echo; no default log or lock exclusions conceal persisted data. Negative controls
+check changed JSON content, file mode, an extra empty directory and a symlink.
 
-The driver refuses any nonempty `native` requirement: the current host exposes
-no trusted native execution evidence. Equal forwarded results cannot certify a
-migration. There is no debug endpoint or production change in this preparation.
+Each `native` requirement must name an exercised operation. The candidate must
+advertise it through the test-only `_debug.native` registry and emit one exact
+`native <op>` stderr marker per call with `PACER_DEBUG_NATIVE=1`. The registry
+excludes operations overridden by `PACER_FORWARD_OPS`. A production build without
+the test-only diagnostic cannot certify native parity with this driver. Equal
+forwarded results cannot certify a migration. There is no production debug endpoint.
 Unsolicited notifications are rejected rather than silently discarded; event
-parity and native execution remain UNVERIFIED.
+parity remains UNVERIFIED.
 
 Run `bun run test test/parity-harness.test.ts`. An optional forwarding-only smoke
 uses `PACER_TEST_FRONT_DOOR` and defaults to source TypeScript as reference.
@@ -31,3 +36,5 @@ record that distinction in evidence. Stale source/build versions correctly fail.
 The always-enabled TypeScript smoke uses source on both sides and checks the
 driver wiring, not cross-runtime parity. The controlled peer proves mismatch,
 transport failure, timeout and native-gate detection independently of the host.
+With a test-ops front door, the echo tests prove native and forced-forward
+behavior. No production operation is newly classified as native by this change.
