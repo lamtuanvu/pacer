@@ -13,6 +13,8 @@ test("persisted state mismatch is detected", async () => { await expect(run("sta
 test.each(["state-mode", "state-extra", "state-link"])("full persisted tree detects %s mismatch", async mode => {
   await expect(run(mode)).rejects.toThrow("filesystem mismatch");
 });
+test("candidate Bun install cache does not count as persisted state", async () => { await run("bun-cache"); });
+test("candidate state beside Bun install cache still counts", async () => { await expect(run("bun-install-state")).rejects.toThrow("filesystem mismatch"); });
 test("malformed RPC is rejected", async () => { await expect(run("malformed")).rejects.toThrow("malformed"); });
 test("mismatched response IDs are rejected", async () => { await expect(run("id")).rejects.toThrow("id"); });
 test("silent peer times out", async () => { await expect(run("timeout", { timeoutMs: 200 })).rejects.toThrow("timed out"); });

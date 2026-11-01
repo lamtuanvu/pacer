@@ -140,6 +140,7 @@ jobs:
         run: |
           cargo build --locked -p pacer --features test-ops
           cp target/debug/pacer "$RUNNER_TEMP/pacer-native-test"
+          bun -e 'import { compileCore } from "./scripts/release/build"; import { hostTarget } from "./src/update/manifest"; import { join } from "node:path"; import pkg from "./package.json"; const target = hostTarget(); if (!target) throw Error("Unsupported CI host"); await compileCore({ root: process.cwd(), target, version: pkg.version, outfile: join(process.env.RUNNER_TEMP!, "pacer-core") });'
           echo "PACER_TEST_FRONT_DOOR=$RUNNER_TEMP/pacer-native-test" >> "$GITHUB_ENV"
       - name: Install Linux test cross-build prerequisites
         if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}

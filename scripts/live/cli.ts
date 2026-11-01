@@ -9,6 +9,7 @@ import { desktop, tui } from "./surfaces";
 import { executorRefusal } from "./guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
+import { exerciseNativeStdio } from "./native-stdio";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
@@ -33,6 +34,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
+  native-stdio --id <id>          exercise fixed protocol-3 stdio exchange in a native test-ops sandbox
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
@@ -165,6 +167,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live repair --id <id>");
     await exerciseRepair(loadSession(id));
 
+    return 0;
+  }
+  if (command === "native-stdio") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-stdio --id <id>");
+    await exerciseNativeStdio(loadSession(id));
     return 0;
   }
   if (command === "updater") {

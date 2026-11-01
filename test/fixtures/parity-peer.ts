@@ -37,6 +37,16 @@ for await (const line of console) {
     if (mode === "state-mode") chmodSync(file, 0o600);
     if (mode === "state-extra") mkdirSync(join(process.env.PACER_HOME!, "unexpected"));
     if (mode === "state-link") symlinkSync("state.json", join(process.env.PACER_HOME!, "state-link"));
+    if (mode === "bun-cache") {
+      const cache = join(process.env.PACER_HOME!, ".bun", "install", "cache");
+      mkdirSync(cache, { recursive: true });
+      writeFileSync(join(cache, "transpiled.js"), "runtime cache");
+    }
+    if (mode === "bun-install-state") {
+      const install = join(process.env.PACER_HOME!, ".bun", "install");
+      mkdirSync(install, { recursive: true });
+      writeFileSync(join(install, "state.json"), "{\"changed\":true}");
+    }
     result = { value: mode === "result" ? "broken" : request.params.value, updatedAt: mode === "timestamp" ? "2026-01-02" : "2026-01-01" };
   }
   if (request.method === "read") result = { value: "kept", fixture: readFileSync(join(process.env.PACER_HOME!, "seed.json"), "utf8") };
