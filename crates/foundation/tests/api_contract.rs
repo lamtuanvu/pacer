@@ -95,18 +95,41 @@ fn api_registry_forward_only_removes_native_handlers() {
 
 #[test]
 fn api_unknown_op_uses_sorted_union_of_native_and_forwarded_names() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/api-error-contract.json"
+    ))
+    .unwrap();
+    let names: Vec<&str> = fixture["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|name| name.as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"api.list"));
+    assert!(names.contains(&"task.get"));
+    assert!(names.contains(&"task.list"));
     let ops = [
         NativeOp {
-            name: "z",
+            name: "task.get",
             call: noop,
         },
         NativeOp {
-            name: "a",
+            name: "api.list",
             call: noop,
         },
     ];
-    let registry = Registry::new(&ops, "z");
-    let error = registry.unknown_op("missing", &["b", "a"]);
-    assert_eq!(error.message, "unknown operation \"missing\"");
-    assert_eq!(error.hint.as_deref(), Some("operations: a, b, z"));
+    let registry = Registry::new(&ops, "task.get");
+    assert_eq!(registry.names(), vec!["api.list"]);
+    let forwarded: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| !["api.list", "task.get"].contains(name))
+        .collect();
+    assert!(forwarded.contains(&"task.list"));
+    let error = registry.unknown_op("missing.operation", &forwarded);
+    assert_eq!(error.message, "unknown operation \"missing.operation\"");
+    assert_eq!(
+        error.hint.as_deref(),
+        Some(format!("operations: {}", names.join(", ")).as_str())
+    );
 }

@@ -10,10 +10,11 @@ test("generated API error fixture matches the live TypeScript contract", () => {
 });
 
 test("unknown operation hint contains the sorted operation name union", async () => {
+  expect(fixture.operations).toEqual(opNames());
   const error = await callOp({ env: {} } as Parameters<typeof callOp>[0], "missing.operation", {}).catch((e: unknown) => e);
   expect(error).toBeInstanceOf(CoreError);
   expect(toApiError(error)).toEqual({
-    code: "unknown_op", message: 'unknown operation "missing.operation"', hint: `operations: ${opNames().join(", ")}`,
+    code: "unknown_op", message: 'unknown operation "missing.operation"', hint: `operations: ${fixture.operations.join(", ")}`,
   });
   expect(rpcError(error).code).toBe(-32601);
 });
