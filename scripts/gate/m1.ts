@@ -80,7 +80,7 @@ async function gate(dir: string): Promise<number> {
       }
     });
     await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
-    await step("Bun suite", () => command([process.execPath, "run", "test"], { PACER_TEST_FRONT_DOOR: front }));
+    await step("Bun suite", () => command([process.execPath, "run", "test"], { PACER_TEST_FRONT_DOOR: front, PACER_TEST_REFERENCE_CORE: core }));
     await step("crate LOC", () => command(["cargo", "xtask", "loc", "--check"]));
     await step("crate dependencies", () => command(["cargo", "xtask", "deps"]));
     return failures ? 1 : 0;
