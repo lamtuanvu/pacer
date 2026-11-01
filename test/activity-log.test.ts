@@ -15,6 +15,12 @@ import type { Status } from "../src/engine/status";
 import { fakeCtx } from "./helpers";
 
 const file = (ctx: ReturnType<typeof fakeCtx>) => join(ctx.pacerHome, "state", "activity.jsonl");
+test("activity truncation keeps whole astral characters", () => {
+  const ctx = fakeCtx();
+  const entry = appendActivity(ctx, { kind: "message", level: "info", text: "x".repeat(499) + "😀" });
+  expect(entry.text).toBe("x".repeat(499));
+  expect(readFileSync(file(ctx), "utf8")).not.toContain("\\ud83d");
+});
 async function configured() {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });

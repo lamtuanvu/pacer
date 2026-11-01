@@ -1,4 +1,5 @@
 import type { PauseState } from "../core/pause";
+import { sliceText } from "../util";
 import type { NotificationData } from "./notification";
 /** Durable outbox events and compatibility snapshot data. */
 export const PLUGIN_KEY = "lamtuanvu.pacer";
@@ -24,12 +25,6 @@ export interface LinkSnapshot { attention?: import("../attention/types").Attenti
 export type CmdName = "check-setup" | "check-updates" | "update" | "focus" | "attach" | "delegate" | "retry" | "retry-all" | "dismiss" | "block" | "unblock" | "stop" | "use" | "refresh" | "strategy-build" | "notify-level" | "config-set" | "account-remove" | "runner-remove" | "open-terminal";
 export interface CmdData { target?:"orca"|"terminal"; cmd: CmdName; key?: string; value?: string; name?: string; command?: "account-add" | "account-add-orca" | "runner-add" | "init"; level?: "off" | "important" | "all"; branch?: string; displayName?: string; paneKey?: string; worktreeId?: string; path?: string; strategy?: string; goal?: string; acceptance?: string; executor?: string; taskId?: string; taskIds?: string[]; for?: string; agent?: string; from?: string; brief?: string }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-// Keep a UTF-16 limit without leaving half of an astral character at its edge.
-const sliceText = (s: string, max: number): string => {
-  const result = s.slice(0, max);
-  const last = result.charCodeAt(result.length - 1);
-  return last >= 0xd800 && last <= 0xdbff ? result.slice(0, -1) : result;
-};
 const str = (v: unknown, max: number): string | null => typeof v === "string" ? sliceText(v, max) : null;
 const optStr = (v: unknown, max: number): string | null => {
   if (typeof v !== "string" || v.length === 0) return null;

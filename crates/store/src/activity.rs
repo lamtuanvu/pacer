@@ -1,4 +1,5 @@
 use crate::file::{append, atomic, js_number, json_bytes, private_dir};
+use crate::outbox::slice_utf16;
 use pacer_foundation::Ctx;
 use rand::RngCore;
 use regex::Regex;
@@ -121,13 +122,7 @@ fn safe_text(text: &str) -> String {
         r"(?i)((?:api[_-]?key|access[_-]?token|password)\s*[=:]\s*)[^\s,;]+",
         "${1}[redacted]",
     );
-    value = value
-        .lines()
-        .next()
-        .unwrap_or("")
-        .chars()
-        .take(500)
-        .collect();
+    value = slice_utf16(value.lines().next().unwrap_or(""), 500);
     value = replace(value, r"(?i)(\btoken\s*[=:]\s*)[^\s,;]+", "${1}[redacted]");
     replace(
         value,

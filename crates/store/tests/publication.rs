@@ -196,6 +196,86 @@ if(report.errors.length) throw new Error(report.errors.join(','));
 }
 
 #[test]
+fn astral_activity_boundary_matches_bun_jsonl_and_outbox_text_bytes() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let input = json!({"kind":"message","level":"info","text":format!("{}😀", "x".repeat(499))});
+    append_activity(&ctx(rust.path()), input).unwrap();
+    bun(
+        ts.path(),
+        r#"
+import {appendActivity} from './src/activity/log.ts';
+import {existsSync} from 'node:fs';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+appendActivity(c,{kind:'message',level:'info',text:'x'.repeat(499)+'😀'});
+for(let i=0;i<100&&!existsSync(c.pacerHome+'/link/outbox.jsonl');i++) await Bun.sleep(10);
+if(!existsSync(c.pacerHome+'/link/outbox.jsonl')) throw Error('missing outbox');
+"#,
+    );
+    let text_bytes = |root: &Path, file: &str| {
+        let bytes = fs::read(root.join(".pacer").join(file)).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        Regex::new(r#""text":"([^"]*)""#)
+            .unwrap()
+            .captures(&text)
+            .unwrap()[0]
+            .as_bytes()
+            .to_vec()
+    };
+    for file in ["state/activity.jsonl", "link/outbox.jsonl"] {
+        assert_eq!(
+            text_bytes(rust.path(), file),
+            text_bytes(ts.path(), file),
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn overlong_event_and_strategy_boundaries_match_bun_publication_bytes() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let snapshot = json!({"v":1,"seq":0,"at":0,"strategies":["😀".repeat(65)]});
+    for root in [rust.path(), ts.path()] {
+        let link = root.join(".pacer/link");
+        fs::create_dir_all(&link).unwrap();
+        fs::write(link.join("latest.json"), snapshot.to_string()).unwrap();
+    }
+    let raw = json!([
+        {"type":"config","data":{"area":"x".repeat(129),"at":1}},
+        {"type":"assistant","data":{"turnId":format!("{}😀", "x".repeat(127)),"conversationId":"c","state":"done"}}
+    ]);
+    let events: Vec<Value> = raw
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| parse_outbox_event(event).unwrap())
+        .collect();
+    assert!(publish(&ctx(rust.path()), &events).errors.is_empty());
+    bun(
+        ts.path(),
+        r#"
+import {parseOutboxEvent} from './src/link/envelope.ts';
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+const events=[
+  {type:'config',data:{area:'x'.repeat(129),at:1}},
+  {type:'assistant',data:{turnId:'x'.repeat(127)+'😀',conversationId:'c',state:'done'}}
+].map(parseOutboxEvent);
+const report=await publish(c,events);
+if(report.errors.length) throw Error(report.errors.join(','));
+"#,
+    );
+    for file in ["link/outbox.jsonl", "link/latest.json"] {
+        assert_eq!(
+            fs::read(rust.path().join(".pacer").join(file)).unwrap(),
+            fs::read(ts.path().join(".pacer").join(file)).unwrap(),
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn alternating_bun_and_rust_events_keep_sequence() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -285,12 +365,16 @@ fn envelope_parser_matches_typescript_for_current_kinds() {
         {"type":"entity","data":{"kind":"message","id":"turn","value":{"state":"open"}}},
         {"type":"entity","data":{"kind":"liveness","id":"agent"}},
         {"type":"config","data":{"area":"strategy","at":1}},
+        {"type":"config","data":{"area":"x".repeat(129),"at":1}},
+        {"type":"config","data":{"area":format!("{}😀", "x".repeat(127)),"at":1}},
         {"type":"budget","data":{"generatedAt":1,"strategy":"s","planner":"p","mode":"normal","providers":[{"id":"p","verdict":"OK","usedPct":null,"pacePct":4.2,"resetsAt":null,"window":null,"stale":false}],"ranked":[]}},
         {"type":"task","data":{"id":"t","state":"running","goal":"g","executor":null,"backend":null,"worktree":null,"updatedAt":1,"progress":{"phase":"working","files":2,"commits":1,"logBytes":300,"lastOutputAt":5}}},
         {"type":"mode","data":{"mode":"normal","previous":null,"strategy":"s","at":1}},
         {"type":"alert","data":{"title":"notice","error":"YAML bad"}},
         {"type":"pause","data":{"until":null,"reason":null,"by":null}},
         {"type":"assistant","data":{"turnId":"t","conversationId":"c","state":"done"}},
+        {"type":"assistant","data":{"turnId":"x".repeat(129),"conversationId":"c","state":"done"}},
+        {"type":"assistant","data":{"turnId":"t","conversationId":format!("{}😀", "x".repeat(127)),"state":"done"}},
         {"type":"discovery.found","data":{"discoveryId":"abcdefghijklmnopqrstuvwxyz","name":"peer","version":"1"}},
         {"type":"entity","data":{"kind":"machine","id":""}},
         {"type":"budget","data":{"generatedAt":1}}
@@ -425,6 +509,7 @@ fn snapshot_parser_matches_bun_normalization() {
     let inputs = json!([
         {"v":1,"seq":2,"at":100,"serviceInstalled":true,"tasks":[{"id":"t","state":"running","updatedAt":1,"goal":"g","executor":"codex","backend":null,"worktree":null}],"alerts":[{"title":"hello","error":"bad"}],"console":{"pid":12,"startedAt":90,"heartbeatAt":99,"handle":"h","paneKey":null},"strategies":["default",{"name":"alt","active":true,"summary":"s","description":"d"}],"unknown":"discard"},
         {"v":1,"seq":5,"at":10,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"normal"},"mode":{"mode":"normal","strategy":"s","at":1}},
+        {"v":1,"seq":0,"at":0,"strategies":["😀".repeat(65),format!("{}😀", "x".repeat(127))]},
         {"v":2,"seq":1,"at":1},
         {"v":1,"seq":"bad","at":1}
     ]);

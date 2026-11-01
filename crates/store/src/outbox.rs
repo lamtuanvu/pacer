@@ -50,7 +50,7 @@ fn clip(s: &str, max: usize) -> String {
     }
 }
 
-fn slice_utf16(s: &str, max: usize) -> String {
+pub(crate) fn slice_utf16(s: &str, max: usize) -> String {
     let mut units = 0;
     s.chars()
         .take_while(|c| {
@@ -358,8 +358,13 @@ pub fn parse_outbox_event(raw: &Value) -> Option<Value> {
             }
             Some(json!({"type":"entity","data":output}))
         }
-        "config" if required_string(data, "area", 128) && data.get("at").is_some_and(number) => {
-            Some(json!({"type":"config","data":{"area":data["area"],"at":data["at"]}}))
+        "config"
+            if optional_string(data, "area", 128).is_some()
+                && data.get("at").is_some_and(number) =>
+        {
+            Some(
+                json!({"type":"config","data":{"area":optional_string(data, "area", 128)?,"at":data["at"]}}),
+            )
         }
         "budget" => Some(json!({"type":"budget","data":parse_budget(data)?})),
         "task" => Some(json!({"type":"task","data":parse_task(data)?})),
@@ -380,15 +385,15 @@ pub fn parse_outbox_event(raw: &Value) -> Option<Value> {
             )
         }
         "assistant"
-            if required_string(data, "turnId", 128)
-                && required_string(data, "conversationId", 128)
+            if optional_string(data, "turnId", 128).is_some()
+                && optional_string(data, "conversationId", 128).is_some()
                 && data
                     .get("state")
                     .and_then(Value::as_str)
                     .is_some_and(|s| ["done", "error", "cancelled"].contains(&s)) =>
         {
             Some(
-                json!({"type":"assistant","data":{"turnId":data["turnId"],"conversationId":data["conversationId"],"state":data["state"]}}),
+                json!({"type":"assistant","data":{"turnId":optional_string(data, "turnId", 128)?,"conversationId":optional_string(data, "conversationId", 128)?,"state":data["state"]}}),
             )
         }
         "discovery.found"
@@ -493,7 +498,7 @@ pub fn parse_snapshot(raw: &Value) -> Option<Value> {
             .collect(),
     );
     snapshot["strategies"] = Value::Array(raw.get("strategies").and_then(Value::as_array).into_iter().flatten().filter_map(|item| {
-        if let Some(name) = item.as_str() { return (!name.is_empty()).then(|| json!(name.chars().take(128).collect::<String>())); }
+        if let Some(name) = item.as_str() { return Some(slice_utf16(name, 128)).filter(|name| !name.is_empty()).map(Value::String); }
         let name = optional_string(item,"name",128)?;
         Some(json!({"name":name,"active":item.get("active")==Some(&Value::Bool(true)),"summary":string(item,"summary",1000).unwrap_or_default(),"description":string(item,"description",1000).unwrap_or_default()}))
     }).take(32).collect());

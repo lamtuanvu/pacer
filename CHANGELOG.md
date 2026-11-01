@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.
+
 ## [0.13.0] - 2026-10-31
 
 ### Fixed
