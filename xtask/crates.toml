@@ -72,6 +72,8 @@ layer = 1
 layer = 2
 [crates.pacer-mdns]
 layer = 2
+[crates.pacer-config]
+layer = 3
 [crates.pacer-server]
 layer = 8
 heavy = ["axum", "hyper"]
