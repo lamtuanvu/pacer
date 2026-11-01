@@ -19,7 +19,7 @@ fn merge(defaults: &Value, input: &Value) -> Value {
     }
 }
 fn positive_int(v: &Value, max: usize) -> bool {
-    v.as_u64().is_some_and(|n| n > 0 && n <= max as u64)
+    crate::js_integer(v).is_some_and(|n| n > 0. && n <= max as f64)
 }
 
 pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
@@ -74,11 +74,11 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
     if !check_keys(learning, &["enabled", "minSamples", "maxAgeDays"])
         || !learning["enabled"].is_boolean()
         || !learning["minSamples"]
-            .as_u64()
-            .is_some_and(|n| (20..=1000).contains(&n))
+            .as_f64()
+            .is_some_and(|n| n.fract() == 0. && (20. ..=1000.).contains(&n))
         || !learning["maxAgeDays"]
-            .as_u64()
-            .is_some_and(|n| (1..=365).contains(&n))
+            .as_f64()
+            .is_some_and(|n| n.fract() == 0. && (1. ..=365.).contains(&n))
     {
         return None;
     }
@@ -116,7 +116,7 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         }
         let merged = merge(&default_step("", "comfortable"), step);
         let id = merged["id"].as_str()?;
-        if id.is_empty() || id.len() > 256 || !ids.insert(id.to_owned()) {
+        if id.is_empty() || id.chars().count() > 256 || !ids.insert(id.to_owned()) {
             return None;
         }
         if !check_keys(&merged["match"], &["kind"])
@@ -150,8 +150,10 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
             if merged[section].get(key).is_some_and(|v| {
                 v.as_array().is_none_or(|a| {
                     a.len() > max
-                        || a.iter()
-                            .any(|v| v.as_str().is_none_or(|s| s.is_empty() || s.len() > 256))
+                        || a.iter().any(|v| {
+                            v.as_str()
+                                .is_none_or(|s| s.is_empty() || s.chars().count() > 256)
+                        })
                 })
             }) {
                 return None;
@@ -204,9 +206,8 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
     let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal"],"escalate_after_s":900,"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
     let result = merge(&defaults, raw);
     if !result["defaults"].is_boolean()
-        || !result["keep_worktree_days"]
-            .as_u64()
-            .is_some_and(|v| v <= 3650)
+        || !crate::js_integer(&result["keep_worktree_days"])
+            .is_some_and(|v| (0. ..=3650.).contains(&v))
     {
         return None;
     }
@@ -230,8 +231,8 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
         ],
     ) || ["interval_s", "backoff_max_s", "escalate_after_s"]
         .iter()
-        .any(|k| live[*k].as_u64().is_none_or(|n| n < 10))
-        || !live["max_nudges"].is_u64()
+        .any(|k| crate::js_integer(&live[*k]).is_none_or(|n| n < 10.))
+        || crate::js_integer(&live["max_nudges"]).is_none_or(|n| n < 0.)
         || !live["retry_delivery"].is_boolean()
     {
         return None;
@@ -413,7 +414,7 @@ pub(crate) fn hosts(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
             problems.push(format!("{at}.session must be recording or full"));
         }
         let max = host.get("max_tasks").cloned().unwrap_or(json!(2));
-        if max.as_u64().is_none_or(|n| !(1..=16).contains(&n)) {
+        if crate::js_integer(&max).is_none_or(|n| !(1. ..=16.).contains(&n)) {
             problems.push(format!("{at}.max_tasks must be 1..16"));
         }
         let mut repos = Map::new();

@@ -19,9 +19,16 @@ fn identity_accepts_supported_urls_and_rejects_unsafe_shapes() {
         "git@host:one",
         "https://github.com/a/b.git/",
         "https://user:secret@host/a/b",
+        "https://.host/owner/repo",
+        "https://host//owner/repo",
+        "u\u{a0}x@host:owner/repo",
     ] {
         assert_eq!(repo_key(url), None, "{url}");
     }
+    assert_eq!(
+        repo_key("https://host/.owner/repo").as_deref(),
+        Some("host/.owner/repo")
+    );
 }
 
 #[test]
@@ -94,7 +101,7 @@ fn save_uses_private_atomic_file() {
         "default",
         HostEdit::Set {
             alias: "devbox",
-            max_tasks: Some(4),
+            max_tasks: Some(4.),
             paused: Some(true),
             session: None,
         },

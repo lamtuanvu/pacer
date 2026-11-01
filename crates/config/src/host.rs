@@ -19,15 +19,15 @@ fn canonical(key: &str) -> bool {
             .first()
             .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
     };
-    !host.is_empty()
+    first(host)
         && host
             .bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b".-".contains(&c))
-        && first(owner)
+        && !owner.is_empty()
         && owner
             .bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c))
-        && first(repo)
+        && !repo.is_empty()
         && repo
             .bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c))
@@ -36,12 +36,9 @@ fn canonical(key: &str) -> bool {
 
 /// Match `repoKey` in `src/config/hosts.ts`; malformed or unsupported URLs have no key.
 pub fn repo_key(url: &str) -> Option<String> {
+    let js_space = |c: char| c.is_whitespace() || c == '\u{feff}';
     let scp = url.split_once('@').and_then(|(user, rest)| {
-        if user.is_empty()
-            || user
-                .bytes()
-                .any(|c| c.is_ascii_whitespace() || b"/:".contains(&c))
-        {
+        if user.is_empty() || user.chars().any(|c| js_space(c) || matches!(c, '/' | ':')) {
             return None;
         }
         let (host, path) = rest.split_once(':')?;
@@ -50,7 +47,7 @@ pub fn repo_key(url: &str) -> Option<String> {
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b".-".contains(&c))
             || path.is_empty()
-            || path.bytes().any(|c| c.is_ascii_whitespace())
+            || path.chars().any(js_space)
         {
             return None;
         }
@@ -69,7 +66,7 @@ pub fn repo_key(url: &str) -> Option<String> {
         }
         (
             parsed.host_str()?.to_owned(),
-            parsed.path().trim_start_matches('/').to_owned(),
+            parsed.path().strip_prefix('/')?.to_owned(),
         )
     };
     let key = format!("{host}/{path}").to_ascii_lowercase();
@@ -102,7 +99,7 @@ pub enum HostEdit<'a> {
     },
     Set {
         alias: &'a str,
-        max_tasks: Option<u8>,
+        max_tasks: Option<f64>,
         paused: Option<bool>,
         session: Option<&'a str>,
     },
@@ -179,7 +176,16 @@ pub fn edit_host(
             ..
         } => {
             if let Some(n) = max_tasks {
-                doc.set_in(&key(&["hosts", alias, "max_tasks"]), &json!(n))
+                let value = if n.is_finite()
+                    && n.fract() == 0.
+                    && n >= i64::MIN as f64
+                    && n < i64::MAX as f64
+                {
+                    json!(n as i64)
+                } else {
+                    json!(n)
+                };
+                doc.set_in(&key(&["hosts", alias, "max_tasks"]), &value)
                     .map_err(|e| invalid(&e.to_string()))?;
             }
             if let Some(s) = session {

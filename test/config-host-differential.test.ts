@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { StrategyDoc } from '../src/config/edit';
-import { repoKey } from '../src/config/hosts';
+import { canonical, repoKey } from '../src/config/hosts';
+import { validateStrategy } from '../src/config/strategy';
 
 type Case = Record<string, unknown>;
 const before = '# keep comment\nplanner: codex\nproviders: {codex: {}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n';
@@ -28,6 +29,11 @@ test('seeded host identity and YAML bytes match Rust', async () => {
     'https://github.com/acme/api#branch', 'git@host:one',
     'git@host:acme/repo.git/', 'https://user:secret@host/acme/repo',
     'git@host:acme/repo extra', 'https://host/acme/repo/extra',
+    'https://.host/owner/repo', 'https://host/.owner/repo',
+    'https://host//owner/repo', 'u\u00a0x@host:owner/repo',
+    'git@host:.owner/.repo', 'git@host:owner/repo',
+    'ssh://git@host//owner/repo', 'https://HOST/Owner/Repo.git',
+    'https://host/owner/repo%2Fextra', 'https://host:443/owner/repo',
   ]) {
     cases.push({ op: 'key', url });
     expected.push({ key: repoKey(url) });
@@ -48,6 +54,96 @@ test('seeded host identity and YAML bytes match Rust', async () => {
     cases.push({ op, before, ...fields });
     expected.push({ after: doc.toString() });
   }
+  const refusalCases: Case[] = [
+    { op: 'add', alias: 'devbox', ssh: 'other' },
+    { op: 'add', alias: 'local', ssh: 'other' },
+    { op: 'add', alias: 'new-host', ssh: '-bad' },
+    { op: 'add', alias: 'new-host', ssh: 'bad alias' },
+    { op: 'remove', alias: 'unknown' },
+    { op: 'remove', alias: 'devbox', before: `${before}runners: {remote: {host: devbox, agent: codex, account: codex}}\n` },
+    { op: 'set', alias: 'unknown', paused: true },
+    { op: 'set', alias: 'devbox', session: 'invalid' },
+    ...[0, -1, 17, 1.5, 1.0, 1e2].map(maxTasks => ({ op: 'set', alias: 'devbox', maxTasks })),
+    { op: 'map', alias: 'unknown', key: 'host/owner/repo', path: '/src' },
+    { op: 'map', alias: 'devbox', key: 'host/owner/repo.git', path: '/src' },
+    { op: 'map', alias: 'devbox', key: 'host/owner/repo', path: '   ' },
+  ];
+  for (const item of refusalCases) {
+    const source = typeof item.before === 'string' ? item.before : before;
+    const alias = String(item.alias);
+    let rejected = false;
+    let after = source;
+    try {
+      const raw = Bun.YAML.parse(source) as Record<string, any>;
+      const hosts = raw.hosts as Record<string, unknown>;
+      if (item.op === 'add') {
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(alias) || alias === 'local' || Object.hasOwn(hosts, alias)) throw Error('alias');
+      } else if (item.op === 'remove') {
+        if (alias === 'local' || !Object.hasOwn(hosts, alias) ||
+          Object.values(raw.runners ?? {}).some((r: any) => r.host === alias)) throw Error('remove');
+      } else if (!Object.hasOwn(hosts, alias)) throw Error('unknown');
+      const doc = new StrategyDoc(source);
+      if (item.op === 'add') doc.setIn(['hosts', alias], { ssh: item.ssh });
+      if (item.op === 'remove') doc.deleteIn(['hosts', alias]);
+      if (item.op === 'map') {
+        const key = String(item.key).toLowerCase();
+        if (!canonical(key)) throw Error('key');
+        doc.setIn(['hosts', alias, 'repos', key], item.path);
+      }
+      if (item.op === 'set') {
+        if (item.maxTasks !== undefined) doc.setIn(['hosts', alias, 'max_tasks'], item.maxTasks);
+        if (item.session !== undefined) doc.setIn(['hosts', alias, 'session'], item.session);
+        if (item.paused !== undefined) doc.setIn(['hosts', alias, 'paused'], item.paused);
+      }
+      after = doc.toString();
+      validateStrategy(Bun.YAML.parse(after), 'strategy.yaml');
+    } catch { rejected = true; }
+    cases.push({ before: source, ...item });
+    expected.push(rejected ? { rejected: true, unchanged: source } : { after });
+  }
+  // JSON number forms are interpreted as JavaScript numbers before TS validation.
+  const numericFields = [
+    ['hosts.devbox.max_tasks', [1, 1.0, 1e2, 0, 17, 1.5]],
+    ['task_retention_days', [0, 1, 1.0, 1e2, 1.5, 9007199254740991, 9007199254740992]],
+    ['execution.local_max_tasks', [1, 1.0, 1e2, 0, 1.5, 9007199254740991, 9007199254740992]],
+    ['pacing.fill_threshold', [50, 50.5, 100, 101]],
+    ['execution.idle_after_min', [1, 1.0, 1e2, 0, 1441, 1.5]],
+    ['execution.session_log_mb', [1, 1.0, 1e2, 0, 257, 1.5]],
+    ['execution.session_retention_days', [1, 1.0, 1e2, 0, 3651, 1.5]],
+    ['dispatch.timeoutMs', [1, 1.0, 1e2, 0, 10001, 1.5]],
+    ['dispatch.learning.minSamples', [20, 20.0, 1e2, 19, 1001, 20.5]],
+    ['dispatch.learning.maxAgeDays', [1, 1.0, 1e2, 0, 366, 1.5]],
+    ['messaging.keep_worktree_days', [0, 1.0, 1e2, -1, 3651, 1.5]],
+    ['messaging.message.max_bytes', [1, 1.0, 1e2, 0, 1048577, 1.5]],
+    ['messaging.tree.max_turns', [1, 1.0, 1e2, 0, 10001, 1.5]],
+    ['messaging.liveness.interval_s', [10, 10.0, 1e2, 9, 10.5]],
+    ['messaging.liveness.max_nudges', [0, 1.0, 1e2, -1, 1.5]],
+  ] as const;
+  for (const [field, values] of numericFields) for (const value of values) {
+    const raw = Bun.YAML.parse(before) as Record<string, any>;
+    const path = field.split('.');
+    let target = raw;
+    for (const part of path.slice(0, -1)) target = target[part] ??= {};
+    target[path.at(-1)!] = value;
+    let valid = true;
+    try { validateStrategy(raw, 'strategy.yaml'); } catch { valid = false; }
+    cases.push({ op: 'validate', value: raw });
+    expected.push({ valid });
+  }
+  for (const [field, value] of [
+    ['dispatchStepId', '😀'.repeat(256)],
+    ['dispatchStepId', '😀'.repeat(257)],
+    ['terminalOpen', '😀'.repeat(1000)],
+    ['terminalOpen', '😀'.repeat(1001)],
+  ] as const) {
+    const raw = Bun.YAML.parse(before) as Record<string, any>;
+    if (field === 'dispatchStepId') raw.dispatch = { steps: [{ id: value }] };
+    else raw.terminal = { open: value };
+    let valid = true;
+    try { validateStrategy(raw, 'strategy.yaml'); } catch { valid = false; }
+    cases.push({ op: 'validate', value: raw });
+    expected.push({ valid });
+  }
   const build = Bun.spawnSync(['cargo', 'build', '-p', 'pacer-config', '--example', 'host_diff', '--locked'], { stdout: 'pipe', stderr: 'pipe' });
   expect(build.exitCode, new TextDecoder().decode(build.stderr)).toBe(0);
   const run = Bun.spawn(['./target/debug/examples/host_diff'], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
@@ -57,5 +153,6 @@ test('seeded host identity and YAML bytes match Rust', async () => {
   const error = await new Response(run.stderr).text();
   expect(await run.exited, error).toBe(0);
   const actual = output.trim().split('\n').map(line => JSON.parse(line));
+  for (let i = 0; i < cases.length; i++) expect(actual[i], JSON.stringify(cases[i])).toEqual(expected[i]);
   expect(actual).toEqual(expected);
-});
+}, 120_000);

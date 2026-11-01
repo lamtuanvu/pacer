@@ -275,7 +275,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
-                        if !m[key].as_u64().is_some_and(|n| n > 0) {
+                        if !crate::js_safe_integer(&m[key]).is_some_and(|n| n > 0.) {
                             problems.push(format!("{loc}.{key} must be a positive integer"));
                         }
                     }
@@ -440,7 +440,7 @@ fn add_runner(
     }
     if declaration
         .get("max_tasks")
-        .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=16).contains(&n)))
+        .is_some_and(|v| crate::js_integer(v).is_none_or(|n| !(1. ..=16.).contains(&n)))
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
@@ -740,7 +740,7 @@ fn add_runner(
                 }
                 if m.get("tools").is_some_and(|v| !v.is_boolean())
                     || m.get("context")
-                        .is_some_and(|v| v.as_u64().is_none_or(|n| n < 1))
+                        .is_some_and(|v| crate::js_integer(v).is_none_or(|n| n < 1.))
                 {
                     valid = false;
                     break;
@@ -1414,7 +1414,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     if let Some(v) = execution.get("local_max_tasks")
         && !v.is_null()
         && v != "unlimited"
-        && v.as_u64().is_none_or(|n| n < 1)
+        && crate::js_safe_integer(v).is_none_or(|n| n < 1.)
     {
         p.push(
             "execution.local_max_tasks must be a whole number of at least 1, or \"unlimited\""
@@ -1444,7 +1444,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
         p.push("execution.launch_mode must be interactive or headless".into());
     }
     let retention = raw.get("task_retention_days").cloned().unwrap_or(json!(14));
-    if retention.as_i64().is_none_or(|n| n < 0) {
+    if crate::js_safe_integer(&retention).is_none_or(|n| n < 0.) {
         p.push("task_retention_days must be a non-negative integer".into());
     }
     let plug = plugins(raw.get("plugins"), &mut p);
@@ -1469,7 +1469,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     }
     if let Some(open) = raw.get("terminal").and_then(|t| t.get("open")) {
         let value = string(open);
-        if value.len() > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
+        if value.encode_utf16().count() > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
             return Err(StrategyError::Other("invalid terminal.open".into()));
         }
         if !value.is_empty()

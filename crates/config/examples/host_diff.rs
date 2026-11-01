@@ -1,5 +1,8 @@
 //! JSON-lines adapter for the seeded TypeScript differential test.
-use pacer_config::host::{HostEdit, edit_host, repo_key};
+use pacer_config::{
+    host::{HostEdit, edit_host, repo_key},
+    strategy::validate_strategy,
+};
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead},
@@ -10,7 +13,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for line in io::stdin().lock().lines() {
         let line = line?;
         let input: Value = serde_json::from_str(&line)?;
-        let output = if input["op"] == "key" {
+        let output = if input["op"] == "validate" {
+            json!({"valid":validate_strategy(&input["value"], Path::new("strategy.yaml"), "default").is_ok()})
+        } else if input["op"] == "key" {
             json!({"key":repo_key(input["url"].as_str().unwrap_or(""))})
         } else {
             let alias = input["alias"].as_str().unwrap_or("");
@@ -27,9 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 "set" => HostEdit::Set {
                     alias,
-                    max_tasks: input["maxTasks"]
-                        .as_u64()
-                        .and_then(|n| u8::try_from(n).ok()),
+                    max_tasks: input["maxTasks"].as_f64(),
                     paused: input["paused"].as_bool(),
                     session: input["session"].as_str(),
                 },
@@ -42,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 edit,
             ) {
                 Ok(after) => json!({"after":after}),
-                Err(error) => json!({"error":error.to_string()}),
+                Err(_) => json!({"rejected":true,"unchanged":input["before"]}),
             }
         };
         println!("{output}");
