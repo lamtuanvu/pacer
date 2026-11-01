@@ -10,6 +10,8 @@ const run = (mode = "same", extra = {}) => parity({ fixture, reference: command,
 test("two sessions compare results and persisted state on disposable copies", async () => { await run(); });
 test("result mismatch is detected", async () => { await expect(run("result")).rejects.toThrow("response mismatch"); });
 test("persisted state mismatch is detected", async () => { await expect(run("state")).rejects.toThrow("filesystem mismatch"); });
+test("candidate Bun install cache does not count as persisted state", async () => { await run("bun-cache"); });
+test("candidate state beside Bun install cache still counts", async () => { await expect(run("bun-install-state")).rejects.toThrow("filesystem mismatch"); });
 test("malformed RPC is rejected", async () => { await expect(run("malformed")).rejects.toThrow("malformed"); });
 test("mismatched response IDs are rejected", async () => { await expect(run("id")).rejects.toThrow("id"); });
 test("silent peer times out", async () => { await expect(run("timeout", { timeoutMs: 200 })).rejects.toThrow("timed out"); });

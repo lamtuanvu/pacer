@@ -142,9 +142,11 @@ function tree(root: string, relative = ""): Record<string, unknown> {
   const entries: Record<string, unknown> = {};
   for (const name of readdirSync(join(root, relative)).sort()) {
     const path = join(relative, name), absolute = join(root, path), stat = lstatSync(absolute);
-    if (path === "Library/Caches/bun") continue; // Bun transpiler cache is process-local, not pacer state.
+    // Bun writes process-local caches in different locations across platforms.
+    // Neither cache is pacer state; keep comparing any siblings and other home files.
+    if (path === "Library/Caches/bun" || path === ".bun/install/cache") continue;
     if (stat.isSymbolicLink()) entries[path] = { link: readlinkSync(absolute) };
-    else if (stat.isDirectory()) { const children = tree(root, path); if (Object.keys(children).length || (path !== "Library" && path !== "Library/Caches")) { entries[path] = { directory: true, mode: stat.mode & 0o777 }; Object.assign(entries, children); } }
+    else if (stat.isDirectory()) { const children = tree(root, path); if (Object.keys(children).length || !["Library", "Library/Caches", ".bun", ".bun/install"].includes(path)) { entries[path] = { directory: true, mode: stat.mode & 0o777 }; Object.assign(entries, children); } }
     else if (stat.isFile()) {
       const bytes = readFileSync(absolute);
       const content = name.endsWith(".json") ? JSON.parse(bytes.toString()) : name.endsWith(".jsonl") ? bytes.toString().split("\n").filter(Boolean).map(line => JSON.parse(line)) : bytes.toString("base64");
