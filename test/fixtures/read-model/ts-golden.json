@@ -1,0 +1,1435 @@
+{
+  "empty": {
+    "protocol": "3.0.0",
+    "seq": 3000000000000,
+    "snapshot": {
+      "seq": 3000000000000,
+      "at": 0,
+      "mode": null,
+      "policy": {
+        "mode": "open",
+        "plugins": 0
+      },
+      "desktopUpdates": [],
+      "machine": {
+        "os": "PLATFORM",
+        "arch": "ARCH",
+        "used": 0,
+        "max": 9007199254740991,
+        "hardCap": null,
+        "unlimited": true,
+        "memoryPressure": "normal",
+        "memoryPressureLimit": "critical",
+        "loadPerCore": 0,
+        "loadLimit": null,
+        "open": true
+      },
+      "pause": null,
+      "attention": [
+        {
+          "id": "setup:connect",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Connect planner",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "connect"
+              }
+            }
+          ],
+          "notify": "all"
+        },
+        {
+          "id": "setup:planner",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Planner",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "planner"
+              }
+            }
+          ],
+          "notify": "all"
+        },
+        {
+          "id": "setup:service",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Background service",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "service"
+              }
+            }
+          ],
+          "notify": "all"
+        }
+      ],
+      "service": {
+        "version": "0.14.0",
+        "protocol": "3.0.0",
+        "pid": 0,
+        "startedAt": 0,
+        "notifier": null
+      },
+      "planner": {
+        "runner": "codex",
+        "agent": "codex",
+        "usedPct": null,
+        "pacePct": null,
+        "deltaPts": null,
+        "verdict": "unknown",
+        "activeHoursLeft": null,
+        "resetsAt": null,
+        "window": null,
+        "stale": false,
+        "advice": "No usage reading for the planner yet.",
+        "mode": "normal"
+      },
+      "executors": [
+        {
+          "id": "codex",
+          "agent": "codex",
+          "account": "",
+          "host": null,
+          "model": null,
+          "rank": "planner",
+          "enabled": true,
+          "state": "ready",
+          "tone": "good",
+          "sub": "Unknown · this Mac",
+          "usedPct": null,
+          "pacePct": null,
+          "paceReason": "no limit reported",
+          "slots": {
+            "used": 0,
+            "max": 1
+          },
+          "lastCheck": null,
+          "recentFailures": 0,
+          "next": false
+        }
+      ],
+      "accounts": [],
+      "hosts": [],
+      "repos": [],
+      "setup": {
+        "policy": {
+          "mode": "open",
+          "plugins": 0
+        },
+        "complete": false,
+        "ready": false,
+        "open": 3,
+        "items": [
+          {
+            "id": "binary",
+            "title": "pacer",
+            "required": true,
+            "status": "done",
+            "detail": "0.14.0"
+          },
+          {
+            "id": "planner",
+            "title": "Planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Choose which agent plans your work",
+            "command": "pacer init",
+            "action": "setup.init",
+            "options": []
+          },
+          {
+            "id": "service",
+            "title": "Background service",
+            "required": true,
+            "status": "pending",
+            "command": "pacer service install",
+            "action": "service.install"
+          },
+          {
+            "id": "connect",
+            "title": "Connect planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Integration missing or changed",
+            "command": "pacer init",
+            "action": "agent.connect"
+          },
+          {
+            "id": "link",
+            "title": "Link",
+            "required": true,
+            "status": "done"
+          },
+          {
+            "id": "executor",
+            "title": "Executor",
+            "required": false,
+            "status": "pending",
+            "detail": "no executor configured",
+            "command": "pacer runner add",
+            "action": "nav:add-executor"
+          },
+          {
+            "id": "usage",
+            "title": "Budget data",
+            "required": false,
+            "status": "pending",
+            "detail": "Start a session in your planner once"
+          },
+          {
+            "id": "first",
+            "title": "First delegation",
+            "required": false,
+            "status": "pending",
+            "action": "onboarding.try"
+          },
+          {
+            "id": "agent:claude-code",
+            "title": "Claude Code",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "claude-code",
+            "installed": false
+          },
+          {
+            "id": "agent:codex",
+            "title": "Codex",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "codex",
+            "installed": false
+          },
+          {
+            "id": "agent:cursor",
+            "title": "Cursor",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "cursor",
+            "installed": false
+          },
+          {
+            "id": "agent:opencode",
+            "title": "OpenCode",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "opencode",
+            "installed": false
+          }
+        ]
+      },
+      "counts": {
+        "attention": 3,
+        "problems": 3,
+        "review": 0,
+        "running": 0,
+        "queued": 0,
+        "ready": 0,
+        "executors": 0,
+        "setupOpen": 3,
+        "hostsWithProblems": 0,
+        "byRepo": {}
+      },
+      "today": {
+        "since": 1791565200,
+        "done": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "failed": 0,
+        "byRepo": {}
+      },
+      "tasks": [],
+      "strategies": [
+        {
+          "name": "default",
+          "active": false,
+          "summary": "Invalid or missing strategy",
+          "description": ""
+        }
+      ]
+    }
+  },
+  "rich": {
+    "protocol": "3.0.0",
+    "seq": 3000000000007,
+    "snapshot": {
+      "seq": 3000000000007,
+      "at": 1791633580,
+      "mode": {
+        "mode": "paused",
+        "strategy": "old-release",
+        "at": 1791633580,
+        "previous": "normal"
+      },
+      "policy": {
+        "mode": "open",
+        "plugins": 0
+      },
+      "desktopUpdates": [],
+      "machine": {
+        "os": "PLATFORM",
+        "arch": "ARCH",
+        "used": 0,
+        "max": 9007199254740991,
+        "hardCap": null,
+        "unlimited": true,
+        "memoryPressure": "normal",
+        "memoryPressureLimit": "critical",
+        "loadPerCore": 0,
+        "loadLimit": null,
+        "open": true
+      },
+      "pause": null,
+      "attention": [
+        {
+          "id": "message:TASK_1",
+          "kind": "message",
+          "severity": "blocked",
+          "repo": {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          },
+          "title": "Review the read model",
+          "detail": "Which path?",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Answer",
+              "op": "ui.open",
+              "params": {
+                "view": "task",
+                "id": "TASK_1",
+                "tab": "answer"
+              },
+              "style": "primary"
+            }
+          ],
+          "notify": "important",
+          "taskId": "TASK_1"
+        },
+        {
+          "id": "setup:connect",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Connect planner",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "connect"
+              }
+            }
+          ],
+          "notify": "all"
+        },
+        {
+          "id": "setup:planner",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Planner",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "planner"
+              }
+            }
+          ],
+          "notify": "all"
+        },
+        {
+          "id": "setup:service",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Background service",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "service"
+              }
+            }
+          ],
+          "notify": "all"
+        },
+        {
+          "id": "discovery:AAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "kind": "discovery",
+          "severity": "decide",
+          "repo": null,
+          "title": "Found pacer on studio",
+          "detail": "Unverified name. Pair only if this is your machine.",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Pair",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "pairing"
+              },
+              "style": "primary"
+            },
+            {
+              "label": "Later",
+              "op": "discovery.respond",
+              "params": {
+                "discoveryId": "AAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "action": "later"
+              }
+            }
+          ],
+          "notify": "important"
+        }
+      ],
+      "service": {
+        "version": "0.14.0",
+        "protocol": "3.0.0",
+        "pid": 0,
+        "startedAt": 0,
+        "notifier": null
+      },
+      "planner": {
+        "runner": "codex",
+        "agent": "codex",
+        "usedPct": null,
+        "pacePct": null,
+        "deltaPts": null,
+        "verdict": "unknown",
+        "activeHoursLeft": null,
+        "resetsAt": null,
+        "window": null,
+        "stale": false,
+        "advice": "No usage reading for the planner yet.",
+        "mode": "normal"
+      },
+      "executors": [
+        {
+          "id": "codex",
+          "agent": "codex",
+          "account": "",
+          "host": null,
+          "model": null,
+          "rank": "planner",
+          "enabled": true,
+          "state": "ready",
+          "tone": "good",
+          "sub": "Unknown · this Mac",
+          "usedPct": null,
+          "pacePct": null,
+          "paceReason": "no limit reported",
+          "slots": {
+            "used": 0,
+            "max": 1
+          },
+          "lastCheck": null,
+          "recentFailures": 0,
+          "next": false
+        }
+      ],
+      "accounts": [],
+      "hosts": [],
+      "repos": [
+        {
+          "key": "local:FIXTURE",
+          "label": "FIXTURE_HOME",
+          "path": "$HOME",
+          "identityUnverified": true
+        }
+      ],
+      "setup": {
+        "policy": {
+          "mode": "open",
+          "plugins": 0
+        },
+        "complete": false,
+        "ready": false,
+        "open": 3,
+        "items": [
+          {
+            "id": "binary",
+            "title": "pacer",
+            "required": true,
+            "status": "done",
+            "detail": "0.14.0"
+          },
+          {
+            "id": "planner",
+            "title": "Planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Choose which agent plans your work",
+            "command": "pacer init",
+            "action": "setup.init",
+            "options": []
+          },
+          {
+            "id": "service",
+            "title": "Background service",
+            "required": true,
+            "status": "pending",
+            "command": "pacer service install",
+            "action": "service.install"
+          },
+          {
+            "id": "connect",
+            "title": "Connect planner",
+            "required": true,
+            "status": "pending",
+            "detail": "Integration missing or changed",
+            "command": "pacer init",
+            "action": "agent.connect"
+          },
+          {
+            "id": "link",
+            "title": "Link",
+            "required": true,
+            "status": "done"
+          },
+          {
+            "id": "executor",
+            "title": "Executor",
+            "required": false,
+            "status": "pending",
+            "detail": "no executor configured",
+            "command": "pacer runner add",
+            "action": "nav:add-executor"
+          },
+          {
+            "id": "usage",
+            "title": "Budget data",
+            "required": false,
+            "status": "pending",
+            "detail": "Start a session in your planner once"
+          },
+          {
+            "id": "first",
+            "title": "First delegation",
+            "required": false,
+            "status": "pending",
+            "action": "onboarding.try"
+          },
+          {
+            "id": "agent:claude-code",
+            "title": "Claude Code",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "claude-code",
+            "installed": false
+          },
+          {
+            "id": "agent:codex",
+            "title": "Codex",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "codex",
+            "installed": false
+          },
+          {
+            "id": "agent:cursor",
+            "title": "Cursor",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "cursor",
+            "installed": false
+          },
+          {
+            "id": "agent:opencode",
+            "title": "OpenCode",
+            "required": false,
+            "status": "pending",
+            "detail": "Optional · not connected",
+            "command": "pacer init",
+            "action": "agent.connect",
+            "agent": "opencode",
+            "installed": false
+          }
+        ]
+      },
+      "counts": {
+        "attention": 5,
+        "problems": 4,
+        "review": 0,
+        "running": 0,
+        "queued": 1,
+        "ready": 0,
+        "executors": 0,
+        "setupOpen": 3,
+        "hostsWithProblems": 0,
+        "byRepo": {
+          "local:FIXTURE": {
+            "review": 0,
+            "running": 0,
+            "attention": 1
+          }
+        }
+      },
+      "today": {
+        "since": 1791565200,
+        "done": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "failed": 0,
+        "byRepo": {}
+      },
+      "tasks": [
+        {
+          "id": "TASK_1",
+          "title": "Review the read model",
+          "state": "queued",
+          "goal": "Review the read model. Then reply",
+          "executor": null,
+          "backend": null,
+          "worktree": null,
+          "updatedAt": 1791633600,
+          "acceptanceState": "none",
+          "runnerAlive": false,
+          "fullTitle": "Review the read model",
+          "rev": 2,
+          "queue": {
+            "reason": "paused",
+            "since": 1791633600,
+            "position": 1
+          },
+          "repo": {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          },
+          "kind": "feature",
+          "host": null,
+          "messages": {
+            "unreadForHuman": 1,
+            "question": {
+              "id": "MESSAGE_ID",
+              "text": "Which path?",
+              "at": 1791633600
+            }
+          }
+        }
+      ],
+      "strategies": [
+        {
+          "name": "default",
+          "active": false,
+          "summary": "Invalid or missing strategy",
+          "description": ""
+        }
+      ]
+    }
+  },
+  "v2": {
+    "protocol": "2.8.0",
+    "seq": 7,
+    "snapshot": {
+      "seq": 7,
+      "at": 1791633580,
+      "mode": {
+        "mode": "paused",
+        "strategy": "old-release",
+        "at": 1791633580,
+        "previous": "normal"
+      },
+      "policy": {
+        "mode": "open",
+        "plugins": 0
+      },
+      "machine": {
+        "os": "PLATFORM",
+        "arch": "ARCH",
+        "used": 0,
+        "max": 1,
+        "hardCap": null,
+        "unlimited": true,
+        "memoryPressure": "normal",
+        "memoryPressureLimit": "critical",
+        "loadPerCore": 0,
+        "loadLimit": null,
+        "open": true
+      },
+      "pause": null,
+      "attention": [
+        {
+          "id": "message:TASK_1",
+          "kind": "message",
+          "severity": "blocked",
+          "repo": {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          },
+          "title": "Review the read model",
+          "detail": "Which path?",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Answer",
+              "op": "ui.open",
+              "params": {
+                "view": "task",
+                "id": "TASK_1",
+                "tab": "answer"
+              },
+              "style": "primary"
+            }
+          ],
+          "notify": "important",
+          "taskId": "TASK_1"
+        },
+        {
+          "id": "setup:service",
+          "kind": "setup",
+          "severity": "problem",
+          "repo": null,
+          "title": "Login service",
+          "detail": "Setup required",
+          "raisedAt": 1791633600,
+          "since": 1791633600,
+          "actions": [
+            {
+              "label": "Open settings",
+              "op": "ui.open",
+              "params": {
+                "view": "settings",
+                "section": "service"
+              }
+            }
+          ],
+          "notify": "all"
+        }
+      ],
+      "service": {
+        "version": "0.14.0",
+        "protocol": "2.8.0",
+        "pid": 0,
+        "startedAt": 0,
+        "notifier": null
+      },
+      "planner": {
+        "runner": "codex",
+        "agent": "codex",
+        "usedPct": null,
+        "pacePct": null,
+        "deltaPts": null,
+        "verdict": "unknown",
+        "activeHoursLeft": null,
+        "resetsAt": null,
+        "window": null,
+        "stale": false,
+        "advice": "No usage reading for the planner yet.",
+        "mode": "normal"
+      },
+      "executors": [
+        {
+          "id": "codex",
+          "agent": "codex",
+          "account": "",
+          "host": null,
+          "model": null,
+          "rank": "planner",
+          "enabled": true,
+          "state": "ready",
+          "tone": "good",
+          "sub": "Unknown · this Mac",
+          "usedPct": null,
+          "pacePct": null,
+          "paceReason": "no limit reported",
+          "slots": {
+            "used": 0,
+            "max": 1
+          },
+          "lastCheck": null,
+          "recentFailures": 0,
+          "next": false
+        }
+      ],
+      "accounts": [],
+      "hosts": [],
+      "repos": [
+        {
+          "key": "local:FIXTURE",
+          "label": "FIXTURE_HOME",
+          "path": "$HOME",
+          "identityUnverified": true
+        }
+      ],
+      "setup": {
+        "complete": false,
+        "open": 1,
+        "items": [
+          {
+            "id": "binary",
+            "title": "Binary",
+            "status": "done",
+            "required": true
+          },
+          {
+            "id": "strategy",
+            "title": "Strategy",
+            "status": "done",
+            "required": true
+          },
+          {
+            "id": "service",
+            "title": "Login service",
+            "status": "pending",
+            "required": true
+          },
+          {
+            "id": "link",
+            "title": "Link",
+            "status": "done",
+            "required": true
+          },
+          {
+            "id": "live",
+            "title": "Live plugin",
+            "status": "pending",
+            "required": false
+          },
+          {
+            "id": "agent:claude-code",
+            "title": "Claude Code",
+            "status": "pending",
+            "required": false
+          },
+          {
+            "id": "agent:codex",
+            "title": "Codex",
+            "status": "pending",
+            "required": false
+          },
+          {
+            "id": "agent:cursor",
+            "title": "Cursor",
+            "status": "pending",
+            "required": false
+          },
+          {
+            "id": "agent:opencode",
+            "title": "OpenCode",
+            "status": "pending",
+            "required": false
+          }
+        ]
+      },
+      "counts": {
+        "attention": 2,
+        "problems": 2,
+        "review": 0,
+        "running": 0,
+        "queued": 1,
+        "ready": 0,
+        "executors": 0,
+        "setupOpen": 1,
+        "hostsWithProblems": 0,
+        "byRepo": {
+          "local:FIXTURE": {
+            "review": 0,
+            "running": 0,
+            "attention": 1
+          }
+        }
+      },
+      "today": {
+        "since": 1791565200,
+        "done": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "failed": 0,
+        "byRepo": {}
+      },
+      "tasks": [
+        {
+          "id": "TASK_1",
+          "title": "Review the read model",
+          "state": "queued",
+          "goal": "Review the read model. Then reply",
+          "executor": null,
+          "backend": null,
+          "worktree": null,
+          "updatedAt": 1791633600,
+          "acceptanceState": "none",
+          "runnerAlive": false,
+          "fullTitle": "Review the read model",
+          "rev": 2,
+          "queue": {
+            "reason": "paused",
+            "since": 1791633600,
+            "position": 1
+          },
+          "repo": {
+            "key": "local:FIXTURE",
+            "label": "FIXTURE_HOME",
+            "path": "$HOME",
+            "identityUnverified": true
+          },
+          "kind": "feature",
+          "host": null,
+          "messages": {
+            "unreadForHuman": 1,
+            "question": {
+              "id": "MESSAGE_ID",
+              "text": "Which path?",
+              "at": 1791633600
+            }
+          }
+        }
+      ],
+      "strategies": [
+        {
+          "name": "default",
+          "active": false,
+          "summary": "Invalid or missing strategy",
+          "description": ""
+        }
+      ],
+      "v": 1,
+      "budget": {
+        "generatedAt": 1791633600,
+        "strategy": "default",
+        "planner": "codex",
+        "mode": "normal",
+        "providers": [],
+        "ranked": []
+      },
+      "alerts": [
+        {
+          "key": "legacy",
+          "level": "warn",
+          "title": "Old release",
+          "body": "upgrade",
+          "at": 1791633580
+        }
+      ],
+      "console": null,
+      "consoles": [],
+      "serviceInstalled": false
+    }
+  },
+  "eventCases": [
+    {
+      "events": [
+        {
+          "seq": 3000000000008,
+          "at": 1791633600,
+          "type": "planner",
+          "data": {
+            "runner": "codex",
+            "agent": "codex",
+            "usedPct": null,
+            "pacePct": null,
+            "deltaPts": null,
+            "verdict": "unknown",
+            "activeHoursLeft": null,
+            "resetsAt": null,
+            "window": null,
+            "stale": false,
+            "advice": "No usage reading for the planner yet.",
+            "mode": "normal"
+          }
+        },
+        {
+          "seq": 3000000000009,
+          "at": 1791633600,
+          "type": "task",
+          "data": {
+            "id": "TASK_1",
+            "state": "queued",
+            "updatedAt": 1791633600,
+            "title": "Review the read model",
+            "goal": "Review the read model. Then reply",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "fullTitle": "Review the read model",
+            "messages": {
+              "unreadForHuman": 1,
+              "question": {
+                "id": "MESSAGE_ID",
+                "text": "Which path?",
+                "at": 1791633600
+              }
+            }
+          }
+        },
+        {
+          "seq": 3000000000010,
+          "at": 1791633600,
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 3000000000012,
+          "at": 1791633600,
+          "type": "attention",
+          "data": {
+            "id": "discovery:AAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "kind": "discovery"
+          }
+        },
+        {
+          "seq": 3000000000013,
+          "at": 1791633600,
+          "type": "counts",
+          "data": {
+            "attention": 2,
+            "running": 0
+          }
+        },
+        {
+          "seq": 3000000000014,
+          "at": 1791633600,
+          "type": "notify",
+          "data": {
+            "key": "upgrade:1791633600",
+            "title": "Upgrade",
+            "body": "",
+            "actions": [],
+            "url": "/app/#/"
+          }
+        },
+        {
+          "seq": 3000000000015,
+          "at": 1791633600,
+          "type": "executor",
+          "data": {
+            "id": "gone",
+            "removed": true
+          }
+        }
+      ],
+      "last": 3000000000015,
+      "reset": false
+    },
+    {
+      "events": [
+        {
+          "seq": 8,
+          "at": 1791633600,
+          "type": "budget",
+          "data": {
+            "generatedAt": 1791633600,
+            "strategy": "old-release",
+            "planner": "codex",
+            "mode": "normal",
+            "providers": [],
+            "ranked": []
+          }
+        },
+        {
+          "seq": 9,
+          "at": 1791633600,
+          "type": "task",
+          "data": {
+            "id": "TASK_1",
+            "state": "queued",
+            "updatedAt": 1791633600,
+            "title": "Review the read model",
+            "goal": "Review the read model. Then reply",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "fullTitle": "Review the read model",
+            "messages": {
+              "unreadForHuman": 1,
+              "question": {
+                "id": "MESSAGE_ID",
+                "text": "Which path?",
+                "at": 1791633600
+              }
+            }
+          }
+        },
+        {
+          "seq": 10,
+          "at": 1791633600,
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 13,
+          "at": 1791633600,
+          "type": "counts",
+          "data": {
+            "attention": 1,
+            "running": 0
+          }
+        },
+        {
+          "seq": 14,
+          "at": 1791633600,
+          "type": "alert",
+          "data": {
+            "key": "upgrade",
+            "level": "info",
+            "title": "Upgrade",
+            "body": "",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 15,
+          "at": 1791633600,
+          "type": "executor",
+          "data": {
+            "id": "gone",
+            "removed": true
+          }
+        }
+      ],
+      "last": 15,
+      "reset": false,
+      "discoveryOpen": {}
+    },
+    {
+      "events": [
+        {
+          "seq": 3000000000000,
+          "at": 1791633600,
+          "type": "reset",
+          "data": {
+            "reason": "protocol changed; fetch the snapshot again"
+          }
+        },
+        {
+          "seq": 3000000000008,
+          "at": 1791633600,
+          "type": "planner",
+          "data": {
+            "runner": "codex",
+            "agent": "codex",
+            "usedPct": null,
+            "pacePct": null,
+            "deltaPts": null,
+            "verdict": "unknown",
+            "activeHoursLeft": null,
+            "resetsAt": null,
+            "window": null,
+            "stale": false,
+            "advice": "No usage reading for the planner yet.",
+            "mode": "normal"
+          }
+        },
+        {
+          "seq": 3000000000009,
+          "at": 1791633600,
+          "type": "task",
+          "data": {
+            "id": "TASK_1",
+            "state": "queued",
+            "updatedAt": 1791633600,
+            "title": "Review the read model",
+            "goal": "Review the read model. Then reply",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "fullTitle": "Review the read model",
+            "messages": {
+              "unreadForHuman": 1,
+              "question": {
+                "id": "MESSAGE_ID",
+                "text": "Which path?",
+                "at": 1791633600
+              }
+            }
+          }
+        },
+        {
+          "seq": 3000000000010,
+          "at": 1791633600,
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 3000000000012,
+          "at": 1791633600,
+          "type": "attention",
+          "data": {
+            "id": "discovery:AAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "kind": "discovery"
+          }
+        },
+        {
+          "seq": 3000000000013,
+          "at": 1791633600,
+          "type": "counts",
+          "data": {
+            "attention": 2,
+            "running": 0
+          }
+        },
+        {
+          "seq": 3000000000014,
+          "at": 1791633600,
+          "type": "notify",
+          "data": {
+            "key": "upgrade:1791633600",
+            "title": "Upgrade",
+            "body": "",
+            "actions": [],
+            "url": "/app/#/"
+          }
+        },
+        {
+          "seq": 3000000000015,
+          "at": 1791633600,
+          "type": "executor",
+          "data": {
+            "id": "gone",
+            "removed": true
+          }
+        }
+      ],
+      "last": 3000000000015,
+      "reset": true
+    },
+    {
+      "events": [
+        {
+          "seq": 8,
+          "at": 1791633600,
+          "type": "budget",
+          "data": {
+            "generatedAt": 1791633600,
+            "strategy": "old-release",
+            "planner": "codex",
+            "mode": "normal",
+            "providers": [],
+            "ranked": []
+          }
+        },
+        {
+          "seq": 9,
+          "at": 1791633600,
+          "type": "task",
+          "data": {
+            "id": "TASK_1",
+            "state": "queued",
+            "updatedAt": 1791633600,
+            "title": "Review the read model",
+            "goal": "Review the read model. Then reply",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "repo": {
+              "key": "local:FIXTURE",
+              "label": "FIXTURE_HOME",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "fullTitle": "Review the read model",
+            "messages": {
+              "unreadForHuman": 1,
+              "question": {
+                "id": "MESSAGE_ID",
+                "text": "Which path?",
+                "at": 1791633600
+              }
+            }
+          }
+        },
+        {
+          "seq": 10,
+          "at": 1791633600,
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 13,
+          "at": 1791633600,
+          "type": "counts",
+          "data": {
+            "attention": 1,
+            "running": 0
+          }
+        },
+        {
+          "seq": 14,
+          "at": 1791633600,
+          "type": "alert",
+          "data": {
+            "key": "upgrade",
+            "level": "info",
+            "title": "Upgrade",
+            "body": "",
+            "at": 1791633600
+          }
+        },
+        {
+          "seq": 15,
+          "at": 1791633600,
+          "type": "executor",
+          "data": {
+            "id": "gone",
+            "removed": true
+          }
+        }
+      ],
+      "last": 15,
+      "reset": false,
+      "discoveryOpen": {}
+    },
+    {
+      "events": [],
+      "last": 9007199254740992,
+      "reset": false
+    }
+  ],
+  "gap": {
+    "events": [
+      {
+        "seq": 3000000000049,
+        "at": 1791633600,
+        "type": "reset",
+        "data": {
+          "reason": "events were dropped; fetch the snapshot again"
+        }
+      },
+      {
+        "seq": 3000000000050,
+        "at": 1791633600,
+        "type": "executor",
+        "data": {
+          "id": "old",
+          "removed": true
+        }
+      }
+    ],
+    "last": 3000000000050,
+    "reset": true
+  },
+  "sse": {
+    "contentType": "text/event-stream",
+    "cacheControl": "no-cache",
+    "initialFrames": ": connected\n\nid: 3000000000008\nevent: planner\ndata: {\"runner\":\"codex\",\"agent\":\"codex\",\"usedPct\":null,\"pacePct\":null,\"deltaPts\":null,\"verdict\":\"unknown\",\"activeHoursLeft\":null,\"resetsAt\":null,\"window\":null,\"stale\":false,\"advice\":\"No usage reading for the planner yet.\",\"mode\":\"normal\"}\n\nid: 3000000000009\nevent: task\ndata: {\"id\":\"TASK_1\",\"state\":\"queued\",\"updatedAt\":1791633600,\"title\":\"Review the read model\",\"goal\":\"Review the read model. Then reply\",\"executor\":null,\"backend\":null,\"worktree\":null,\"acceptanceState\":\"none\",\"runnerAlive\":false,\"repo\":{\"key\":\"local:FIXTURE\",\"label\":\"FIXTURE_HOME\",\"path\":\"$HOME\",\"identityUnverified\":true},\"kind\":\"feature\",\"host\":null,\"fullTitle\":\"Review the read model\",\"messages\":{\"unreadForHuman\":1,\"question\":{\"id\":\"MESSAGE_ID\",\"text\":\"Which path?\",\"at\":1791633600}}}\n\nid: 3000000000010\nevent: config\ndata: {\"area\":\"strategy\",\"at\":1791633600}\n\nid: 3000000000012\nevent: attention\ndata: {\"id\":\"discovery:AAAAAAAAAAAAAAAAAAAAAAAAAA\",\"kind\":\"discovery\"}\n\nid: 3000000000013\nevent: counts\ndata: {\"attention\":2,\"running\":0}\n\nid: 3000000000014\nevent: notify\ndata: {\"key\":\"upgrade:1791633600\",\"title\":\"Upgrade\",\"body\":\"\",\"actions\":[],\"url\":\"/app/#/\"}\n\nid: 3000000000015\nevent: executor\ndata: {\"id\":\"gone\",\"removed\":true}\n\n",
+    "wakeFrame": "id: 3000000000016\nevent: executor\ndata: {\"id\":\"new\"}\n\n"
+  },
+  "invalidCursor": {
+    "status": 400,
+    "body": {
+      "error": {
+        "code": "invalid_input",
+        "message": "since must be a non-negative integer"
+      }
+    }
+  }
+}
