@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs,
     io::{self, Write},
@@ -10,9 +10,9 @@ use std::{
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Write next to the existing strategy, then rename so readers see complete YAML.
-/// The requested mode is filtered by the process umask, as in the TypeScript writer.
+/// New state bytes use mode 0600; the process umask may restrict it further.
 pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
-    let mode = fs::metadata(path)?.permissions();
+    fs::metadata(path)?;
     let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
     let temp = path.with_file_name(format!(
         "{}.{}.{}.tmp",
@@ -24,7 +24,7 @@ pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
-        options.mode(mode.mode() & 0o777);
+        options.mode(0o600);
         let mut file = options.open(&temp)?;
         file.write_all(text.as_bytes())?;
         file.flush()?;
