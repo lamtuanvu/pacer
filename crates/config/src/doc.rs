@@ -574,14 +574,19 @@ impl StrategyDoc {
                         .iter()
                         .any(|(k, _)| k.value() == Value::String(key.clone()))
                 }) {
+                    let mut replacements = Vec::new();
                     for (key, value) in entries {
                         if let Some((_, child)) = items
                             .iter()
                             .find(|(k, _)| k.value() == Value::String(key.clone()))
                         {
                             let raw = emit(value, child.flow(), 0);
-                            self.replace(child.span.start..child.core_end, &raw);
+                            replacements.push((child.span.start..child.core_end, raw));
                         }
+                    }
+                    replacements.sort_by_key(|item| std::cmp::Reverse(item.0.start));
+                    for (span, raw) in replacements {
+                        self.replace(span, &raw);
                     }
                     return Ok(());
                 }

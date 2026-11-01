@@ -10,7 +10,7 @@ use std::{
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Write next to the existing strategy, then rename so readers see complete YAML.
-/// The original mode is retained, as in the TypeScript strategy writer.
+/// The requested mode is filtered by the process umask, as in the TypeScript writer.
 pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
     let mode = fs::metadata(path)?.permissions();
     let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
@@ -26,7 +26,6 @@ pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
         #[cfg(unix)]
         options.mode(mode.mode() & 0o777);
         let mut file = options.open(&temp)?;
-        fs::set_permissions(&temp, mode)?;
         file.write_all(text.as_bytes())?;
         file.flush()?;
         fs::rename(&temp, path)
@@ -43,6 +42,8 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use std::process::Command;
 
     #[test]
     fn replaces_existing_strategy_and_keeps_mode() {
@@ -61,5 +62,43 @@ mod tests {
             0o600
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restrictive_umask_filters_existing_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strategy.yaml");
+        fs::write(&path, "old\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let output = Command::new("sh")
+            .args([
+                "-c",
+                "umask 077; exec \"$1\" --exact write::tests::write_under_umask",
+                "sh",
+            ])
+            .arg(std::env::current_exe().unwrap())
+            .env("PACER_CONFIG_UMASK_TEST_PATH", &path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_under_umask() {
+        let Ok(path) = std::env::var("PACER_CONFIG_UMASK_TEST_PATH") else {
+            return;
+        };
+        atomic_strategy_write(std::path::Path::new(&path), "new\n").unwrap();
     }
 }
