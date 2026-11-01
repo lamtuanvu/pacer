@@ -473,6 +473,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn default_handler_refuses_ungranted_and_unknown_methods() {
+        let script = r#"const r=Bun.stdin.stream().getReader();let b='',denied;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe')send({id:7,method:'capability.log',params:{}});else if(m.id===7){denied=m.error;send({id:8,method:'unknown.method',params:{}})}else if(m.id===8)send({id:1,result:{denied,unknown:m.error}})}}"#;
+        let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+        let result = child
+            .request("probe", json!({}), Duration::from_secs(5), None)
+            .await
+            .unwrap();
+        assert_eq!(result["denied"]["code"], -32000);
+        assert_eq!(result["denied"]["data"]["code"], "capability_denied");
+        assert_eq!(result["unknown"]["code"], -32601);
+        assert_eq!(result["unknown"]["data"]["code"], "unknown_op");
+        child.terminate().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn owner_cancellation_sends_cancel_notification() {
         let receipt =
             std::env::temp_dir().join(format!("pacer-plugin-cancel-{}", std::process::id()));
