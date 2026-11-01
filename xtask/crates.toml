@@ -74,6 +74,8 @@ layer = 2
 layer = 2
 [crates.pacer-config]
 layer = 3
+[crates.pacer-sessions]
+layer = 3
 [crates.pacer-plugin-host]
 layer = 4
 [crates.pacer-sqlite-proof]
