@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-01
+
+### Changed
+
+- Amendment 0.19.0, desktop UI delivery (#527) (#545).
+
+### Fixed
+
+- Prepare release with generated changelog notes (#555).
+- Pair released core in M1 parity suite (#543) (ci).
+
 ## [0.13.0] - 2026-10-31
 
 ### Fixed
