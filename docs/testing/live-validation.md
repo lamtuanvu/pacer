@@ -76,6 +76,16 @@ bun run live up --id my-change --real-keychain
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
 
+For native operation routing evidence, add `--native-test-ops` with `--front-door rust`.
+The harness builds the test-only native operations into the sandbox front door and
+records this choice in `session.json`; release builds do not include these operations.
+Use the guarded public proxy for HTTP checks. To check the forward override in
+a separate sandbox, add `--native-forward-echo`; it fixes
+`PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
+`logs/serve.log` and the forwarding result as behavior notes in each report.
+The D3 guard refuses generic stdio calls, so report stdio live behavior as
+UNVERIFIED unless a dedicated guarded fixture exercises it.
+
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.

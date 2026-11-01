@@ -81,8 +81,30 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
         };
         core.write_all(&line).await?;
         core.flush().await?;
-        if method == Some("hello") && valid && hello_reply.is_none() {
-            protocol = 2;
+        // The core also negotiates hello notifications. Mirror only accepted
+        // parameters: rejected notifications leave its current protocol intact.
+        if method == Some("hello")
+            && valid
+            && hello_reply.is_none()
+            && let Some(request) = request.as_ref()
+            && request.get("id").is_none()
+        {
+            let params = request.get("params").filter(|value| !value.is_null());
+            let version = match params {
+                None => Some(2),
+                Some(Value::Object(map)) => {
+                    match map.get("protocol").filter(|value| !value.is_null()) {
+                        None => Some(2),
+                        Some(value) if value == 2 => Some(2),
+                        Some(value) if value == 3 => Some(3),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(version) = version {
+                protocol = version;
+            }
         }
         if let Some(rx) = hello_reply
             && let Ok(response) = rx.await

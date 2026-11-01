@@ -23,6 +23,9 @@ export interface Session {
   seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
   frontDoor?: "rust";
+  /** The disposable Rust front door includes test-only native operations. */
+  nativeTestOps?: true;
+  nativeForwardEcho?: true;
   /** The sandbox uses the login Keychain instead of the `security` stub; `down` deletes its identity items. */
   realKeychain?: true;
   stopped?: boolean;
@@ -105,6 +108,8 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
   return {
     ...outside,
     ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
+    ...(session.nativeTestOps ? { PACER_DEBUG_NATIVE: "1" } : {}),
+    ...(session.nativeForwardEcho ? { PACER_FORWARD_OPS: "test.echo" } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
     PACER_HOME: join(session.root, "home"),
@@ -206,11 +211,13 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
+  if (nativeTestOps && frontDoor !== "rust") throw Error("--native-test-ops requires --front-door rust");
+  if (nativeForwardEcho && !nativeTestOps) throw Error("--native-forward-echo requires --native-test-ops");
   if (frontDoor === "rust") {
-    const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer"], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
+    const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer", ...(nativeTestOps ? ["--features", "test-ops"] : [])], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
     if (build.exitCode !== 0) throw Error(`cargo build -p pacer failed:\n${build.stderr.toString().trim()}`);
   }
   const root = resolve(base, validId(id));
@@ -219,7 +226,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (template) cpSync(resolve(template), join(root, "repo"), {

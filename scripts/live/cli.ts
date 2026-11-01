@@ -14,7 +14,7 @@ import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kick
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--native-test-ops] [--native-forward-echo] [--real-keychain]
                                   start isolated service and disposable repo; ui seeds sample data;
                                   plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub
@@ -66,7 +66,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain", "--native-test-ops", "--native-forward-echo"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
@@ -77,8 +77,10 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
+  if (flags.has("--native-test-ops") && command !== "up") throw Error("--native-test-ops is only valid for up");
+  if (flags.has("--native-forward-echo") && command !== "up") throw Error("--native-forward-echo is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo")), null, 2));
     return 0;
   }
   if (command === "status") {

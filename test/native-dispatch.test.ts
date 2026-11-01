@@ -41,6 +41,29 @@ test.skipIf(!front)("stdio accepts hello before native dispatch and flips back t
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 
+test.skipIf(!front)("stdio hello notifications negotiate only with accepted parameters", async () => {
+  const fixture = setup();
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const notification = (params: unknown) => JSON.stringify({ jsonrpc: "2.0", method: "hello", params });
+  try {
+    const lines = [
+      notification({ protocol: 3 }), rpc(1, "test.echo", { n: 1 }),
+      notification({ protocol: 9 }), rpc(2, "test.echo", { n: 2 }),
+      notification([]), rpc(3, "test.echo", { n: 3 }),
+      notification({ protocol: 2 }), rpc(4, "test.echo", { n: 4 }),
+      notification({ protocol: 3 }), rpc(5, "test.echo", { n: 5 }),
+    ];
+    await child.stdin.write(lines.join("\n") + "\n"); await child.stdin.end();
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
+    expect(replies.map(reply => reply.id).sort()).toEqual([1, 2, 3, 4, 5]);
+    for (const id of [1, 2, 3, 5]) expect(replies.find(reply => reply.id === id).result).toEqual({ n: id });
+    expect(replies.find(reply => reply.id === 4).error.data.code).toBe("unknown_op");
+    expect(stderr.match(/^native test\.echo$/gm)).toHaveLength(4);
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 30000);
+
 test.skipIf(!front)("HTTP native route enforces auth, version, body limit and forward override", async () => {
   const fixture = setup();
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
