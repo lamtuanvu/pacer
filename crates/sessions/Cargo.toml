@@ -1,0 +1,16 @@
+[package]
+name = "pacer-sessions"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile = "3"
+
+[lints]
+workspace = true

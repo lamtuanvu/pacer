@@ -12,6 +12,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
 
+- Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added
