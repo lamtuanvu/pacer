@@ -66,6 +66,14 @@ pub(crate) fn revision(task: &Value) -> Option<i64> {
 fn field<'a>(task: &'a Value, key: &str) -> Option<&'a str> {
     task.get(key)?.as_str()
 }
+fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null | Value::Bool(false)) => false,
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(value)) => !value.is_empty(),
+        Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
+    }
+}
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
         && is_task_id(id)
@@ -146,7 +154,7 @@ fn row_values(task: &Value, now: f64) -> Result<[SqlValue; 9]> {
         field(task.get("brief").ok_or(StoreError::InvalidRecord)?, "repo")
             .map_or(SqlValue::Null, |r| SqlValue::Text(r.into())),
         SqlValue::Text(serde_json::to_string(task)?),
-        SqlValue::Integer(i64::from(task.get("archived").is_some_and(|v| v == true))),
+        SqlValue::Integer(i64::from(truthy(task.get("archived")))),
     ])
 }
 fn parse_record(text: &str) -> Result<Value> {
@@ -194,9 +202,13 @@ fn private_file(path: &Path) -> io::Result<File> {
 }
 fn write_json(home: &Path, task: &Value) -> Result<f64> {
     let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
-    let dir = if task.get("archived").is_some_and(|v| v == true) {
+    let dir = if truthy(task.get("archived")) {
         let month = archive_month(number(task.get("createdAt")).ok_or(StoreError::InvalidRecord)?)?;
-        home.join("archive").join(month).join(id)
+        let root = home.join("archive");
+        private_dir(&root)?;
+        let month = root.join(month);
+        private_dir(&month)?;
+        month.join(id)
     } else {
         home.join("tasks")
     };
@@ -595,15 +607,11 @@ fn directory_stamp(path: &Path) -> io::Result<String> {
 
 pub fn retention_eligible(task: &Value, days: i64, now: f64) -> bool {
     if days <= 0
-        || task.get("archived").is_some_and(|v| v == true)
+        || truthy(task.get("archived"))
         || !field(task, "state").is_some_and(|s| TERMINAL.contains(&s))
-        || !(task.get("review").is_some_and(|v| !v.is_null())
-            || task.get("dismissed").is_some_and(|v| v == true))
+        || !(truthy(task.get("review")) || truthy(task.get("dismissed")))
         || settled_at(task) >= now - days as f64 * 86_400.0
-        || task
-            .pointer("/run/remoteWorktree")
-            .and_then(Value::as_str)
-            .is_some_and(|v| !v.is_empty())
+        || truthy(task.pointer("/run/remoteWorktree"))
     {
         return false;
     }

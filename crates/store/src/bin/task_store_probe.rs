@@ -66,6 +66,17 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .collect::<Vec<_>>()
             )
         }
+        "prune-result" | "prune-dry" => {
+            let now = args.next().ok_or("time required")?.parse::<f64>()?;
+            let result = store.prune(1, command == "prune-dry", now)?;
+            json!({
+                "bytesSaved": result.bytes_saved,
+                "workingSetBytes": result.working_set_bytes,
+                "tasks": result.tasks.into_iter().map(|t| json!({
+                    "id": t.id, "bytes": t.bytes, "bytesSaved": t.bytes_saved, "files": t.files
+                })).collect::<Vec<_>>()
+            })
+        }
         "restore" => {
             let id = args.next().ok_or("task id required")?;
             let now = args.next().ok_or("time required")?.parse::<f64>()?;

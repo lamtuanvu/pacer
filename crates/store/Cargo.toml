@@ -6,7 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-flate2 = "1"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 pacer-foundation = { path = "../foundation" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json.workspace = true

@@ -219,13 +219,29 @@ fn json_import_revision_and_external_invalidation() {
 fn retention_predicate_matches_terminal_review_remote_and_paths() {
     let mut t = task();
     t["state"] = json!("done");
+    t["settledAt"] = json!(1100.0);
     t["review"] = json!({"at":1100.0});
     assert!(retention_eligible(&t, 1, 100_000.0));
+    for review in [json!(false), json!(null), json!(0), json!("")] {
+        t["review"] = review;
+        assert!(!retention_eligible(&t, 1, 100_000.0));
+    }
+    t["review"] = json!({"at":1100.0});
     assert!(!retention_eligible(&t, 0, 100_000.0));
     t["run"] = json!({"remoteWorktree":"/remote/worktree"});
     assert!(!retention_eligible(&t, 1, 100_000.0));
     t["run"] = json!({"mode":"new","workdir":"/"});
     assert!(!retention_eligible(&t, 1, 100_000.0));
+}
+
+#[test]
+fn retention_rejects_days_above_typescript_safe_integer_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    assert!(matches!(
+        store.prune(9_007_199_254_740_992, true, 100_000.0),
+        Err(StoreError::InvalidRecord)
+    ));
 }
 
 #[test]

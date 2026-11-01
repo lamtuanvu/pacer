@@ -215,10 +215,13 @@ or a recorded remote worktree stay untouched. Legacy tasks without a known
 settlement timestamp are kept conservatively.
 
 `pacer tasks prune --dry-run` lists the files and destination, compressed bytes
-saved, and bytes removed from the working set, without moving files. Omit
+saved, and bytes removed from the working set, without moving files. Byte savings
+use the same gzip output size in the TypeScript and Rust stores. Omit
 `--dry-run` to archive now. Logs are streamed through gzip; logs, briefs, bundles
 and compatibility JSON move into
-`$PACER_HOME/archive/YYYY-MM/<task-id>/` (private directories and files).
+`$PACER_HOME/archive/YYYY-MM/<task-id>/` (0700 directories and 0600 files;
+existing archive directories are tightened before writing).
+Restore also tightens the task directory before writing files back.
 The month is the task's creation month in UTC.
 
 Default task lists and snapshots exclude archives. `pacer tasks --all` includes

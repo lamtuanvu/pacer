@@ -10,7 +10,7 @@ use pacer_foundation::{
 use serde_json::{Value, json};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -150,7 +150,16 @@ fn gzip(from: &Path, to: Option<&Path>) -> Result<u64> {
         None => Box::new(io::sink()),
     };
     let mut encoder = GzEncoder::new(Counted { writer, bytes: 0 }, Compression::default());
-    io::copy(&mut source, &mut encoder)?;
+    // Match createReadStream's 64 KiB chunks: zlib output can vary with the
+    // size of each write even when the level and input bytes are identical.
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = source.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        encoder.write_all(&chunk[..read])?;
+    }
     Ok(encoder.finish()?.bytes)
 }
 
@@ -179,7 +188,7 @@ impl TaskStore {
     }
 
     pub fn prune(&mut self, days: i64, dry_run: bool, now: f64) -> Result<PruneResult> {
-        if days < 0 {
+        if !(0..=9_007_199_254_740_991).contains(&days) {
             return Err(StoreError::InvalidRecord);
         }
         let mut result = PruneResult {
@@ -258,6 +267,7 @@ impl TaskStore {
         let mut stage_dir = None;
         if !dry_run {
             let parent = archive.parent().ok_or(StoreError::InvalidRecord)?;
+            private_dir(&self.home().join("archive"))?;
             private_dir(parent)?;
             stage_dir = Some(stage(parent, ".staging-")?);
         }
@@ -372,6 +382,7 @@ impl TaskStore {
             let archive = self.archive_path(&task)?;
             let names = artifacts(&archive, id, true)?;
             let task_dir = self.home().join("tasks");
+            private_dir(&task_dir)?;
             let stage_dir = stage(&task_dir, ".restore-")?;
             let outcome = (|| -> Result<Value> {
                 let mut sigs = Vec::new();

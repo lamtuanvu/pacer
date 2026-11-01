@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
-import { createTask, listActiveAndRecentTasks, listLiveTasks, readTask, taskDatabase, updateTask } from "../src/tasks/store";
-import { pruneTasks, restoreTask } from "../src/tasks/retention";
+import { createTask, listActiveAndRecentTasks, listLiveTasks, listTasksWhere, readTask, taskDatabase, updateTask } from "../src/tasks/store";
+import { eligibleForRetention, pruneTasks, restoreTask } from "../src/tasks/retention";
 
 const binary = process.env.PACER_STORE_PROBE_BIN;
 if (process.env.CI === "true" && (!binary || !existsSync(binary))) {
@@ -66,6 +66,139 @@ test.skipIf(!binary || !existsSync(binary))("archive and restore cross the TS/Ru
   expect(readFileSync(log2, "utf8")).toBe("second log\n");
 });
 
+test.skipIf(!binary || !existsSync(binary))("review false never authorizes retention in either runtime", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "retention gate", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  updateTask(ctx, task.id, t => { t.state = "done"; (t as unknown as Record<string, unknown>).review = false; });
+  const later = ctx.now + 2 * 86400;
+  expect((await pruneTasks({ ...ctx, now: later }, { days: 1, dryRun: true })).tasks).toEqual([]);
+  expect(rust("prune-dry", ctx.pacerHome, String(later)).tasks).toEqual([]);
+  expect(rust("prune-result", ctx.pacerHome, String(later)).tasks).toEqual([]);
+  expect(readTask(ctx, task.id)?.archived).toBeUndefined();
+});
+
+test.skipIf(!binary || !existsSync(binary))("seeded retention predicates agree for structured records", () => {
+  let seed = 572;
+  const next = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed; };
+  const reviews: unknown[] = [undefined, null, false, true, 0, 1, "", "reviewed", {}, { at: 1 }];
+  const dismissed: unknown[] = [undefined, false, true, 0, 1, "", "yes"];
+  const states = ["queued", "running", "done", "partial", "failed", "limit", "stopped", "needs_input"] as const;
+  for (let i = 0; i < 32; i++) {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "predicate parity", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+    const review = reviews[next() % reviews.length];
+    const dismiss = dismissed[next() % dismissed.length];
+    const state = states[next() % states.length]!;
+    const archived = [undefined, false][next() % 2];
+    const remote = [undefined, "", "/remote/worktree"][next() % 3];
+    updateTask(ctx, task.id, t => {
+      t.state = state;
+      const value = t as unknown as Record<string, unknown>;
+      value.review = review;
+      value.dismissed = dismiss;
+      value.archived = archived;
+      t.run = { ...t.run, remoteWorktree: remote } as typeof t.run;
+    });
+    const later = ctx.now + (next() % 3 + 1) * 86400;
+    const current = readTask(ctx, task.id)!;
+    const expected = eligibleForRetention({ ...ctx, now: later }, current, 1);
+    const actual = rust("prune-dry", ctx.pacerHome, String(later)).tasks.some((item: { id: string }) => item.id === task.id);
+    expect(actual).toBe(expected);
+  }
+});
+
+test.skipIf(!binary || !existsSync(binary))("archive gzip size and saved bytes agree for dry and real runs", async () => {
+  const payloads = [
+    Buffer.from("abcde12345\n".repeat(10000)),
+    Buffer.alloc(0),
+    Buffer.from("short log\n"),
+    Buffer.from(Array.from({ length: 16384 }, (_, i) => (i * 73 + 19) & 255)),
+    Buffer.from("🐟 archive\n".repeat(4096)),
+  ];
+  const bunSizes: number[] = [];
+  for (const [index, payload] of payloads.entries()) for (const runtime of ["bun", "rust"] as const) {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "archive accounting", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+    updateTask(ctx, task.id, t => { t.state = "done"; t.review = { accepted: true, kind: null, note: null, at: ctx.now }; });
+    writeFileSync(join(ctx.pacerHome, "tasks", `${task.id}.log`), payload);
+    const later = ctx.now + 2 * 86400;
+    const actual = runtime === "bun"
+      ? await pruneTasks({ ...ctx, now: later }, { days: 1, dryRun: true })
+      : rust("prune-dry", ctx.pacerHome, String(later));
+    expect(actual.tasks).toHaveLength(1);
+    if (index === 0) expect(actual.tasks[0].bytesSaved).toBe(payload.length - 584);
+    const real = runtime === "bun"
+      ? await pruneTasks({ ...ctx, now: later }, { days: 1 })
+      : rust("prune-result", ctx.pacerHome, String(later));
+    expect(real.tasks[0].bytesSaved).toBe(actual.tasks[0].bytesSaved);
+    expect(real.bytesSaved).toBe(actual.bytesSaved);
+    const gzipSize = statSync(join(ctx.pacerHome, "archive", new Date(task.createdAt * 1000).toISOString().slice(0, 7), task.id, `${task.id}.log.gz`)).size;
+    expect(actual.tasks[0].bytesSaved).toBe(payload.length - gzipSize);
+    if (runtime === "bun") bunSizes[index] = gzipSize;
+    else expect(gzipSize).toBe(bunSizes[index]);
+    if (index === 0) expect(gzipSize).toBe(584);
+  }
+});
+
+test.skipIf(!binary || !existsSync(binary))("archive artifact order is deterministic across runtimes", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "artifact order", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  updateTask(ctx, task.id, t => { t.state = "done"; t.review = { accepted: true, kind: null, note: null, at: ctx.now }; });
+  for (const name of ["z.log", "a.md", "b.bundle", "y.log"]) writeFileSync(join(ctx.pacerHome, "tasks", `${task.id}.${name}`), name);
+  const later = ctx.now + 2 * 86400;
+  const bunFiles = (await pruneTasks({ ...ctx, now: later }, { days: 1, dryRun: true })).tasks[0]!.files;
+  const rustFiles = rust("prune-dry", ctx.pacerHome, String(later)).tasks[0].files;
+  expect(bunFiles).toEqual([...bunFiles].sort());
+  expect(rustFiles).toEqual(bunFiles);
+});
+
+test.skipIf(!binary || !existsSync(binary))("archive writers tighten existing directories and preserve exact modes under either umask", async () => {
+  for (const mask of [0o022, 0o077]) for (const runtime of ["bun", "rust"] as const) {
+    const previous = process.umask(mask);
+    try {
+      const ctx = fakeCtx();
+      mkdirSync(join(ctx.pacerHome, "tasks"), { recursive: true });
+      chmodSync(join(ctx.pacerHome, "tasks"), 0o755);
+      const task = createTask(ctx, { brief: { goal: "archive modes", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+      expect(statSync(join(ctx.pacerHome, "tasks")).mode & 0o777).toBe(0o700);
+      writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+      updateTask(ctx, task.id, t => { t.state = "done"; t.review = { accepted: true, kind: null, note: null, at: ctx.now }; });
+      const log = join(ctx.pacerHome, "tasks", `${task.id}.log`);
+      writeFileSync(log, "mode check\n");
+      const archiveRoot = join(ctx.pacerHome, "archive");
+      const month = join(archiveRoot, new Date(task.createdAt * 1000).toISOString().slice(0, 7));
+      mkdirSync(month, { recursive: true });
+      chmodSync(archiveRoot, 0o755);
+      chmodSync(month, 0o755);
+      const later = ctx.now + 2 * 86400;
+      if (runtime === "bun") await pruneTasks({ ...ctx, now: later }, { days: 1 });
+      else rust("prune-result", ctx.pacerHome, String(later));
+      for (const path of [archiveRoot, month, join(month, task.id)]) {
+        expect(statSync(path).mode & 0o777).toBe(0o700);
+      }
+      for (const path of [join(month, task.id, `${task.id}.log.gz`), join(month, task.id, `${task.id}.json`)]) {
+        expect(statSync(path).mode & 0o777).toBe(0o600);
+      }
+      for (const path of [archiveRoot, month, join(month, task.id)]) chmodSync(path, 0o755);
+      if (runtime === "bun") updateTask(ctx, task.id, t => { t.title = "updated archive"; });
+      else rust("increment", ctx.pacerHome, task.id);
+      for (const path of [archiveRoot, month, join(month, task.id)]) {
+        expect(statSync(path).mode & 0o777).toBe(0o700);
+      }
+      expect(statSync(join(month, task.id, `${task.id}.json`)).mode & 0o777).toBe(0o600);
+      chmodSync(join(ctx.pacerHome, "tasks"), 0o755);
+      if (runtime === "bun") await restoreTask({ ...ctx, now: later }, task.id);
+      else rust("restore", ctx.pacerHome, task.id, String(later));
+      expect(statSync(join(ctx.pacerHome, "tasks")).mode & 0o777).toBe(0o700);
+      expect(statSync(join(ctx.pacerHome, "tasks", `${task.id}.json`)).mode & 0o777).toBe(0o600);
+    } finally { process.umask(previous); }
+  }
+});
+
 test.skipIf(!binary || !existsSync(binary))("structured JSON imports have the same acceptance branches", () => {
   const ctx = fakeCtx();
   const template = createTask(ctx, { brief: { goal: "import", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
@@ -81,6 +214,7 @@ test.skipIf(!binary || !existsSync(binary))("structured JSON imports have the sa
     value => { value.state = "unknown"; },
     value => { value.brief = { repo: null }; },
     value => { value.id = "wrong"; },
+    value => { value.archived = "yes"; },
   ];
   for (const [index, mutate] of variants.entries()) {
     const id = `t-20261101-191106-${index.toString(16).padStart(4, "0")}`;
@@ -91,6 +225,10 @@ test.skipIf(!binary || !existsSync(binary))("structured JSON imports have the sa
     writeFileSync(tmp, JSON.stringify(value));
     renameSync(tmp, join(ctx.pacerHome, "tasks", `${id}.json`));
     expect(rust("read", ctx.pacerHome, id)).toEqual(readTask(ctx, id));
+    if (index === variants.length - 1) {
+      expect(rust("list", ctx.pacerHome).some((entry: { id: string }) => entry.id === id))
+        .toBe(listTasksWhere(ctx).some(entry => entry.id === id));
+    }
   }
 });
 
