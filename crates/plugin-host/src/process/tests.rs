@@ -158,6 +158,8 @@ async fn conformance_fixture_handshake_and_ping() {
         .join(".work/fixtures")
         .join(format!("p4a-serial-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("node_modules"), dir.join("node_modules")).ok();
     for (source, destination) in [
         ("serial/main.ts", "main.ts"),
         ("serial/fixture.json", "fixture.json"),
@@ -193,4 +195,66 @@ async fn conformance_fixture_handshake_and_ping() {
     assert_eq!(ping["ok"], true);
     child.terminate().await.unwrap();
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn identity_fixture_uses_rust_capability_broker() {
+    use crate::{
+        BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
+        parse_manifest,
+    };
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    struct Signed;
+    impl CapabilityEffect for Signed {
+        async fn call(&mut self, _method: &str, _params: Value) -> Result<Value, BrokerError> {
+            Ok(json!({"signature":"c2ln","machineId":"fixture-machine"}))
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let source = root.join("conformance/fixtures");
+    let dir = root
+        .join(".work/fixtures")
+        .join(format!("p4b-identity-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("node_modules"), dir.join("node_modules")).ok();
+    for (from, to) in [
+        ("identity-sign/main.ts", "main.ts"),
+        ("identity-sign/fixture.json", "fixture.json"),
+        ("identity-sign/pacer-plugin.json", "pacer-plugin.json"),
+        ("plugin.ts", "plugin.ts"),
+    ] {
+        std::fs::copy(source.join(from), dir.join(to)).unwrap();
+    }
+    let raw: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("pacer-plugin.json")).unwrap()).unwrap();
+    let manifest = parse_manifest(raw.clone()).unwrap();
+    let authority = CallAuthority::new(
+        CallResources::default(),
+        ["identity.sign".into()],
+        tokio::time::Instant::now().into_std() + Duration::from_secs(5),
+    );
+    let broker = Arc::new(Mutex::new(CapabilityBroker::new(
+        manifest,
+        authority,
+        vec![],
+    )));
+    let mut spec = peer("");
+    spec.argv = vec!["bun".into(), "main.ts".into()];
+    spec.cwd = dir.clone();
+    let mut child = PluginProcess::spawn(&spec).unwrap();
+    child.request("plugin.hello",json!({"protocol":"1.10.0","pacer":"0.2.0","manifest":raw,"config":{},"grants":[],"features":[]}),Duration::from_secs(5),None).await.unwrap();
+    let value=child.request_with_handler("diagnostic.ping",json!({}),Duration::from_secs(5),None,move |method,params,_| {
+        let broker=broker.clone();async move {
+            broker.lock().await.handle(&method,params,&mut Signed).await
+                .map_err(|error| json!({"code":-32000,"message":error.to_string(),"data":{"code":"capability_denied"}}))
+        }
+    }).await.unwrap();
+    assert_eq!(value["ok"], true);
+    let result: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("capability-result.json")).unwrap())
+            .unwrap();
+    assert_eq!(result["machineId"], "fixture-machine");
+    child.terminate().await.unwrap();
 }
