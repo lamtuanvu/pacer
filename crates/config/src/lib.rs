@@ -3,4 +3,5 @@
 pub mod doc;
 mod sections;
 pub mod strategy;
+pub mod strategy_write;
 pub mod write;
