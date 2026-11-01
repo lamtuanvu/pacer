@@ -236,12 +236,12 @@ test("Recovery refuses a recovery branch changed after creation without overwrit
   expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
   git(work, "commit", "--allow-empty", "-qm", "unreviewed branch change");
   const changed = git(work, "rev-parse", "HEAD");
-  const branch = `release/recovery-v0.5.0-${recoveryEnv(work).RELEASE_COMMIT!.slice(0, 12)}`;
+  const branch = `release/recovery-v0.5.0-${recoveryEnv(work).RELEASE_MERGE_COMMIT!.slice(0, 12)}`;
   git(work, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
-  git(work, "checkout", "--quiet", recoveryEnv(work).RELEASE_COMMIT!);
+  git(work, "checkout", "--quiet", recoveryEnv(work).RELEASE_MERGE_COMMIT!);
   const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
   expect(result.exitCode).not.toBe(0);
-  expect(result.stdout.toString()).toContain("Recovery branch does not point to release merge commit");
+  expect(result.stdout.toString()).toContain("Recovery branch does not point to selected main commit");
   expect(git(origin, "rev-parse", `refs/heads/${branch}`)).toBe(changed);
 });
 
@@ -264,6 +264,58 @@ test("Recovery validates the exact merge commit when main changed after the rele
   const tagged = runTag(work, merge, "chore: release 0.5.0 (#220)", { ...recoveryEnv(work), GITHUB_STEP_SUMMARY: join(work, "summary") });
   expect(tagged.exitCode).toBe(0);
   expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(merge);
+});
+
+test("Recovery validates and tags a later main commit containing a CI fix", () => {
+  const { work, origin, sha: merge } = recoveryFixture();
+  writeFileSync(join(work, "gate-fix"), "fixed");
+  git(work, "add", "gate-fix");
+  git(work, "commit", "--quiet", "-m", "fix: repair release gate");
+  const fixed = git(work, "rev-parse", "HEAD");
+  git(work, "push", "--quiet", "origin", "main");
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  const validated = recoveryStep(work, validateRecovery, recoveryEnv(work));
+  expect(validated.exitCode).toBe(0);
+  expect(recoveryEnv(work).RELEASE_MERGE_COMMIT).toBe(merge);
+  expect(recoveryEnv(work).RELEASE_COMMIT).toBe(fixed);
+  expect(git(origin, "rev-parse", `refs/heads/release/recovery-v0.5.0-${fixed.slice(0, 12)}`)).toBe(fixed);
+  const tagged = runTag(work, fixed, "chore: release 0.5.0 (#220)", recoveryEnv(work));
+  expect(tagged.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(fixed);
+});
+
+test("Recovery refuses to tag if main advances after its dry run", () => {
+  const { work, origin } = recoveryFixture();
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  expect(recoveryStep(work, validateRecovery, recoveryEnv(work)).exitCode).toBe(0);
+  const validated = recoveryEnv(work);
+  git(work, "switch", "--quiet", "main");
+  git(work, "commit", "--allow-empty", "--quiet", "-m", "fix: another main change");
+  git(work, "push", "--quiet", "origin", "main");
+  git(work, "switch", "--detach", "--quiet", validated.RELEASE_COMMIT!);
+  const result = runTag(work, validated.RELEASE_COMMIT!, "chore: release 0.5.0 (#220)", validated);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toContain("Main advanced during recovery validation");
+  expect(git(origin, "tag", "--list")).toBe("");
+});
+
+test("Recovery rejects version changes and newer releases on main", () => {
+  for (const change of ["version", "release"]) {
+    const { work, origin } = recoveryFixture();
+    if (change === "version") {
+      writeFileSync(join(work, "package.json"), JSON.stringify({ version: "0.6.0" }));
+      git(work, "add", "package.json");
+      git(work, "commit", "--quiet", "-m", "fix: bump package version");
+    } else {
+      git(work, "commit", "--allow-empty", "--quiet", "-m", "chore: release 0.6.0 (#221)");
+    }
+    git(work, "push", "--quiet", "origin", "main");
+    expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+    const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
+    expect(result.exitCode).not.toBe(0);
+    expect(git(origin, "tag", "--list")).toBe("");
+    expect(existsSync(join(work, "dispatched"))).toBe(false);
+  }
 });
 
 test("Recovery refuses a stale or unsuccessful exact-merge validation run", () => {
