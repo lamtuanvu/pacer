@@ -1215,6 +1215,7 @@ dependencies = [
  "nix",
  "pacer-foundation",
  "pacer-mdns",
+ "pacer-store",
  "rand",
  "security-framework",
  "serde_json",
