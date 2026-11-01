@@ -394,9 +394,10 @@ fn add_runner(
     accounts: &Map<String, Value>,
     hosts: &Value,
     runners: &mut Map<String, Value>,
-    aliases: &mut Map<String, Value>,
+    runner_maps: (&mut Map<String, Value>, &mut Map<String, Value>),
     problems: &mut Vec<String>,
 ) {
+    let (aliases, declarations) = runner_maps;
     if !declaration.is_object() {
         problems.push(format!("runner {reference}: must be a mapping"));
     }
@@ -429,6 +430,35 @@ fn add_runner(
     let (parsed_agent, parsed_account) = local_ref
         .split_once('#')
         .map_or((local_ref, None), |(a, b)| (a, Some(b)));
+    let valid_part = |part: &str| {
+        let mut bytes = part.bytes();
+        bytes
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            && bytes.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    };
+    let valid_declared = valid_part(parsed_agent)
+        && agent_kind(parsed_agent).is_some()
+        && parsed_account.is_none_or(valid_part)
+        && raw_host.is_none_or(valid_part);
+    if declaration.get("session") == Some(&json!("interactive")) && host.is_some() && valid_declared
+    {
+        problems.push(format!(
+            "runner {reference}: interactive sessions require a local runner"
+        ));
+    }
+    if explicit_agent.is_none()
+        && explicit_account.is_none()
+        && !valid_declared
+        && !accounts
+            .get(reference)
+            .is_some_and(|account| account["kind"] == "endpoint")
+    {
+        problems.push(format!(
+            "runner {reference}: invalid runner id or unknown agent"
+        ));
+        return;
+    }
     let agent = explicit_agent.unwrap_or_else(|| {
         if accounts
             .get(reference)
@@ -509,9 +539,7 @@ fn add_runner(
         return;
     };
     let Some(cfg) = accounts.get(account) else {
-        problems.push(format!(
-            "runner {reference}: no default account for {agent}"
-        ));
+        problems.push(format!("runner {reference}: unknown account \"{account}\""));
         return;
     };
     if cfg["kind"] != agent_kind(agent).unwrap_or("") {
@@ -530,6 +558,18 @@ fn add_runner(
     } else {
         id
     };
+    let (id_local, id_host) = id
+        .split_once('@')
+        .map_or((id.as_str(), None), |(local, host)| (local, Some(host)));
+    let (id_agent, id_account) = id_local
+        .split_once('#')
+        .map_or((id_local, None), |(agent, account)| (agent, Some(account)));
+    if !valid_part(id_agent)
+        || id_account.is_some_and(|account| !valid_part(account))
+        || id_host.is_some_and(|host| !valid_part(host))
+    {
+        problems.push(format!("runner {reference}: invalid runner id"));
+    }
     if let Some(host) = host
         && default.first().copied() != Some(account)
         && hosts.get(host).is_some()
@@ -581,6 +621,17 @@ fn add_runner(
             "runner {id}: model must look like \"<provider>/<model>\""
         ));
     }
+    if declaration.as_object().is_some_and(|c| !c.is_empty()) {
+        if declarations
+            .get(&id)
+            .is_some_and(|previous| previous != &model)
+        {
+            problems.push(format!(
+                "runner {reference}: conflicting model declarations for {id}"
+            ));
+        }
+        declarations.insert(id.clone(), model.clone());
+    }
     let mut value = runner(&id, agent, account, &model);
     if let Some(host) = host {
         value["host"] = json!(host);
@@ -599,6 +650,7 @@ fn add_runner(
         let mut seen = std::collections::HashSet::new();
         let mut normalized = Vec::new();
         let mut valid = true;
+        let mut duplicate = false;
         if let Some(list) = models
             .as_array()
             .filter(|a| !a.is_empty() && a.len() <= 256)
@@ -620,9 +672,7 @@ fn add_runner(
                     break;
                 };
                 if !seen.insert(mid) {
-                    problems.push(format!("runner {reference}: duplicate models"));
-                    valid = false;
-                    break;
+                    duplicate = true;
                 }
                 let tier = m.get("tier").and_then(Value::as_str).unwrap_or("unknown");
                 if !["small", "medium", "frontier", "unknown"].contains(&tier) {
@@ -658,7 +708,24 @@ fn add_runner(
         }
         if !valid {
             problems.push(format!("runner {reference}: invalid models declaration"));
+        } else if duplicate {
+            problems.push(format!("runner {reference}: duplicate models"));
         } else {
+            if let Some(connection_models) = cfg
+                .get("connection")
+                .and_then(|connection| connection.get("models"))
+                .and_then(Value::as_array)
+                && normalized.iter().any(|model| {
+                    !connection_models.iter().any(|offered| {
+                        model["id"]
+                            == format!("pacer-{account}/{}", offered["id"].as_str().unwrap_or(""))
+                    })
+                })
+            {
+                problems.push(format!(
+                    "runner {reference}: models must be selected from connection.models"
+                ));
+            }
             value["models"] = json!(normalized);
         }
     }
@@ -817,12 +884,15 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     .split(['#', '@'])
     .next()
     .unwrap_or("");
-    if !["claude-code", "codex", "cursor", "opencode"].contains(&planner_agent) {
-        p.push(if legacy {format!("planner must be one of claude-code, codex, cursor, opencode (got \"{planner_agent}\")")} else {"planner must be one of claude-code, codex, cursor, opencode".into()});
+    if legacy && !["claude-code", "codex", "cursor", "opencode"].contains(&planner_agent) {
+        p.push(format!(
+            "planner must be one of claude-code, codex, cursor, opencode (got \"{planner_agent}\")"
+        ));
     }
     let mut accounts = Map::new();
     let mut runners = Map::new();
     let mut aliases = Map::new();
+    let mut declarations = Map::new();
     let mut providers = Map::new();
     if legacy {
         let entries = root.get("providers").and_then(obj);
@@ -970,7 +1040,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
             &accounts,
             &hosts,
             &mut runners,
-            &mut aliases,
+            (&mut aliases, &mut declarations),
             &mut p,
         );
         if planner_id
@@ -979,9 +1049,22 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
         {
             p.push("the planner can't run on a host".into());
         }
+        if runners.contains_key(&planner_id)
+            && !["claude-code", "codex", "cursor", "opencode"].contains(&planner_agent)
+        {
+            p.push("planner must be one of claude-code, codex, cursor, opencode".into());
+        }
         if let Some(entries) = root.get("runners").and_then(obj) {
             for (id, c) in entries {
-                add_runner(id, c, &accounts, &hosts, &mut runners, &mut aliases, &mut p);
+                add_runner(
+                    id,
+                    c,
+                    &accounts,
+                    &hosts,
+                    &mut runners,
+                    (&mut aliases, &mut declarations),
+                    &mut p,
+                );
             }
         }
         if let Some(rules) = root.get("routing").and_then(Value::as_array) {
@@ -1003,7 +1086,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
                         &accounts,
                         &hosts,
                         &mut runners,
-                        &mut aliases,
+                        (&mut aliases, &mut declarations),
                         &mut p,
                     );
                 }
@@ -1083,7 +1166,70 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     };
     if pc.get("order").is_some() {
         for id in &order {
-            if id != "opencode" && !providers.contains_key(id) {
+            let (local, raw_host) = id
+                .split_once('@')
+                .map_or((id.as_str(), None), |(a, b)| (a, Some(b)));
+            let (agent, named_account) = local
+                .split_once('#')
+                .map_or((local, None), |(a, b)| (a, Some(b)));
+            let account = named_account
+                .and_then(|name| accounts.get(name))
+                .or_else(|| {
+                    let matches = accounts
+                        .values()
+                        .filter(|account| {
+                            account["kind"] == agent_kind(agent).unwrap_or("")
+                                && account["home"].is_null()
+                                && account["orcaAccount"].is_null()
+                        })
+                        .collect::<Vec<_>>();
+                    (matches.len() == 1).then(|| matches[0])
+                });
+            if let Some(account) = account
+                && agent_kind(agent).is_some()
+                && account["kind"] != agent_kind(agent).unwrap_or("")
+            {
+                p.push(format!(
+                    "pacing.order: {agent} cannot use {} account \"{}\"",
+                    account["kind"].as_str().unwrap_or(""),
+                    account["name"].as_str().unwrap_or("")
+                ));
+            }
+            if let Some(host) = raw_host.filter(|host| *host != "local") {
+                if hosts.get(host).is_none() {
+                    let names = hosts
+                        .as_object()
+                        .map(|known| known.keys().cloned().collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default();
+                    p.push(format!(
+                        "runner {id}: unknown host {host} (hosts: {})",
+                        if names.is_empty() { "none" } else { &names }
+                    ));
+                }
+                if !["codex", "claude-code"].contains(&agent) {
+                    p.push(format!(
+                        "runner {id}: remote runners support codex and claude-code"
+                    ));
+                }
+                if let (Some(named), Some(_), Some(_)) = (named_account, account, hosts.get(host)) {
+                    let defaults = accounts
+                        .values()
+                        .filter(|cfg| {
+                            cfg["kind"] == agent_kind(agent).unwrap_or("")
+                                && cfg["home"].is_null()
+                                && cfg["orcaAccount"].is_null()
+                        })
+                        .collect::<Vec<_>>();
+                    if !(defaults.len() == 1 && defaults[0]["name"] == named)
+                        && hosts[host]["accounts"].get(named).is_none()
+                    {
+                        p.push(format!(
+                            "runner {id}: account {named} on {host} needs hosts.{host}.accounts.{named}.home"
+                        ));
+                    }
+                }
+            }
+            if id != "opencode" && !providers.contains_key(id) && account.is_none() {
                 p.push(format!("pacing.order: unknown provider \"{id}\""));
             }
         }

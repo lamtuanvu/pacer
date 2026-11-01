@@ -3027,5 +3027,229 @@
       "execution": {},
       "classifier": {}
     }
+  },
+  {
+    "name": "remote-headless-session-control",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "claude-code",
+      "hosts": {
+        "box": {
+          "ssh": "box"
+        }
+      },
+      "runners": {
+        "codex@box": {
+          "session": "headless"
+        }
+      }
+    },
+    "expected": {
+      "name": "remote-headless-session-control",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "accounts": {
+        "claude": {
+          "name": "claude",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {
+        "box": {
+          "alias": "box",
+          "ssh": "box",
+          "repos": {},
+          "maxTasks": 2,
+          "accounts": {},
+          "paused": false
+        }
+      },
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude",
+          "model": null
+        },
+        "codex@box": {
+          "session": "headless",
+          "id": "codex@box",
+          "name": "codex@box",
+          "host": "box",
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex@box": "codex@box"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex@box": {
+          "session": "headless",
+          "id": "codex@box",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "codex@box"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "codex@box"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "endpoint-undeclared-runner-model-error",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "endpoint": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#endpoint": {
+          "models": [
+            {
+              "id": "pacer-endpoint/invalid"
+            }
+          ]
+        }
+      }
+    },
+    "problems": [
+      "runner opencode#endpoint: models must be selected from connection.models"
+    ]
+  },
+  {
+    "name": "remote-interactive-session-error",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "claude-code",
+      "hosts": {
+        "box": {
+          "ssh": "box"
+        }
+      },
+      "runners": {
+        "codex@box": {
+          "session": "interactive"
+        }
+      }
+    },
+    "problems": [
+      "runner codex@box: interactive sessions require a local runner"
+    ]
   }
 ]

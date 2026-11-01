@@ -6,11 +6,18 @@ use std::path::Path;
 
 #[test]
 fn normalized_strategies_and_errors_match_typescript_goldens() {
-    let cases: Value = serde_json::from_str(include_str!(
-        "../../../test/fixtures/strategy-read/cases.json"
-    ))
-    .unwrap();
-    for case in cases.as_array().unwrap() {
+    for case in [
+        include_str!("../../../test/fixtures/strategy-read/cases.json"),
+        include_str!("../../../test/fixtures/strategy-read/refinements.json"),
+    ]
+    .into_iter()
+    .flat_map(|fixture| {
+        serde_json::from_str::<Value>(fixture)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone()
+    }) {
         let name = case["name"].as_str().unwrap();
         let result = validate_strategy(&case["raw"], Path::new("strategy.yaml"), name);
         if let Some(expected) = case.get("expected") {
