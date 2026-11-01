@@ -1,9 +1,16 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { hostTarget, assetFile, companionFile, sha256Hex } from "../src/update/manifest";
-import { validateM1Artifacts } from "../scripts/gate/m1";
+import { validateM1Artifacts, validateNativeRegistry } from "../scripts/gate/m1";
+
+test("M1 gate requires test operations to remain feature-gated", () => {
+  const source = readFileSync(join(import.meta.dir, "../crates/server/src/native.rs"), "utf8");
+  expect(() => validateNativeRegistry(source)).not.toThrow();
+  expect(() => validateNativeRegistry(source.replace('#[cfg(not(feature = "test-ops"))]', '#[cfg(feature = "test-ops")]'))).toThrow("feature-gated native registry");
+  expect(() => validateNativeRegistry(source.replace('name: "test.echo"', 'name: "different.echo"'))).toThrow("coverage changed");
+});
 
 test("M1 gate requires the exact paired host release bytes", () => {
   const target = hostTarget()!;
