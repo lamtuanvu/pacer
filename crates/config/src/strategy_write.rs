@@ -333,12 +333,10 @@ pub fn save_strategy(
     fs::create_dir_all(home.join("strategies"))?;
     #[cfg(unix)]
     fs::set_permissions(home.join("strategies"), fs::Permissions::from_mode(0o700))?;
-    let description = draft["description"].as_str().unwrap_or("");
-    let description = if description.is_empty() {
-        summary(&strategy)
-    } else {
-        description.into()
-    };
+    let description = draft["description"]
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| summary(&strategy));
     let content = format!(
         "# {}\n# created by {} on {}: {}\n{}",
         one_line(&description),

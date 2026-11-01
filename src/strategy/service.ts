@@ -1,5 +1,5 @@
 import { checkDraftPath } from "./paths";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { loadStrategy, useStrategy, validateStrategy, StrategyError, type Strategy } from "../config/strategy";
@@ -73,11 +73,12 @@ export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwri
   const {yaml,strategy}=materialize(ctx,draft), path=join(ctx.pacerHome,"strategies",`${name}.yaml`);
   if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists; use overwrite:true to replace it`);
   if(existsSync(path)&&loadStrategy(ctx).name===name&&!opts.activeOk) throw new Error(`strategy "${name}" is active; overwriting changes live routing; use activeOk:true to approve`);
-  mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true});
+  mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true,mode:0o700});
+  chmodSync(join(ctx.pacerHome,"strategies"),0o700);
   const who=line(opts.who??ctx.env.PACER_AGENT??ctx.env.ORCA_AGENT??"agent");
   const content=`# ${line(draft.description??summarize(strategy))}\n# created by ${who} on ${new Date(ctx.now*1000).toISOString()}: ${line(reason)}\n${yaml}`;
   const tmp=`${path}.${randomBytes(4).toString("hex")}.tmp`;
-  try {writeFileSync(tmp,content,{flag:"wx"}); if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists`); if(opts.overwrite) renameSync(tmp,path); else linkSync(tmp,path);} finally {rmSync(tmp,{force:true});}
+  try {writeFileSync(tmp,content,{flag:"wx",mode:0o600}); if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists`); if(opts.overwrite) renameSync(tmp,path); else linkSync(tmp,path);} finally {rmSync(tmp,{force:true});}
   return {name,path,summary:summarize(strategy),active:loadStrategy(ctx).name===name};
 }
 export async function use(ctx:Ctx,name:string):Promise<string> {

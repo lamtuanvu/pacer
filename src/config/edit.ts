@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Document, isMap, isScalar, isSeq, parseDocument, stringify, type Node } from "yaml";
 import { validateStrategy } from "./strategy";
@@ -130,7 +130,7 @@ export class StrategyDoc {
 export function atomicStrategyWrite(path: string, text: string): void {
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temp, text, { flag: "wx", mode: statSync(path).mode & 0o777 });
+    writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
     renameSync(temp, path);
   } finally { rmSync(temp, { force: true }); }
 }

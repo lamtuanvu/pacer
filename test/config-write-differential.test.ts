@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as routing from "../src/core/routing-config";
@@ -26,13 +26,18 @@ function rust(binary: string, input: Record<string, unknown>) {
   return JSON.parse(execFileSync(binary, [], { input: JSON.stringify(input) + "\n" }).toString());
 }
 
+function configBinary() {
+  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
+  const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root }).toString());
+  return join(metadata.target_directory, "debug/examples/config_write_diff");
+}
+
 function result(value: unknown, homePath: string) {
   return JSON.parse(JSON.stringify(value).replaceAll(homePath, "$HOME"));
 }
 
 test("seeded routing, runner order and notification writes match TS bytes and results", async () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   let seed = 0x1a2b3c4d;
   const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed >>> 0; };
   for (let i = 0; i < 24; i++) {
@@ -62,12 +67,12 @@ test("seeded routing, runner order and notification writes match TS bytes and re
     expect(rsLevel).toEqual({ ok: true, value: tsLevel });
     expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
     expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(tsHome, "settings.json")).mode & 0o777).toBe(0o600);
   }
 }, 30_000);
 
 test("removing a runner drops its empty routing rule without changing surviving comments", async () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const tsHome = home(), rsHome = home();
   const changed = yaml.replace("executors: [codex, cursor] # keep list", "executors: [cursor] # keep list");
   writeFileSync(join(tsHome, "strategy.yaml"), changed);
@@ -80,10 +85,10 @@ test("removing a runner drops its empty routing rule without changing surviving 
 });
 
 test("named strategy save matches TS result and generated YAML bytes", () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const drafts: strategy.Draft[] = [
     { from: "default", description: "Review routing", set: {} },
+    { from: "default", description: "", set: {} },
     { from: "default", description: "Review routing", set: { "pacing.order": ["cursor", "codex"], "pacing.planner_reserve": 25 } },
     { from: "default", set: { "pacing.policy": "even", "pacing.planner_probe": "off" } },
     { from: "default", set: { routing: [{ kinds: ["docs"], executors: ["cursor"] }, { default: ["codex"] }] } },
@@ -100,6 +105,8 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
     expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
     expect(statSync(join(rsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
     expect(statSync(join(rsHome, "strategies")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(tsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(tsHome, "strategies")).mode & 0o777).toBe(0o700);
     const tsUse = (strategy.show(ctx, name), { name, path: useStrategy(ctx, name) });
     const rsUse = rust(binary, { op: "strategy.use", home: rsHome, name });
     expect(result(rsUse, rsHome)).toEqual(result({ ok: true, value: tsUse }, tsHome));
@@ -120,9 +127,62 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
   }
 });
 
+test("runner.set accepts integral JSON decimal rank with byte parity", async () => {
+  const binary = configBinary();
+  const tsHome = home(), rsHome = home();
+  const ts = await runners.set(fakeCtx({ pacerHome: tsHome }), "codex", { rank: 1.0 });
+  const raw = `{"op":"runner.set","home":${JSON.stringify(rsHome)},"id":"codex","options":{"rank":1.0}}\n`;
+  const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
+  expect(result(rs, rsHome)).toEqual(result({ ok: true, value: ts }, tsHome));
+  expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
+});
+
+test("state writers tighten file and directory modes under both umasks", async () => {
+  const binary = configBinary();
+  for (const mask of [0o022, 0o077]) {
+    const oldMask = process.umask(mask);
+    try {
+      const tsHome = home(), rsHome = home();
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      for (const dir of [tsHome, rsHome]) chmodSync(join(dir, "strategy.yaml"), 0o644);
+      const tsSet = notify.setLevel(ctx, "all");
+      const rsSet = rust(binary, { op: "notifications.set", home: rsHome, level: "all" });
+      expect(rsSet).toEqual({ ok: true, value: tsSet });
+      for (const dir of [tsHome, rsHome]) expect(statSync(join(dir, "settings.json")).mode & 0o777).toBe(0o600);
+      const tsSave = strategy.save(ctx, "review", { from: "default", description: "" }, "approved");
+      const rsSave = rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft: { from: "default", description: "" }, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString() });
+      expect(result(rsSave, rsHome)).toEqual(result({ ok: true, value: tsSave }, tsHome));
+      for (const dir of [tsHome, rsHome]) {
+        expect(statSync(join(dir, "strategies")).mode & 0o777).toBe(0o700);
+        expect(statSync(join(dir, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
+      }
+      for (const dir of [tsHome, rsHome]) {
+        chmodSync(join(dir, "settings.json"), 0o644);
+        chmodSync(join(dir, "strategies"), 0o755);
+        chmodSync(join(dir, "strategies", "review.yaml"), 0o644);
+      }
+      notify.setLevel(ctx, "important");
+      rust(binary, { op: "notifications.set", home: rsHome, level: "important" });
+      const revised = { from: "default", description: "updated" };
+      strategy.save(ctx, "review", revised, "approved", { overwrite: true });
+      rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft: revised, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString(), overwrite: true });
+      for (const dir of [tsHome, rsHome]) {
+        expect(statSync(join(dir, "settings.json")).mode & 0o777).toBe(0o600);
+        expect(statSync(join(dir, "strategies")).mode & 0o777).toBe(0o700);
+        expect(statSync(join(dir, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
+      }
+      const tsRunner = await runners.set(ctx, "codex", { rank: 1 });
+      const rsRunner = rust(binary, { op: "runner.set", home: rsHome, id: "codex", options: { rank: 1 } });
+      expect(rsRunner.ok).toBe(true);
+      expect(statSync(join(tsHome, "strategy.yaml")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(rsHome, "strategy.yaml")).mode & 0o777).toBe(0o600);
+      expect(result(rsRunner, rsHome)).toEqual(result({ ok: true, value: tsRunner }, tsHome));
+    } finally { process.umask(oldMask); }
+  }
+});
+
 test("save refusals and notification migration match TS errors and bytes", () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const tsHome = home(), rsHome = home();
   const ctx = fakeCtx({ pacerHome: tsHome });
   const nowIso = new Date(ctx.now * 1000).toISOString();
@@ -152,8 +212,7 @@ test("save refusals and notification migration match TS errors and bytes", () =>
 });
 
 test("routing rule insertion keeps surviving YAML nodes", async () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const tsHome = home(), rsHome = home();
   const ctx = fakeCtx({ pacerHome: tsHome });
   const rules = [
@@ -168,8 +227,7 @@ test("routing rule insertion keeps surviving YAML nodes", async () => {
 });
 
 test("runner reorder migrates a legacy strategy and keeps backup parity", async () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const tsHome = home(), rsHome = home();
   const legacy = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n";
   writeFileSync(join(tsHome, "strategy.yaml"), legacy);
@@ -185,8 +243,7 @@ test("runner reorder migrates a legacy strategy and keeps backup parity", async 
 });
 
 test("routing and runner refusals leave both homes byte-identical", async () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const tsHome = home(), rsHome = home();
   const ctx = fakeCtx({ pacerHome: tsHome });
   const cases = [
@@ -210,8 +267,7 @@ test("routing and runner refusals leave both homes byte-identical", async () => 
 });
 
 test("committed byte goldens cover each P2-C write family", () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/config_write_diff");
+  const binary = configBinary();
   const rsHome = home();
   const step = (input: Record<string, unknown>, file: string, expected: string) => {
     const outcome = rust(binary, { ...input, home: rsHome });

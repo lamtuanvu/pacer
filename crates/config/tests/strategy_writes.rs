@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use pacer_config::strategy_write::{remove_strategy, use_strategy};
+use pacer_config::strategy_write::{SaveOptions, remove_strategy, save_strategy, use_strategy};
+use pacer_config::{notifications, write};
 use serde_json::Value;
 use std::fs;
 #[cfg(unix)]
@@ -88,5 +89,95 @@ fn removal_deletes_only_inactive_named_file() {
     assert_eq!(
         remove_strategy(dir.path(), "work").unwrap_err().to_string(),
         "unknown strategy \"work\""
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_modes_under_both_umasks() {
+    let executable = std::env::current_exe().unwrap();
+    for mask in ["022", "077"] {
+        let output = std::process::Command::new("sh")
+            .args(["-c", "umask \"$1\"; shift; exec \"$@\"", "sh", mask])
+            .arg(&executable)
+            .args([
+                "--exact",
+                "activation_modes_under_umask_child",
+                "--nocapture",
+            ])
+            .env("PACER_STRATEGY_UMASK_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mask {mask}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "mask {mask}: child test did not run"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_modes_under_umask_child() {
+    if std::env::var_os("PACER_STRATEGY_UMASK_CHILD").is_none() {
+        return;
+    }
+    let dir = home();
+    let active = dir.path().join("active");
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&active, fs::Permissions::from_mode(0o644)).unwrap();
+    use_strategy(dir.path(), "work").unwrap();
+    assert_eq!(
+        fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(active).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let settings = dir.path().join("settings.json");
+    fs::write(&settings, "{}").unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o644)).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    assert_eq!(
+        fs::metadata(&settings).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let strategies = dir.path().join("strategies");
+    fs::set_permissions(&strategies, fs::Permissions::from_mode(0o755)).unwrap();
+    save_strategy(
+        dir.path(),
+        "review",
+        &serde_json::json!({"from":"default","description":""}),
+        "approved",
+        SaveOptions {
+            who: "agent",
+            now_iso: "2026-11-01T00:00:00.000Z",
+            overwrite: false,
+            active_ok: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(&strategies).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let review = strategies.join("review.yaml");
+    assert_eq!(
+        fs::metadata(review).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let default = dir.path().join("strategy.yaml");
+    fs::set_permissions(&default, fs::Permissions::from_mode(0o644)).unwrap();
+    write::atomic_strategy_write(&default, "private\n").unwrap();
+    assert_eq!(
+        fs::metadata(default).unwrap().permissions().mode() & 0o777,
+        0o600
     );
 }
