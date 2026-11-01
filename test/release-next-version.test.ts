@@ -23,10 +23,12 @@ test("bumps reset the lower parts", () => {
   expect(() => applyBump("0.5.0-rc.1", "patch")).toThrow("MAJOR.MINOR.PATCH");
 });
 
-test("an explicit bump overrides the commits, but never an empty CHANGELOG", () => {
+test("an explicit bump overrides the commits and permits generated notes", () => {
   expect(nextVersion({ current: "0.4.0", subjects: ["docs: only docs"], requested: "patch", changelog: changelog("\n### Fixed\n\n- A.\n") })).toEqual({ version: "0.4.1", bump: "patch" });
   expect(() => nextVersion({ current: "0.4.0", subjects: ["docs: only docs"], requested: "auto", changelog: changelog("\n### Fixed\n\n- A.\n") })).toThrow("pick a bump explicitly");
-  expect(() => nextVersion({ current: "0.4.0", subjects: ["feat: a"], requested: "minor", changelog: changelog("\n") })).toThrow("Unreleased is empty");
+  expect(nextVersion({ current: "0.4.0", subjects: ["feat: a"], requested: "minor", changelog: changelog("\n") })).toEqual({ version: "0.5.0", bump: "minor" });
+  expect(nextVersion({ current: "0.4.0", subjects: ["ci: repair release"], requested: "patch", changelog: changelog("\n") })).toEqual({ version: "0.4.1", bump: "patch" });
+  expect(() => nextVersion({ current: "0.4.0", subjects: [], requested: "patch", changelog: changelog("\n") })).toThrow("no commits");
 });
 
 test("Unreleased notes stop at the next release heading or the end", () => {
