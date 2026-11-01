@@ -1,6 +1,6 @@
 //! Call-issued root snapshots for the shadow host's exact-file read methods.
 //! Each request opens a no-follow descriptor and checks the observed file identity.
-use crate::{BrokerError, ReadResource};
+use crate::{BrokerError, CallAuthority, ReadResource, ScopeRoots};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::{
@@ -8,6 +8,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 const CHUNK: u64 = 256 * 1024;
@@ -22,15 +23,24 @@ struct Image {
 /// Prepare exact file resources at call issuance, before any plugin RPC.
 pub struct NativeRead {
     images: Vec<Image>,
+    directories: Vec<Image>,
 }
 
 impl NativeRead {
     pub fn prepare(resources: &[ReadResource]) -> Result<Self, BrokerError> {
         let mut images = Vec::new();
-        for resource in resources.iter().filter(|r| r.kind == "file") {
+        let mut directories = Vec::new();
+        for resource in resources
+            .iter()
+            .filter(|r| r.kind == "file" || r.kind == "codex-logs")
+        {
             crate::authority::valid_path(&resource.path)?;
             let path = Path::new(&resource.path);
-            let logical_parent = path.parent().ok_or(BrokerError::Invalid("read parent"))?;
+            let logical_parent = if resource.kind == "codex-logs" {
+                path
+            } else {
+                path.parent().ok_or(BrokerError::Invalid("read parent"))?
+            };
             let (parent, parent_identity) = match fs::canonicalize(logical_parent) {
                 Ok(parent) => {
                     let identity = fs::symlink_metadata(&parent)
@@ -43,14 +53,165 @@ impl NativeRead {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => (None, None),
                 Err(_) => return Err(BrokerError::Invalid("read root unavailable")),
             };
-            images.push(Image {
+            let image = Image {
                 path: resource.path.clone(),
                 logical_parent: logical_parent.to_path_buf(),
                 parent,
                 parent_identity,
-            });
+            };
+            if resource.kind == "codex-logs" {
+                directories.push(image);
+            } else {
+                images.push(image);
+            }
         }
-        Ok(Self { images })
+        Ok(Self {
+            images,
+            directories,
+        })
+    }
+
+    pub fn list(
+        &self,
+        params: &Value,
+        scopes: &[String],
+        scope_roots: &ScopeRoots,
+        authority: &CallAuthority,
+        deadline: Instant,
+    ) -> Result<Value, BrokerError> {
+        let dir = params
+            .get("dir")
+            .and_then(Value::as_str)
+            .ok_or(BrokerError::Invalid("dir"))?;
+        let image = self
+            .directories
+            .iter()
+            .find(|i| i.path == dir)
+            .ok_or(BrokerError::Invalid("read directory was not issued"))?;
+        authority.active()?;
+        let glob = params
+            .get("glob")
+            .and_then(Value::as_str)
+            .ok_or(BrokerError::Invalid("glob"))?;
+        if glob.is_empty()
+            || glob.len() > 4096
+            || glob.starts_with('/')
+            || glob.contains('\0')
+            || glob
+                .split(['/', '\\'])
+                .any(|part| part == "." || part == "..")
+        {
+            return Err(BrokerError::Invalid("read glob"));
+        }
+        let limit = match params.get("limit") {
+            None => 1000,
+            Some(value) => value
+                .as_u64()
+                .filter(|n| (1..=1000).contains(n))
+                .ok_or(BrokerError::Invalid("list limit"))? as usize,
+        };
+        let Some(root) = &image.parent else {
+            return Ok(json!({"files":[],"complete":true}));
+        };
+        check_root(image)?;
+        let pattern = glob::Pattern::new(glob).map_err(|_| BrokerError::Invalid("read glob"))?;
+        let mut stack = vec![(
+            root.clone(),
+            image
+                .parent_identity
+                .as_ref()
+                .ok_or(BrokerError::Invalid("read root unavailable"))?
+                .clone(),
+        )];
+        let mut files: Vec<Value> = Vec::new();
+        let mut total = 0usize;
+        while let Some((directory, identity)) = stack.pop() {
+            authority.active()?;
+            if Instant::now() >= deadline {
+                return Err(BrokerError::Timeout);
+            }
+            if !fs::symlink_metadata(&directory).is_ok_and(|m| same_root(&m, &identity)) {
+                return Err(BrokerError::Invalid("read directory changed"));
+            }
+            let entries = fs::read_dir(&directory)
+                .map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+            for entry in entries {
+                authority.active()?;
+                if Instant::now() >= deadline {
+                    return Err(BrokerError::Timeout);
+                }
+                let entry = entry.map_err(|_| BrokerError::Invalid("read directory changed"))?;
+                let path = entry.path();
+                let meta = match fs::symlink_metadata(&path) {
+                    Ok(meta) => meta,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(_) => return Err(BrokerError::Invalid("read entry unavailable")),
+                };
+                if meta.file_type().is_symlink() {
+                    continue;
+                }
+                if meta.is_dir() {
+                    stack.push((path, meta));
+                    continue;
+                }
+                if !meta.is_file() {
+                    continue;
+                }
+                let relative = path
+                    .strip_prefix(root)
+                    .map_err(|_| BrokerError::Invalid("read entry escaped"))?;
+                if !pattern.matches_path_with(
+                    relative,
+                    glob::MatchOptions {
+                        require_literal_separator: true,
+                        ..Default::default()
+                    },
+                ) {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !(name.starts_with("rollout-") && name.ends_with(".jsonl")) {
+                    continue;
+                }
+                let logical = Path::new(dir).join(relative);
+                let Some(path_str) = logical.to_str() else {
+                    continue;
+                };
+                if !scope_roots.declares_path(scopes, path_str)? {
+                    continue;
+                }
+                let current = fs::symlink_metadata(&path)
+                    .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+                if !same(&meta, &current) {
+                    return Err(BrokerError::Invalid("read entry changed"));
+                }
+                total += 1;
+                let item = info(path_str, &meta);
+                let index = files
+                    .iter()
+                    .position(|old| {
+                        old["mtimeMs"].as_f64().unwrap_or(0.0)
+                            < item["mtimeMs"].as_f64().unwrap_or(0.0)
+                    })
+                    .unwrap_or(files.len());
+                if index < limit {
+                    files.insert(index, item);
+                }
+                if files.len() > limit {
+                    files.pop();
+                }
+            }
+            if !fs::symlink_metadata(&directory).is_ok_and(|m| same_root(&m, &identity)) {
+                return Err(BrokerError::Invalid("read directory changed"));
+            }
+        }
+        check_root(image)?;
+        if Instant::now() >= deadline {
+            return Err(BrokerError::Timeout);
+        }
+        Ok(json!({"files":files,"complete":total <= limit}))
     }
 
     pub fn answer(&mut self, method: &str, params: &Value) -> Result<Value, BrokerError> {
@@ -167,6 +328,23 @@ fn same_root(a: &Metadata, b: &Metadata) -> bool {
     a.is_dir() && !a.file_type().is_symlink() && a.dev() == b.dev() && a.ino() == b.ino()
 }
 
+fn check_root(image: &Image) -> Result<(), BrokerError> {
+    let Some(parent) = image.parent.as_ref() else {
+        return Ok(());
+    };
+    if fs::canonicalize(&image.logical_parent).ok().as_deref() != Some(parent.as_path())
+        || !fs::symlink_metadata(parent).is_ok_and(|m| {
+            image
+                .parent_identity
+                .as_ref()
+                .is_some_and(|old| same_root(&m, old))
+        })
+    {
+        return Err(BrokerError::Invalid("read root changed"));
+    }
+    Ok(())
+}
+
 fn info(path: &str, meta: &Metadata) -> Value {
     json!({"path":path,"size":meta.len(),"mtimeMs":meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6,
         "inode":meta.ino(),"device":meta.dev(),"mode":meta.mode()})
@@ -184,88 +362,4 @@ fn expected_identity(value: &Value, meta: &Metadata) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    use std::os::unix::fs::symlink;
-
-    #[test]
-    fn exact_file_range_and_changed_name() {
-        let root = std::env::temp_dir().join(format!("pacer-native-read-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let path = root.join("telemetry.json");
-        fs::write(&path, b"abc\xff").unwrap();
-        let resource = ReadResource {
-            path: path.to_str().unwrap().into(),
-            kind: "file".into(),
-        };
-        let mut reader = NativeRead::prepare(&[resource]).unwrap();
-        let stat = reader
-            .answer("capability.fs.stat", &json!({"path":path}))
-            .unwrap();
-        let expected = stat["info"].clone();
-        let ranged = reader
-            .answer(
-                "capability.fs.readRange",
-                &json!({"path":path,"offset":1,"length":3,"expected":expected}),
-            )
-            .unwrap();
-        assert_eq!(ranged["base64"], "YmP/");
-        assert!(
-            reader
-                .answer(
-                    "capability.fs.readRange",
-                    &json!({"path":path,"offset":0,"length":1,"expected":{"size":0}})
-                )
-                .is_err()
-        );
-        fs::rename(&path, root.join("old")).unwrap();
-        symlink(root.join("old"), &path).unwrap();
-        assert!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .is_err()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn new_file_under_issued_root_is_readable_but_new_root_is_not() {
-        let root = std::env::temp_dir().join(format!("pacer-native-read-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let path = root.join("later");
-        let resource = ReadResource {
-            path: path.to_str().unwrap().into(),
-            kind: "file".into(),
-        };
-        let mut reader = NativeRead::prepare(&[resource]).unwrap();
-        assert_eq!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .unwrap(),
-            json!({"missing":true})
-        );
-        fs::write(&path, "created").unwrap();
-        assert_eq!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .unwrap()["text"],
-            "created"
-        );
-        let absent = root.join("new-root").join("later");
-        let mut missing_root = NativeRead::prepare(&[ReadResource {
-            path: absent.to_str().unwrap().into(),
-            kind: "file".into(),
-        }])
-        .unwrap();
-        fs::create_dir(root.join("new-root")).unwrap();
-        fs::write(&absent, "new content").unwrap();
-        assert_eq!(
-            missing_root
-                .answer("capability.fs.read", &json!({"path":absent}))
-                .unwrap(),
-            json!({"missing":true})
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+mod tests;

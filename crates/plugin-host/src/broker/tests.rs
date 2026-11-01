@@ -219,6 +219,48 @@ async fn list_requires_issued_directory_and_rejects_adversarial_globs() {
     );
     assert_eq!(effect.calls, 1);
 }
+
+#[tokio::test]
+async fn native_listing_is_admitted_and_never_calls_the_effect() {
+    let root = std::env::temp_dir().join(format!("pacer-broker-list-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("rollout-one.jsonl"), "one").unwrap();
+    std::fs::write(root.join("auth.json"), "private").unwrap();
+    let scope = format!("{}/rollout-*.jsonl", root.display());
+    let manifest = parse_manifest(
+        json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
+        "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":[scope]}]}),
+    )
+    .unwrap();
+    let resources: CallResources =
+        serde_json::from_value(json!({"reads":[{"path":root,"kind":"codex-logs"}]})).unwrap();
+    let reads = resources.reads.clone();
+    let authority = CallAuthority::new(
+        resources,
+        ["fs.read".into()],
+        Instant::now() + Duration::from_secs(5),
+    );
+    let mut broker = CapabilityBroker::new(manifest, authority, vec![])
+        .with_native_read(&reads)
+        .unwrap();
+    let mut effect = Echo { calls: 0 };
+    let result = broker
+        .handle(
+            "capability.fs.list",
+            json!({"dir":root,"glob":"**/rollout-*.jsonl"}),
+            &mut effect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result["files"][0]["path"],
+        root.join("rollout-one.jsonl").to_str().unwrap()
+    );
+    assert_eq!(result["complete"], true);
+    assert_eq!(effect.calls, 0);
+    std::fs::remove_dir_all(root).unwrap();
+}
 fn broker(ms: u64) -> CapabilityBroker {
     let manifest = parse_manifest(
         json!({"id":"fx-broker","version":"1.0.0","publisher":"fixture","host":">=1.10.0",

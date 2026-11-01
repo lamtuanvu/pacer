@@ -576,6 +576,23 @@ impl CapabilityBroker {
             }
         }
         self.authority.active()?;
+        if method == "capability.fs.list"
+            && let Some(native) = &self.native_read
+        {
+            let result = native.list(
+                &forwarded,
+                &scopes,
+                &self.scope_roots,
+                &self.authority,
+                self.method_deadline(method),
+            );
+            if matches!(result, Err(BrokerError::Timeout)) {
+                self.revoke();
+            }
+            let result = result?;
+            self.authority.active()?;
+            return Ok(result);
+        }
         if matches!(
             method,
             "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange"
