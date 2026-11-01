@@ -34,6 +34,12 @@ test("host recovers a task-owned detached run from durable reader files", async 
       attempt: 1, runDir: 1, dir, state: "running", exitCode: null });
     expect(running.pid).toBeGreaterThan(1);
     expect(executorRunState.safeParse({ ...running, state: "lost" }).success).toBe(false);
+    // A live wrapper (and even its child file) does not mean the child has written stdout yet.
+    const outputDeadline = Date.now() + 5000;
+    while (!readOutput(dir).stdout.includes("started\n")) {
+      if (Date.now() > outputDeadline) throw Error("detached run did not persist startup output");
+      await Bun.sleep(25);
+    }
     expect((await stopRun(dir, { graceMs: 3000 })).code).toBe(143);
     stopped = true;
     const afterRestart = inspectOwnedExecutorRun({ ...ctx }, task.id, 1);

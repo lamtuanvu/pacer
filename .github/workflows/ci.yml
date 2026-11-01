@@ -36,7 +36,7 @@ jobs:
   release-readiness:
     name: Release readiness
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 240
     permissions:
       contents: read
       actions: read
@@ -54,7 +54,7 @@ jobs:
           if test "$EVENT" != pull_request; then exit 0; fi
           case "$BRANCH" in release/v*) ;; *) exit 0 ;; esac
           test "$HEAD_REPO" = "$REPO" || { echo '::error::Release PR must be in this repository'; exit 1; }
-          for _ in $(seq 1 590); do
+          for _ in $(seq 1 1400); do
             runs=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json status,conclusion,url)
             status=$(printf '%s' "$runs" | jq -r '.[0].status // "missing"')
             if test "$status" = completed; then
