@@ -205,5 +205,60 @@
         }
       }
     }
+  },
+  {
+    "name": "ui-title-cleaned-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "\u0000\u202e",
+              "view": "sample"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-title-normalized",
+    "accepted": true,
+    "normalizedTitle": "Café",
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Cafe\u0301\u0000\u202e",
+              "view": "sample"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-top-level-stripped",
+    "accepted": true,
+    "strippedTopLevel": "extra",
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "extra": "ignored"
+    }
   }
 ]

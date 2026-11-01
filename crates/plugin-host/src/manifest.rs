@@ -2,6 +2,7 @@ use pacer_plugin_protocol::Manifest;
 use serde_json::Value;
 use std::{collections::HashSet, ops::Deref};
 use thiserror::Error;
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
@@ -28,6 +29,66 @@ impl Deref for ParsedManifest {
 
 fn version(value: &str) -> Option<semver::Version> {
     semver::Version::parse(value).ok()
+}
+
+/// Match `ui-schema.ts`'s `plain` transform before checking display lengths.
+fn clean_ui_text(text: &str) -> String {
+    text.nfc()
+        .filter(|ch| {
+            !matches!(
+                *ch as u32,
+                0x00..=0x1f | 0x7f..=0x9f | 0x200b..=0x200f | 0x202a..=0x202e
+                    | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xfeff
+            )
+        })
+        .collect()
+}
+
+fn clean_field(object: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(Value::String(text)) = object.get_mut(key) {
+        *text = clean_ui_text(text);
+    }
+}
+
+fn normalize_ui(ui: &mut Value) {
+    let Some(points) = ui.as_object_mut() else {
+        return;
+    };
+    for kind in ["activity", "panelTabs", "settings", "status"] {
+        let Some(items) = points.get_mut(kind).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for item in items {
+            let Some(item) = item.as_object_mut() else {
+                continue;
+            };
+            clean_field(item, "title");
+            if kind != "settings" {
+                continue;
+            }
+            let Some(fields) = item
+                .get_mut("schema")
+                .and_then(|schema| schema.get_mut("fields"))
+                .and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            for field in fields.values_mut() {
+                let Some(field) = field.as_object_mut() else {
+                    continue;
+                };
+                clean_field(field, "title");
+                clean_field(field, "description");
+                if let Some(values) = field.get_mut("enum").and_then(Value::as_array_mut) {
+                    for value in values {
+                        if let Value::String(text) = value {
+                            *text = clean_ui_text(text);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Match the deliberately small range grammar in `src/plugins/manifest.ts`.
@@ -341,6 +402,27 @@ pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
     let object = raw
         .as_object_mut()
         .ok_or_else(|| ManifestError::Invalid("manifest must be an object".into()))?;
+    // Zod's manifest object strips unknown top-level properties.
+    object.retain(|key, _| {
+        [
+            "id",
+            "version",
+            "publisher",
+            "host",
+            "contributes",
+            "capabilities",
+            "entry",
+            "reentrant",
+            "tier",
+        ]
+        .contains(&key.as_str())
+    });
+    if let Some(ui) = object
+        .get_mut("contributes")
+        .and_then(|contributes| contributes.get_mut("ui"))
+    {
+        normalize_ui(ui);
+    }
     let host = object
         .get("host")
         .and_then(Value::as_str)
@@ -553,13 +635,27 @@ mod tests {
         ))
         .unwrap();
         for case in cases.as_array().unwrap() {
-            let actual = parse_manifest(case["manifest"].clone()).is_ok();
+            let parsed = parse_manifest(case["manifest"].clone());
+            let actual = parsed.is_ok();
             assert_eq!(
                 actual,
                 case["accepted"].as_bool().unwrap(),
                 "{}",
                 case["name"]
             );
+            if let Ok(manifest) = parsed {
+                let wire = serde_json::to_value(&manifest.wire).unwrap();
+                if let Some(title) = case["normalizedTitle"].as_str() {
+                    assert_eq!(
+                        wire["contributes"]["ui"]["status"][0]["title"], title,
+                        "{}",
+                        case["name"]
+                    );
+                }
+                if let Some(key) = case["strippedTopLevel"].as_str() {
+                    assert!(wire.get(key).is_none(), "{}", case["name"]);
+                }
+            }
         }
     }
 }
