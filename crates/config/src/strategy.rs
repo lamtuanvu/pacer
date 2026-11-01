@@ -1036,7 +1036,11 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
             } else {
                 Value::Null
             };
-            providers.insert(id.clone(),json!({"id":id,"via":via,"model":r["model"],"usage":usage,"allowPaid":a["allowPaid"],"cooldownS":a["cooldownS"],"quotaSource":if a["quotaSource"] == "arkcli" {json!("arkcli")} else {Value::Null},"weeklyTokens":a["weeklyTokens"],"weeklyUsd":a["weeklyUsd"]}));
+            let mut provider = json!({"id":id,"via":via,"model":r["model"],"usage":usage,"allowPaid":a["allowPaid"],"cooldownS":a["cooldownS"],"quotaSource":if a["quotaSource"] == "arkcli" {json!("arkcli")} else {Value::Null},"weeklyTokens":a["weeklyTokens"],"weeklyUsd":a["weeklyUsd"]});
+            if let Some(session) = r.get("session") {
+                provider["session"] = session.clone();
+            }
+            providers.insert(id.clone(), provider);
         }
     }
     let pc = field(raw, "pacing");

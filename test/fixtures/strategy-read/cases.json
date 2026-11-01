@@ -2900,5 +2900,132 @@
     "problems": [
       "Invalid dispatch configuration"
     ]
+  },
+  {
+    "name": "runner-interactive-session",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "session": "interactive",
+          "enabled": true,
+          "max_tasks": 2,
+          "test": false,
+          "models": [
+            {
+              "id": "gpt-6",
+              "tier": "frontier",
+              "strengths": [
+                "code"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "expected": {
+      "name": "runner-interactive-session",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "session": "interactive",
+          "enabled": true,
+          "maxTasks": 2,
+          "test": false,
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null,
+          "models": [
+            {
+              "id": "gpt-6",
+              "tier": "frontier",
+              "strengths": [
+                "code"
+              ]
+            }
+          ]
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "session": "interactive",
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
   }
 ]
