@@ -44,6 +44,7 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
     out: &Mutex<O>,
     ctx: &Ctx,
     registry: &Registry<'_>,
+    forward_hello: bool,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -66,6 +67,14 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
             && valid
             && let Some(request) = request.as_ref()
         {
+            if forward_hello {
+                if let Ok(version) = hello_version(request.get("params")) {
+                    protocol = version;
+                }
+                core.write_all(&line).await?;
+                core.flush().await?;
+                continue;
+            }
             match hello_version(request.get("params")) {
                 Ok(version) => {
                     // The child still owns forwarded operations, so mirror only
@@ -180,6 +189,11 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
     let registry = registry(if scoped_work { "*" } else { forward });
+    let forward_hello = scoped_work
+        || forward
+            .split(',')
+            .map(str::trim)
+            .any(|name| name == "*" || name == "hello");
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
@@ -208,6 +222,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         &out,
         &ctx,
         &registry,
+        forward_hello,
     );
     let outgoing = forward_output(BufReader::new(output), &out);
     tokio::pin!(incoming, outgoing);

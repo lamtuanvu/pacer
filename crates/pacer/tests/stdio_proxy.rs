@@ -137,7 +137,9 @@ fn forwards_hello_ops_and_events_unchanged() {
             keychain_stub::keychain_stub_path(direct_home.path(), "bun"),
         );
     let expected = exchange_with_events(direct, input.clone(), true);
-    let actual = exchange_with_events(proxy(&["bun".into(), cli], proxy_home.path()), input, true);
+    let mut command = proxy(&["bun".into(), cli], proxy_home.path());
+    command.env("PACER_DEBUG_NATIVE", "1");
+    let actual = exchange_with_events(command, input, true);
     assert!(
         expected.status.success(),
         "{}",
@@ -159,6 +161,7 @@ fn forwards_hello_ops_and_events_unchanged() {
     };
     assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
     assert_eq!(parse(&actual.stdout).len(), 6);
+    assert!(String::from_utf8_lossy(&actual.stderr).contains("native hello 1"));
     assert!(
         parse(&actual.stdout)
             .iter()
@@ -174,7 +177,35 @@ fn hello_negotiates_v2_v3_and_preserves_validation() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
     let home = tempfile::tempdir().unwrap();
-    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"hello\",\"params\":{\"protocol\":4}}\n{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"hello\",\"params\":[] }\n{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"hello\",\"params\":{\"protocol\":2e0}}\n".to_vec();
+    let cases = [
+        None,
+        Some("3"),
+        Some("4"),
+        Some("[]"),
+        Some("2e0"),
+        Some("3.0"),
+        Some("3e0"),
+        Some("9007199254740992"),
+        Some("null"),
+        Some("\"3\""),
+        Some("true"),
+    ];
+    let input = cases
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let params = match value {
+                None => String::new(),
+                Some("[]") => ",\"params\":[]".to_owned(),
+                Some(value) => format!(",\"params\":{{\"protocol\":{value}}}"),
+            };
+            format!(
+                "{{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"hello\"{params}}}\n",
+                index + 1
+            )
+        })
+        .collect::<String>()
+        .into_bytes();
     let mut direct = Command::new("bun");
     direct
         .args([&cli, "api", "--stdio"])
@@ -184,7 +215,9 @@ fn hello_negotiates_v2_v3_and_preserves_validation() {
             keychain_stub::keychain_stub_path(home.path(), "bun"),
         );
     let expected = exchange(direct, input.clone());
-    let actual = exchange(proxy(&["bun".into(), cli], home.path()), input);
+    let mut command = proxy(&["bun".into(), cli], home.path());
+    command.env("PACER_DEBUG_NATIVE", "1");
+    let actual = exchange(command, input);
     assert!(expected.status.success());
     assert!(actual.status.success());
     let parse = |bytes: &[u8]| -> Vec<serde_json::Value> {
@@ -195,6 +228,46 @@ fn hello_negotiates_v2_v3_and_preserves_validation() {
             .collect()
     };
     assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
+    let stderr = String::from_utf8_lossy(&actual.stderr);
+    for id in [1, 2, 5, 6, 7, 9] {
+        assert!(stderr.contains(&format!("native hello {id}")), "{stderr}");
+    }
+}
+
+#[test]
+fn forward_override_disables_hello_and_preserves_protocol() {
+    if Command::new("bun").arg("--version").output().is_err() {
+        return;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let home = tempfile::tempdir().unwrap();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"hello\",\"params\":{\"protocol\":2}}\n".to_vec();
+    for forward in ["*", "hello", "test.echo, hello"] {
+        let mut command = proxy(&["bun".into(), cli.clone()], home.path());
+        command
+            .env("PACER_FORWARD_OPS", forward)
+            .env("PACER_DEBUG_NATIVE", "1");
+        let output = exchange(command, input.clone());
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let replies: Vec<serde_json::Value> = output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0]["result"]["protocol"], "3.0.0");
+        assert_eq!(replies[1]["result"]["protocol"], "2.8.0");
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("native hello"),
+            "{forward}"
+        );
+    }
 }
 
 #[test]
