@@ -1,11 +1,12 @@
+import { platform } from '../platform';
 export interface NativeValidationSetupResult {
   status: "verified" | "cancelled" | "timeout" | "settings_closed" | "target_exited" | "target_unavailable" | "host_unknown" | "settings_unavailable" | "already_open" | "setup_unavailable";
   accessibility: boolean;
   host_name?: string;
 }
 interface ValidationHost { platform: string; invoke?: (command: string) => Promise<unknown> }
-const runtime=globalThis as typeof globalThis & {__TAURI__?:{core?:{invoke:(command:string)=>Promise<unknown>}}};
-export function createValidationIpc(host:ValidationHost={platform:globalThis.navigator?.platform??"",invoke:runtime.__TAURI__?.core?.invoke}) {
+export function createValidationIpc(host?:ValidationHost) {
+  if (!host) return { supported: platform.nativeValidationSupported, setup: platform.setupNativeValidation };
   const supported=host.platform.startsWith("Mac")&&!!host.invoke;
   return {
     supported,
