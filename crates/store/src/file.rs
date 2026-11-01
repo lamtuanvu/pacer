@@ -20,45 +20,43 @@ pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn append(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    append_with_mode(path, bytes, false)
+    append_private(path, bytes)
 }
 
 pub(crate) fn append_publication(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    append_with_mode(path, bytes, true)
+    append_private(path, bytes)
 }
 
-fn append_with_mode(path: &Path, bytes: &[u8], publication: bool) -> io::Result<()> {
+fn append_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    if publication {
-        fs::create_dir_all(parent)?;
-    } else {
-        private_dir(parent)?;
-    }
+    private_dir(parent)?;
     let mut options = fs::OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(if publication { 0o666 } else { 0o600 });
+        options.mode(0o600);
     }
-    options.open(path)?.write_all(bytes)
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)
 }
 
 pub(crate) fn atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    atomic_with_mode(path, bytes, false)
+    atomic_private(path, bytes)
 }
 
 pub(crate) fn atomic_publication(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    atomic_with_mode(path, bytes, true)
+    atomic_private(path, bytes)
 }
 
-fn atomic_with_mode(path: &Path, bytes: &[u8], publication: bool) -> io::Result<()> {
+fn atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    if publication {
-        fs::create_dir_all(parent)?;
-    } else {
-        private_dir(parent)?;
-    }
+    private_dir(parent)?;
     let tmp = path.with_file_name(format!(
         "{}.{}.tmp",
         path.file_name().unwrap_or_default().to_string_lossy(),
@@ -69,7 +67,7 @@ fn atomic_with_mode(path: &Path, bytes: &[u8], publication: bool) -> io::Result<
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(if publication { 0o666 } else { 0o600 });
+        options.mode(0o600);
     }
     let result = (|| {
         options.open(&tmp)?.write_all(bytes)?;

@@ -3,7 +3,7 @@ import { parseOrcaOutput } from "../exec/orca/client";
 import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { isObj } from "../util";
 import { serviceInstalled } from "../service";
-import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, closeSync, fchmodSync, openSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
@@ -131,8 +131,16 @@ export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapsh
   return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx)};
 }
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
-  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
-  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
+  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true,mode:0o700}); chmodSync(linkDir(ctx),0o700); const p=outboxPath(ctx);
+  const fd=openSync(p,"a",0o600);
+  try { fchmodSync(fd,0o600); writeFileSync(fd,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join("")); }
+  finally { closeSync(fd); }
+  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) {
+    const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP), tmp=`${p}.tmp`;
+    const rotation=openSync(tmp,"wx",0o600);
+    try { writeFileSync(rotation,`${lines.join("\n")}\n`); closeSync(rotation); renameSync(tmp,p); }
+    catch(error) { try { closeSync(rotation); } catch { /* already closed */ } unlinkSync(tmp); throw error; }
+  }
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {

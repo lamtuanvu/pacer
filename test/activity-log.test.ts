@@ -1,6 +1,6 @@
 import { repoFor } from "../src/core/repos";
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, readActivity, rotateActivity } from "../src/activity/log";
 import * as tasks from "../src/core/tasks";
@@ -219,6 +219,20 @@ test("rotation removes entries older than 30 days even below the line cap", () =
   appendActivity(ctx, { kind: "config", level: "info", text: "today" });
   rotateActivity(ctx);
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["today", "boundary"]);
+});
+
+test("activity publication tightens existing modes and rotation stays private", () => {
+  const ctx = fakeCtx(), dir = join(ctx.pacerHome, "state"), path = file(ctx);
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o777);
+  writeFileSync(path, "", { mode: 0o666 });
+  chmodSync(path, 0o666);
+  appendActivity(ctx, { kind: "message", level: "info", text: "private" });
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  rotateActivity(ctx);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(statSync(join(dir, "activity-rotation.json")).mode & 0o777).toBe(0o600);
 });
 
 test("activity text redacts credential patterns and account emails before persistence and callback", () => {

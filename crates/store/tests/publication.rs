@@ -66,6 +66,25 @@ await publishConfigChange(c,'strategy');
             "{file}"
         );
     }
+    #[cfg(unix)]
+    for (path, expected) in [
+        ("link", 0o700),
+        ("link/outbox.jsonl", 0o600),
+        ("link/latest.json", 0o600),
+        ("state", 0o700),
+        ("state/activity.jsonl", 0o600),
+    ] {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |root: &Path| {
+            fs::metadata(root.join(".pacer").join(path))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        assert_eq!(mode(rust.path()), expected, "Rust {path}");
+        assert_eq!(mode(ts.path()), expected, "Bun {path}");
+    }
     let rust_log = fs::read_to_string(c.pacer_home.join("state/activity.jsonl")).unwrap();
     let ts_log = fs::read_to_string(ts.path().join(".pacer/state/activity.jsonl")).unwrap();
     let mut a: Value = serde_json::from_str(rust_log.trim()).unwrap();
@@ -78,7 +97,7 @@ await publishConfigChange(c,'strategy');
 
 #[cfg(unix)]
 #[test]
-fn publication_modes_match_bun_without_chmodding_existing_link_dir() {
+fn publication_modes_match_bun_and_are_private() {
     use std::os::unix::fs::PermissionsExt;
     let rust = tempfile::tempdir().unwrap();
     let ts = tempfile::tempdir().unwrap();
@@ -93,7 +112,11 @@ const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',no
 await publish(c,[{type:'entity',data:{kind:'message',id:'m'}}]);
 "#,
     );
-    for path in ["link", "link/outbox.jsonl", "link/latest.json"] {
+    for (path, expected) in [
+        ("link", 0o700),
+        ("link/outbox.jsonl", 0o600),
+        ("link/latest.json", 0o600),
+    ] {
         let mode = |root: &Path| {
             fs::metadata(root.join(".pacer").join(path))
                 .unwrap()
@@ -102,9 +125,12 @@ await publish(c,[{type:'entity',data:{kind:'message',id:'m'}}]);
                 & 0o777
         };
         assert_eq!(mode(rust.path()), mode(ts.path()), "{path}");
+        assert_eq!(mode(rust.path()), expected, "{path}");
     }
     let link = ts.path().join(".pacer/link");
-    let original = fs::metadata(&link).unwrap().permissions().mode() & 0o777;
+    fs::set_permissions(&link, fs::Permissions::from_mode(0o777)).unwrap();
+    let outbox = link.join("outbox.jsonl");
+    fs::set_permissions(&outbox, fs::Permissions::from_mode(0o666)).unwrap();
     let second = ctx(ts.path());
     assert_eq!(
         publish(
@@ -116,7 +142,30 @@ await publish(c,[{type:'entity',data:{kind:'message',id:'m'}}]);
     );
     assert_eq!(
         fs::metadata(link).unwrap().permissions().mode() & 0o777,
-        original
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(outbox).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let state = rust.path().join(".pacer/state");
+    fs::create_dir_all(&state).unwrap();
+    let activity = state.join("activity.jsonl");
+    fs::write(&activity, "").unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o777)).unwrap();
+    fs::set_permissions(&activity, fs::Permissions::from_mode(0o666)).unwrap();
+    append_activity(
+        &c,
+        json!({"kind":"message","level":"info","text":"private"}),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(state).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(activity).unwrap().permissions().mode() & 0o777,
+        0o600
     );
 }
 
@@ -423,6 +472,18 @@ fn outbox_rotation_and_torn_lines() {
             .count(),
         1000
     );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(c.pacer_home.join("link/outbox.jsonl"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     fs::OpenOptions::new()
         .append(true)
         .open(c.pacer_home.join("link/outbox.jsonl"))
