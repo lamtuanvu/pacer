@@ -1,6 +1,6 @@
 // Keep each optional nested shape visibly separate from its field validation.
 #![allow(clippy::collapsible_if)]
-use crate::file::{append, atomic, js_number, json_bytes};
+use crate::file::{append_publication, atomic_publication, js_number, json_bytes};
 use pacer_foundation::Ctx;
 use serde_json::{Value, json};
 use std::{fs, io, path::PathBuf};
@@ -28,10 +28,10 @@ fn number(v: &Value) -> bool {
 fn required_string(v: &Value, key: &str, max: usize) -> bool {
     v.get(key)
         .and_then(Value::as_str)
-        .is_some_and(|s| !s.is_empty() && s.len() <= max)
+        .is_some_and(|s| !s.is_empty() && s.encode_utf16().count() <= max)
 }
 fn string(v: &Value, key: &str, max: usize) -> Option<String> {
-    Some(v.get(key)?.as_str()?.chars().take(max).collect())
+    Some(slice_utf16(v.get(key)?.as_str()?, max))
 }
 fn optional_string(v: &Value, key: &str, max: usize) -> Option<String> {
     string(v, key, max).filter(|s| !s.is_empty())
@@ -43,14 +43,21 @@ fn finite(v: &Value, key: &str) -> Value {
         .unwrap_or(Value::Null)
 }
 fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
+    if s.encode_utf16().count() <= max {
         s.to_owned()
     } else {
-        format!(
-            "{}...",
-            s.chars().take(max.saturating_sub(3)).collect::<String>()
-        )
+        format!("{}...", slice_utf16(s, max.saturating_sub(3)))
     }
+}
+
+fn slice_utf16(s: &str, max: usize) -> String {
+    let mut units = 0;
+    s.chars()
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= max
+        })
+        .collect()
 }
 
 fn parse_budget(data: &Value) -> Option<Value> {
@@ -197,7 +204,7 @@ fn parse_task(data: &Value) -> Option<Value> {
         if review
             .get("note")
             .and_then(Value::as_str)
-            .is_some_and(|s| s.len() <= 2000)
+            .is_some_and(|s| s.encode_utf16().count() <= 2000)
             && review.get("at").is_some_and(number)
         {
             row["reviewRequest"] = json!({"note":review["note"],"at":review["at"]});
@@ -562,7 +569,7 @@ pub fn append_outbox(ctx: &Ctx, entries: &[Value]) -> io::Result<()> {
         bytes.extend(json_bytes(&row)?);
         bytes.push(b'\n');
     }
-    append(&path, &bytes)?;
+    append_publication(&path, &bytes)?;
     let content = fs::read(&path)?;
     let lines: Vec<&[u8]> = content
         .split(|byte| *byte == b'\n')
@@ -574,7 +581,7 @@ pub fn append_outbox(ctx: &Ctx, entries: &[Value]) -> io::Result<()> {
             kept.extend_from_slice(line);
             kept.push(b'\n');
         }
-        atomic(&path, &kept)?;
+        atomic_publication(&path, &kept)?;
     }
     Ok(())
 }
@@ -610,5 +617,5 @@ pub fn read_outbox_since(ctx: &Ctx, seq: f64) -> io::Result<Vec<Value>> {
 }
 
 pub(crate) fn write_latest(ctx: &Ctx, snapshot: &Value) -> io::Result<()> {
-    atomic(&latest_path(ctx), &json_bytes(snapshot)?)
+    atomic_publication(&latest_path(ctx), &json_bytes(snapshot)?)
 }

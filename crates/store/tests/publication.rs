@@ -76,6 +76,92 @@ await publishConfigChange(c,'strategy');
     assert_eq!(read_outbox_since(&c, 0.0).unwrap().len(), 2);
 }
 
+#[cfg(unix)]
+#[test]
+fn publication_modes_match_bun_without_chmodding_existing_link_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let event = json!({"type":"entity","data":{"kind":"message","id":"m"}});
+    let c = ctx(rust.path());
+    assert_eq!(publish(&c, &[event]).seq, 1);
+    bun(
+        ts.path(),
+        r#"
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+await publish(c,[{type:'entity',data:{kind:'message',id:'m'}}]);
+"#,
+    );
+    for path in ["link", "link/outbox.jsonl", "link/latest.json"] {
+        let mode = |root: &Path| {
+            fs::metadata(root.join(".pacer").join(path))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        assert_eq!(mode(rust.path()), mode(ts.path()), "{path}");
+    }
+    let link = ts.path().join(".pacer/link");
+    let original = fs::metadata(&link).unwrap().permissions().mode() & 0o777;
+    let second = ctx(ts.path());
+    assert_eq!(
+        publish(
+            &second,
+            &[json!({"type":"entity","data":{"kind":"message","id":"n"}})]
+        )
+        .seq,
+        2
+    );
+    assert_eq!(
+        fs::metadata(link).unwrap().permissions().mode() & 0o777,
+        original
+    );
+}
+
+#[test]
+fn non_ascii_event_ids_and_truncation_match_bun() {
+    let inputs = json!([
+        {"type":"entity","data":{"kind":"message","id":"界".repeat(70)}},
+        {"type":"entity","data":{"kind":"message","id":"界".repeat(129)}},
+        {"type":"entity","data":{"kind":"message","id":"😀".repeat(64)}},
+        {"type":"entity","data":{"kind":"message","id":"😀".repeat(65)}},
+        {"type":"budget","data":{"generatedAt":1,"strategy":"界".repeat(130),"planner":"😀".repeat(33),"mode":"normal","providers":[],"ranked":[]}}
+    ]);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap();
+    let result = Command::new("bun")
+        .arg("-e")
+        .arg(
+            r#"
+import {parseOutboxEvent} from './src/link/envelope.ts';
+process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(parseOutboxEvent)));
+"#,
+        )
+        .env("TEST_INPUTS", inputs.to_string())
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&result.stdout).unwrap();
+    let actual = Value::Array(
+        inputs
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| parse_outbox_event(v).unwrap_or(Value::Null))
+            .collect(),
+    );
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn alternating_bun_and_rust_events_keep_sequence() {
     let tmp = tempfile::tempdir().unwrap();
