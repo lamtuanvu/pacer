@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump (auto reads feat/fix/breaking commits since the last tag)
+        description: Version bump (auto reads feat/fix/breaking commits; empty Unreleased gets commit notes)
         type: choice
         options: [auto, patch, minor, major]
         default: auto
@@ -43,7 +43,7 @@ jobs:
             echo "GIT_AUTHOR_EMAIL=$id+$login@users.noreply.github.com"; echo "GIT_COMMITTER_EMAIL=$id+$login@users.noreply.github.com"; } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # next-version reads commits since the last tag.
+          fetch-depth: 0 # Version selection and generated notes read commits since the last tag.
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -87,7 +87,7 @@ jobs:
         run: |
           version=$(bun scripts/release/next-version.ts "$BUMP")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Preparing pacer $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Preparing pacer $version (authored Unreleased notes are kept; empty notes come from commits since the current tag)" >> "$GITHUB_STEP_SUMMARY"
       - name: Refuse a release that is already in flight
         if: steps.resume.outputs.resumed != 'true'
         env:
