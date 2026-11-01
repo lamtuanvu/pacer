@@ -25,12 +25,25 @@ pub fn empty_snapshot() -> Value {
 fn number(v: &Value) -> bool {
     v.as_f64().is_some_and(f64::is_finite)
 }
-fn snapshot_seq(v: &Value) -> Option<u64> {
+fn safe_integer(v: &Value) -> Option<u64> {
     v.as_f64()
         .filter(|seq| {
             seq.is_finite() && *seq >= 0.0 && seq.fract() == 0.0 && *seq <= 9_007_199_254_740_991.0
         })
         .map(|seq| seq as u64)
+}
+fn js_json(value: &Value) -> Value {
+    match value {
+        Value::Number(number) => number.as_f64().map_or(Value::Null, js_number),
+        Value::Array(items) => Value::Array(items.iter().map(js_json).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(key, value)| (key.clone(), js_json(value)))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 fn required_string(v: &Value, key: &str, max: usize) -> bool {
     v.get(key)
@@ -178,13 +191,13 @@ fn parse_task(data: &Value) -> Option<Value> {
     if let Some(stop) = data.get("stopPending") {
         if stop
             .get("attempt")
-            .and_then(Value::as_u64)
+            .and_then(safe_integer)
             .is_some_and(|n| n > 0)
             && stop.get("requestedAt").is_some_and(number)
             && optional_string(stop, "providerId", 128).is_some()
             && stop
                 .get("graceMs")
-                .and_then(Value::as_u64)
+                .and_then(safe_integer)
                 .is_some_and(|n| n <= 25_000)
         {
             row["stopPending"] = json!({"attempt":stop["attempt"],"requestedAt":stop["requestedAt"],"providerId":optional_string(stop,"providerId",128),"graceMs":stop["graceMs"]});
@@ -322,6 +335,8 @@ fn parse_alert(data: &Value) -> Value {
 
 /// The durable envelope parser. Unknown fields are discarded on read, as in the Bun parser.
 pub fn parse_outbox_event(raw: &Value) -> Option<Value> {
+    let raw = js_json(raw);
+    let raw = &raw;
     if raw.get("v").is_some_and(|v| v != 1) {
         return None;
     }
@@ -457,7 +472,9 @@ fn parse_console(raw: &Value) -> Option<Value> {
 }
 
 pub fn parse_snapshot(raw: &Value) -> Option<Value> {
-    let seq = snapshot_seq(raw.get("seq")?)?;
+    let raw = js_json(raw);
+    let raw = &raw;
+    let seq = safe_integer(raw.get("seq")?)?;
     if raw.get("v") != Some(&json!(1)) || !raw.get("at").is_some_and(number) {
         return None;
     }

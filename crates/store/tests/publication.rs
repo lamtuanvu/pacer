@@ -628,6 +628,9 @@ fn structured_publication_parser_cases_match_bun() {
         json!(0),
         json!(-1),
         json!(0.5),
+        json!(3.0),
+        json!(9_007_199_254_740_991_u64),
+        json!(9_007_199_254_740_992_u64),
         json!(""),
         json!("x"),
         json!([]),
@@ -796,6 +799,29 @@ fn structured_publication_parser_cases_match_bun() {
 }
 
 #[test]
+fn stop_pending_uses_js_safe_integer_rules() {
+    let task = json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,
+        "stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1}}});
+    for (field, value, accepted) in [
+        ("attempt", json!(3.0), true),
+        ("attempt", json!(9_007_199_254_740_991_u64), true),
+        ("attempt", json!(9_007_199_254_740_992_u64), false),
+        ("attempt", json!(0.5), false),
+        ("graceMs", json!(3.0), true),
+        ("graceMs", json!(9_007_199_254_740_992_u64), false),
+    ] {
+        let mut input = task.clone();
+        input["data"]["stopPending"][field] = value;
+        let result = parse_outbox_event(&input).unwrap();
+        assert_eq!(
+            result["data"].get("stopPending").is_some(),
+            accepted,
+            "{field}: {input}"
+        );
+    }
+}
+
+#[test]
 fn outbox_rotation_and_torn_lines() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -916,12 +942,15 @@ fn snapshot_parser_matches_bun_normalization() {
         {"v":2,"seq":1,"at":1},
         {"v":1,"seq":"bad","at":1}
     ]);
-    let full = json!({"v":1,"seq":1,"at":1,"serviceInstalled":true,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[],"ranked":[]},"mode":{"mode":"m","strategy":"s","at":1},"tasks":[{"id":"t","state":"running","updatedAt":1}],"alerts":[{"key":"a","title":"t","body":"b","at":1}],"console":{"pid":1,"startedAt":1,"heartbeatAt":1},"consoles":[{"pid":1,"startedAt":1,"heartbeatAt":1}],"strategies":[{"name":"s","active":true,"summary":"x","description":"d"}]});
+    let full = json!({"v":1,"seq":1,"at":1,"serviceInstalled":true,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[{"id":"p","verdict":"ok","usedPct":1,"pacePct":1,"resetsAt":1,"blockedReason":"b","blockedUntil":1}],"ranked":[]},"mode":{"mode":"m","strategy":"s","at":1},"tasks":[{"id":"t","state":"running","updatedAt":1,"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"viewers":1},"reviewRequest":{"note":"n","at":1},"review":{"accepted":true,"at":1},"attemptStartedAt":1,"progress":{"phase":"work","lastOutputAt":1,"files":1,"commits":1,"logBytes":1}}],"alerts":[{"key":"a","title":"t","body":"b","at":1,"notification":{"kind":"failed","resetsAt":1}}],"console":{"pid":1,"startedAt":1,"heartbeatAt":1,"busyUntil":1},"consoles":[{"pid":1,"startedAt":1,"heartbeatAt":1}],"strategies":[{"name":"s","active":true,"summary":"x","description":"d"}]});
     let variants = [
         Value::Null,
         json!(false),
         json!(-1),
         json!(0.5),
+        json!(3.0),
+        json!(9_007_199_254_740_991_u64),
+        json!(9_007_199_254_740_992_u64),
         json!(""),
         json!("x"),
         json!([]),
@@ -934,6 +963,10 @@ fn snapshot_parser_matches_bun_normalization() {
         "/at",
         "/serviceInstalled",
         "/budget/generatedAt",
+        "/budget/providers/0/usedPct",
+        "/budget/providers/0/pacePct",
+        "/budget/providers/0/resetsAt",
+        "/budget/providers/0/blockedUntil",
         "/budget/strategy",
         "/budget/planner",
         "/budget/mode",
@@ -943,10 +976,24 @@ fn snapshot_parser_matches_bun_normalization() {
         "/tasks/0/id",
         "/tasks/0/state",
         "/tasks/0/updatedAt",
+        "/tasks/0/stopPending/attempt",
+        "/tasks/0/stopPending/requestedAt",
+        "/tasks/0/stopPending/graceMs",
+        "/tasks/0/session/viewers",
+        "/tasks/0/reviewRequest/at",
+        "/tasks/0/review/at",
+        "/tasks/0/attemptStartedAt",
+        "/tasks/0/progress/lastOutputAt",
+        "/tasks/0/progress/files",
+        "/tasks/0/progress/commits",
+        "/tasks/0/progress/logBytes",
         "/alerts/0/title",
+        "/alerts/0/at",
+        "/alerts/0/notification/resetsAt",
         "/console/pid",
         "/console/startedAt",
         "/console/heartbeatAt",
+        "/console/busyUntil",
         "/consoles/0/pid",
         "/strategies/0/name",
         "/strategies/0/summary",
