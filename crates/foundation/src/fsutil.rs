@@ -3,6 +3,8 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
@@ -10,8 +12,17 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let mut name = path.as_os_str().to_os_string();
-    name.push(format!(".{}.tmp", std::process::id()));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    name.push(format!(
+        ".{}.{nonce}.{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     PathBuf::from(name)
 }
 
@@ -22,11 +33,8 @@ fn parent(path: &Path) -> &Path {
 }
 
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
-    fs::create_dir_all(parent(path))?;
     let bytes = serde_json::to_vec(value)?;
-    let tmp = temporary_path(path);
-    fs::write(&tmp, bytes)?;
-    fs::rename(tmp, path)
+    write_private(path, &bytes)
 }
 
 pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -72,6 +80,30 @@ mod tests {
             r#"{"rev":1,"id":"t"}"#
         );
         assert_eq!(read_json::<serde_json::Value>(&p).unwrap()["rev"], 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn atomic_json_is_private_with_existing_permissive_state() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("state");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = parent.join("data.json");
+        fs::write(&path, "old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let legacy_temp = PathBuf::from(format!("{}.{}.tmp", path.display(), std::process::id()));
+        fs::write(&legacy_temp, "sentinel").unwrap();
+        write_json_atomic(&path, &serde_json::json!({"value": 1})).unwrap();
+        assert_eq!(fs::read_to_string(legacy_temp).unwrap(), "sentinel");
+        assert_eq!(
+            fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
     #[test]
     fn missing_or_invalid_json_is_none() {
