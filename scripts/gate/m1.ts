@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { assetFile, hostTarget, parseManifest, sha256Hex } from "../../src/update/manifest";
@@ -21,6 +21,16 @@ export function validateM1Artifacts(dir: string): { version: string; front: stri
   return { version: manifest.version, front: join(dir, asset.file), core: join(dir, companion.file) };
 }
 
+export function validateNativeRegistry(source: string): void {
+  const testOps = /#\[cfg\(feature = "test-ops"\)\]\s*static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/.exec(source);
+  const productionOps = /#\[cfg\(not\(feature = "test-ops"\)\)\]\s*static OPS: &\[NativeOp\] = &\[\];/.test(source);
+  if (!testOps || !productionOps) throw Error("Cannot verify feature-gated native registry");
+  const names = [...testOps[1].matchAll(/name:\s*"([^"]+)"/g)].map(match => match[1]);
+  if (names.length !== 2 || !names.includes("test.echo") || !names.includes("_debug.native")) {
+    throw Error("Native test operation coverage changed");
+  }
+}
+
 async function gate(dir: string): Promise<number> {
   const root = resolve(import.meta.dir, "../..");
   if (process.env.PACER_CORE_ARGV) throw Error("Unset PACER_CORE_ARGV: M1 gate must use the released companion");
@@ -28,13 +38,15 @@ async function gate(dir: string): Promise<number> {
   const temporary = mkdtempSync(join(tmpdir(), "pacer-m1-gate-"));
   chmodSync(temporary, 0o700);
   const front = join(temporary, "pacer"), core = join(temporary, "pacer-core"), home = join(temporary, "home");
+  const testFront = join(temporary, "target", "debug", "pacer");
   mkdirSync(home, { mode: 0o700 });
   copyFileSync(artifacts.front, front); copyFileSync(artifacts.core, core);
   chmodSync(front, 0o755); chmodSync(core, 0o755);
   const buildHome = process.env.HOME ?? tmpdir();
   const env = { ...process.env, HOME: home, PACER_HOME: join(home, ".pacer"),
     CARGO_HOME: process.env.CARGO_HOME ?? join(buildHome, ".cargo"), RUSTUP_HOME: process.env.RUSTUP_HOME ?? join(buildHome, ".rustup"),
-    PACER_BIN: undefined, PACER_CORE_ARGV: undefined, PACER_NO_SELF_REPAIR: "1", PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh" };
+    PACER_BIN: undefined, PACER_CORE_ARGV: undefined, PACER_TEST_FRONT_DOOR: undefined, PACER_TEST_NATIVE_FRONT_DOOR: undefined,
+    PACER_NO_SELF_REPAIR: "1", PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh" };
   let failures = 0;
   const step = async (name: string, run: () => Promise<void>) => {
     try { await run(); console.log(`PASS ${name}`); return true; }
@@ -73,14 +85,13 @@ async function gate(dir: string): Promise<number> {
     await step("released transport parity", () => command([process.execPath, "test", "test/transport-parity.test.ts"], { PACER_TEST_FRONT_DOOR: front }));
     await step("native operation parity coverage", async () => {
       const source = readFileSync(join(root, "crates/server/src/native.rs"), "utf8");
-      const match = /pub\s+const\s+NATIVE_OPS\s*:\s*&\s*\[\s*&str\s*\]\s*=\s*&\s*\[([\s\S]*?)\]\s*;/.exec(source);
-      if (!match) throw Error("Cannot inspect NATIVE_OPS");
-      for (const [, op] of match[1].matchAll(/"([^"]+)"/g)) {
-        if (!/^[a-zA-Z0-9_.-]+$/.test(op) || !existsSync(join(root, "test/parity", `${op}.test.ts`))) throw Error(`Missing native parity suite: ${op}`);
-      }
+      validateNativeRegistry(source);
     });
+    if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
     await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
-    await step("Bun suite", () => command([process.execPath, "run", "test"], { PACER_TEST_FRONT_DOOR: front, PACER_TEST_REFERENCE_CORE: core }));
+    await step("Bun suite", () => command([process.execPath, "run", "test"], {
+      PACER_TEST_FRONT_DOOR: front, PACER_TEST_NATIVE_FRONT_DOOR: testFront, PACER_TEST_REFERENCE_CORE: core,
+    }));
     await step("crate LOC", () => command(["cargo", "xtask", "loc", "--check"]));
     await step("crate dependencies", () => command(["cargo", "xtask", "deps"]));
     return failures ? 1 : 0;

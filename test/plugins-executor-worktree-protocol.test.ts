@@ -171,19 +171,19 @@ test("later attempts cannot overwrite an uncertain placement and may inspect aft
   } finally { await next.revoke(); }
 });
 
-test("legacy owner-owned 0755 parents and symlinked PACER_HOME migrate without changing placement", async () => {
-  const repo = gitRepo(), home = tmpDir(), actual = join(home, "actual"), link = join(home, "linked");
-  mkdirSync(actual, { mode: 0o700 }); symlinkSync(actual, link);
-  const ctx = fakeCtx({ run: realRun, home, pacerHome: link });
+test("legacy owner-owned 0755 parents migrate without changing placement", async () => {
+  const repo = gitRepo(), home = tmpDir(), actual = join(home, "actual");
+  mkdirSync(actual, { mode: 0o700 });
+  const ctx = fakeCtx({ run: realRun, home, pacerHome: actual });
   const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
     requestedExecutor: "codex", timeoutS: 60 });
   updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
     current.executorProvider = "pacer-exec-direct"; });
   const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
-  mkdirSync(join(link, "worktrees"), { mode: 0o755 });
-  mkdirSync(join(link, "worktrees", grant.path.split("/").at(-2)!), { mode: 0o755 });
-  chmodSync(join(link, "worktrees"), 0o755);
-  chmodSync(join(link, "worktrees", grant.path.split("/").at(-2)!), 0o755);
+  mkdirSync(join(actual, "worktrees"), { mode: 0o755 });
+  mkdirSync(join(actual, "worktrees", grant.path.split("/").at(-2)!), { mode: 0o755 });
+  chmodSync(join(actual, "worktrees"), 0o755);
+  chmodSync(join(actual, "worktrees", grant.path.split("/").at(-2)!), 0o755);
   const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.9.0",
     contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },

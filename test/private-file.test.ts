@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { privateAppend, privateCreate, privateTouch, privateWrite } from "../src/private-file";
@@ -71,4 +71,60 @@ test("stale temporary names do not block replacement and rename failure cleans u
   mkdirSync(join(root, "directory"));
   expect(() => privateWrite(join(root, "directory"), "failed")).toThrow();
   expect(readdirSync(root).filter(name => name.includes(".pacer-")).sort()).toEqual(["value.pacer-stale.tmp"]);
+});
+
+test("private writers reject symlinked parent directories without changing their targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-private-")); roots.push(root);
+  const outside = join(root, "outside"); mkdirSync(outside, { mode: 0o777 }); chmodSync(outside, 0o777);
+  symlinkSync(outside, join(root, "state"));
+  for (const write of [() => privateWrite(join(root, "state", "value"), "x"), () => privateAppend(join(root, "state", "log"), "x")]) expect(write).toThrow();
+  expect(statSync(outside).mode & 0o777).toBe(0o777);
+  expect(readdirSync(outside)).toEqual([]);
+});
+
+test("append and touch reject symlinked leaves without modifying their targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-private-")); roots.push(root);
+  const target = join(root, "outside"); writeFileSync(target, "original"); chmodSync(target, 0o644);
+  const link = join(root, "log"); symlinkSync(target, link);
+  expect(() => privateAppend(link, "X")).toThrow();
+  expect(() => privateTouch(link)).toThrow();
+  expect(readFileSync(target, "utf8")).toBe("original");
+  expect(statSync(target).mode & 0o777).toBe(0o644);
+});
+
+test("a directory swapped for a symlink between writes is rechecked", () => {
+  const root=mkdtempSync(join(tmpdir(),"pacer-private-")); roots.push(root);
+  const dir=join(root,"state"), outside=join(root,"outside");
+  privateAppend(join(dir,"log"),"first");
+  mkdirSync(outside,{mode:0o777}); chmodSync(outside,0o777);
+  const previous=join(root,"previous");
+  renameSync(dir,previous);
+  symlinkSync(outside,dir);
+  expect(()=>privateAppend(join(dir,"log"),"second")).toThrow();
+  expect(readFileSync(join(previous,"log"),"utf8")).toBe("first");
+  expect(statSync(outside).mode & 0o777).toBe(0o777);
+});
+
+test("seeded file-state matrix preserves append and touch confinement", () => {
+  const root=mkdtempSync(join(tmpdir(),"pacer-private-")); roots.push(root);
+  let seed=0x5ec70001;
+  const next=()=>{ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed; };
+  for(let i=0;i<48;i++) {
+    const dir=join(root,String(i)); mkdirSync(dir);
+    const outside=join(dir,"outside"), file=join(dir,"file");
+    const kind=next()%3, action=next()%2;
+    if(kind===1) { writeFileSync(file,"old"); chmodSync(file,0o644); }
+    if(kind===2) { writeFileSync(outside,"outside"); chmodSync(outside,0o644); symlinkSync(outside,file); }
+    const operation=()=>action===0 ? privateAppend(file,"X") : privateTouch(file);
+    if(kind===2) {
+      expect(operation).toThrow();
+      expect(readFileSync(outside,"utf8")).toBe("outside");
+      expect(statSync(outside).mode&0o777).toBe(0o644);
+    } else {
+      operation();
+      expect(readFileSync(file,"utf8")).toBe((kind===1?"old":"")+(action===0?"X":""));
+      expect(statSync(file).mode&0o777).toBe(0o600);
+      expect(statSync(dir).mode&0o777).toBe(0o700);
+    }
+  }
 });

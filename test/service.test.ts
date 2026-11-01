@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { main } from "../src/cli";
 import { readManifest } from "../src/install/manifest";
@@ -41,12 +41,15 @@ test("adopts handwritten launchd plist with one backup, manifest, and correct bo
   const { ctx, calls, d, path } = fixture();
   const old = '<plist><dict><key>Label</key><string>com.pacer.serve</string></dict></plist>';
   put(path, old);
+  mkdirSync(join(ctx.pacerHome,"logs"),{recursive:true}); chmodSync(join(ctx.pacerHome,"logs"),0o755);
   const b = serviceBackend(ctx, d); await b.install();
   const record = readManifest(ctx).planners.service;
   expect(record.pacerArgv).toEqual(["/opt/pacer"]);
   expect(readFileSync(record.files[0].backup!, "utf8")).toBe(old);
   expect(calls.slice(0, 4)).toEqual([["launchctl", "print", "gui/501/com.pacer.serve"], ["launchctl", "bootout", "gui/501/com.pacer.serve"], ["launchctl", "bootstrap", "gui/501", path], ["launchctl", "print", "gui/501/com.pacer.serve"]]);
   expect(existsSync(join(ctx.pacerHome, "logs"))).toBe(true);
+  expect(statSync(join(ctx.pacerHome, "logs")).mode & 0o777).toBe(0o700);
+  expect(statSync(join(ctx.pacerHome, "logs", "serve.log")).mode & 0o777).toBe(0o600);
   await b.install(); expect(readdirSync(join(ctx.pacerHome,"backups/service"))).toHaveLength(1);
   expect((await b.status())).toMatchObject({ installed: true, loaded: true, running: true, pid: 456, lastExitCode: 9, healthy: true, binaryMatches: true });
   await b.restart(); expect(calls.at(-1)).toEqual(["launchctl", "kickstart", "-k", "gui/501/com.pacer.serve"]);

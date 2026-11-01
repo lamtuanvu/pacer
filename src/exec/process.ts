@@ -1,6 +1,5 @@
-import { privateDir, privateWrite } from "../private-file";
-import { closeSync, fchmodSync, openSync, writeSync } from "node:fs";
-import { dirname } from "node:path";
+import { privateOpen, privateWrite } from "../private-file";
+import { closeSync, writeSync } from "node:fs";
 /**
  * The planner session's own variables. An executor or a turn runner that inherits them is treated as part of the
  * planner's session (Claude Code then neither persists nor resumes the executor's own conversation).
@@ -113,9 +112,7 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
   let stdoutFd: number | undefined;
   try {
     if (spec.stdoutFile) {
-      privateDir(dirname(spec.stdoutFile));
-      stdoutFd = openSync(spec.stdoutFile, "w", 0o600);
-      fchmodSync(stdoutFd, 0o600);
+      stdoutFd = privateOpen(spec.stdoutFile, true);
     }
     proc = spawn(spec);
     if (spec.stdinUntilResponseId !== undefined && spec.stdin !== undefined && typeof proc.stdin === "object") {

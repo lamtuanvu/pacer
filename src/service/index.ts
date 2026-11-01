@@ -1,5 +1,6 @@
 import { compiledNativeFixture, verifyNativeFixture } from "../update/desktop/native-fixture";
 import { mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { privateDir, privateTouch } from "../private-file";
 import { dirname, join, resolve } from "node:path";
 import type { Ctx } from "../types";
 import { readText } from "../install/fsx";
@@ -223,7 +224,8 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       let activated = false;
       try {
       const report = await runInstall({ ctx, pacerArgv: argv }, "service", async tx => {
-        mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
+        privateDir(join(ctx.pacerHome, "logs"));
+        privateTouch(join(ctx.pacerHome, "logs", "serve.log"));
         const before = tx.read(path);
         old = before;
         tx.edit(path, () => mac ? plist(ctx, argv, label) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));

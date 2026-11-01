@@ -1,6 +1,7 @@
 import { expect, test as bunTest } from "bun:test";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
+import { chmodSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers";
 
 // Process startup can contend with parallel suite runs; retain short kill deadlines,
@@ -112,6 +113,7 @@ test("stdout file preserves binary bytes and overflow kills the process", async 
   const r = await execProcess({ argv: ["sh", "-c", "printf '\\000\\377\\200'"], cwd: dir, env, timeoutMs: 15000, stdoutFile: file, maxStdoutBytes: 3 });
   expect(r.code).toBe(0);
   expect(Buffer.from(await Bun.file(file).arrayBuffer())).toEqual(Buffer.from([0, 255, 128]));
+  expect(statSync(file).mode & 0o777).toBe(0o600);
   const started = Date.now();
   const overflow = await execProcess({ argv: ["sh", "-c", "while :; do printf 'abcdefgh'; done"], cwd: dir, env, timeoutMs: 15000, stdoutFile: file, maxStdoutBytes: 1024 });
   expect(overflow.stdoutOverflow).toBe(true);
@@ -119,6 +121,15 @@ test("stdout file preserves binary bytes and overflow kills the process", async 
   expect(overflow.timedOut).toBe(false);
   expect((await Bun.file(file).size)).toBeLessThanOrEqual(1024);
   expect(Date.now() - started).toBeLessThan(10000);
+});
+
+test("stdout file refuses a symlink without truncating or chmodding its target", async () => {
+  const dir=tmpDir(), target=join(dir,"outside"), link=join(dir,"stdout");
+  writeFileSync(target,"original"); chmodSync(target,0o644); symlinkSync(target,link);
+  const result=await execProcess({argv:["sh","-c","printf changed"],cwd:dir,env,timeoutMs:15000,stdoutFile:link});
+  expect(result.code).toBe(127);
+  expect(readFileSync(target,"utf8")).toBe("original");
+  expect(statSync(target).mode & 0o777).toBe(0o644);
 });
 
 test("children see PWD set to their own directory, not the parent's", async () => {
