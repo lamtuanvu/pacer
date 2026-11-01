@@ -60,7 +60,12 @@ class Session {
       }
     })();
   }
-  nativeEvidenceCount(op: string, id: number): number { return this.stderr.split("\n").filter(line => line === `native ${op} ${id}`).length; }
+  nativeEvidenceIds(op: string): number[] {
+    return this.stderr.split("\n").flatMap(line => {
+      const marker = /^native (\S+) (\d+)$/.exec(line);
+      return marker?.[1] === op ? [Number(marker[2])] : [];
+    });
+  }
   async ready(startup: NonNullable<ParityOptions["startup"]>) {
     await within(startup.timeoutMs, "stdio startup timed out", async () => {
       if (!this.startupReady) throw Error("missing stdio startup contract");
@@ -197,9 +202,13 @@ export async function parity(options: ParityOptions): Promise<void> {
         throw Error(`native execution evidence unavailable for ${[...nativeCalls.keys()].join(", ")}; migration parity is UNVERIFIED`);
     }
     await Promise.all(sessions.map(session => session.finish(options.timeoutMs ?? 5000)));
-    for (const { op, id } of nativeRequests) {
-      if (sessions[1]!.nativeEvidenceCount(op, id) < 1)
-        throw Error(`native execution evidence unavailable for ${op} request ${id}; migration parity is UNVERIFIED`);
+    for (const op of nativeCalls.keys()) {
+      const requiredIds = nativeRequests.filter(request => request.op === op).map(request => request.id);
+      const evidenceIds = sessions[1]!.nativeEvidenceIds(op);
+      const invalidId = evidenceIds.find(id => !requiredIds.includes(id)) ??
+        requiredIds.find(id => evidenceIds.filter(markerId => markerId === id).length !== 1);
+      if (invalidId !== undefined)
+        throw Error(`native execution evidence unavailable for ${op} request ${invalidId}; migration parity is UNVERIFIED`);
     }
     compare("filesystem", tree(homes[0]!), tree(homes[1]!));
   } finally {

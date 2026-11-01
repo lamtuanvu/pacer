@@ -22,10 +22,19 @@ test("native requirements fail without independent native execution evidence", a
 test("native requirements must name an operation that was exercised", async () => {
   await expect(run("same", { native: ["never.called"] })).rejects.toThrow("native requirement never.called has no operation step");
 });
+test("zero native markers for a required request cannot certify parity", async () => {
+  await expect(run("native-no-marker", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable for write request 2");
+});
 test("one native marker cannot cover two correlated calls", async () => {
   await expect(run("native-once", { native: ["write"], steps: [
     { op: "write", params: { value: "kept" } }, { op: "write", params: { value: "kept" } },
   ] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("duplicate native markers for one request cannot certify parity", async () => {
+  await expect(run("native-duplicate", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("native marker for an unknown request id cannot certify parity", async () => {
+  await expect(run("native-unknown-id", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable");
 });
 test("front-loaded native markers cannot cover a later call", async () => {
   await expect(run("native-frontloaded", { native: ["write"], steps: [
