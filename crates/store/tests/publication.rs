@@ -400,6 +400,39 @@ await publish(c,[{type:'entity',data:{kind:'message',id:'turn'}},{type:'entity',
 }
 
 #[test]
+fn decimal_json_outbox_sequence_replays_like_bun() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let pending = "{\"seq\":1.0,\"at\":1760000000,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"pending\",\"at\":1760000000}}}\n";
+    for home in [rust.path(), ts.path()] {
+        let link = home.join(".pacer/link");
+        fs::create_dir_all(&link).unwrap();
+        fs::write(link.join("latest.json"), r#"{"v":1,"seq":0,"at":0}"#).unwrap();
+        fs::write(link.join("outbox.jsonl"), pending).unwrap();
+    }
+    let event = json!({"type":"config","data":{"area":"next","at":1760000000}});
+    let report = publish(&ctx(rust.path()), &[event]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(report.seq, 2);
+    bun(
+        ts.path(),
+        r#"
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+const report=await publish(c,[{type:'config',data:{area:'next',at:1760000000}}]);
+if(report.errors.length || report.seq!==2) throw Error(JSON.stringify(report));
+"#,
+    );
+    for file in ["link/latest.json", "link/outbox.jsonl"] {
+        assert_eq!(
+            fs::read(rust.path().join(".pacer").join(file)).unwrap(),
+            fs::read(ts.path().join(".pacer").join(file)).unwrap(),
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn activity_torn_lines_pagination_and_rotation() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -494,6 +527,193 @@ process.stdout.write(JSON.stringify(items.map(parseOutboxEvent)));
         .map(|v| parse_outbox_event(v).unwrap_or(Value::Null))
         .collect();
     assert_eq!(Value::Array(actual), expected);
+}
+
+#[test]
+fn structured_publication_parser_cases_match_bun() {
+    let templates = [
+        json!({"type":"entity","data":{"kind":"activity","id":"e","value":{},"removed":false}}),
+        json!({"type":"pause","data":{"until":1,"reason":"r","by":"b"}}),
+        json!({"type":"config","data":{"area":"a","at":1}}),
+        json!({"type":"budget","data":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[{"id":"p","verdict":"OK","agent":"a","account":"x","usedPct":1,"pacePct":2,"resetsAt":3,"window":"w","stale":true,"brokenReason":"b","blockedReason":"b","blockedUntil":4}],"ranked":[{"id":"p","verdict":"OK"}]}}),
+        json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"title":"title","goal":"goal","executor":"x","backend":"b","worktree":"w","interactionMode":"conversation","conversation":{"activity":"working","agentSessionId":"s","endReason":"user"},"placement":{"mode":"current","why":"w"},"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"controller":"c","viewers":2},"terminalPresent":true,"resolved":"r","reviewRequest":{"note":"n","at":1},"acceptanceState":"passed","review":{"accepted":true,"kind":"k","note":"n","at":1},"dismissed":true,"retriedBy":"r","retryOf":"r","brokenExecutor":"b","brokenReason":"b","attemptStartedAt":1,"progress":{"phase":"working","lastOutputAt":1,"files":1,"commits":1,"logBytes":1},"runnerAlive":true}}),
+        json!({"type":"mode","data":{"mode":"normal","previous":"old","strategy":"s","at":1}}),
+        json!({"type":"alert","data":{"key":"k","level":"info","title":"t","body":"b","at":1,"error":"e","notification":{"kind":"failed","fromPanel":true,"near":true,"executor":"x","goal":"g","nextExecutor":"n","strategy":"s","resetsAt":1}}}),
+        json!({"type":"assistant","data":{"turnId":"t","conversationId":"c","state":"done"}}),
+        json!({"type":"discovery.found","data":{"discoveryId":"abcdefghijklmnopqrstuvwxyz","name":"n","version":"v"}}),
+    ];
+    let mut inputs: Vec<Value> = templates.to_vec();
+    let variants = [
+        Value::Null,
+        json!(false),
+        json!(0),
+        json!(-1),
+        json!(0.5),
+        json!(""),
+        json!("x"),
+        json!([]),
+        json!({}),
+        json!("x".repeat(129)),
+        json!("x".repeat(1001)),
+        json!("😀".repeat(65)),
+    ];
+    let paths: [&[&str]; 9] = [
+        &["/data/kind", "/data/id", "/data/removed"],
+        &["/data/until", "/data/reason", "/data/by", "/data/removed"],
+        &["/data/area", "/data/at"],
+        &[
+            "/data/generatedAt",
+            "/data/strategy",
+            "/data/planner",
+            "/data/mode",
+            "/data/providers/0/id",
+            "/data/providers/0/verdict",
+            "/data/providers/0/agent",
+            "/data/providers/0/account",
+            "/data/providers/0/usedPct",
+            "/data/providers/0/pacePct",
+            "/data/providers/0/resetsAt",
+            "/data/providers/0/window",
+            "/data/providers/0/stale",
+            "/data/providers/0/brokenReason",
+            "/data/providers/0/blockedReason",
+            "/data/providers/0/blockedUntil",
+            "/data/ranked/0/id",
+            "/data/ranked/0/verdict",
+        ],
+        &[
+            "/data/id",
+            "/data/state",
+            "/data/updatedAt",
+            "/data/title",
+            "/data/goal",
+            "/data/executor",
+            "/data/backend",
+            "/data/worktree",
+            "/data/interactionMode",
+            "/data/conversation/activity",
+            "/data/conversation/agentSessionId",
+            "/data/conversation/endReason",
+            "/data/placement/mode",
+            "/data/placement/why",
+            "/data/stopPending/attempt",
+            "/data/stopPending/requestedAt",
+            "/data/stopPending/providerId",
+            "/data/stopPending/graceMs",
+            "/data/session/host",
+            "/data/session/live",
+            "/data/session/controller",
+            "/data/session/viewers",
+            "/data/terminalPresent",
+            "/data/resolved",
+            "/data/reviewRequest/note",
+            "/data/reviewRequest/at",
+            "/data/acceptanceState",
+            "/data/review/accepted",
+            "/data/review/kind",
+            "/data/review/note",
+            "/data/review/at",
+            "/data/dismissed",
+            "/data/retriedBy",
+            "/data/retryOf",
+            "/data/brokenExecutor",
+            "/data/brokenReason",
+            "/data/attemptStartedAt",
+            "/data/progress/phase",
+            "/data/progress/lastOutputAt",
+            "/data/progress/files",
+            "/data/progress/commits",
+            "/data/progress/logBytes",
+            "/data/runnerAlive",
+        ],
+        &["/data/mode", "/data/previous", "/data/strategy", "/data/at"],
+        &[
+            "/data/key",
+            "/data/level",
+            "/data/title",
+            "/data/body",
+            "/data/at",
+            "/data/error",
+            "/data/notification/kind",
+            "/data/notification/fromPanel",
+            "/data/notification/near",
+            "/data/notification/executor",
+            "/data/notification/goal",
+            "/data/notification/nextExecutor",
+            "/data/notification/strategy",
+            "/data/notification/resetsAt",
+        ],
+        &["/data/turnId", "/data/conversationId", "/data/state"],
+        &["/data/discoveryId", "/data/name", "/data/version"],
+    ];
+    for (template, fields) in templates.iter().zip(paths) {
+        for field in fields {
+            for variant in &variants {
+                let mut input = template.clone();
+                if let Some(slot) = input.pointer_mut(field) {
+                    *slot = variant.clone();
+                } else {
+                    let (parent, key) = field.rsplit_once('/').unwrap();
+                    input
+                        .pointer_mut(parent)
+                        .unwrap()
+                        .as_object_mut()
+                        .unwrap()
+                        .insert(key.to_owned(), variant.clone());
+                }
+                inputs.push(input);
+            }
+        }
+    }
+    let mut seed = 0x553_u64;
+    for _ in 0..128 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let template_index = (seed as usize) % templates.len();
+        let mut input = templates[template_index].clone();
+        for _ in 0..2 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let field = paths[template_index][(seed as usize) % paths[template_index].len()];
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let variant = variants[(seed as usize) % variants.len()].clone();
+            if let Some(slot) = input.pointer_mut(field) {
+                *slot = variant;
+            } else {
+                let (parent, key) = field.rsplit_once('/').unwrap();
+                input
+                    .pointer_mut(parent)
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(key.to_owned(), variant);
+            }
+        }
+        inputs.push(input);
+    }
+    for count in [31, 32, 33] {
+        let mut budget = templates[3].clone();
+        budget["data"]["providers"] = Value::Array(vec![json!({"id":"p","verdict":"OK"}); count]);
+        budget["data"]["ranked"] = Value::Array(vec![json!({"id":"p","verdict":"OK"}); count]);
+        inputs.push(budget);
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let input_file = temp.path().join("inputs.json");
+    fs::write(&input_file, Value::Array(inputs.clone()).to_string()).unwrap();
+    let result = Command::new("bun").arg("-e").arg("import {readFileSync} from 'node:fs'; import {parseOutboxEvent} from './src/link/envelope.ts'; process.stdout.write(JSON.stringify(JSON.parse(readFileSync(process.env.TEST_INPUT_FILE,'utf8')).map(parseOutboxEvent)));" )
+        .env("TEST_INPUT_FILE", input_file).current_dir(root).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&result.stdout).unwrap();
+    for (index, (input, wanted)) in inputs.iter().zip(expected.iter()).enumerate() {
+        let actual = parse_outbox_event(input).unwrap_or(Value::Null);
+        assert_eq!(&actual, wanted, "case {index}: {input}");
+    }
 }
 
 #[test]
@@ -604,13 +824,73 @@ fn activity_rotation_keeps_recent_twenty_thousand() {
 
 #[test]
 fn snapshot_parser_matches_bun_normalization() {
-    let inputs = json!([
+    let mut inputs = json!([
         {"v":1,"seq":2,"at":100,"serviceInstalled":true,"tasks":[{"id":"t","state":"running","updatedAt":1,"goal":"g","executor":"codex","backend":null,"worktree":null}],"alerts":[{"title":"hello","error":"bad"}],"console":{"pid":12,"startedAt":90,"heartbeatAt":99,"handle":"h","paneKey":null},"strategies":["default",{"name":"alt","active":true,"summary":"s","description":"d"}],"unknown":"discard"},
         {"v":1,"seq":5,"at":10,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"normal"},"mode":{"mode":"normal","strategy":"s","at":1}},
         {"v":1,"seq":0,"at":0,"strategies":["😀".repeat(65),format!("{}😀", "x".repeat(127))]},
+        {"v":1,"seq":-1,"at":1},
+        {"v":1,"seq":0.5,"at":1},
+        {"v":1,"seq":9007199254740992_u64,"at":1},
+        {"v":1,"seq":1.0,"at":1},
+        {"v":1,"seq":-0.0,"at":1},
         {"v":2,"seq":1,"at":1},
         {"v":1,"seq":"bad","at":1}
     ]);
+    let full = json!({"v":1,"seq":1,"at":1,"serviceInstalled":true,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[],"ranked":[]},"mode":{"mode":"m","strategy":"s","at":1},"tasks":[{"id":"t","state":"running","updatedAt":1}],"alerts":[{"key":"a","title":"t","body":"b","at":1}],"console":{"pid":1,"startedAt":1,"heartbeatAt":1},"consoles":[{"pid":1,"startedAt":1,"heartbeatAt":1}],"strategies":[{"name":"s","active":true,"summary":"x","description":"d"}]});
+    let variants = [
+        Value::Null,
+        json!(false),
+        json!(-1),
+        json!(0.5),
+        json!(""),
+        json!("x"),
+        json!([]),
+        json!({}),
+        json!("x".repeat(1001)),
+    ];
+    for field in [
+        "/v",
+        "/seq",
+        "/at",
+        "/serviceInstalled",
+        "/budget/generatedAt",
+        "/budget/strategy",
+        "/budget/planner",
+        "/budget/mode",
+        "/mode/mode",
+        "/mode/strategy",
+        "/mode/at",
+        "/tasks/0/id",
+        "/tasks/0/state",
+        "/tasks/0/updatedAt",
+        "/alerts/0/title",
+        "/console/pid",
+        "/console/startedAt",
+        "/console/heartbeatAt",
+        "/consoles/0/pid",
+        "/strategies/0/name",
+        "/strategies/0/summary",
+        "/strategies/0/description",
+    ] {
+        for variant in &variants {
+            let mut input = full.clone();
+            *input.pointer_mut(field).unwrap() = variant.clone();
+            inputs.as_array_mut().unwrap().push(input);
+        }
+    }
+    for (field, boundary) in [
+        ("tasks", 20),
+        ("alerts", 10),
+        ("consoles", 32),
+        ("strategies", 32),
+    ] {
+        for count in [boundary - 1, boundary, boundary + 1] {
+            let mut input = full.clone();
+            let item = full[field][0].clone();
+            input[field] = Value::Array(vec![item; count]);
+            inputs.as_array_mut().unwrap().push(input);
+        }
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -642,6 +922,9 @@ process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(pars
             .collect(),
     );
     assert_eq!(actual, expected);
+    for index in 3..6 {
+        assert!(actual[index].is_null(), "invalid sequence case {index}");
+    }
 }
 
 #[test]

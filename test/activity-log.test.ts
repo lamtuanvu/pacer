@@ -221,6 +221,17 @@ test("rotation removes entries older than 30 days even below the line cap", () =
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["today", "boundary"]);
 });
 
+test("rotation ignores a stale PID temp file and preserves it", () => {
+  const ctx = fakeCtx();
+  const stale = `${file(ctx)}.${process.pid}.tmp`;
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  writeFileSync(stale, "stale", { mode: 0o600 });
+  appendActivity(ctx, { kind: "config", level: "info", text: "keep" });
+  rotateActivity(ctx);
+  expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["keep"]);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
+});
+
 test("activity publication tightens existing modes and rotation stays private", () => {
   const ctx = fakeCtx(), dir = join(ctx.pacerHome, "state"), path = file(ctx);
   mkdirSync(dir, { recursive: true });

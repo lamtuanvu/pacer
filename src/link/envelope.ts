@@ -139,7 +139,7 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
 }
 export function emptySnapshot(): LinkSnapshot { return { v: 1, seq: 0, at: 0, budget: null, mode: null, tasks: [], alerts: [], console: null, consoles: [], strategies: [] }; }
 export function parseSnapshot(raw: unknown): LinkSnapshot | null {
-  if (!isObj(raw) || raw.v !== 1) return null; const seq = num(raw.seq), at = num(raw.at); if (seq === null || at === null) return null;
+  if (!isObj(raw) || raw.v !== 1) return null; const seq = num(raw.seq), at = num(raw.at); if (seq === null || !Number.isSafeInteger(seq) || seq < 0 || at === null) return null;
   const list = <T>(v: unknown, f: (x: unknown) => T | null, max: number): T[] => (Array.isArray(v) ? v : []).map(f).filter((x): x is T => x !== null).slice(0, max);
   return { v: 1, seq, at, ...(typeof raw.serviceInstalled === "boolean" ? {serviceInstalled: raw.serviceInstalled} : {}), budget: raw.budget == null ? null : parseBudget(raw.budget), mode: raw.mode == null ? null : parseMode(raw.mode), tasks: list(raw.tasks, parseTask, LIMITS.tasks), alerts: list(raw.alerts, parseAlert, LIMITS.alerts), console: raw.console == null ? null : parseConsole(raw.console), consoles: list(raw.consoles, parseConsole, 32), strategies: list<string | StrategyData>(raw.strategies, v => typeof v === "string" ? optStr(v,128) : isObj(v) && optStr(v.name,128) ? {name:optStr(v.name,128)!,active:v.active===true,summary:str(v.summary,1000)??"",description:str(v.description,1000)??""} : null, 32) };
 }

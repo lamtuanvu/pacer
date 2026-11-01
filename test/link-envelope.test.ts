@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { parseOutboxEvent, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type OutboxEvent } from "../src/link/envelope";
+import { parseOutboxEvent, parseSnapshot, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type OutboxEvent } from "../src/link/envelope";
+
+test("snapshot sequence accepts only nonnegative safe integers", () => {
+  for (const seq of [-1, -0.5, 0.5, Number.MAX_SAFE_INTEGER + 1])
+    expect(parseSnapshot({ v: 1, seq, at: 1 })).toBeNull();
+  for (const seq of [0, 1, Number.MAX_SAFE_INTEGER])
+    expect(parseSnapshot({ v: 1, seq, at: 1 })?.seq).toBe(seq);
+});
 
 const budget = { generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", pacePct:null,usedPct: 61.4, resetsAt: null, window: null, stale: false }], ranked: [{ id: "codex", verdict: "OK" }] };
 const envs: OutboxEvent[] = [

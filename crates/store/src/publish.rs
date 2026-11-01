@@ -27,9 +27,7 @@ pub fn publish(ctx: &Ctx, events: &[Value]) -> PublishReport {
     let result = with_lock(ctx, "link", options, || -> io::Result<u64> {
         let mut snapshot = read_latest(ctx);
         for pending in read_outbox_since(ctx, snapshot["seq"].as_f64().unwrap_or(0.0))? {
-            if pending["seq"].as_u64()
-                != snapshot["seq"].as_u64().and_then(|seq| seq.checked_add(1))
-            {
+            if pending["seq"].as_f64() != snapshot["seq"].as_f64().map(|seq| seq + 1.0) {
                 return Err(io::Error::other(
                     "outbox sequence gap; latest snapshot requires recovery",
                 ));

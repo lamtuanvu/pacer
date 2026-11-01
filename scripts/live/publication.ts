@@ -7,16 +7,18 @@ import { parseOutboxEvent } from "../../src/link/envelope";
 import { publish } from "../../src/link/publish";
 import { currentSnapshot, readOutboxSince } from "../../src/link/store";
 import { readEndpointState } from "../../src/endpoints/state";
+import { appendActivity, readActivity, rotateActivity } from "../../src/activity/log";
+import { writeJsonAtomic } from "../../src/fsutil";
 import { endpointTestFromSpawn } from "../../test/fixtures/endpoint-test-fixtures";
 import { healthy, record, type Session } from "./core";
-import { settingsFixtureRoot } from "./settings";
+import { createFixtureHome, settingsFixtureRoot } from "./settings";
 
 function bounded(value: string, max: number): boolean {
   return value.length <= max && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value);
 }
 
 export async function exercisePublicationHome(home: string): Promise<void> {
-  mkdirSync(home, { mode: 0o700 });
+  createFixtureHome(home);
   const strategy = {
     planner: "claude-code",
     accounts: {
@@ -75,14 +77,31 @@ export async function exercisePublicationHome(home: string): Promise<void> {
   if (tested.state !== "not_working" || !tested.detail || tested.detail !== persisted.detail ||
     !bounded(tested.detail, 500) || tested.detail.includes("😀"))
     throw Error("Endpoint error boundary mismatch");
+
+  const sequenceHome = join(home, "sequence-fixture");
+  createFixtureHome(sequenceHome);
+  writeJsonAtomic(join(sequenceHome, "link/latest.json"), { v: 1, seq: -1, at: ctx.now });
+  const sequenceCtx = { ...ctx, home: sequenceHome, pacerHome: sequenceHome,
+    env: { ...ctx.env, HOME: sequenceHome, PACER_HOME: sequenceHome } };
+  const recovered = await publish(sequenceCtx, [{ type: "config", data: { area: "sequence-fixture", at: ctx.now } }]);
+  if (recovered.errors.length || recovered.seq !== 1 || readFileSync(join(sequenceHome, "link/latest.json"), "utf8").includes('"seq":-1'))
+    throw Error("Invalid snapshot sequence did not recover from zero");
+
+  appendActivity(ctx, { kind: "config", level: "info", text: "rotation fixture" });
+  const staleActivity = join(home, `state/activity.jsonl.${process.pid}.tmp`);
+  writeFileSync(staleActivity, "stale", { flag: "wx", mode: 0o600 });
+  rotateActivity(ctx);
+  if (readFileSync(staleActivity, "utf8") !== "stale" ||
+    !readActivity(ctx).entries.some(entry => entry.text === "rotation fixture"))
+    throw Error("Activity rotation was blocked by a stale temp");
 }
 
 export async function exercisePublication(session: Session): Promise<void> {
-  settingsFixtureRoot(session);
   if (!await healthy(session)) throw Error("Publication fixture requires a healthy guarded sandbox");
+  settingsFixtureRoot(session);
   try {
     await exercisePublicationHome(join(session.root, "home", "publication-fixture"));
-    for (const behavior of ["Alert title/body truncation", "Strategy snapshot description truncation", "Endpoint error truncation"])
+    for (const behavior of ["Alert title/body truncation", "Strategy snapshot description truncation", "Endpoint error truncation", "Invalid snapshot sequence recovery", "Activity rotation with a stale temp"])
       record(session, { kind: "note", behavior, surface: "guarded TypeScript API fixture", verdict: "PASS",
         text: "Fixed fixture in owned sandbox home; ownership guards, real publisher, snapshot and account.test handler exercised." });
   } catch (error) {

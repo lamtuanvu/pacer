@@ -1,5 +1,5 @@
 import { publish } from "../link/publish";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, fchmodSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
@@ -109,7 +109,7 @@ export function rotateActivity(ctx: Ctx): void {
     const marker = join(stateDir(ctx), "activity-rotation.json"), last = readJson<number>(marker);
     if (typeof last === "number" && ctx.now - last < 86400) return;
     const kept = entries(ctx).filter(e => e.at >= ctx.now - RETENTION_S).slice(-20_000);
-    const tmp = `${logPath(ctx)}.${process.pid}.tmp`;
+    const tmp = `${logPath(ctx)}.${process.pid}.${randomUUID()}.tmp`;
     const fd = openSync(tmp, "wx", 0o600);
     try { writeFileSync(fd, kept.map(e => JSON.stringify(e) + "\n").join("")); closeSync(fd); renameSync(tmp, logPath(ctx)); }
     catch(error) { try { closeSync(fd); } catch { /* already closed */ } unlinkSync(tmp); throw error; }

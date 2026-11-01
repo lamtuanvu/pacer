@@ -25,6 +25,13 @@ pub fn empty_snapshot() -> Value {
 fn number(v: &Value) -> bool {
     v.as_f64().is_some_and(f64::is_finite)
 }
+fn snapshot_seq(v: &Value) -> Option<u64> {
+    v.as_f64()
+        .filter(|seq| {
+            seq.is_finite() && *seq >= 0.0 && seq.fract() == 0.0 && *seq <= 9_007_199_254_740_991.0
+        })
+        .map(|seq| seq as u64)
+}
 fn required_string(v: &Value, key: &str, max: usize) -> bool {
     v.get(key)
         .and_then(Value::as_str)
@@ -450,13 +457,11 @@ fn parse_console(raw: &Value) -> Option<Value> {
 }
 
 pub fn parse_snapshot(raw: &Value) -> Option<Value> {
-    if raw.get("v") != Some(&json!(1))
-        || !raw.get("seq").is_some_and(number)
-        || !raw.get("at").is_some_and(number)
-    {
+    let seq = snapshot_seq(raw.get("seq")?)?;
+    if raw.get("v") != Some(&json!(1)) || !raw.get("at").is_some_and(number) {
         return None;
     }
-    let mut snapshot = json!({"v":1,"seq":raw["seq"],"at":raw["at"]});
+    let mut snapshot = json!({"v":1,"seq":seq,"at":raw["at"]});
     if raw.get("serviceInstalled").is_some_and(Value::is_boolean) {
         snapshot["serviceInstalled"] = raw["serviceInstalled"].clone();
     }
