@@ -92,3 +92,5 @@ layer = "sdk"
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
+[crates.pacer-engine]
+layer = 5
