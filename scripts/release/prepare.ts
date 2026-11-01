@@ -2,6 +2,35 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { compareVersions, isVersion } from "../../src/update/version";
+import { unreleasedNotes } from "./next-version";
+
+function commitSubjects(root: string, current: string): string[] {
+  const tag = `v${current}`;
+  const exists = Bun.spawnSync(["git", "rev-parse", "-q", "--verify", `refs/tags/${tag}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (exists.exitCode !== 0) throw new Error(`the current version ${current} has no ${tag} tag`);
+  const log = Bun.spawnSync(["git", "log", "-z", "--format=%s", `${tag}..HEAD`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (log.exitCode !== 0) throw new Error(`git log ${tag}..HEAD: ${log.stderr.toString().trim()}`);
+  return log.stdout.toString().split("\0").filter(Boolean);
+}
+
+function generatedNotes(subjects: string[]): string {
+  const groups: Record<string, string[]> = { Added: [], Changed: [], Fixed: [] };
+  for (const subject of subjects) {
+    const match = /^([a-z]+)(?:\(([^)]*)\))?(!)?:\s+(.+)$/.exec(subject);
+    const type = match?.[1];
+    const group = type === "feat" ? "Added" : type === "fix" ? "Fixed" : "Changed";
+    const detail = match?.[4] ?? subject;
+    const scope = match?.[2] ? ` (${match[2]})` : "";
+    const wording = `${detail.charAt(0).toUpperCase()}${detail.slice(1)}${scope}`.replace(/[.\s]+$/, "");
+    const redacted = wording
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email redacted]")
+      .replace(/\/(?:Users|Volumes|home|tmp|private|var)\/.+/g, "[local path]");
+    const safe = redacted.replace(/[\\`*_\[\]<>]/g, "\\$&");
+    groups[group]!.push(`- ${match?.[3] ? "**Breaking:** " : ""}${safe}.`);
+  }
+  return Object.entries(groups).filter(([, entries]) => entries.length > 0)
+    .map(([heading, entries]) => `### ${heading}\n\n${entries.join("\n")}`).join("\n\n");
+}
 
 export function prepareChangelog(text: string, version: string, date: string): string {
   const heading = /^## \[Unreleased\][ \t]*$/m;
@@ -42,7 +71,13 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) || !isVersion(version)) throw new Error("version must be MAJOR.MINOR.PATCH");
   if (compareVersions(version, pkg.version) <= 0) throw new Error(`version must be greater than ${pkg.version}`);
   const changelogPath = join(root, "CHANGELOG.md");
-  const changelog = prepareChangelog(readFileSync(changelogPath, "utf8"), version, new Date().toISOString().slice(0, 10));
+  const currentChangelog = readFileSync(changelogPath, "utf8");
+  const authored = unreleasedNotes(currentChangelog);
+  const subjects = authored ? [] : commitSubjects(root, pkg.version);
+  if (!authored && subjects.length === 0) throw new Error("no commits since the current version tag; refusing to prepare empty release notes");
+  const date = new Date().toISOString().slice(0, 10);
+  const changelog = prepareChangelog(currentChangelog, version, date);
+  const releaseChangelog = authored ? changelog : changelog.replace(`## [${version}] - ${date}`, `## [${version}] - ${date}\n\n${generatedNotes(subjects)}`);
   const desktopPath = join(root, "desktop", "src-tauri");
   const tauriPath = join(desktopPath, "tauri.conf.json");
   const tauri = bumpJsonVersion(readFileSync(tauriPath, "utf8"), version);
@@ -52,7 +87,7 @@ export async function prepareRelease(root: string, version: string): Promise<voi
   const lock = bumpCargoVersion(readFileSync(lockPath, "utf8"), version, true);
   pkg.version = version;
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-  writeFileSync(changelogPath, changelog);
+  writeFileSync(changelogPath, releaseChangelog);
   writeFileSync(tauriPath, tauri);
   writeFileSync(cargoPath, cargo);
   writeFileSync(lockPath, lock);
