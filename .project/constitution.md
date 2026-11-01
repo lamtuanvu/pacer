@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.18.0 | Updated: 2026-10-31
+Status: Amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.19.0 | Updated: 2026-11-01
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -181,6 +181,12 @@ SEC-1, SEC-2, SEC-3 and SEC-6 are unchanged. SEC-3 governs the service's API lis
 Adopted on 2026-10-31 by the maintainer merging #523. ARCH-4 and P8 name the plugin boundary after the Orca backend is extracted. `src/plugins/` may implement task-owned Orca capability and cleanup brokers; `src/core` may not import Orca-specific modules. The bundled `pacer-exec-orca` implements the existing #461 terminal-worker flow with pacer's composed unattended launch command and exact host-owned identity and closure checks. See [ADR 0018](../docs/decisions/0018-orca-terminal-worker-executor-extraction.md).
 
 This amendment does not revive the retired Orca panel (P7 and ARCH-6), waive SEC-5 or CT-11, or claim extraction is complete before validation. It replaces the earlier `src/core` to `src/exec/orca` boundary.
+
+## Amendment 0.19.0 — desktop UI delivery
+
+Proposed; adopted only by the maintainer merging this amendment PR. D4 of the [clients ADR](../docs/decisions/2026-10-16-clients-over-local-service.md#amendment-desktop-ui-delivery-proposed-2026-11-01-constitution-0190) changes how the desktop app receives the shared UI: it ships the same `app/` source as a bundled build and reaches the service only through its Rust client, which forwards public API operations, events and terminal streams with app semantics. SEC-8 is replaced as proposed in [security rules](rules/security.md). Source: [persistent workbench design](../docs/specs/2026-10-31-persistent-workbench-design.md) sections 5 and 9.
+
+This amendment does not change D1–D3 or D5–D7, ARCH-1, ARCH-2, ARCH-8, SEC-3 or SEC-4. It grants no exception and permits no generic proxy, second task store or desktop-only protocol.
 
 ## Amendment and exception policy
 

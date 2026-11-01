@@ -53,6 +53,48 @@ function fixture(): string {
   return root;
 }
 
+function git(root: string, ...args: string[]): void {
+  const result = Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+}
+
+test("prepareRelease writes Keep a Changelog notes from post-tag commits when Unreleased is empty", async () => {
+  const root = fixture();
+  writeFileSync(join(root, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-01\n\n- Old.\n");
+  git(root, "init", "-q");
+  git(root, "add", ".");
+  git(root, "commit", "-qm", "chore: initial");
+  git(root, "tag", "v0.1.0");
+  git(root, "commit", "--allow-empty", "-qm", "fix(ci): repair release validation");
+  git(root, "commit", "--allow-empty", "-qm", "docs: clarify [release](https://example.test) for fixture@example.invalid");
+  git(root, "commit", "--allow-empty", "-qm", `fix: remove ${["", "Users", "fixture", "secret"].join("/")} from report`);
+  git(root, "commit", "--allow-empty", "-qm", `fix: hide ${["", "home", "fixture", "token"].join("/")} in logs`);
+  git(root, "commit", "--allow-empty", "-qm", `fix: hide ${["", "Volumes", "External Disk", "secret"].join("/")} in logs`);
+  await prepareRelease(root, "0.1.1");
+  const notes = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+  expect(notes).toContain("## [0.1.1] - ");
+  expect(notes).toContain("### Fixed\n\n");
+  expect(notes).toContain("- Remove \\[local path\\].");
+  expect(notes).toContain("- Repair release validation (ci).");
+  expect(notes).toContain("### Changed\n\n- Clarify \\[release\\]");
+  expect(notes).not.toContain("fixture@example.invalid");
+  expect(notes).not.toContain(["", "Users", "fixture", "secret"].join("/"));
+  expect(notes).not.toContain(["", "home", "fixture", "token"].join("/"));
+  expect(notes).not.toContain("External Disk/secret");
+  expect(notes).toContain("local path");
+});
+
+test("prepareRelease rejects empty Unreleased when no commits follow the current tag", async () => {
+  const root = fixture();
+  writeFileSync(join(root, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-10-01\n\n- Old.\n");
+  git(root, "init", "-q");
+  git(root, "add", ".");
+  git(root, "commit", "-qm", "chore: initial");
+  git(root, "tag", "v0.1.0");
+  await expect(prepareRelease(root, "0.1.1")).rejects.toThrow("no commits");
+  expect(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version).toBe("0.1.0");
+});
+
 test("prepareRelease updates package, desktop and changelog before rebuilding app assets", async () => {
   const root = fixture();
   await prepareRelease(root, "0.2.0");
@@ -64,6 +106,7 @@ test("prepareRelease updates package, desktop and changelog before rebuilding ap
   expect(readFileSync(join(desktop, "Cargo.lock"), "utf8")).toBe(lock.replace('name = "pacer-desktop"\nversion = "0.1.0"', 'name = "pacer-desktop"\nversion = "0.2.0"'));
   expect(readFileSync(join(root, "app-built-version"), "utf8")).toBe("0.2.0");
   expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain(`## [0.2.0] - ${new Date().toISOString().slice(0, 10)}`);
+  expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toBe(prepareChangelog(changelog, "0.2.0", new Date().toISOString().slice(0, 10)));
 });
 
 test("prepareRelease rejects invalid, equal and older versions before writing files", async () => {
