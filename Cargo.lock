@@ -1228,6 +1228,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-sessions"
+version = "0.0.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-sqlite-proof"
 version = "0.1.0"
 dependencies = [
