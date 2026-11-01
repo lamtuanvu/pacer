@@ -70,7 +70,7 @@ fn optional_string<'a>(
             "{name}: Too small: expected string to have >=1 characters"
         )));
     }
-    if max.is_some_and(|n| text.encode_utf16().count() > n) {
+    if max.is_some_and(|n| text.chars().count() > n) {
         return Err(invalid(format!(
             "{name}: Too big: expected string to have <=128 characters"
         )));
@@ -115,7 +115,7 @@ fn activity_limit(p: &serde_json::Map<String, Value>) -> Result<usize, CoreError
         Some(v) if v.as_f64().is_some_and(|n| n > 500.0) => {
             Err(invalid("limit: Too big: expected number to be <=500"))
         }
-        Some(v) => Ok(v.as_u64().unwrap_or(50) as usize),
+        Some(v) => Ok(v.as_f64().unwrap_or(50.0) as usize),
     }
 }
 
@@ -160,27 +160,32 @@ fn optional_offset(params: &serde_json::Map<String, Value>, name: &str) -> Resul
     let Some(value) = params.get(name) else {
         return Ok(0);
     };
-    let offset = match value.as_u64() {
-        Some(n) if n <= 9_007_199_254_740_991 => n,
+    let offset = match value.as_f64() {
         _ if !value.is_number() => {
             return Err(invalid(format!(
                 "{name}: Invalid input: expected number, received {}",
                 type_name(value)
             )));
         }
-        _ if value.as_f64().is_some_and(|n| n.fract() != 0.0) => {
+        Some(n) if !n.is_finite() || n.fract() != 0.0 => {
             return Err(invalid(format!(
                 "{name}: Invalid input: expected int, received number"
             )));
         }
-        _ if value.as_f64().is_some_and(|n| n < 0.0) => {
+        Some(n) if n < 0.0 => {
             return Err(invalid(format!(
                 "{name}: Too small: expected number to be >=0"
             )));
         }
-        _ => {
+        Some(n) if n > 9_007_199_254_740_991.0 => {
             return Err(invalid(format!(
                 "{name}: Too big: expected int to be <=9007199254740991"
+            )));
+        }
+        Some(n) => n as u64,
+        None => {
+            return Err(invalid(format!(
+                "{name}: Invalid input: expected int, received number"
             )));
         }
     };
@@ -285,6 +290,27 @@ fn read_from(file: Option<&Path>, offset: u64) -> Result<(String, u64), CoreErro
     ))
 }
 
+fn finite_js_number(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+    let radix = [
+        ("0x", 16),
+        ("0X", 16),
+        ("0b", 2),
+        ("0B", 2),
+        ("0o", 8),
+        ("0O", 8),
+    ]
+    .into_iter()
+    .find_map(|(prefix, radix)| text.strip_prefix(prefix).map(|digits| (digits, radix)));
+    if let Some((digits, radix)) = radix {
+        return !digits.is_empty() && digits.chars().all(|digit| digit.is_digit(radix));
+    }
+    text.parse::<f64>().is_ok_and(f64::is_finite)
+}
+
 pub(super) fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let params = if params.is_null() { json!({}) } else { params };
@@ -342,9 +368,7 @@ pub(super) fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             || run_dir.is_some_and(|dir| {
                 std::fs::read_to_string(Path::new(dir).join("exit"))
                     .ok()
-                    .is_some_and(|s| {
-                        !s.trim().is_empty() && s.trim().parse::<f64>().is_ok_and(f64::is_finite)
-                    })
+                    .is_some_and(|s| finite_js_number(&s))
             });
         Ok(
             json!({"stdout":stdout,"stderr":stderr,"next":{"stdout":stdout_next,"stderr":stderr_next},"done":done,"source":source}),
@@ -353,103 +377,4 @@ pub(super) fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    use std::{collections::HashMap, fs};
-
-    fn ctx(dir: &tempfile::TempDir) -> Ctx {
-        Ctx::with(dir.path().into(), dir.path().into(), HashMap::new(), 1000.0)
-    }
-
-    #[tokio::test]
-    async fn activity_pages_by_file_order_and_filters_malformed_rows() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("state")).unwrap();
-        fs::write(dir.path().join("state/activity.jsonl"),
-            "{\"id\":\"a\",\"at\":1,\"kind\":\"config\",\"level\":\"info\",\"text\":\"first\",\"repo\":\"r\"}\ninvalid\n{\"id\":\"b\",\"at\":1,\"kind\":\"mode\",\"level\":\"warn\",\"text\":\"second\"}\n{\"id\":\"c\",\"at\":1,\"kind\":\"config\",\"level\":\"info\",\"text\":\"third\",\"repo\":\"r\",\"taskId\":\"t\"}\n").unwrap();
-        let c = ctx(&dir);
-        let first = activity_list(&c, json!({"limit":2})).await.unwrap();
-        assert_eq!(first["entries"][0]["id"], "c");
-        assert_eq!(first["entries"][1]["id"], "b");
-        assert_eq!(first["next"], "b");
-        assert_eq!(
-            activity_list(&c, json!({"before":"b"})).await.unwrap()["entries"][0]["id"],
-            "a"
-        );
-        assert_eq!(
-            activity_list(&c, json!({"repo":"r","kinds":["config"],"taskId":"t"}))
-                .await
-                .unwrap()["entries"][0]["id"],
-            "c"
-        );
-        assert!(
-            activity_list(&c, json!({"before":"missing"}))
-                .await
-                .unwrap()["entries"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            activity_list(&c, json!({"limit":501}))
-                .await
-                .unwrap_err()
-                .message,
-            "limit: Too big: expected number to be <=500"
-        );
-        assert_eq!(
-            activity_list(&c, json!({"before":"","limit":0}))
-                .await
-                .unwrap_err()
-                .message,
-            "before: Too small: expected string to have >=1 characters; limit: Too small: expected number to be >=1"
-        );
-    }
-
-    #[tokio::test]
-    async fn task_log_reads_byte_offsets_caps_and_reports_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = ctx(&dir);
-        let id = "t-20261101-184223-ea3b";
-        let run = dir.path().join("runs/test");
-        fs::create_dir_all(&run).unwrap();
-        fs::write(run.join("stdout"), vec![b'x'; 256 * 1024 + 3]).unwrap();
-        fs::write(run.join("stderr"), "error").unwrap();
-        let mut store = TaskStore::open(dir.path()).unwrap();
-        store.insert(&json!({"id":id,"rev":1,"state":"running","createdAt":1000,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}}), 1000.0).unwrap();
-        let first = task_log(&c, json!({"id":id})).await.unwrap();
-        assert_eq!(first["stdout"].as_str().unwrap().len(), 256 * 1024);
-        assert_eq!(first["next"]["stdout"], 256 * 1024);
-        assert_eq!(first["stderr"], "error");
-        assert_eq!(first["done"], false);
-        let second = task_log(&c, json!({"id":id,"stdout":256 * 1024,"stderr":5}))
-            .await
-            .unwrap();
-        assert_eq!(second["stdout"], "xxx");
-        assert_eq!(second["source"], first["source"]);
-        fs::write(run.join("exit"), "0\n").unwrap();
-        assert_eq!(task_log(&c, json!({"id":id})).await.unwrap()["done"], true);
-        assert_eq!(
-            task_log(&c, json!({"id":"missing"}))
-                .await
-                .unwrap_err()
-                .code,
-            Code::UnknownTask
-        );
-        assert_eq!(
-            task_log(&c, json!({"id":id,"stdout":-1}))
-                .await
-                .unwrap_err()
-                .code,
-            Code::InvalidInput
-        );
-        assert_eq!(
-            task_log(&c, json!({"id":"","stdout":-1}))
-                .await
-                .unwrap_err()
-                .message,
-            "id: Too small: expected string to have >=1 characters; stdout: Too small: expected number to be >=0"
-        );
-    }
-}
+mod tests;

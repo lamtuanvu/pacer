@@ -1262,6 +1262,8 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "pacer-foundation",
+ "rand",
+ "regex",
  "rusqlite",
  "serde_json",
  "tempfile",

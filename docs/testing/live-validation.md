@@ -524,6 +524,22 @@ report `not_delivered` only before a platform mutation is attempted; later error
 report `unknown` and must not be retried implicitly. This classification does not
 prove that the intended effect completed.
 
+## Fixed TypeScript publication fixture
+
+For the three TypeScript publication boundaries, start a UI-seeded sandbox and run
+`bun run live publication --id <seeded-id>`. The fixed command creates a fresh
+`publication-fixture/` under the owned sandbox home after the same canonical
+ownership and health checks as the settings fixture. It publishes an alert with
+astral text across the title and body cutoffs, reads the persisted outbox and
+latest snapshot plus API snapshot and event, reads a valid strategy whose first
+comment crosses the description cutoff, and invokes the real `account.test`
+handler with a fixed failing endpoint transport. It checks returned and
+persisted error detail. No agent command, credential or external endpoint is
+used. Stale temp files are planted before a 1002-event publication to force
+outbox rotation and verify that both stale files survive. The fixture accepts
+no values, paths or command overrides and leaves
+ordinary D8 refusals in place. Run `live report`, then `live down --keep`.
+
 ## Fixed settings save fixture
 
 `bun run live settings --id <seeded-id>` exercises the real `config.set` handler
