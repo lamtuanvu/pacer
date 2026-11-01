@@ -72,7 +72,7 @@ pub struct CallResources {
 pub struct HttpResource {
     pub hosts: Vec<String>,
     #[serde(default)]
-    pub origins: Vec<String>,
+    pub origins: Option<Vec<String>>,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,18 +228,87 @@ impl CallAuthority {
             .map(String::as_str)
             .ok_or_else(|| AuthorityError::Denied("secret alias was not issued".into()))
     }
-    pub fn http_host(&self, host: &str) -> Result<(), AuthorityError> {
+    pub fn http_destination(
+        &self,
+        url: &url::Url,
+        scopes: &[String],
+        explicit_wildcard_grant: bool,
+    ) -> Result<(), AuthorityError> {
         self.granted("net.http")?;
-        if self
+        let host = url
+            .host_str()
+            .ok_or_else(|| AuthorityError::Invalid("HTTP host".into()))?;
+        let http = self
             .resources
             .http
             .as_ref()
-            .is_some_and(|http| http.hosts.iter().any(|h| h == host))
+            .ok_or_else(|| AuthorityError::Denied("HTTP host was not issued".into()))?;
+        let matches = |scope: &str| -> Result<bool, AuthorityError> {
+            if scope == "*" {
+                return Ok(explicit_wildcard_grant);
+            }
+            let suffix = scope.strip_prefix("*.");
+            let raw = suffix.unwrap_or(scope);
+            let parsed = url::Url::parse(&format!("http://{raw}"))
+                .map_err(|_| AuthorityError::Denied("invalid captured HTTP host scope".into()))?;
+            if raw.is_empty()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.port().is_some()
+                || parsed.path() != "/"
+                || parsed.query().is_some()
+                || parsed.fragment().is_some()
+            {
+                return Err(AuthorityError::Denied(
+                    "invalid captured HTTP host scope".into(),
+                ));
+            }
+            let normalized = parsed
+                .host_str()
+                .ok_or_else(|| AuthorityError::Denied("invalid captured HTTP host scope".into()))?;
+            Ok(if suffix.is_some() {
+                host.ends_with(&format!(".{normalized}"))
+            } else {
+                host == normalized
+            })
+        };
+        if !scopes
+            .iter()
+            .map(|s| matches(s))
+            .collect::<Result<Vec<_>, _>>()?
+            .contains(&true)
+            || !http
+                .hosts
+                .iter()
+                .map(|s| matches(s))
+                .collect::<Result<Vec<_>, _>>()?
+                .contains(&true)
         {
-            Ok(())
-        } else {
-            Err(AuthorityError::Denied("HTTP host was not issued".into()))
+            return Err(AuthorityError::Denied(
+                "HTTP destination is outside the owning call scopes".into(),
+            ));
         }
+        if let Some(origins) = &http.origins {
+            let origin = url.origin().ascii_serialization();
+            for issued in origins {
+                let parsed = url::Url::parse(issued)
+                    .map_err(|_| AuthorityError::Denied("invalid captured HTTP origin".into()))?;
+                if !["http", "https"].contains(&parsed.scheme())
+                    || parsed.origin().ascii_serialization() != *issued
+                {
+                    return Err(AuthorityError::Denied(
+                        "invalid captured HTTP origin".into(),
+                    ));
+                }
+            }
+            if !origins.iter().any(|issued| issued == &origin) {
+                return Err(AuthorityError::Denied("HTTP origin was not issued".into()));
+            }
+        }
+        Ok(())
+    }
+    pub fn http_origins(&self) -> Option<&[String]> {
+        self.resources.http.as_ref()?.origins.as_deref()
     }
 }
 
@@ -295,7 +364,13 @@ impl ScopeRoots {
             valid_path(&value)?;
             let pattern = glob::Pattern::new(&value)
                 .map_err(|_| AuthorityError::Denied("invalid declared scope".into()))?;
-            if pattern.matches(path) {
+            if pattern.matches_with(
+                path,
+                glob::MatchOptions {
+                    require_literal_separator: true,
+                    ..Default::default()
+                },
+            ) {
                 return Ok(true);
             }
         }
@@ -339,6 +414,20 @@ mod tests {
             roots
                 .declares_path(&["/fixture/home/../else".into()], "/fixture/else")
                 .is_err()
+        );
+    }
+    #[test]
+    fn single_star_does_not_admit_nested_path() {
+        let roots = ScopeRoots::default();
+        assert!(
+            !roots
+                .declares_path(&["/tmp/allowed/*".into()], "/tmp/allowed/sub/secret")
+                .unwrap()
+        );
+        assert!(
+            roots
+                .declares_path(&["/tmp/allowed/*".into()], "/tmp/allowed/file")
+                .unwrap()
         );
     }
 }

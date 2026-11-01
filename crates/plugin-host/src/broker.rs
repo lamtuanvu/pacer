@@ -50,6 +50,7 @@ pub struct CapabilityBroker {
     hosts: Option<HostLeaseBroker>,
     scope_roots: ScopeRoots,
     native_read: Option<NativeRead>,
+    explicit_http_wildcard_grant: bool,
 }
 
 impl CapabilityBroker {
@@ -63,6 +64,7 @@ impl CapabilityBroker {
             hosts: None,
             scope_roots: ScopeRoots::default(),
             native_read: None,
+            explicit_http_wildcard_grant: false,
         }
     }
     pub fn revoke(&mut self) {
@@ -82,6 +84,11 @@ impl CapabilityBroker {
     }
     pub fn with_scope_roots(mut self, roots: ScopeRoots) -> Self {
         self.scope_roots = roots;
+        self
+    }
+    /// Set only from the host's explicit unbundled net.http grant at issuance.
+    pub fn with_explicit_http_wildcard_grant(mut self, granted: bool) -> Self {
+        self.explicit_http_wildcard_grant = granted;
         self
     }
     /// Capture exact regular-file descriptors before the plugin starts its call.
@@ -257,20 +264,87 @@ impl CapabilityBroker {
                 {
                     return Err(BrokerError::Invalid("HTTP URL"));
                 }
-                let host = url.host_str().ok_or(BrokerError::Invalid("host"))?;
-                self.authority.http_host(host)?;
-                if !scopes.iter().any(|s| s == host) {
-                    return Err(AuthorityError::Denied("undeclared HTTP host".into()).into());
+                let method = field("method")?;
+                if !["GET", "POST", "PUT", "DELETE"].contains(&method) {
+                    return Err(BrokerError::Invalid("HTTP method"));
                 }
-                if let Some(secret) = p
-                    .get("authorization")
-                    .and_then(|v| v.get("secretRef"))
-                    .and_then(Value::as_str)
-                {
+                p.get("timeoutMs")
+                    .and_then(Value::as_u64)
+                    .filter(|ms| (1..=120_000).contains(ms))
+                    .ok_or(BrokerError::Invalid("HTTP timeoutMs"))?;
+                if p.keys().any(|key| {
+                    ![
+                        "url",
+                        "method",
+                        "headers",
+                        "body",
+                        "timeoutMs",
+                        "authorization",
+                    ]
+                    .contains(&key.as_str())
+                }) {
+                    return Err(BrokerError::Invalid("HTTP request field"));
+                }
+                if p.get("headers").is_some_and(|headers| {
+                    headers.as_object().is_none_or(|entries| {
+                        entries.iter().any(|(name, value)| {
+                            !valid_http_header_name(name)
+                                || value.as_str().is_none_or(|v| !valid_http_header_value(v))
+                        })
+                    })
+                }) {
+                    return Err(BrokerError::Invalid("HTTP headers"));
+                }
+                self.authority.http_destination(
+                    &url,
+                    &scopes,
+                    self.explicit_http_wildcard_grant,
+                )?;
+                if let Some(auth) = p.get("authorization") {
+                    let fields = auth
+                        .as_object()
+                        .ok_or(BrokerError::Invalid("HTTP authorization"))?;
+                    if fields
+                        .keys()
+                        .any(|key| !["secretRef", "scheme"].contains(&key.as_str()))
+                        || fields
+                            .get("scheme")
+                            .is_some_and(|scheme| !scheme.is_string())
+                    {
+                        return Err(BrokerError::Invalid("HTTP authorization"));
+                    }
+                    let secret = fields
+                        .get("secretRef")
+                        .and_then(Value::as_str)
+                        .ok_or(BrokerError::Invalid("HTTP secret reference"))?;
+                    if !valid_http_secret_ref(secret) {
+                        return Err(BrokerError::Invalid("HTTP secret reference"));
+                    }
+                    if fields
+                        .get("scheme")
+                        .and_then(Value::as_str)
+                        .is_some_and(|scheme| {
+                            !valid_http_header_value(&format!("{scheme} placeholder"))
+                        })
+                    {
+                        return Err(BrokerError::Invalid("HTTP authorization scheme"));
+                    }
+                    if self.authority.http_origins().is_none() {
+                        return Err(AuthorityError::Denied(
+                            "credentials require issued HTTP origins".into(),
+                        )
+                        .into());
+                    }
                     self.authority.secret_alias(secret)?;
                 }
                 if let Some(body) = p.get("body") {
                     if let Some(handle) = body.get("handle").and_then(Value::as_str) {
+                        if body.as_object().is_none_or(|obj| obj.len() != 1)
+                            || handle.is_empty()
+                            || handle.len() > 256
+                        {
+                            return Err(BrokerError::Invalid("HTTP upload handle"));
+                        }
                         self.feature("httpBodyChunks")?;
                         let bytes = self
                             .transfers
@@ -473,11 +547,22 @@ impl CapabilityBroker {
             self.authority.active()?;
             return Ok(result);
         }
-        let deadline = self.method_deadline(method);
+        let method_deadline = self.method_deadline(method);
+        let requested_deadline = if method == "capability.net.http" {
+            p.get("timeoutMs")
+                .and_then(Value::as_u64)
+                .map(|ms| Instant::now() + Duration::from_millis(ms))
+        } else {
+            None
+        };
+        let deadline =
+            requested_deadline.map_or(method_deadline, |requested| requested.min(method_deadline));
         let mut result = match timeout_at(deadline.into(), effect.call(method, forwarded)).await {
             Ok(value) => value?,
             Err(_) => {
-                self.revoke();
+                if requested_deadline.is_none_or(|requested| requested >= method_deadline) {
+                    self.revoke();
+                }
                 return Err(BrokerError::Timeout);
             }
         };
@@ -537,6 +622,64 @@ impl CapabilityBroker {
     }
 }
 
+fn valid_http_secret_ref(value: &str) -> bool {
+    let (kind, name) = if let Some(name) = value.strip_prefix("endpoint/") {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .next()
+                .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            || !name
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        {
+            return false;
+        }
+        return true;
+    } else if let Some((kind, name)) = value.split_once(':') {
+        (kind, name)
+    } else {
+        return false;
+    };
+    ["env", "secrets", "endpoint"].contains(&kind)
+        && !name.is_empty()
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_')
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
+}
+
+fn valid_http_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+}
+
+fn valid_http_header_value(value: &str) -> bool {
+    !value.bytes().any(|c| c == 0 || c == b'\r' || c == b'\n')
+}
+
 fn capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.fs.read"
@@ -583,6 +726,164 @@ mod tests {
     use super::*;
     use crate::{CallResources, CommandResource, ReadResource, parse_manifest};
     use std::time::{Duration, Instant};
+
+    fn http_broker(scopes: &[&str], hosts: &[&str], origins: &[&str]) -> CapabilityBroker {
+        let manifest = parse_manifest(
+            json!({"id":"fx-http","version":"1.0.0","publisher":"fixture","host":">=1.2.0",
+            "capabilities":[{"name":"net.http","scopes":scopes}]}),
+        )
+        .unwrap();
+        let http = if origins.is_empty() {
+            json!({"hosts":hosts})
+        } else {
+            json!({"hosts":hosts,"origins":origins})
+        };
+        let resources: CallResources = serde_json::from_value(json!({"http":http})).unwrap();
+        let authority = CallAuthority::new(
+            resources,
+            ["net.http".into()],
+            Instant::now() + Duration::from_secs(2),
+        );
+        CapabilityBroker::new(manifest, authority, vec![])
+    }
+
+    #[tokio::test]
+    async fn http_requires_issued_origin_and_exact_host_admission() {
+        let mut b = http_broker(
+            &["example.test"],
+            &["example.test"],
+            &["https://example.test"],
+        );
+        let mut e = Echo { calls: 0 };
+        for url in [
+            "http://example.test/",
+            "https://example.test:444/",
+            "https://example.test@other.test/",
+            "https://example.test.evil/",
+            "https://example.test/redirect",
+        ] {
+            let denied = !url.contains("redirect");
+            let result = b
+                .handle(
+                    "capability.net.http",
+                    json!({"url":url,"method":"GET","timeoutMs":1000}),
+                    &mut e,
+                )
+                .await;
+            if denied {
+                assert!(result.is_err(), "{url}");
+            } else {
+                assert!(result.is_ok(), "{url}");
+            }
+        }
+        assert!(b.handle("capability.net.http", json!({"url":"https://other.test/","method":"GET","timeoutMs":1000,"headers":{"Host":"example.test"}}), &mut e).await.is_err());
+        assert!(
+            b.handle(
+                "capability.net.http",
+                json!({"url":"https://example.test:443/","method":"GET","timeoutMs":1000}),
+                &mut e
+            )
+            .await
+            .is_ok()
+        );
+        assert_eq!(e.calls, 2);
+    }
+
+    #[tokio::test]
+    async fn http_request_bounds_precede_effect_and_limit_its_deadline() {
+        let mut b = http_broker(
+            &["example.test"],
+            &["example.test"],
+            &["https://example.test"],
+        );
+        let mut e = Echo { calls: 0 };
+        for params in [
+            json!({"url":"https://example.test/","method":"TRACE","timeoutMs":1000}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":0}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":120001}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":1.5}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":1000,"extra":true}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":1000,"authorization":{"secretRef":"bad ref"}}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":1000,"headers":{"bad header":"value"}}),
+            json!({"url":"https://example.test/","method":"GET","timeoutMs":1000,"headers":{"X-Test":"ok\r\nHost: evil.test"}}),
+        ] {
+            assert!(
+                b.handle("capability.net.http", params, &mut e)
+                    .await
+                    .is_err()
+            );
+        }
+        assert_eq!(e.calls, 0);
+        struct Slow;
+        impl CapabilityEffect for Slow {
+            async fn call(&mut self, _method: &str, _params: Value) -> Result<Value, BrokerError> {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                Ok(json!({"ok":true}))
+            }
+        }
+        assert!(matches!(
+            b.handle(
+                "capability.net.http",
+                json!({"url":"https://example.test/","method":"GET","timeoutMs":1}),
+                &mut Slow
+            )
+            .await,
+            Err(BrokerError::Timeout)
+        ));
+        assert!(b.authority().active().is_ok());
+    }
+
+    #[tokio::test]
+    async fn http_wildcards_follow_ts_subdomain_and_explicit_grant_rules() {
+        let mut b = http_broker(&["*.example.test"], &["*.example.test"], &[]);
+        let mut e = Echo { calls: 0 };
+        for url in [
+            "https://example.test/",
+            "https://badexample.test/",
+            "https://a.example.test.evil/",
+        ] {
+            assert!(
+                b.handle(
+                    "capability.net.http",
+                    json!({"url":url,"method":"GET","timeoutMs":1000}),
+                    &mut e
+                )
+                .await
+                .is_err()
+            );
+        }
+        let result = b
+            .handle(
+                "capability.net.http",
+                json!({"url":"https://a.example.test/","method":"GET","timeoutMs":1000}),
+                &mut e,
+            )
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(e.calls, 1);
+        let mut wildcard = http_broker(&["*"], &["*"], &[]);
+        assert!(
+            wildcard
+                .handle(
+                    "capability.net.http",
+                    json!({"url":"https://other.test/","method":"GET","timeoutMs":1000}),
+                    &mut e
+                )
+                .await
+                .is_err()
+        );
+        let mut wildcard = http_broker(&["*"], &["*"], &[]).with_explicit_http_wildcard_grant(true);
+        assert!(
+            wildcard
+                .handle(
+                    "capability.net.http",
+                    json!({"url":"https://other.test/","method":"GET","timeoutMs":1000}),
+                    &mut e
+                )
+                .await
+                .is_ok()
+        );
+    }
 
     struct Echo {
         calls: usize,

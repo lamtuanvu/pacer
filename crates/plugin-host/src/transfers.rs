@@ -29,6 +29,7 @@ struct Payload {
     kind: TransferKind,
     bytes: Vec<u8>,
     offset: usize,
+    read_offset: usize,
 }
 impl Drop for Payload {
     fn drop(&mut self) {
@@ -67,6 +68,7 @@ impl Transfers {
             kind,
             bytes: vec![0; bytes],
             offset: 0,
+            read_offset: 0,
         });
         Ok(handle)
     }
@@ -101,7 +103,7 @@ impl Transfers {
         Ok(payload.offset)
     }
     pub fn read(
-        &self,
+        &mut self,
         kind: TransferKind,
         handle: &str,
         offset: usize,
@@ -109,14 +111,16 @@ impl Transfers {
     ) -> Result<String, TransferError> {
         let payload = self
             .pending
-            .iter()
+            .iter_mut()
             .find(|p| p.kind == kind && p.handle == handle)
             .ok_or(TransferError::Denied)?;
-        if length > MAX_CHUNK || offset > payload.offset {
+        if length > MAX_CHUNK || offset != payload.read_offset || offset > payload.offset {
             return Err(TransferError::Invalid);
         }
-        Ok(STANDARD
-            .encode(&payload.bytes[offset..payload.offset.min(offset.saturating_add(length))]))
+        let end = payload.offset.min(offset.saturating_add(length));
+        let encoded = STANDARD.encode(&payload.bytes[offset..end]);
+        payload.read_offset = end;
+        Ok(encoded)
     }
     pub fn consume(&mut self, kind: TransferKind, handle: &str) -> Result<Vec<u8>, TransferError> {
         let index = self
@@ -173,6 +177,36 @@ mod tests {
         assert_eq!(
             a.append(TransferKind::FileWrite, &h, 3, "YQ=="),
             Err(TransferError::Denied)
+        );
+    }
+    #[test]
+    fn response_reads_are_owner_local_and_sequential() {
+        let mut owner = Transfers::default();
+        let mut foreign = Transfers::default();
+        let handle = owner.publish(TransferKind::HttpResponse, b"abcd").unwrap();
+        assert_eq!(
+            foreign.read(TransferKind::HttpResponse, &handle, 0, 2),
+            Err(TransferError::Denied)
+        );
+        assert_eq!(
+            owner.read(TransferKind::HttpResponse, &handle, 2, 2),
+            Err(TransferError::Invalid)
+        );
+        assert_eq!(
+            owner
+                .read(TransferKind::HttpResponse, &handle, 0, 2)
+                .unwrap(),
+            "YWI="
+        );
+        assert_eq!(
+            owner.read(TransferKind::HttpResponse, &handle, 0, 2),
+            Err(TransferError::Invalid)
+        );
+        assert_eq!(
+            owner
+                .read(TransferKind::HttpResponse, &handle, 2, 2)
+                .unwrap(),
+            "Y2Q="
         );
     }
 }
