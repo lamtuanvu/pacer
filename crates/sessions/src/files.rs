@@ -14,7 +14,11 @@ pub struct SessionLaunch {
     pub interactive: Option<bool>,
     pub argv: Vec<String>,
     pub cwd: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        deserialize_with = "crate::json_number::optional_u64_safe"
+    )]
     pub cap_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pacer_home: Option<String>,
@@ -26,9 +30,12 @@ pub struct SessionLaunch {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionState {
+    #[serde(deserialize_with = "crate::json_number::u64_safe")]
     pub viewers: u64,
     pub controller: Option<String>,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub cols: u32,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub rows: u32,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -37,9 +44,13 @@ pub struct SessionState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Checkpoint {
+    #[serde(deserialize_with = "crate::json_number::u64_safe")]
     pub generation: u64,
+    #[serde(deserialize_with = "crate::json_number::u64_safe")]
     pub output_offset: u64,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub cols: u32,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub rows: u32,
     pub scrollback_ansi: String,
     pub screen_ansi: String,

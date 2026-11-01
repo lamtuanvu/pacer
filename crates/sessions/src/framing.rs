@@ -19,11 +19,18 @@ pub enum FrameError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogHeader {
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub cols: u32,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub rows: u32,
     pub started_at: f64,
+    #[serde(deserialize_with = "crate::json_number::u32_value")]
     pub generation: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        deserialize_with = "crate::json_number::optional_u64_safe"
+    )]
     pub output_offset: Option<u64>,
 }
 

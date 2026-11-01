@@ -487,3 +487,150 @@ fn checkpoint_slicing_and_missing_log_fallback() {
         Some(checkpoint)
     );
 }
+
+#[test]
+fn integral_decimal_offsets_keep_recording_suffix() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = br#"{"cols":120,"rows":40,"startedAt":1,"generation":0.0,"outputOffset":1.0}"#;
+    let mut log = b"PACERTTY".to_vec();
+    log.push(1);
+    log.extend((header.len() as u32).to_be_bytes());
+    log.extend(header);
+    log.extend(framing::encode_record(1, 0.0, b"abc"));
+    fs::write(dir.path().join("session.log"), log).unwrap();
+    assert_eq!(
+        recording::since(dir.path(), 1, 4),
+        Some(vec![b"abc".to_vec()])
+    );
+    let read = recording::read_recording(dir.path(), Some(1)).unwrap();
+    assert_eq!(read.checkpoint, None);
+    assert_eq!(read.frames[0].data, b"abc");
+}
+
+#[test]
+fn typescript_version_grammar_accepts_numeric_prerelease_zeroes() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("session.version"),
+        br#"{"pacer":"0.12.1-01","versions":[1,1]}"#,
+    )
+    .unwrap();
+    let host = version::read_session_version(dir.path()).unwrap();
+    assert_eq!(host.pacer, "0.12.1-01");
+    assert!(version::host_older(Some(&host), "0.12.1"));
+}
+
+#[test]
+fn seeded_json_number_and_version_corpus_matches_typescript() {
+    let c = corpus();
+    let dir = tempfile::tempdir().unwrap();
+    for row in c["versions"].as_array().unwrap() {
+        fs::write(
+            dir.path().join("session.version"),
+            row["json"].as_str().unwrap(),
+        )
+        .unwrap();
+        let parsed = version::read_session_version(dir.path());
+        assert_eq!(
+            parsed.is_some(),
+            row["accepted"].as_bool().unwrap(),
+            "{}",
+            row["name"]
+        );
+        assert_eq!(
+            version::host_older(parsed.as_ref(), "0.12.1"),
+            row["older"].as_bool().unwrap(),
+            "{}",
+            row["name"]
+        );
+    }
+    for row in c["recordingNumbers"].as_array().unwrap() {
+        let header = row["header"].as_str().unwrap().as_bytes();
+        let mut log = b"PACERTTY".to_vec();
+        log.push(1);
+        log.extend((header.len() as u32).to_be_bytes());
+        log.extend(header);
+        log.extend(framing::encode_record(1, 0.0, b"abc"));
+        fs::write(dir.path().join("session.log"), log).unwrap();
+        if let Some(checkpoint) = row["checkpoint"].as_str() {
+            fs::write(dir.path().join("session.ckpt"), checkpoint).unwrap();
+        } else {
+            let _ = fs::remove_file(dir.path().join("session.ckpt"));
+        }
+        let from = row["from"].as_u64().unwrap();
+        let end = row["end"].as_u64().unwrap();
+        let suffix = recording::since(dir.path(), from, end)
+            .unwrap()
+            .iter()
+            .map(|b| hex(b))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            suffix,
+            row["suffix"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            "{}",
+            row["name"]
+        );
+        let read = recording::read_recording(dir.path(), None).unwrap();
+        assert_eq!(
+            read.frames.iter().map(|f| hex(&f.data)).collect::<Vec<_>>(),
+            row["readFrames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            "{}",
+            row["name"]
+        );
+    }
+}
+
+#[test]
+fn integral_decimal_persisted_shape_numbers_deserialize() {
+    let header: framing::LogHeader = serde_json::from_str(
+        r#"{"cols":120.0,"rows":40.0,"startedAt":1,"generation":0.0,"outputOffset":1.0}"#,
+    )
+    .unwrap();
+    assert_eq!(header.output_offset, Some(1));
+    let launch: files::SessionLaunch =
+        serde_json::from_str(r#"{"argv":[],"cwd":".","capBytes":12.0}"#).unwrap();
+    assert_eq!(launch.cap_bytes, Some(12));
+    let state: files::SessionState =
+        serde_json::from_str(r#"{"viewers":1.0,"controller":null,"cols":120.0,"rows":40.0}"#)
+            .unwrap();
+    assert_eq!(state.viewers, 1);
+    let checkpoint: files::Checkpoint = serde_json::from_str(r#"{"generation":0.0,"outputOffset":2.0,"cols":120.0,"rows":40.0,"scrollbackAnsi":"","screenAnsi":"","modes":{}}"#).unwrap();
+    assert_eq!(checkpoint.output_offset, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn typescript_writer_modes_are_owner_only_under_both_umasks() {
+    use std::process::Command;
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for mask in ["022", "077"] {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Command::new("bun")
+            .arg("test/fixtures/sessions/write-modes.ts")
+            .current_dir(&repo)
+            .env("PACER_TEST_DIR", dir.path())
+            .env("PACER_TEST_UMASK", mask)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let modes: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(modes["dir"], 0o700, "umask {mask}");
+        for name in ["version", "log", "checkpoint", "stdout"] {
+            assert_eq!(modes[name], 0o600, "umask {mask}, {name}");
+        }
+    }
+}

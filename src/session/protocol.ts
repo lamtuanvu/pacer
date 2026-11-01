@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { compareVersions, currentVersion, isVersion } from "../update/version";
@@ -36,6 +36,7 @@ export function clientHello(): { versions: [number, number]; pacer: string } {
 }
 
 export function writeSessionVersion(dir: string, own: ProcessIdentity | null): void {
+  chmodSync(dir, 0o700);
   const value: SessionVersion = { pacer: currentVersion(), versions: [SESSION_PROTOCOL[0], SESSION_PROTOCOL[1]], ...(own ? { identity: own } : {}) };
   const temp = join(dir, `.${SESSION_VERSION_FILE}.${randomUUID()}.tmp`);
   try {

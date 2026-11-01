@@ -41,7 +41,7 @@ pub fn read_session_version(dir: &Path) -> Option<SessionVersion> {
     let bytes = std::fs::read(dir.join("session.version")).ok()?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let pacer = value["pacer"].as_str()?;
-    if pacer.is_empty() || pacer.len() > 64 || !is_version(pacer) {
+    if pacer.is_empty() || pacer.encode_utf16().count() > 64 || parse_version(pacer).is_none() {
         return None;
     }
     let versions = parse_versions(&value["versions"])?;
@@ -62,7 +62,9 @@ pub fn read_session_version(dir: &Path) -> Option<SessionVersion> {
 
 fn positive_safe_integer(value: &serde_json::Value) -> Option<u64> {
     let number = value.as_f64()?;
-    ((1.0..=9_007_199_254_740_991.0).contains(&number) && number.fract() == 0.0)
+    (number.is_finite()
+        && (1.0..=9_007_199_254_740_991.0).contains(&number)
+        && number.fract() == 0.0)
         .then_some(number as u64)
 }
 
@@ -77,7 +79,7 @@ pub fn host_supported(host: Option<&SessionVersion>, current: &str, service: [u6
         return true;
     };
     if a.0 == b.0 {
-        b.1 - a.1 <= SESSION_SUPPORT_MINORS
+        b.1 - a.1 <= SESSION_SUPPORT_MINORS as f64
     } else {
         a.0 > b.0
     }
@@ -87,20 +89,96 @@ pub fn host_older(host: Option<&SessionVersion>, current: &str) -> bool {
     let Some(host) = host else {
         return true;
     };
-    match (
-        semver::Version::parse(&host.pacer),
-        semver::Version::parse(current),
-    ) {
-        (Ok(a), Ok(b)) => a < b,
+    match (parse_version(&host.pacer), parse_version(current)) {
+        (Some(a), Some(b)) => compare_versions(&a, &b).is_lt(),
         _ => true,
     }
 }
 
-fn major_minor(v: &str) -> Option<(i64, i64)> {
+fn major_minor(v: &str) -> Option<(f64, f64)> {
     let mut parts = v.split('.');
     Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
-fn is_version(v: &str) -> bool {
-    semver::Version::parse(v).is_ok()
+struct ParsedVersion<'a> {
+    core: [f64; 3],
+    pre: Option<&'a str>,
+}
+
+// Mirrors src/update/version.ts: its prerelease grammar permits numeric leading zeroes.
+fn parse_version(v: &str) -> Option<ParsedVersion<'_>> {
+    let (before_build, build) = v.split_once('+').map_or((v, None), |(a, b)| (a, Some(b)));
+    if build.is_some_and(|b| !identifiers(b)) {
+        return None;
+    }
+    let (core, pre) = before_build
+        .split_once('-')
+        .map_or((before_build, None), |(a, b)| (a, Some(b)));
+    if pre.is_some_and(|p| !identifiers(p)) {
+        return None;
+    }
+    let parts: Vec<&str> = core.split('.').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|p| !digits(p) || (p.len() > 1 && p.starts_with('0')))
+    {
+        return None;
+    }
+    Some(ParsedVersion {
+        core: [
+            parts[0].parse().ok()?,
+            parts[1].parse().ok()?,
+            parts[2].parse().ok()?,
+        ],
+        pre,
+    })
+}
+
+fn digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn identifiers(s: &str) -> bool {
+    s.split('.').all(|part| {
+        !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
+fn compare_versions(a: &ParsedVersion<'_>, b: &ParsedVersion<'_>) -> std::cmp::Ordering {
+    for (x, y) in a.core.iter().zip(b.core.iter()) {
+        if let Some(order) = x.partial_cmp(y).filter(|order| !order.is_eq()) {
+            return order;
+        }
+    }
+    match (a.pre, b.pre) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(x), Some(y)) => {
+            let mut xa = x.split('.');
+            let mut ya = y.split('.');
+            loop {
+                match (xa.next(), ya.next()) {
+                    (None, None) => return std::cmp::Ordering::Equal,
+                    (None, Some(_)) => return std::cmp::Ordering::Less,
+                    (Some(_), None) => return std::cmp::Ordering::Greater,
+                    (Some(x), Some(y)) if x == y => {}
+                    (Some(x), Some(y)) => {
+                        let order = match (digits(x), digits(y)) {
+                            (true, true) => x.parse::<f64>().ok().and_then(|a| {
+                                y.parse::<f64>().ok().and_then(|b| a.partial_cmp(&b))
+                            }),
+                            (true, false) => Some(std::cmp::Ordering::Less),
+                            (false, true) => Some(std::cmp::Ordering::Greater),
+                            (false, false) => Some(x.cmp(y)),
+                        };
+                        if let Some(order) = order.filter(|order| !order.is_eq()) {
+                            return order;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

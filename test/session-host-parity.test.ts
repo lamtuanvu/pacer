@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { readFileSync, mkdtempSync, readdirSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, mkdtempSync, readdirSync, rmSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeLog, encodeHeader, encodeRecord, wire, WireDecoder } from "../src/session/framing";
 import { SecretMasker } from "../src/session/masking";
 import { Recording, readRecording } from "../src/session/recording";
 import { Screen } from "../src/session/screen";
+import { hostOlder, readSessionVersion, writeSessionVersion } from "../src/session/protocol";
 
 const golden = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/sessions/host-parity.json"), "utf8"));
 const corpus = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/sessions/host-corpus.json"), "utf8"));
@@ -106,5 +107,50 @@ test("seeded TS malformed-log and streaming-mask corpus stays fixed", () => {
   for(const row of corpus.masking) {
     const mask=new SecretMasker(row.secrets);
     expect([...row.chunks.map((c:string)=>mask.push(Buffer.from(c)).toString("hex")),mask.flush().toString("hex")]).toEqual(row.out);
+  }
+});
+
+test("seeded TS JSON numbers and version strings retain reader semantics", () => {
+  const dir=mkdtempSync(join(tmpdir(),"pacer-session-json-parity-"));
+  try {
+    for(const row of corpus.versions) {
+      writeFileSync(join(dir,"session.version"),row.json);
+      const parsed=readSessionVersion(dir);
+      expect(!!parsed).toBe(row.accepted);
+      expect(hostOlder(parsed,"0.12.1")).toBe(row.older);
+    }
+    for(const row of corpus.recordingNumbers) {
+      const header=Buffer.from(row.header);
+      const prefix=Buffer.alloc(13);
+      prefix.write("PACERTTY");prefix[8]=1;prefix.writeUInt32BE(header.length,9);
+      writeFileSync(join(dir,"session.log"),Buffer.concat([prefix,header,encodeRecord(1,0,Buffer.from("abc"))]));
+      if(row.checkpoint) writeFileSync(join(dir,"session.ckpt"),row.checkpoint);
+      else rmSync(join(dir,"session.ckpt"),{force:true});
+      expect(readRecording(dir,row.from).frames.map(f=>f.data.toString("hex"))).toEqual(row.suffix);
+      expect(readRecording(dir).frames.map(f=>f.data.toString("hex"))).toEqual(row.readFrames);
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("session writers atomically replace owner-only state under common umasks", async () => {
+  for(const mask of [0o022,0o077]) {
+    const dir=mkdtempSync(join(tmpdir(),"pacer-session-modes-"));
+    const prior=process.umask(mask);
+    try {
+      chmodSync(dir,0o777);
+      writeFileSync(join(dir,"session.version"),"old");chmodSync(join(dir,"session.version"),0o666);
+      writeSessionVersion(dir,null);
+      expect(statSync(dir).mode&0o777).toBe(0o700);
+      expect(statSync(join(dir,"session.version")).mode&0o777).toBe(0o600);
+      const recording=new Recording(dir);
+      chmodSync(dir,0o777);
+      chmodSync(join(dir,"session.log"),0o666);
+      chmodSync(join(dir,"session.ckpt"),0o666);
+      writeFileSync(join(dir,"stdout"),"");chmodSync(join(dir,"stdout"),0o666);
+      await recording.output(Buffer.from("abc\n"));recording.checkpoint();await recording.close();
+      expect(statSync(dir).mode&0o777).toBe(0o700);
+      for(const name of ["session.log","session.ckpt","stdout"]) expect(statSync(join(dir,name)).mode&0o777).toBe(0o600);
+      expect(readdirSync(dir).filter(name=>name.endsWith(".tmp"))).toEqual([]);
+    } finally {process.umask(prior);rmSync(dir,{recursive:true,force:true});}
   }
 });

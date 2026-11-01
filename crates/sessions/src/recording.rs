@@ -35,7 +35,7 @@ pub fn since(dir: &Path, from: u64, output_offset: u64) -> Option<Vec<Vec<u8>>> 
             continue;
         }
         let log = decode_log(&std::fs::read(path).ok()?).ok()?;
-        let mut offset = log.header["outputOffset"].as_u64().unwrap_or(0);
+        let mut offset = safe_integer(&log.header["outputOffset"]).unwrap_or(0);
         for frame in log.frames.into_iter().filter(|f| f.kind == 1) {
             let end = offset.checked_add(frame.data.len() as u64)?;
             if end > next {
@@ -68,7 +68,9 @@ pub fn read_recording(dir: &Path, from: Option<u64>) -> Result<RecordingRead, Re
             decode_log(&std::fs::read(dir.join("session.log.1"))?)?
         }
         Err(_) if checkpoint.is_some() => {
-            let offset = checkpoint.as_ref().and_then(|c| c["outputOffset"].as_u64());
+            let offset = checkpoint
+                .as_ref()
+                .and_then(|c| safe_integer(&c["outputOffset"]));
             return Ok(RecordingRead {
                 checkpoint: if from == offset { None } else { checkpoint },
                 frames: Vec::new(),
@@ -78,14 +80,14 @@ pub fn read_recording(dir: &Path, from: Option<u64>) -> Result<RecordingRead, Re
     };
     let checkpoint_offset = checkpoint
         .as_ref()
-        .and_then(|c| c["outputOffset"].as_u64())
+        .and_then(|c| safe_integer(&c["outputOffset"]))
         .unwrap_or(0);
     let generation = checkpoint
         .as_ref()
-        .and_then(|c| c["generation"].as_u64())
+        .and_then(|c| safe_integer(&c["generation"]))
         .unwrap_or(0);
-    let header_offset = current.header["outputOffset"].as_u64();
-    let header_generation = current.header["generation"].as_u64().unwrap_or(0);
+    let header_offset = safe_integer(&current.header["outputOffset"]);
+    let header_generation = safe_integer(&current.header["generation"]).unwrap_or(0);
     let mut offset = header_offset.unwrap_or(if header_generation > generation {
         checkpoint_offset
     } else {
@@ -129,4 +131,10 @@ pub fn read_recording(dir: &Path, from: Option<u64>) -> Result<RecordingRead, Re
         }))
     });
     Ok(RecordingRead { checkpoint, frames })
+}
+
+fn safe_integer(value: &Value) -> Option<u64> {
+    let n = value.as_f64()?;
+    (n.is_finite() && (0.0..=9_007_199_254_740_991.0).contains(&n) && n.fract() == 0.0)
+        .then_some(n as u64)
 }

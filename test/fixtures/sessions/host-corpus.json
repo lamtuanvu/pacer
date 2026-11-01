@@ -475,5 +475,77 @@
         "706f7374"
       ]
     }
+  ],
+  "versions": [
+    {
+      "name": "numeric-prerelease-zeroes",
+      "json": "{\"pacer\":\"0.12.1-01\",\"versions\":[1,1]}",
+      "accepted": true,
+      "older": true
+    },
+    {
+      "name": "integral-decimal-range-and-pid",
+      "json": "{\"pacer\":\"0.12.1+build.01\",\"versions\":[1.0,1e0],\"identity\":{\"pid\":42.0,\"bootId\":\"b\",\"birth\":\"1\"}}",
+      "accepted": true,
+      "older": false
+    },
+    {
+      "name": "leading-zero-core",
+      "json": "{\"pacer\":\"00.12.1\",\"versions\":[1,1]}",
+      "accepted": false,
+      "older": true
+    },
+    {
+      "name": "string-range",
+      "json": "{\"pacer\":\"0.12.1\",\"versions\":[\"1\",1]}",
+      "accepted": false,
+      "older": true
+    },
+    {
+      "name": "unsafe-range",
+      "json": "{\"pacer\":\"0.12.1\",\"versions\":[1,9007199254740992]}",
+      "accepted": false,
+      "older": true
+    },
+    {
+      "name": "empty-identity-string",
+      "json": "{\"pacer\":\"0.12.1\",\"versions\":[1,1],\"identity\":{\"pid\":42,\"bootId\":\"\",\"birth\":\"1\"}}",
+      "accepted": false,
+      "older": true
+    },
+    {
+      "name": "long-version",
+      "json": "{\"pacer\": \"0.1.0+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"versions\": [1, 1]}",
+      "accepted": false,
+      "older": true
+    }
+  ],
+  "recordingNumbers": [
+    {
+      "name": "decimal-offset-and-generation",
+      "header": "{\"cols\":120,\"rows\":40,\"startedAt\":1,\"generation\":0.0,\"outputOffset\":1.0}",
+      "checkpoint": null,
+      "from": 1,
+      "end": 4,
+      "suffix": [
+        "616263"
+      ],
+      "readFrames": [
+        "616263"
+      ]
+    },
+    {
+      "name": "decimal-checkpoint",
+      "header": "{\"cols\":120,\"rows\":40,\"startedAt\":1,\"generation\":1.0,\"outputOffset\":1.0}",
+      "checkpoint": "{\"generation\":0.0,\"outputOffset\":2.0,\"cols\":120,\"rows\":40,\"scrollbackAnsi\":\"ab\",\"screenAnsi\":\"\",\"modes\":{}}",
+      "from": 1,
+      "end": 4,
+      "suffix": [
+        "616263"
+      ],
+      "readFrames": [
+        "6263"
+      ]
+    }
   ]
 }
