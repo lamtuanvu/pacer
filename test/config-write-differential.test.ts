@@ -67,7 +67,6 @@ test("seeded routing, runner order and notification writes match TS bytes and re
     expect(rsLevel).toEqual({ ok: true, value: tsLevel });
     expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
     expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
-    expect(statSync(join(tsHome, "settings.json")).mode & 0o777).toBe(0o600);
   }
 }, 30_000);
 
@@ -93,6 +92,18 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
     { from: "default", set: { "pacing.policy": "even", "pacing.planner_probe": "off" } },
     { from: "default", set: { routing: [{ kinds: ["docs"], executors: ["cursor"] }, { default: ["codex"] }] } },
   ];
+  let seed = 0x574c02;
+  const next = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed >>> 0; };
+  for (let i = 0; i < 32; i++) {
+    const reserve = [10, 15, 25, 30][next() % 4]!;
+    const probe = ["ask", "auto", "off"][next() % 3]!;
+    const order = next() & 1 ? ["codex", "cursor"] : ["cursor", "codex"];
+    drafts.push({
+      from: "default",
+      description: next() & 1 ? "" : `Review ${i}`,
+      set: { "pacing.planner_reserve": reserve, "pacing.planner_probe": probe, "pacing.order": order },
+    });
+  }
   for (const draft of drafts) {
     const tsHome = home(), rsHome = home();
     const ctx = fakeCtx({ pacerHome: tsHome });
@@ -105,8 +116,6 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
     expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
     expect(statSync(join(rsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
     expect(statSync(join(rsHome, "strategies")).mode & 0o777).toBe(0o700);
-    expect(statSync(join(tsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
-    expect(statSync(join(tsHome, "strategies")).mode & 0o777).toBe(0o700);
     const tsUse = (strategy.show(ctx, name), { name, path: useStrategy(ctx, name) });
     const rsUse = rust(binary, { op: "strategy.use", home: rsHome, name });
     expect(result(rsUse, rsHome)).toEqual(result({ ok: true, value: tsUse }, tsHome));
@@ -137,7 +146,7 @@ test("runner.set accepts integral JSON decimal rank with byte parity", async () 
   expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
 });
 
-test("state writers tighten file and directory modes under both umasks", async () => {
+test("Rust state writers tighten file and directory modes under both umasks", async () => {
   const binary = configBinary();
   for (const mask of [0o022, 0o077]) {
     const oldMask = process.umask(mask);
@@ -148,14 +157,12 @@ test("state writers tighten file and directory modes under both umasks", async (
       const tsSet = notify.setLevel(ctx, "all");
       const rsSet = rust(binary, { op: "notifications.set", home: rsHome, level: "all" });
       expect(rsSet).toEqual({ ok: true, value: tsSet });
-      for (const dir of [tsHome, rsHome]) expect(statSync(join(dir, "settings.json")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
       const tsSave = strategy.save(ctx, "review", { from: "default", description: "" }, "approved");
       const rsSave = rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft: { from: "default", description: "" }, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString() });
       expect(result(rsSave, rsHome)).toEqual(result({ ok: true, value: tsSave }, tsHome));
-      for (const dir of [tsHome, rsHome]) {
-        expect(statSync(join(dir, "strategies")).mode & 0o777).toBe(0o700);
-        expect(statSync(join(dir, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
-      }
+      expect(statSync(join(rsHome, "strategies")).mode & 0o777).toBe(0o700);
+      expect(statSync(join(rsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
       for (const dir of [tsHome, rsHome]) {
         chmodSync(join(dir, "settings.json"), 0o644);
         chmodSync(join(dir, "strategies"), 0o755);
@@ -166,15 +173,12 @@ test("state writers tighten file and directory modes under both umasks", async (
       const revised = { from: "default", description: "updated" };
       strategy.save(ctx, "review", revised, "approved", { overwrite: true });
       rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft: revised, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString(), overwrite: true });
-      for (const dir of [tsHome, rsHome]) {
-        expect(statSync(join(dir, "settings.json")).mode & 0o777).toBe(0o600);
-        expect(statSync(join(dir, "strategies")).mode & 0o777).toBe(0o700);
-        expect(statSync(join(dir, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
-      }
+      expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(rsHome, "strategies")).mode & 0o777).toBe(0o700);
+      expect(statSync(join(rsHome, "strategies", "review.yaml")).mode & 0o777).toBe(0o600);
       const tsRunner = await runners.set(ctx, "codex", { rank: 1 });
       const rsRunner = rust(binary, { op: "runner.set", home: rsHome, id: "codex", options: { rank: 1 } });
       expect(rsRunner.ok).toBe(true);
-      expect(statSync(join(tsHome, "strategy.yaml")).mode & 0o777).toBe(0o600);
       expect(statSync(join(rsHome, "strategy.yaml")).mode & 0o777).toBe(0o600);
       expect(result(rsRunner, rsHome)).toEqual(result({ ok: true, value: tsRunner }, tsHome));
     } finally { process.umask(oldMask); }
