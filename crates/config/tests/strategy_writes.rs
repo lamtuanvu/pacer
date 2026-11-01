@@ -90,3 +90,52 @@ fn removal_deletes_only_inactive_named_file() {
         "unknown strategy \"work\""
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn activation_modes_under_both_umasks() {
+    let executable = std::env::current_exe().unwrap();
+    for mask in ["022", "077"] {
+        let output = std::process::Command::new("sh")
+            .args(["-c", "umask \"$1\"; shift; exec \"$@\"", "sh", mask])
+            .arg(&executable)
+            .args([
+                "--exact",
+                "activation_modes_under_umask_child",
+                "--nocapture",
+            ])
+            .env("PACER_STRATEGY_UMASK_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mask {mask}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "mask {mask}: child test did not run"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_modes_under_umask_child() {
+    if std::env::var_os("PACER_STRATEGY_UMASK_CHILD").is_none() {
+        return;
+    }
+    let dir = home();
+    let active = dir.path().join("active");
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&active, fs::Permissions::from_mode(0o644)).unwrap();
+    use_strategy(dir.path(), "work").unwrap();
+    assert_eq!(
+        fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(active).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}

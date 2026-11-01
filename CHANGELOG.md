@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Strategy activation now writes the active selection atomically and tightens existing home and active-file permissions to 0700 and 0600 in both runtimes.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added
