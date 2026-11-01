@@ -48,14 +48,16 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
 
 ## Releasing
 
-Keep `CHANGELOG.md` Unreleased up to date in each PR. To release, open **Actions → Prepare release → Run workflow** on `main` and pick a bump:
+Keep `CHANGELOG.md` Unreleased up to date in each PR when you can. To release, open **Actions → Prepare release → Run workflow** on `main` and pick a bump:
 
 - `auto` (default) reads the commit titles since the last tag: a breaking change (`feat!:` or any `type!:`) bumps the minor version during 0.x and the major version from 1.0; `feat` bumps the minor version; `fix`, `perf` and `revert` bump the patch version. `docs`, `test`, `chore`, `ci` and similar titles alone don't release anything.
-- `patch`, `minor` or `major` forces that bump.
+- `patch`, `minor` or `major` forces that bump when commits exist, even if their titles do not select an automatic release.
+
+Prepare keeps authored Unreleased notes as written. If Unreleased is empty, it builds notes from commit titles since the current version tag, groups them under Keep a Changelog headings, and redacts email addresses and local machine paths. Review these generated notes in the release PR; commit titles may lack context that a hand-written entry would provide. With no commits since the tag, Prepare stops without creating empty release notes.
 
 The workflow then does the rest:
 
-1. If the current version has no tag, Prepare finds its merged release PR and automatically waits for validated recovery instead of preparing another version. The summary links to recovery. Otherwise `scripts/release/next-version.ts` picks the version and refuses an empty Unreleased section.
+1. If the current version has no tag, Prepare finds its merged release PR and automatically waits for validated recovery instead of preparing another version. The summary links to recovery. Otherwise `scripts/release/next-version.ts` picks the version and requires at least one commit since the tag.
 2. `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section.
 3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
 4. Opening or updating the release PR automatically runs the release dry run on its exact head commit: every platform builds (including production-signed macOS apps when `PACER_DESKTOP_RELEASE_ENABLED=true`), npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
