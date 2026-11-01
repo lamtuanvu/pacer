@@ -6,6 +6,18 @@ OTA event traces remain in the report's evidence details. They do not assert a
 behavior verdict; the driver's outcome checks provide that verdict. Required
 behavior notes without a verdict still count as UNVERIFIED.
 
+## Native operation routing
+
+Release builds start with an empty native operation registry. In development and
+future native-enabled builds, `PACER_FORWARD_OPS` is a comma-separated list of
+operation names, or `*`, that forces native operations back through the TypeScript
+core. It cannot enable an operation. The setting is read at startup and logged once
+to stderr. `/v2` always forwards; stdio dispatches natively only after an accepted
+protocol 3 `hello`. Work-grant requests remain forwarded to the core for scoped
+authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op>`
+to stderr when the Rust handler executes. The test-only `test-ops` build exposes
+`test.echo` and `_debug.native` for strict native evidence; release builds do not.
+
 ## Start and inspect a sandbox
 
 From the checkout root:
@@ -63,6 +75,23 @@ bun run live up --id my-change --real-keychain
 ### M1 runtime and artifact layout
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
+
+For native operation routing evidence, add `--native-test-ops` with `--front-door rust`.
+The harness builds the test-only native operations into the sandbox front door and
+records this choice in `session.json`; release builds do not include these operations.
+Use the guarded public proxy for HTTP checks. To check the forward override in
+a separate sandbox, add `--native-forward-echo`; it fixes
+`PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
+`logs/serve.log` and the forwarding result as behavior notes in each report.
+The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
+`--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
+fixture starts the sandbox's Rust front door with the sandbox home and Keychain
+stub. The native test binary is pinned inside the sandbox at `up`, so later Cargo
+builds cannot change the exercised bytes. The fixture sends protocol-3 `hello`,
+`test.echo`, then protocol-2 `hello`, and records
+the exact replies and native execution trace. It accepts no operation, path or
+environment override. The normal guarded `live pacer -- api --stdio` remains
+refused. Report native stdio as PASS only when this fixture passes.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 

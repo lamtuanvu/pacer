@@ -11,6 +11,8 @@ export interface ParityOptions {
   candidate: string[];
   steps: Step[];
   native?: string[];
+  candidateEnv?: Record<string, string>;
+  referenceEnv?: Record<string, string>;
   timeoutMs?: number;
   /** Optional exact stderr readiness line before the unchanged request deadline. */
   startup?: { readyLine: string; timeoutMs: number };
@@ -29,10 +31,10 @@ class Session {
   private stderr = "";
   private stderrDone: Promise<void>;
   private startupReady?: Promise<void>;
-  constructor(command: string[], home: string, readyLine?: string) {
+  constructor(command: string[], home: string, readyLine?: string, extraEnv: Record<string, string> = {}) {
     // Do not inherit provider tokens, host sockets, or the user's native homes.
     this.child = Bun.spawn(command, {
-      env: { HOME: home, PACER_HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "Asia/Ho_Chi_Minh", LANG: "C", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" },
+      env: { HOME: home, PACER_HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "Asia/Ho_Chi_Minh", LANG: "C", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", ...extraEnv },
       stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
     this.reader = this.child.stdout.getReader();
@@ -58,6 +60,7 @@ class Session {
       }
     })();
   }
+  nativeEvidence(op: string): boolean { return this.stderr.split("\n").includes(`native ${op}`); }
   async ready(startup: NonNullable<ParityOptions["startup"]>) {
     await within(startup.timeoutMs, "stdio startup timed out", async () => {
       if (!this.startupReady) throw Error("missing stdio startup contract");
@@ -139,8 +142,11 @@ function tree(root: string, relative = ""): Record<string, unknown> {
   const entries: Record<string, unknown> = {};
   for (const name of readdirSync(join(root, relative)).sort()) {
     const path = join(relative, name), absolute = join(root, path), stat = lstatSync(absolute);
+    // Bun writes process-local caches in different locations across platforms.
+    // Neither cache is pacer state; keep comparing any siblings and other home files.
+    if (path === "Library/Caches/bun" || path === ".bun/install/cache") continue;
     if (stat.isSymbolicLink()) entries[path] = { link: readlinkSync(absolute) };
-    else if (stat.isDirectory()) { entries[path] = { directory: true, mode: stat.mode & 0o777 }; Object.assign(entries, tree(root, path)); }
+    else if (stat.isDirectory()) { const children = tree(root, path); if (Object.keys(children).length || !["Library", "Library/Caches", ".bun", ".bun/install"].includes(path)) { entries[path] = { directory: true, mode: stat.mode & 0o777 }; Object.assign(entries, children); } }
     else if (stat.isFile()) {
       const bytes = readFileSync(absolute);
       const content = name.endsWith(".json") ? JSON.parse(bytes.toString()) : name.endsWith(".jsonl") ? bytes.toString().split("\n").filter(Boolean).map(line => JSON.parse(line)) : bytes.toString("base64");
@@ -153,7 +159,7 @@ function compare(kind: string, reference: unknown, candidate: unknown) {
   if (!isDeepStrictEqual(reference, candidate)) throw Error(`${kind} mismatch\n- reference ${JSON.stringify(reference)}\n+ candidate ${JSON.stringify(candidate)}`);
 }
 export async function parity(options: ParityOptions): Promise<void> {
-  if (options.native?.length) throw Error(`native execution evidence unavailable for ${options.native.join(", ")}; migration parity is UNVERIFIED`);
+
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw Error("timeoutMs must be positive and finite");
   if (options.startup && (!options.startup.readyLine || options.startup.readyLine.includes("\n") || options.startup.readyLine.length > 8192 || !Number.isFinite(options.startup.timeoutMs) || options.startup.timeoutMs <= 0)) throw Error("invalid startup readiness contract");
   validateFixture(options.fixture);
@@ -162,8 +168,8 @@ export async function parity(options: ParityOptions): Promise<void> {
   const sessions: Session[] = [];
   try {
     for (const home of homes) cpSync(options.fixture, home, { recursive: true, errorOnExist: true });
-    sessions.push(new Session(options.reference, homes[0]!, options.startup?.readyLine));
-    sessions.push(new Session(options.candidate, homes[1]!, options.startup?.readyLine));
+    sessions.push(new Session(options.reference, homes[0]!, options.startup?.readyLine, options.referenceEnv));
+    sessions.push(new Session(options.candidate, homes[1]!, options.startup?.readyLine, options.candidateEnv));
     if (options.startup) await Promise.all(sessions.map(session => session.ready(options.startup!)));
     for (const step of [{ op: "hello", params: { protocol: 3 } }, ...options.steps]) {
       const replies = await Promise.all(sessions.map(session => session.request(step, options.timeoutMs ?? 5000)));
@@ -176,6 +182,13 @@ export async function parity(options: ParityOptions): Promise<void> {
         if (step.expect === "error" && !Object.hasOwn(reply, "error")) throw Error(`${step.op}: expected error`);
       }
       compare("response", replies[0], replies[1]);
+      if (options.native?.includes(step.op) && !sessions[1]!.nativeEvidence(step.op))
+        throw Error(`native execution evidence unavailable for ${step.op}; migration parity is UNVERIFIED`);
+    }
+    if (options.native?.length) {
+      const evidence = await sessions[1]!.request({ op: "_debug.native" }, options.timeoutMs ?? 5000);
+      if (!Array.isArray(evidence.result) || options.native.some(op => !(evidence.result as unknown[]).includes(op)))
+        throw Error(`native execution evidence unavailable for ${options.native.join(", ")}; migration parity is UNVERIFIED`);
     }
     await Promise.all(sessions.map(session => session.finish(options.timeoutMs ?? 5000)));
     compare("filesystem", tree(homes[0]!), tree(homes[1]!));
