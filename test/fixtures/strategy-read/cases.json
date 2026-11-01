@@ -1,0 +1,2904 @@
+[
+  {
+    "name": "simple-legacy",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {},
+        "claude-code": {}
+      },
+      "extra": {
+        "survives": true
+      }
+    },
+    "expected": {
+      "name": "simple-legacy",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex",
+        "claude-code": "claude-code"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex",
+            "claude-code"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "legacy-plugin-sections",
+    "raw": {
+      "planner": "claude-code",
+      "providers": {
+        "claude-code": {},
+        "codex": {},
+        "local": {
+          "via": "opencode",
+          "model": "ollama/qwen",
+          "usage": "unmetered"
+        }
+      },
+      "plugins": {
+        "policy": {
+          "mode": "closed"
+        },
+        "disabled": [
+          "pacer-usage"
+        ],
+        "installed": {
+          "acme": {
+            "version": "1.2.0",
+            "capabilities": [
+              "tasks.read"
+            ],
+            "policy": true
+          }
+        },
+        "config": {
+          "acme": {
+            "region": "eu"
+          }
+        }
+      },
+      "dispatch": {},
+      "messaging": {
+        "rules": [
+          {
+            "effect": "deny",
+            "from_kind": "external"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "name": "legacy-plugin-sections",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude-code"
+      },
+      "accounts": {
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "local": {
+          "name": "local",
+          "model": "ollama/qwen",
+          "kind": "endpoint",
+          "source": "endpoint",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "unmetered",
+          "usageSource": "unmetered",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "opencode#local": {
+          "id": "opencode#local",
+          "name": "opencode#local",
+          "host": null,
+          "agent": "opencode",
+          "account": "local",
+          "model": "ollama/qwen"
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex": "codex",
+        "local": "opencode#local"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#local": {
+          "id": "opencode#local",
+          "via": "opencode",
+          "model": "ollama/qwen",
+          "usage": "unmetered",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex",
+          "opencode"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "codex",
+            "opencode#local"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "closed"
+        },
+        "disabled": [
+          "pacer-usage"
+        ],
+        "installed": {
+          "acme": {
+            "version": "1.2.0",
+            "capabilities": [
+              "tasks.read"
+            ],
+            "policy": true
+          }
+        },
+        "config": {
+          "acme": {
+            "region": "eu"
+          }
+        }
+      },
+      "dispatch": {
+        "engine": "ladder",
+        "engineFallback": "queue",
+        "timeoutMs": 1000,
+        "learning": {
+          "enabled": false,
+          "minSamples": 20,
+          "maxAgeDays": 90
+        },
+        "discovery": {
+          "enabled": false,
+          "runners": [],
+          "models": []
+        },
+        "reservePct": 0,
+        "comfortablePct": 20,
+        "steps": [
+          {
+            "id": "capable-with-headroom",
+            "match": {},
+            "require": {},
+            "prefer": {
+              "models": [],
+              "strengths": []
+            },
+            "candidates": {},
+            "capacity": "comfortable",
+            "rank": [
+              "task-fit",
+              "spare-capacity"
+            ]
+          },
+          {
+            "id": "usable-fallback",
+            "match": {},
+            "require": {},
+            "prefer": {
+              "models": [],
+              "strengths": []
+            },
+            "candidates": {},
+            "capacity": "usable",
+            "rank": [
+              "task-fit",
+              "spare-capacity"
+            ]
+          }
+        ],
+        "onNoMatch": "queue"
+      },
+      "messaging": {
+        "defaults": true,
+        "rules": [
+          {
+            "effect": "deny",
+            "from_kind": "external"
+          }
+        ],
+        "message": {
+          "max_bytes": 65536
+        },
+        "tree": {
+          "max_turns": 50
+        },
+        "liveness": {
+          "interval_s": 60,
+          "backoff_max_s": 900,
+          "max_nudges": 3,
+          "nudge_in_modes": [
+            "relaxed",
+            "normal"
+          ],
+          "escalate_after_s": 900,
+          "retry_delivery": true
+        },
+        "hooks": {
+          "stop": "block",
+          "stop_release_after": 2
+        },
+        "grants": {
+          "user_started_tasks": "on"
+        },
+        "keep_worktree_days": 7
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "modern-accounts",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "work": {
+          "kind": "codex",
+          "home": "~/.codex-work"
+        },
+        "team": {
+          "kind": "codex",
+          "orca_account": "team-id"
+        },
+        "endpoint": {
+          "kind": "endpoint",
+          "usage": "quota",
+          "quota_source": "arkcli"
+        },
+        "local": {
+          "kind": "endpoint",
+          "usage": "unmetered"
+        }
+      },
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "runners": {
+        "work": {
+          "agent": "codex",
+          "account": "work"
+        },
+        "seed": {
+          "agent": "opencode",
+          "account": "endpoint",
+          "model": "coding-plan/seed"
+        },
+        "local": {
+          "agent": "opencode",
+          "account": "local",
+          "model": "ollama/qwen3"
+        }
+      }
+    },
+    "expected": {
+      "name": "modern-accounts",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "accounts": {
+        "claude": {
+          "name": "claude",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "work": {
+          "name": "work",
+          "model": null,
+          "kind": "codex",
+          "source": "pacer",
+          "home": "~/.codex-work",
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "team": {
+          "name": "team",
+          "model": null,
+          "kind": "codex",
+          "source": "orca",
+          "home": null,
+          "orcaAccount": "team-id",
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "model": null,
+          "kind": "endpoint",
+          "source": "endpoint",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "arkcli",
+          "quotaSource": "arkcli",
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "local": {
+          "name": "local",
+          "model": null,
+          "kind": "endpoint",
+          "source": "endpoint",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "unmetered",
+          "usageSource": "unmetered",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude",
+          "model": null
+        },
+        "codex#work": {
+          "id": "codex#work",
+          "name": "codex#work",
+          "host": null,
+          "agent": "codex",
+          "account": "work",
+          "model": null
+        },
+        "opencode#endpoint": {
+          "id": "opencode#endpoint",
+          "name": "opencode#endpoint",
+          "host": null,
+          "agent": "opencode",
+          "account": "endpoint",
+          "model": "coding-plan/seed"
+        },
+        "opencode#local": {
+          "id": "opencode#local",
+          "name": "opencode#local",
+          "host": null,
+          "agent": "opencode",
+          "account": "local",
+          "model": "ollama/qwen3"
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "work": "codex#work",
+        "seed": "opencode#endpoint",
+        "local": "opencode#local",
+        "claude-code": "claude-code"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex#work": {
+          "id": "codex#work",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#endpoint": {
+          "id": "opencode#endpoint",
+          "via": "opencode",
+          "model": "coding-plan/seed",
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": "arkcli",
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#local": {
+          "id": "opencode#local",
+          "via": "opencode",
+          "model": "ollama/qwen3",
+          "usage": "unmetered",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "codex#work",
+          "opencode#endpoint",
+          "opencode#local"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "codex#work",
+            "opencode#endpoint",
+            "opencode#local"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "invalid-legacy",
+    "raw": {
+      "planner": "gemini",
+      "providers": {
+        "cursor": {
+          "usage": "quota"
+        },
+        "ollama": {
+          "model": "llama"
+        },
+        "meter": {
+          "via": "opencode",
+          "model": "x/y",
+          "usage": "metered"
+        }
+      },
+      "pacing": {
+        "policy": "fastest"
+      },
+      "routing": [
+        {
+          "kinds": [
+            "tests",
+            "dance"
+          ],
+          "executors": [
+            "nobody"
+          ]
+        }
+      ]
+    },
+    "problems": [
+      "planner must be one of claude-code, codex, cursor, opencode (got \"gemini\")",
+      "providers.cursor: quota usage is not available for cursor; use reactive",
+      "providers.ollama: non-native providers need via: opencode",
+      "providers.ollama: metered usage needs budget.weekly_tokens (e.g. 20M)",
+      "providers.meter: metered usage needs budget.weekly_tokens (e.g. 20M)",
+      "pacing.policy must be one of priority, even, burn-before-reset, cheapest-first (got \"fastest\")",
+      "routing[0]: unknown provider \"nobody\"",
+      "routing[0]: unknown kind \"dance\" (allowed: boilerplate, tests, docs, rename, migration, feature, debug, refactor, performance, unfamiliar-code, research)"
+    ]
+  },
+  {
+    "name": "invalid-sections",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "dispatch": {
+        "engine": "remote",
+        "hidden": true
+      },
+      "messaging": {
+        "hidden": true
+      }
+    },
+    "problems": [
+      "Invalid dispatch configuration",
+      "messaging: Invalid messaging configuration"
+    ]
+  },
+  {
+    "name": "modern-invalid-accounts",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "bad": {
+          "kind": "cursor",
+          "home": "~/.cursor-work",
+          "usage": "quota"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.bad: home requires a non-empty folder on a claude or codex account",
+      "accounts.bad: quota usage is not available for cursor; use reactive"
+    ]
+  },
+  {
+    "name": "modern-invalid-runner",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "endpoint": {
+          "kind": "endpoint",
+          "usage": "unmetered"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "bad": {
+          "agent": "opencode",
+          "account": "endpoint"
+        }
+      }
+    },
+    "problems": [
+      "runner opencode#endpoint: model must look like \"<provider>/<model>\""
+    ]
+  },
+  {
+    "name": "host-defaults",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "hosts": {
+        "build": {
+          "ssh": "worker-1",
+          "repos": {
+            "github.com/org/repo": "/srv/repo"
+          },
+          "accounts": {
+            "work": {
+              "home": "/srv/codex"
+            }
+          }
+        }
+      }
+    },
+    "expected": {
+      "name": "host-defaults",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {
+        "build": {
+          "alias": "build",
+          "ssh": "worker-1",
+          "repos": {
+            "github.com/org/repo": "/srv/repo"
+          },
+          "maxTasks": 2,
+          "accounts": {
+            "work": {
+              "home": "/srv/codex"
+            }
+          },
+          "paused": false
+        }
+      },
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "legacy-pacing-errors",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "pacing": {
+        "planner_reserve": 100,
+        "planner_probe": "bad",
+        "fill_threshold": 49,
+        "accounts": "random"
+      }
+    },
+    "problems": [
+      "pacing.accounts must be spread or fill",
+      "pacing.fill_threshold must be between 50 and 100",
+      "pacing.planner_reserve must be between 0 and 99",
+      "pacing.planner_probe must be ask, auto or off"
+    ]
+  },
+  {
+    "name": "plugin-errors",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "plugins": {
+        "disabled": "bad",
+        "installed": {
+          "acme": {
+            "version": 3
+          }
+        }
+      }
+    },
+    "problems": [
+      "plugins.disabled must be a list of plugin ids",
+      "plugins.installed.acme.version must be semver",
+      "plugins.installed.acme.capabilities must be a list of names"
+    ]
+  },
+  {
+    "name": "runner-models",
+    "raw": {
+      "planner": "claude-code",
+      "accounts": {
+        "claude-code": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "runners": {
+        "codex": {
+          "models": [
+            {
+              "id": "provider/a",
+              "tier": "medium"
+            }
+          ]
+        }
+      }
+    },
+    "expected": {
+      "name": "runner-models",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude-code"
+      },
+      "accounts": {
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null,
+          "models": [
+            {
+              "id": "provider/a",
+              "tier": "medium",
+              "strengths": []
+            }
+          ]
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex": "codex"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "modern-source-opencode",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "plan": {
+          "kind": "endpoint",
+          "source": "opencode",
+          "provider": "coding-plan",
+          "usage": "quota"
+        }
+      },
+      "planner": "claude-code",
+      "runners": {
+        "plan": {
+          "agent": "opencode",
+          "account": "plan",
+          "model": "coding-plan/seed"
+        }
+      }
+    },
+    "expected": {
+      "name": "modern-source-opencode",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "accounts": {
+        "claude": {
+          "name": "claude",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "plan": {
+          "name": "plan",
+          "model": null,
+          "kind": "endpoint",
+          "source": "opencode",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "arkcli",
+          "quotaSource": "arkcli",
+          "provider": "coding-plan",
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude",
+          "model": null
+        },
+        "opencode#plan": {
+          "id": "opencode#plan",
+          "name": "opencode#plan",
+          "host": null,
+          "agent": "opencode",
+          "account": "plan",
+          "model": "coding-plan/seed"
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "plan": "opencode#plan",
+        "claude-code": "claude-code"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#plan": {
+          "id": "opencode#plan",
+          "via": "opencode",
+          "model": "coding-plan/seed",
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": "arkcli",
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "opencode#plan"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "opencode#plan"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "modern-duplicate-default",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "other": {
+          "kind": "codex"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts: more than one default codex account",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "modern-bad-budget",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "bad": {
+          "kind": "endpoint",
+          "usage": "metered",
+          "budget": {
+            "weekly_tokens": "1M",
+            "weekly_usd": 1
+          }
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.bad: budget cannot combine weekly_usd and weekly_tokens"
+    ]
+  },
+  {
+    "name": "retention-execution",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "execution": {
+        "auto_clean": false,
+        "local_max_tasks": 2,
+        "local_load_limit": 1.5,
+        "local_memory_pressure_limit": "warning",
+        "launch_mode": "interactive"
+      },
+      "task_retention_days": 0
+    },
+    "expected": {
+      "name": "retention-execution",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 0,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {
+        "auto_clean": false,
+        "local_max_tasks": 2,
+        "local_load_limit": 1.5,
+        "local_memory_pressure_limit": "warning",
+        "launch_mode": "interactive"
+      },
+      "classifier": {}
+    }
+  },
+  {
+    "name": "retention-execution-errors",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "execution": {
+        "auto_clean": "yes",
+        "local_max_tasks": 0,
+        "local_load_limit": "low",
+        "local_memory_pressure_limit": "panic",
+        "launch_mode": "auto"
+      },
+      "task_retention_days": -1
+    },
+    "problems": [
+      "execution.auto_clean must be a boolean",
+      "execution.local_max_tasks must be a whole number of at least 1, or \"unlimited\"",
+      "execution.local_memory_pressure_limit must be critical, warning or off",
+      "execution.local_load_limit must be a positive number (load per CPU core) or \"off\"",
+      "execution.launch_mode must be interactive or headless",
+      "task_retention_days must be a non-negative integer"
+    ]
+  },
+  {
+    "name": "hosts-null",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "hosts": null
+    },
+    "problems": [
+      "hosts must be a mapping"
+    ]
+  },
+  {
+    "name": "plugins-null",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "plugins": null
+    },
+    "problems": [
+      "plugins must be a mapping"
+    ]
+  },
+  {
+    "name": "messaging-null",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "messaging": null
+    },
+    "expected": {
+      "name": "messaging-null",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "messaging": {
+        "defaults": true,
+        "rules": [],
+        "message": {
+          "max_bytes": 65536
+        },
+        "tree": {
+          "max_turns": 50
+        },
+        "liveness": {
+          "interval_s": 60,
+          "backoff_max_s": 900,
+          "max_nudges": 3,
+          "nudge_in_modes": [
+            "relaxed",
+            "normal"
+          ],
+          "escalate_after_s": 900,
+          "retry_delivery": true
+        },
+        "hooks": {
+          "stop": "block",
+          "stop_release_after": 2
+        },
+        "grants": {
+          "user_started_tasks": "on"
+        },
+        "keep_worktree_days": 7
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "terminal-preset",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "terminal": {
+        "open": "ghostty"
+      }
+    },
+    "expected": {
+      "name": "terminal-preset",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {},
+      "terminal": {
+        "open": "ghostty"
+      }
+    }
+  },
+  {
+    "name": "terminal-template",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "terminal": {
+        "open": "wezterm start -- {cmd}"
+      }
+    },
+    "expected": {
+      "name": "terminal-template",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {},
+      "terminal": {
+        "open": "wezterm start -- {cmd}"
+      }
+    }
+  },
+  {
+    "name": "remote-host-runner",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        },
+        "team": {
+          "kind": "codex",
+          "home": "~/.codex-team"
+        }
+      },
+      "planner": "claude-code",
+      "hosts": {
+        "box": {
+          "ssh": "box-ssh",
+          "repos": {
+            "github.com/o/r": "~/src/r"
+          },
+          "accounts": {
+            "team": {
+              "home": "~/.codex-team"
+            }
+          }
+        }
+      },
+      "routing": [
+        {
+          "default": [
+            "codex@box",
+            "codex#team@box",
+            "codex"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "name": "remote-host-runner",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "accounts": {
+        "claude": {
+          "name": "claude",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "team": {
+          "name": "team",
+          "model": null,
+          "kind": "codex",
+          "source": "pacer",
+          "home": "~/.codex-team",
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {
+        "box": {
+          "alias": "box",
+          "ssh": "box-ssh",
+          "repos": {
+            "github.com/o/r": "~/src/r"
+          },
+          "maxTasks": 2,
+          "accounts": {
+            "team": {
+              "home": "~/.codex-team"
+            }
+          },
+          "paused": false
+        }
+      },
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude",
+          "model": null
+        },
+        "codex@box": {
+          "id": "codex@box",
+          "name": "codex@box",
+          "host": "box",
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "codex#team@box": {
+          "id": "codex#team@box",
+          "name": "codex#team@box",
+          "host": "box",
+          "agent": "codex",
+          "account": "team",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex@box": "codex@box",
+        "codex#team@box": "codex#team@box",
+        "codex": "codex"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex@box": {
+          "id": "codex@box",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex#team@box": {
+          "id": "codex#team@box",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "codex@box",
+          "codex#team@box",
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex@box",
+            "codex#team@box",
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "remote-host-error",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "claude-code",
+      "routing": [
+        {
+          "default": [
+            "codex@nowhere"
+          ]
+        }
+      ]
+    },
+    "problems": [
+      "runner codex@nowhere: unknown host nowhere (hosts: none)"
+    ]
+  },
+  {
+    "name": "remote-local-alias",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "claude-code",
+      "routing": [
+        {
+          "default": [
+            "codex@local"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "name": "remote-local-alias",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude"
+      },
+      "accounts": {
+        "claude": {
+          "name": "claude",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex@local": "codex"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "claude-code",
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "remote-planner-error",
+    "raw": {
+      "accounts": {
+        "claude": {
+          "kind": "claude"
+        },
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "claude-code@box",
+      "hosts": {
+        "box": {
+          "ssh": "box-ssh"
+        }
+      }
+    },
+    "problems": [
+      "the planner can't run on a host"
+    ]
+  },
+  {
+    "name": "dispatch-custom",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "dispatch": {
+        "engine": "plugin:acme",
+        "engineFallback": "ladder",
+        "steps": [
+          {
+            "id": "one",
+            "match": {
+              "kind": "tests"
+            },
+            "require": {
+              "minTier": "medium",
+              "tools": true
+            },
+            "prefer": {
+              "strengths": [
+                "rust"
+              ]
+            },
+            "candidates": {
+              "executors": [
+                "codex"
+              ]
+            },
+            "rank": [
+              "task-fit"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "name": "dispatch-custom",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "dispatch": {
+        "engine": "plugin:acme",
+        "engineFallback": "ladder",
+        "timeoutMs": 1000,
+        "learning": {
+          "enabled": false,
+          "minSamples": 20,
+          "maxAgeDays": 90
+        },
+        "discovery": {
+          "enabled": false,
+          "runners": [],
+          "models": []
+        },
+        "reservePct": 0,
+        "comfortablePct": 20,
+        "steps": [
+          {
+            "id": "one",
+            "match": {
+              "kind": "tests"
+            },
+            "require": {
+              "minTier": "medium",
+              "tools": true
+            },
+            "prefer": {
+              "models": [],
+              "strengths": [
+                "rust"
+              ]
+            },
+            "candidates": {
+              "executors": [
+                "codex"
+              ]
+            },
+            "capacity": "comfortable",
+            "rank": [
+              "task-fit"
+            ]
+          }
+        ],
+        "onNoMatch": "queue"
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "dispatch-bad-step",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "dispatch": {
+        "steps": [
+          {
+            "id": "one",
+            "match": {
+              "kind": "tests"
+            },
+            "require": {
+              "minTier": "large"
+            }
+          }
+        ]
+      }
+    },
+    "problems": [
+      "Invalid dispatch configuration"
+    ]
+  },
+  {
+    "name": "messaging-custom",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "messaging": {
+        "defaults": false,
+        "rules": [
+          {
+            "effect": "allow",
+            "relation": [
+              "parent",
+              "child"
+            ],
+            "kinds": [
+              "question",
+              "answer"
+            ],
+            "limits": {
+              "per_minute": 2,
+              "max_bytes": 500,
+              "confirm": true
+            }
+          }
+        ],
+        "hooks": {
+          "stop": "inject_only"
+        }
+      }
+    },
+    "expected": {
+      "name": "messaging-custom",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "messaging": {
+        "defaults": false,
+        "rules": [
+          {
+            "effect": "allow",
+            "relation": [
+              "parent",
+              "child"
+            ],
+            "kinds": [
+              "question",
+              "answer"
+            ],
+            "limits": {
+              "per_minute": 2,
+              "max_bytes": 500,
+              "confirm": true
+            }
+          }
+        ],
+        "message": {
+          "max_bytes": 65536
+        },
+        "tree": {
+          "max_turns": 50
+        },
+        "liveness": {
+          "interval_s": 60,
+          "backoff_max_s": 900,
+          "max_nudges": 3,
+          "nudge_in_modes": [
+            "relaxed",
+            "normal"
+          ],
+          "escalate_after_s": 900,
+          "retry_delivery": true
+        },
+        "hooks": {
+          "stop": "inject_only",
+          "stop_release_after": 2
+        },
+        "grants": {
+          "user_started_tasks": "on"
+        },
+        "keep_worktree_days": 7
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "messaging-bad-rule",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "relation": [
+              "unknown"
+            ]
+          }
+        ]
+      }
+    },
+    "problems": [
+      "messaging: Invalid messaging configuration"
+    ]
+  },
+  {
+    "name": "legacy-bad-duration",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {
+          "cooldown": "-1h"
+        }
+      }
+    },
+    "problems": [
+      "providers.codex: cooldown must look like 30m, 6h or 2d"
+    ]
+  },
+  {
+    "name": "endpoint-connection",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "usage": "metered",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "env:EDGE_KEY",
+            "models": [
+              {
+                "id": "fast",
+                "name": "Fast",
+                "context": 32000,
+                "output": 4000,
+                "tools": true,
+                "extra": "ignored"
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "edge": {
+          "agent": "opencode",
+          "account": "edge"
+        }
+      }
+    },
+    "expected": {
+      "name": "endpoint-connection",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "edge": {
+          "name": "edge",
+          "model": null,
+          "kind": "endpoint",
+          "source": "endpoint",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "metered",
+          "usageSource": "metered",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false,
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "env:EDGE_KEY",
+            "models": [
+              {
+                "id": "fast",
+                "name": "Fast",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "opencode#edge": {
+          "id": "opencode#edge",
+          "name": "opencode#edge",
+          "host": null,
+          "agent": "opencode",
+          "account": "edge",
+          "model": "pacer-edge/fast"
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "edge": "opencode#edge",
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#edge": {
+          "id": "opencode#edge",
+          "via": "opencode",
+          "model": "pacer-edge/fast",
+          "usage": "metered",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex",
+          "opencode#edge"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex",
+            "opencode#edge"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "endpoint-duplicate-model",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com",
+            "key": "none",
+            "models": [
+              {
+                "id": "fast",
+                "context": 100,
+                "output": 10,
+                "tools": true
+              },
+              {
+                "id": "fast",
+                "context": 100,
+                "output": 10,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.edge.connection.models.1.id must be unique"
+    ]
+  },
+  {
+    "name": "runners-nonmap",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        }
+      },
+      "planner": "codex",
+      "runners": []
+    },
+    "problems": [
+      "runners must be a mapping"
+    ]
+  },
+  {
+    "name": "runner-identity-conflict",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "other": {
+          "kind": "codex",
+          "home": "~/.other"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "agent": "codex",
+          "account": "other"
+        }
+      }
+    },
+    "problems": [
+      "runner codex: declaration conflicts with runner id identity"
+    ]
+  },
+  {
+    "name": "plugin-bad-semver",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "plugins": {
+        "installed": {
+          "acme": {
+            "version": "1.2.3-!",
+            "capabilities": [
+              "log"
+            ]
+          }
+        }
+      }
+    },
+    "problems": [
+      "plugins.installed.acme.version must be semver"
+    ]
+  },
+  {
+    "name": "dispatch-bad-plugin-id",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "dispatch": {
+        "engine": "plugin:--"
+      }
+    },
+    "problems": [
+      "Invalid dispatch configuration"
+    ]
+  }
+]
