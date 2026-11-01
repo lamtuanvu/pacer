@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Write setup strategy and install state atomically with restrictive file and directory permissions, tightening permissive existing state during updates.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added

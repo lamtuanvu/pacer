@@ -1,7 +1,7 @@
 import { allowedPair, type AgentId } from "../config/accounts";
 import type { Strategy } from "../config/strategy";
 import { accountFolder } from "./role";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import type { Result } from "../commands/types";
@@ -10,6 +10,7 @@ import { isObj } from "../util";
 import { backupPath, readText } from "./fsx";
 import { readJson } from "../fsutil";
 import { migrateStrategy, migrationLines } from "../config/migrate";
+import { writeInstallFile } from "./atomic";
 
 const BINS = ["claude", "codex", "cursor-agent", "cursor", "agy", "opencode", "arkcli", "ollama", "lms", "orca"] as const;
 const PLANNER_BINS: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", opencode: "opencode" };
@@ -104,13 +105,15 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
     out = `Detected: ${BINS.filter((bin) => d.clis[bin]).join(", ") || "none"}\nMissing: ${BINS.filter((bin) => !d.clis[bin]).join(", ") || "none"}\n`;
     const text = starterStrategy(d, options.planner);
     validateStrategy(Bun.YAML.parse(text), path);
-    mkdirSync(ctx.pacerHome, { recursive: true });
+    mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+    if (lstatSync(ctx.pacerHome).isSymbolicLink()) throw new Error("unsafe state directory");
+    chmodSync(ctx.pacerHome, 0o700);
     if (existsSync(path)) {
       const backup = backupPath(path, ctx.now);
-      copyFileSync(path, backup);
+      writeInstallFile(backup, readFileSync(path, "utf8"));
       out += `Backup: ${backup}\n`;
     }
-    writeFileSync(path, text);
+    writeInstallFile(path, text);
     out += `Wrote ${path}\n`;
     out += migrationLines(path, migrateStrategy(path)).join("\n") + "\n";
     return { code: 0, out, err: "" };

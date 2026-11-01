@@ -10,9 +10,18 @@ use std::{
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Write next to the existing strategy, then rename so readers see complete YAML.
-/// The requested mode is filtered by the process umask, as in the TypeScript writer.
+/// Strategy state is private even when the previous file or parent was permissive.
 pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
-    let mode = fs::metadata(path)?.permissions();
+    fs::metadata(path)?;
+    let parent = path.parent().unwrap_or(Path::new("."));
+    if fs::symlink_metadata(parent)?.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsafe strategy directory",
+        ));
+    }
+    #[cfg(unix)]
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
     let temp = path.with_file_name(format!(
         "{}.{}.{}.tmp",
@@ -24,7 +33,7 @@ pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
-        options.mode(mode.mode() & 0o777);
+        options.mode(0o600);
         let mut file = options.open(&temp)?;
         file.write_all(text.as_bytes())?;
         file.flush()?;
@@ -66,31 +75,40 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn restrictive_umask_filters_existing_mode() {
+    fn both_umasks_tighten_existing_mode_and_directory() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("strategy.yaml");
         fs::write(&path, "old\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        let output = Command::new("sh")
-            .args([
-                "-c",
-                "umask 077; exec \"$1\" --exact write::tests::write_under_umask",
-                "sh",
-            ])
-            .arg(std::env::current_exe().unwrap())
-            .env("PACER_CONFIG_UMASK_TEST_PATH", &path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
-        assert_eq!(
-            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
+        for mask in ["022", "077"] {
+            fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+            let output = Command::new("sh")
+                .args([
+                    "-c",
+                    "umask \"$1\"; exec \"$2\" --exact write::tests::write_under_umask",
+                    "sh",
+                    mask,
+                ])
+                .arg(std::env::current_exe().unwrap())
+                .env("PACER_CONFIG_UMASK_TEST_PATH", &path)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
     }
 
     #[cfg(unix)]

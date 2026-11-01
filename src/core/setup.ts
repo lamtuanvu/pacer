@@ -1,6 +1,6 @@
 import { sha256 } from "../install/fsx";
 import { runDoctor } from "../install/doctor";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import { formatRunnerId, runnerDefaults, parseRunnerId } from "../config/runner-id";
@@ -15,6 +15,7 @@ import { checkSetup } from "../setup/check";
 import { withLock } from "./lock";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
+import { writeInstallFile } from "../install/atomic";
 import { plannerPreview } from "../plugins/planner-preview";
 import { currentVersion } from "../update/version";
 import { PROTOCOL_VERSION } from "../api/protocol";
@@ -37,8 +38,10 @@ export async function init(ctx: Ctx, planner: string) {
     else {
       const text = starterStrategy(await detect(ctx), planner);
       validateStrategy(Bun.YAML.parse(text), path);
-      mkdirSync(ctx.pacerHome, {recursive: true});
-      writeFileSync(path, text);
+      mkdirSync(ctx.pacerHome, {recursive: true, mode: 0o700});
+      if (lstatSync(ctx.pacerHome).isSymbolicLink()) throw new Error("unsafe state directory");
+      chmodSync(ctx.pacerHome, 0o700);
+      writeInstallFile(path, text);
       migrateStrategy(path);
     }
     return {strategy: path};
@@ -105,12 +108,11 @@ export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<Serv
 }
 
 export function onboardingSkip(ctx:Ctx) {
-  const dir=join(ctx.pacerHome,"onboarding"),path=join(dir,"skipped"),tmp=join(dir,`.skipped-${crypto.randomUUID()}`);
+  const path=join(ctx.pacerHome,"onboarding","skipped");
   try {
-    mkdirSync(dir,{recursive:true,mode:0o700});
-    writeFileSync(tmp,"",{flag:"wx",mode:0o600});renameSync(tmp,path);
+    writeInstallFile(path,"");
     return {skipped:true};
-  }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
+  }catch(e){throw toCoreError(e);}
 }
 
 /** Read diagnostics and run fixed isolated handler fixtures; never repair installations. */

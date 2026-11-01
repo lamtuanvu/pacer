@@ -1,5 +1,6 @@
-import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { Document, isMap, isScalar, isSeq, parseDocument, stringify, type Node } from "yaml";
 import { validateStrategy } from "./strategy";
 
@@ -128,9 +129,12 @@ export class StrategyDoc {
 
 /** Same-directory rename prevents readers observing a partial strategy. */
 export function atomicStrategyWrite(path: string, text: string): void {
+  const parent = dirname(path);
+  if (lstatSync(parent).isSymbolicLink()) throw Error("unsafe strategy directory");
+  chmodSync(parent, 0o700);
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temp, text, { flag: "wx", mode: statSync(path).mode & 0o777 });
+    writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
     renameSync(temp, path);
   } finally { rmSync(temp, { force: true }); }
 }
