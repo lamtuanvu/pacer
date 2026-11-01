@@ -130,15 +130,15 @@ test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("echo mismatch is a parit
     referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv, PACER_TEST_ECHO_BREAK: "1" }, native: ["test.echo"],
     steps: [{ op: "test.echo", params: { ok: true } }] })).rejects.toThrow("response mismatch");
 });
-test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("every repeated echo call needs native execution evidence", async () => {
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("every repeated echo call needs native execution evidence", async () => {
   await parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
-    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv }, native: ["test.echo"],
     steps: [{ op: "test.echo", params: { n: 1 }, expect: "ok" }, { op: "test.echo", params: { n: 2 }, expect: "ok" }] });
 });
-test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("forced-forward echo cannot satisfy a native requirement", async () => {
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("forced-forward echo cannot satisfy a native requirement", async () => {
   await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"],
-    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv, PACER_FORWARD_OPS: "test.echo" }, native: ["test.echo"],
     steps: [{ op: "test.echo", params: { ok: true }, expect: "error" }] })).rejects.toThrow("native execution evidence unavailable");
 });
