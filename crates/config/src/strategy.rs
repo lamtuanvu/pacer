@@ -1579,7 +1579,7 @@ fn display_name(id: &str) -> String {
     }
     provider_name(agent)
 }
-fn summary(strategy: &Value) -> String {
+pub(crate) fn summary(strategy: &Value) -> String {
     let planner = strategy["planner"]["agent"].as_str().unwrap_or("");
     let first = strategy["pacing"]["order"]
         .as_array()

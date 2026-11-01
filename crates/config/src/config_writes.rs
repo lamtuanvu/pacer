@@ -1,0 +1,488 @@
+//! Pure strategy document writes. The API caller owns endpoint sync and publication.
+
+use crate::{
+    doc::{StrategyDoc, parse_value},
+    strategy::{StrategyError, load_strategy, migrate_strategy, strategy_path, validate_strategy},
+    write::atomic_strategy_write,
+};
+use serde_json::{Value, json};
+use std::{collections::HashSet, fs, path::Path};
+
+fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
+    let (path, _) = strategy_path(home)?;
+    let before = fs::read_to_string(&path)?;
+    let strategy = load_strategy(home)?;
+    if fs::read_to_string(&path)? != before {
+        return Err(StrategyError::Other(
+            "Your settings changed while they were being updated. Try again.".into(),
+        ));
+    }
+    if strategy["legacy"] != true {
+        return Ok(None);
+    }
+    let migration = migrate_strategy(&path, Some(&before))?;
+    if !migration.changed {
+        return Ok(None);
+    }
+    Ok(Some(
+        json!({"changed":true,"backup":migration.backup,"summary":migration.summary}),
+    ))
+}
+
+fn edit(
+    home: &Path,
+    change: impl FnOnce(&mut StrategyDoc, &Value) -> Result<(), StrategyError>,
+) -> Result<String, StrategyError> {
+    let (path, name) = strategy_path(home)?;
+    let before = fs::read_to_string(&path)?;
+    let strategy = load_strategy(home)?;
+    if fs::read_to_string(&path)? != before {
+        return Err(StrategyError::Other(
+            "Your settings changed while they were being updated. Try again.".into(),
+        ));
+    }
+    let mut doc = StrategyDoc::new(&before);
+    change(&mut doc, &strategy)?;
+    let after = doc.as_str();
+    let raw = parse_value(after).map_err(|e| StrategyError::Other(e.to_string()))?;
+    validate_strategy(&raw, &path, &name)?;
+    if before == after {
+        return Ok(String::new());
+    }
+    if fs::read_to_string(&path)? != before {
+        return Err(StrategyError::Other(
+            "Your settings changed while they were being updated. Try again.".into(),
+        ));
+    }
+    atomic_strategy_write(&path, after)?;
+    Ok(diff(&path.display().to_string(), &before, after))
+}
+
+fn diff(path: &str, before: &str, after: &str) -> String {
+    let a: Vec<&str> = before.split('\n').collect();
+    let b: Vec<&str> = after.split('\n').collect();
+    let mut start = 0;
+    while start < a.len() && start < b.len() && a[start] == b[start] {
+        start += 1;
+    }
+    let (mut end_a, mut end_b) = (a.len(), b.len());
+    while end_a > start && end_b > start && a[end_a - 1] == b[end_b - 1] {
+        end_a -= 1;
+        end_b -= 1;
+    }
+    let mut out = vec![
+        format!("--- {path}"),
+        format!("+++ {path}"),
+        format!(
+            "@@ -{},{} +{},{} @@",
+            start + 1,
+            end_a - start,
+            start + 1,
+            end_b - start
+        ),
+    ];
+    out.extend(a[start..end_a].iter().map(|line| format!("-{line}")));
+    out.extend(b[start..end_b].iter().map(|line| format!("+{line}")));
+    out.join("\n")
+}
+
+fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
+    strategy["runners"].get(id).or_else(|| {
+        let canonical = strategy["runnerAliases"].get(id)?.as_str()?;
+        strategy["runners"].get(canonical)
+    })
+}
+
+fn planner(strategy: &Value, runner: &Value) -> bool {
+    runner["host"].is_null()
+        && runner["agent"] == strategy["planner"]["agent"]
+        && runner["account"] == strategy["planner"]["account"]
+}
+
+fn executor_ids(strategy: &Value) -> Vec<String> {
+    strategy["runners"]
+        .as_object()
+        .into_iter()
+        .flat_map(|map| map.values())
+        .filter(|runner| !planner(strategy, runner))
+        .filter_map(|runner| runner["id"].as_str().map(str::to_owned))
+        .collect()
+}
+
+fn path(parts: &[Value]) -> &[Value] {
+    parts
+}
+
+/// `routing.set` document effect. Endpoint synchronization and config event
+/// publication are the caller's responsibility after this returns.
+pub fn set_routing(home: &Path, rules: &[Value]) -> Result<Value, StrategyError> {
+    let strategy = load_strategy(home)?;
+    if rules.is_empty()
+        || rules.last().is_some_and(|r| r.get("kinds").is_some())
+        || rules[..rules.len() - 1]
+            .iter()
+            .any(|r| r.get("kinds").is_none())
+    {
+        return Err(StrategyError::Other(
+            "the default routing rule must be last".into(),
+        ));
+    }
+    for rule in rules {
+        for id in rule["executors"].as_array().into_iter().flatten() {
+            let id = id.as_str().unwrap_or("");
+            if resolve(&strategy, id).is_none() {
+                return Err(StrategyError::Other(format!("unknown executor {id}")));
+            }
+        }
+    }
+    let values: Vec<Value> = rules
+        .iter()
+        .map(|r| match r.get("kinds") {
+            Some(kinds) => json!({"kinds":kinds,"executors":r["executors"]}),
+            None => json!({"default":r["executors"]}),
+        })
+        .collect();
+    let changed = edit(home, |doc, _| {
+        let old = doc
+            .get_in(path(&[json!("routing")]))
+            .map_err(|e| StrategyError::Other(e.to_string()))?;
+        if let Some(Value::Array(items)) = old {
+            for (index, value) in values.iter().take(items.len()).enumerate() {
+                if let Some(kinds) = value.get("kinds") {
+                    if items[index].get("default").is_some() {
+                        doc.rename_key(
+                            path(&[json!("routing"), json!(index), json!("default")]),
+                            "executors",
+                        )
+                        .map_err(|e| StrategyError::Other(e.to_string()))?;
+                    }
+                    doc.set_list(
+                        path(&[json!("routing"), json!(index), json!("kinds")]),
+                        kinds.as_array().unwrap_or(&Vec::new()),
+                    )
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+                    doc.set_list(
+                        path(&[json!("routing"), json!(index), json!("executors")]),
+                        value["executors"].as_array().unwrap_or(&Vec::new()),
+                    )
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+                } else {
+                    doc.delete_in(path(&[json!("routing"), json!(index), json!("kinds")]))
+                        .map_err(|e| StrategyError::Other(e.to_string()))?;
+                    if items[index].get("executors").is_some() {
+                        doc.rename_key(
+                            path(&[json!("routing"), json!(index), json!("executors")]),
+                            "default",
+                        )
+                        .map_err(|e| StrategyError::Other(e.to_string()))?;
+                    }
+                    doc.set_list(
+                        path(&[json!("routing"), json!(index), json!("default")]),
+                        value["default"].as_array().unwrap_or(&Vec::new()),
+                    )
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+                }
+            }
+            if items.len() != values.len() {
+                doc.set_sequence_preserving_prefix(path(&[json!("routing")]), &values)
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+            }
+        } else {
+            doc.set_list(path(&[json!("routing")]), &values)
+                .map_err(|e| StrategyError::Other(e.to_string()))?;
+        }
+        Ok(())
+    })?;
+    Ok(json!({"diff":changed}))
+}
+
+/// `runner.reorder` document effect.
+pub fn reorder_runners(home: &Path, ids: &[String]) -> Result<Value, StrategyError> {
+    let migrated = ensure_migrated(home)?;
+    let strategy = load_strategy(home)?;
+    let expected = executor_ids(&strategy);
+    let distinct: HashSet<&String> = ids.iter().collect();
+    if ids.len() != expected.len()
+        || distinct.len() != ids.len()
+        || ids.iter().any(|id| !expected.contains(id))
+    {
+        return Err(StrategyError::Other(
+            "ids must be a permutation of the non-planner runners".into(),
+        ));
+    }
+    edit(home, |doc, _| {
+        doc.set_list(
+            path(&[json!("pacing"), json!("order")]),
+            &ids.iter().map(|id| json!(id)).collect::<Vec<_>>(),
+        )
+        .map_err(|e| StrategyError::Other(e.to_string()))
+    })?;
+    let mut result = json!({"order":ids});
+    if let Some(migrated) = migrated {
+        result["migrated"] = migrated;
+    }
+    Ok(result)
+}
+
+fn move_rank(
+    doc: &mut StrategyDoc,
+    strategy: &Value,
+    id: &str,
+    rank: usize,
+) -> Result<(), StrategyError> {
+    let ids = executor_ids(strategy);
+    let mut order = Vec::new();
+    for reference in strategy["pacing"]["order"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if reference == "opencode" {
+            for candidate in &ids {
+                if strategy["runners"][candidate]["agent"] == "opencode"
+                    && !order.contains(candidate)
+                {
+                    order.push(candidate.clone());
+                }
+            }
+        } else {
+            let candidate = resolve(strategy, reference)
+                .and_then(|runner| runner["id"].as_str())
+                .unwrap_or(reference);
+            if ids.iter().any(|known| known == candidate)
+                && !order.iter().any(|known| known == candidate)
+            {
+                order.push(candidate.to_owned());
+            }
+        }
+    }
+    for candidate in &ids {
+        if !order.contains(candidate) {
+            order.push(candidate.clone());
+        }
+    }
+    order.retain(|candidate| candidate != id);
+    order.insert(rank.min(order.len()), id.to_owned());
+    doc.set_list(
+        path(&[json!("pacing"), json!("order")]),
+        &order.into_iter().map(Value::String).collect::<Vec<_>>(),
+    )
+    .map_err(|e| StrategyError::Other(e.to_string()))
+}
+
+/// `runner.set` document effect. The caller must perform the same endpoint
+/// synchronization and config publication as the TypeScript API mutation.
+pub fn set_runner(home: &Path, reference: &str, options: &Value) -> Result<Value, StrategyError> {
+    let migrated = ensure_migrated(home)?;
+    let strategy = load_strategy(home)?;
+    let runner = resolve(&strategy, reference)
+        .ok_or_else(|| StrategyError::Other("unknown runner".into()))?;
+    if planner(&strategy, runner) {
+        return Err(StrategyError::Other(
+            "cannot edit the planner runner".into(),
+        ));
+    }
+    let id = runner["id"].as_str().unwrap_or(reference).to_owned();
+    let rank = options.get("rank").and_then(Value::as_u64);
+    if options.get("rank").is_some() && rank.is_none() {
+        return Err(StrategyError::Other(
+            "rank must be a nonnegative integer".into(),
+        ));
+    }
+    edit(home, |doc, current| {
+        let key = doc
+            .get_in(path(&[json!("runners")]))
+            .map_err(|e| StrategyError::Other(e.to_string()))?
+            .and_then(|value| value.as_object().cloned())
+            .and_then(|declarations| {
+                declarations
+                    .keys()
+                    .find(|key| {
+                        resolve(current, key).is_some_and(|candidate| candidate["id"] == id)
+                    })
+                    .cloned()
+            })
+            .unwrap_or_else(|| id.clone());
+        for name in ["enabled", "model", "max_tasks"] {
+            if let Some(value) = options.get(name) {
+                doc.set_in(path(&[json!("runners"), json!(key), json!(name)]), value)
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+            }
+        }
+        if let Some(rank) = rank {
+            move_rank(doc, current, &id, rank as usize)?;
+        }
+        Ok(())
+    })?;
+    let updated = load_strategy(home)?;
+    let mut warnings = Vec::new();
+    if options.get("enabled") == Some(&Value::Bool(false)) {
+        for rule in updated["routing"].as_array().into_iter().flatten() {
+            let executors = rule["executors"].as_array().cloned().unwrap_or_default();
+            let contains = executors.iter().filter_map(Value::as_str).any(|reference| {
+                resolve(&updated, reference).is_some_and(|candidate| candidate["id"] == id)
+            });
+            let available = executors.iter().filter_map(Value::as_str).any(|reference| {
+                resolve(&updated, reference).is_some_and(|candidate| {
+                    candidate["enabled"] != false && !planner(&strategy, candidate)
+                })
+            });
+            if contains && !available {
+                let label = rule["kinds"]
+                    .as_array()
+                    .map(|kinds| {
+                        kinds
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
+                    .unwrap_or_else(|| "default".into());
+                warnings.push(format!(
+                    "routing rule '{label}' has no enabled executor left"
+                ));
+            }
+        }
+    }
+    let mut result = json!({"id":id,"warnings":warnings});
+    if let Some(migrated) = migrated {
+        result["migrated"] = migrated;
+    }
+    Ok(result)
+}
+
+/// `runner.remove` document effect. This leaves any endpoint synchronization
+/// and config event publication to the operation caller.
+pub fn remove_runner(home: &Path, reference: &str) -> Result<Value, StrategyError> {
+    let migrated = ensure_migrated(home)?;
+    let strategy = load_strategy(home)?;
+    let runner = resolve(&strategy, reference)
+        .ok_or_else(|| StrategyError::Other("unknown runner".into()))?;
+    if planner(&strategy, runner) {
+        return Err(StrategyError::Other("planner runner is in use".into()));
+    }
+    if strategy["runners"]
+        .as_object()
+        .is_none_or(|runners| runners.len() <= 1)
+    {
+        return Err(StrategyError::Other("cannot remove the last runner".into()));
+    }
+    let id = runner["id"].as_str().unwrap_or(reference).to_owned();
+    let diff = edit(home, |doc, current| {
+        if let Some(declarations) = doc
+            .get_in(path(&[json!("runners")]))
+            .map_err(|e| StrategyError::Other(e.to_string()))?
+            .and_then(|value| value.as_object().cloned())
+        {
+            for key in declarations.keys() {
+                if resolve(current, key).is_some_and(|candidate| candidate["id"] == id) {
+                    doc.remove_mapping_entry("runners", key)
+                        .map_err(|e| StrategyError::Other(e.to_string()))?;
+                }
+            }
+        }
+        let raw = doc
+            .get_in(path(&[json!("routing")]))
+            .map_err(|e| StrategyError::Other(e.to_string()))?;
+        let source = raw
+            .as_ref()
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_else(|| {
+                current["routing"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|rule| match rule.get("kinds") {
+                        Some(kinds) if !kinds.is_null() => {
+                            json!({"kinds":kinds,"executors":rule["executors"]})
+                        }
+                        _ => json!({"default":rule["executors"]}),
+                    })
+                    .collect()
+            });
+        let mut kept = Vec::new();
+        let mut deleted = Vec::new();
+        for (index, rule) in source.iter().enumerate() {
+            let key = if rule.get("default").is_some_and(Value::is_array) {
+                "default"
+            } else {
+                "executors"
+            };
+            let remaining = rule[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|reference| {
+                    reference
+                        .as_str()
+                        .and_then(|reference| resolve(current, reference))
+                        .is_none_or(|candidate| candidate["id"] != id)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if remaining.is_empty() {
+                deleted.push(index);
+            } else {
+                kept.push((index, key, remaining));
+            }
+        }
+        if raw.as_ref().and_then(Value::as_array).is_none() {
+            let values = kept
+                .iter()
+                .map(|(index, key, remaining)| {
+                    let mut rule = source[*index].clone();
+                    rule[*key] = Value::Array(remaining.clone());
+                    rule
+                })
+                .collect::<Vec<_>>();
+            doc.set_in(path(&[json!("routing")]), &json!(values))
+                .map_err(|e| StrategyError::Other(e.to_string()))?;
+        } else {
+            for (index, key, remaining) in &kept {
+                doc.set_list(
+                    path(&[json!("routing"), json!(index), json!(key)]),
+                    remaining,
+                )
+                .map_err(|e| StrategyError::Other(e.to_string()))?;
+            }
+            for index in &deleted {
+                let key = if source[*index].get("default").is_some_and(Value::is_array) {
+                    "default"
+                } else {
+                    "executors"
+                };
+                doc.set_list(path(&[json!("routing"), json!(index), json!(key)]), &[])
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+            }
+            if !deleted.is_empty() {
+                doc.remove_sequence_indices(path(&[json!("routing")]), &deleted)
+                    .map_err(|e| StrategyError::Other(e.to_string()))?;
+            }
+        }
+        if let Some(order) = doc
+            .get_in(path(&[json!("pacing"), json!("order")]))
+            .map_err(|e| StrategyError::Other(e.to_string()))?
+            .and_then(|value| value.as_array().cloned())
+        {
+            let filtered = order
+                .into_iter()
+                .filter(|reference| {
+                    reference
+                        .as_str()
+                        .and_then(|reference| resolve(current, reference))
+                        .is_none_or(|candidate| candidate["id"] != id)
+                })
+                .collect::<Vec<_>>();
+            doc.set_list(path(&[json!("pacing"), json!("order")]), &filtered)
+                .map_err(|e| StrategyError::Other(e.to_string()))?;
+        }
+        Ok(())
+    })?;
+    let mut result = json!({"id":id,"removed":true,"diff":diff});
+    if let Some(migrated) = migrated {
+        result["migrated"] = migrated;
+    }
+    Ok(result)
+}
