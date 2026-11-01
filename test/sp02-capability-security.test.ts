@@ -156,6 +156,20 @@ test("listing skips hidden directories and a flat glob stays at the root", async
   } finally { await f.authority.revoke(); }
 });
 
+test("listing expands nested brace alternatives and character classes", async () => {
+  const f = await resources();
+  for (const directory of ["a", "b", "c"]) {
+    mkdirSync(join(f.sessions, directory));
+    writeFileSync(join(f.sessions, directory, `rollout-${directory}.jsonl`), directory);
+  }
+  try {
+    const result = await answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob: "{a,{b,c}}/rollout-[abc].jsonl" }) as { files: { path: string }[] };
+    expect(result.files.map(file => file.path).sort()).toEqual(["a", "b", "c"].map(directory =>
+      join(f.sessions, directory, `rollout-${directory}.jsonl`)).sort());
+  } finally { await f.authority.revoke(); }
+});
+
 test("large or heavily escaped reads require bounded ranges, and stale size never yields partial bytes", async () => {
   const f = await resources();
   writeFileSync(f.allowed, Buffer.alloc(200000));

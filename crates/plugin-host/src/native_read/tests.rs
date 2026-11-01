@@ -2,6 +2,7 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::symlink;
+use std::process::Command;
 
 #[test]
 fn exact_file_range_and_changed_name() {
@@ -293,6 +294,145 @@ fn directory_descriptor_does_not_follow_a_swapped_descendant() {
         names,
         vec![std::ffi::CString::new("rollout-safe.jsonl").unwrap()]
     );
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn listing_brace_alternatives_include_both_descendants() {
+    let home = std::env::temp_dir().join(format!("pacer-braces-{}", uuid::Uuid::new_v4()));
+    let root = home.join("logs");
+    fs::create_dir_all(root.join("a")).unwrap();
+    fs::create_dir(root.join("b")).unwrap();
+    fs::write(root.join("a/rollout-a.jsonl"), "a").unwrap();
+    fs::write(root.join("b/rollout-b.jsonl"), "b").unwrap();
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let listed = reader
+        .list(
+            &json!({"dir":root,"glob":"{a,b}/rollout-*.jsonl"}),
+            &[format!("{}/**", root.display())],
+            &ScopeRoots::default(),
+            &authority,
+            Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+    assert_eq!(listed["files"].as_array().unwrap().len(), 2);
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn structured_glob_corpus_matches_bun() {
+    let directory_patterns = [
+        "a",
+        "{a,b}",
+        "{a,{b,c}}",
+        "[ab]",
+        "**",
+        "a/**",
+        "{a,b}/**",
+        "**/**",
+        "a/**/x",
+    ];
+    let file_patterns = [
+        "rollout-*.jsonl",
+        "rollout-?.jsonl",
+        "rollout-[ab].jsonl",
+        "rollout-{a,b}.jsonl",
+    ];
+    let directories = ["a", "b", "c", "a/x", "b/y", "c/z", "a/x/y"];
+    let files = [
+        "rollout-a.jsonl",
+        "rollout-b.jsonl",
+        "rollout-long.jsonl",
+        "private.jsonl",
+    ];
+    let patterns: Vec<_> = directory_patterns
+        .iter()
+        .flat_map(|dir| {
+            file_patterns
+                .iter()
+                .map(move |file| format!("{dir}/{file}"))
+        })
+        .collect();
+    let mut paths: Vec<_> = directories
+        .iter()
+        .flat_map(|dir| files.iter().map(move |file| format!("{dir}/{file}")))
+        .collect();
+    paths.extend(files.iter().map(|file| (*file).to_owned()));
+    let corpus = json!({"patterns":patterns,"paths":paths});
+    let script = "const {patterns,paths}=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(patterns.map(p=>paths.map(x=>new Bun.Glob(p).match(x)))));";
+    let output = Command::new("bun")
+        .args(["-e", script, &corpus.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Vec<bool>> = serde_json::from_slice(&output.stdout).unwrap();
+    for (pattern, row) in patterns.iter().zip(expected) {
+        let alternatives =
+            expand_braces(pattern, Instant::now() + std::time::Duration::from_secs(5)).unwrap();
+        for (path, bun_match) in paths.iter().zip(row) {
+            let rust_match = alternatives
+                .iter()
+                .any(|alt| matches_visible(alt, Path::new(path)));
+            assert_eq!(rust_match, bun_match, "pattern={pattern:?} path={path:?}");
+        }
+    }
+}
+
+#[test]
+fn listing_rejects_descendant_moved_outside_root() {
+    let home = std::env::temp_dir().join(format!("pacer-outside-swap-{}", uuid::Uuid::new_v4()));
+    let root = home.join("logs");
+    let outside = home.join("outside");
+    fs::create_dir_all(root.join("nested")).unwrap();
+    fs::write(root.join("nested/rollout-leak.jsonl"), "outside").unwrap();
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let mut swapped = false;
+    let result = reader.list_with_hook(
+        &json!({"dir":root,"glob":"**/rollout-*.jsonl"}),
+        &[format!("{}/**", root.display())],
+        &ScopeRoots::default(),
+        &authority,
+        Instant::now() + std::time::Duration::from_secs(5),
+        |relative| {
+            if relative == Path::new("nested") {
+                fs::rename(root.join("nested"), &outside).unwrap();
+                swapped = true;
+            }
+        },
+    );
+    assert!(swapped);
+    assert!(matches!(
+        result,
+        Err(BrokerError::Invalid("read descendant moved"))
+    ));
     fs::remove_dir_all(home).unwrap();
 }
 

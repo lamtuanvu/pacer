@@ -85,6 +85,18 @@ impl NativeRead {
         authority: &CallAuthority,
         deadline: Instant,
     ) -> Result<Value, BrokerError> {
+        self.list_with_hook(params, scopes, scope_roots, authority, deadline, |_| {})
+    }
+
+    fn list_with_hook(
+        &self,
+        params: &Value,
+        scopes: &[String],
+        scope_roots: &ScopeRoots,
+        authority: &CallAuthority,
+        deadline: Instant,
+        mut on_directory: impl FnMut(&Path),
+    ) -> Result<Value, BrokerError> {
         let dir = params
             .get("dir")
             .and_then(Value::as_str)
@@ -120,7 +132,10 @@ impl NativeRead {
             return Ok(json!({"files":[],"complete":true}));
         };
         check_root(image)?;
-        let pattern = glob::Pattern::new(glob).map_err(|_| BrokerError::Invalid("read glob"))?;
+        let patterns = expand_braces(glob, deadline)?;
+        for pattern in &patterns {
+            glob::Pattern::new(pattern).map_err(|_| BrokerError::Invalid("read glob"))?;
+        }
         let root_dir = open_directory(root)?;
         if !image.parent_identity.as_ref().is_some_and(|old| {
             fstat(&root_dir)
@@ -128,10 +143,15 @@ impl NativeRead {
         }) {
             return Err(BrokerError::Invalid("read root changed"));
         }
-        let mut stack = vec![(root_dir, PathBuf::new())];
+        let mut stack = vec![(
+            Dir::openat(&root_dir, ".", directory_flags(), Mode::empty())
+                .map_err(|_| BrokerError::Invalid("read directory unavailable"))?,
+            PathBuf::new(),
+        )];
         let mut files: Vec<Value> = Vec::new();
         let mut total = 0usize;
         while let Some((mut directory, relative_dir)) = stack.pop() {
+            on_directory(&relative_dir);
             authority.active()?;
             if Instant::now() >= deadline {
                 return Err(BrokerError::Timeout);
@@ -161,7 +181,10 @@ impl NativeRead {
                     continue;
                 }
                 if kind == SFlag::S_IFDIR {
-                    if may_descend(glob, &relative) {
+                    if patterns
+                        .iter()
+                        .any(|pattern| may_descend(pattern, &relative))
+                    {
                         let child = Dir::openat(&dir_fd, name, directory_flags(), Mode::empty())
                             .map_err(|_| BrokerError::Invalid("read directory changed"))?;
                         if !fstat(&child)
@@ -176,13 +199,9 @@ impl NativeRead {
                 if kind != SFlag::S_IFREG {
                     continue;
                 }
-                if !pattern.matches_path_with(
-                    &relative,
-                    glob::MatchOptions {
-                        require_literal_separator: true,
-                        ..Default::default()
-                    },
-                ) || !matches_visible(glob, &relative)
+                if !patterns
+                    .iter()
+                    .any(|pattern| matches_visible(pattern, &relative))
                 {
                     continue;
                 }
@@ -208,6 +227,7 @@ impl NativeRead {
                 {
                     return Err(BrokerError::Invalid("read entry changed"));
                 }
+                check_descendant(&root_dir, &relative_dir, &dir_fd)?;
                 total += 1;
                 let item = stat_info(path_str, &current);
                 let index = files
@@ -226,6 +246,15 @@ impl NativeRead {
             }
         }
         check_root(image)?;
+        for item in &files {
+            let path = item["path"]
+                .as_str()
+                .ok_or(BrokerError::Invalid("read entry changed"))?;
+            let relative = Path::new(path)
+                .strip_prefix(dir)
+                .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+            check_listed_entry(&root_dir, relative, item)?;
+        }
         if Instant::now() >= deadline {
             return Err(BrokerError::Timeout);
         }
@@ -379,6 +408,148 @@ fn directory_flags() -> OFlag {
 fn open_directory(path: &Path) -> Result<Dir, BrokerError> {
     Dir::open(path, directory_flags(), Mode::empty())
         .map_err(|_| BrokerError::Invalid("read directory changed"))
+}
+
+fn check_descendant(root: &Dir, relative: &Path, opened: &impl AsFd) -> Result<(), BrokerError> {
+    let clone = root
+        .as_fd()
+        .try_clone_to_owned()
+        .map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    let mut reachable =
+        Dir::from_fd(clone).map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    for part in relative.iter() {
+        reachable = Dir::openat(&reachable, part, directory_flags(), Mode::empty())
+            .map_err(|_| BrokerError::Invalid("read descendant moved"))?;
+    }
+    let actual = fstat(opened).map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    let current = fstat(&reachable).map_err(|_| BrokerError::Invalid("read descendant moved"))?;
+    if actual.st_dev != current.st_dev || actual.st_ino != current.st_ino {
+        return Err(BrokerError::Invalid("read descendant moved"));
+    }
+    Ok(())
+}
+
+fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), BrokerError> {
+    let parent = relative
+        .parent()
+        .ok_or(BrokerError::Invalid("read entry changed"))?;
+    let name = relative
+        .file_name()
+        .ok_or(BrokerError::Invalid("read entry changed"))?;
+    let mut directory = Dir::openat(root, ".", directory_flags(), Mode::empty())
+        .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    for part in parent.iter() {
+        directory = Dir::openat(&directory, part, directory_flags(), Mode::empty())
+            .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    }
+    let stat = fstatat(&directory, name, AtFlags::AT_SYMLINK_NOFOLLOW)
+        .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    if SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT) != SFlag::S_IFREG
+        || item["inode"].as_u64() != Some(stat.st_ino)
+        || item["device"].as_u64() != Some(stat.st_dev as u64)
+        || item["size"].as_u64() != Some(stat.st_size as u64)
+        || item["mode"].as_u64() != Some(stat.st_mode as u64)
+        || item["mtimeMs"].as_f64()
+            != Some(stat.st_mtime as f64 * 1000.0 + stat.st_mtime_nsec as f64 / 1e6)
+    {
+        return Err(BrokerError::Invalid("read entry changed"));
+    }
+    Ok(())
+}
+
+fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<String>, BrokerError> {
+    let mut pending = vec![input.to_owned()];
+    let mut expanded = Vec::new();
+    while let Some(pattern) = pending.pop() {
+        if Instant::now() >= deadline {
+            return Err(BrokerError::Timeout);
+        }
+        let bytes = pattern.as_bytes();
+        let mut escaped = false;
+        let mut bracket = false;
+        let mut opening = None;
+        let mut closing = None;
+        let mut depth = 0usize;
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == b'[' {
+                bracket = true;
+                continue;
+            }
+            if byte == b']' {
+                bracket = false;
+                continue;
+            }
+            if bracket {
+                continue;
+            }
+            if byte == b'{' {
+                if opening.is_none() {
+                    opening = Some(index);
+                }
+                depth += 1;
+            } else if byte == b'}' && depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    closing = Some(index);
+                    break;
+                }
+            }
+        }
+        let (Some(start), Some(end)) = (opening, closing) else {
+            expanded.push(pattern);
+            continue;
+        };
+        let mut start_alt = start + 1;
+        let mut depth = 0usize;
+        let mut escaped = false;
+        let mut bracket = false;
+        for index in start + 1..=end {
+            let byte = bytes[index];
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == b'[' {
+                bracket = true;
+                continue;
+            }
+            if byte == b']' {
+                bracket = false;
+                continue;
+            }
+            if bracket {
+                continue;
+            }
+            if byte == b'{' {
+                depth += 1;
+            }
+            if byte == b'}' && index != end {
+                depth -= 1;
+            }
+            if index == end || (byte == b',' && depth == 0) {
+                pending.push(format!(
+                    "{}{}{}",
+                    &pattern[..start],
+                    &pattern[start_alt..index],
+                    &pattern[end + 1..]
+                ));
+                start_alt = index + 1;
+            }
+        }
+    }
+    Ok(expanded)
 }
 
 fn pattern_reaches(glob: &str, path: &Path, complete: bool) -> bool {
