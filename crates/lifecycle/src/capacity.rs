@@ -23,28 +23,53 @@ pub fn slot_use(tasks: &[Value]) -> Value {
         }
         let executor = task
             .pointer("/run/executor")
-            .or_else(|| task.get("executor"))
-            .and_then(Value::as_str);
-        if let Some(id) = executor {
+            .and_then(Value::as_str)
+            .or_else(|| task.get("executor").and_then(Value::as_str));
+        if let Some(id) = executor.filter(|id| !id.is_empty()) {
             *by_executor.entry(id.into()).or_default() += 1;
         }
         let host = task
             .pointer("/run/host")
             .and_then(Value::as_str)
-            .or_else(|| {
-                executor.and_then(|id| {
-                    id.rsplit_once('@')
-                        .map(|(_, host)| host)
-                        .filter(|host| *host != "local")
-                })
-            });
-        if let Some(id) = host {
+            .or_else(|| executor.and_then(runner_host));
+        if let Some(id) = host.filter(|id| !id.is_empty()) {
             *by_host.entry(id.into()).or_default() += 1;
         } else {
             local += 1;
         }
     }
     json!({"byExecutor":by_executor,"byHost":by_host,"local":local})
+}
+
+fn runner_host(id: &str) -> Option<&str> {
+    let (runner, host) = id.rsplit_once('@')?;
+    if host == "local" || !runner_segment(host) {
+        return None;
+    }
+    let mut parts = runner.split('#');
+    let agent = parts.next()?;
+    if !["claude-code", "codex", "cursor", "agy", "opencode"].contains(&agent) {
+        return None;
+    }
+    if let Some(account) = parts.next()
+        && !runner_segment(account)
+    {
+        return None;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(host)
+}
+
+fn runner_segment(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
 }
 
 fn truthy(value: &Value) -> bool {

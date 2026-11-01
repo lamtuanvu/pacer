@@ -96,3 +96,73 @@ fn slot_and_validation_edge_cases() {
         Some(json!({"reason":"no_slot","limit":"host","capacity":{"used":1,"max":1}}))
     );
 }
+
+#[test]
+fn slot_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/slot-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        assert_eq!(
+            slot_use(row["tasks"].as_array().unwrap()),
+            row["expected"],
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn capacity_branch_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/capacity-branches.json"
+    ))
+    .unwrap();
+    for row in rows {
+        let limits = &row["limits"];
+        let actual = queue_capacity(
+            row["executor"].as_str().unwrap(),
+            row.get("host").and_then(Value::as_str),
+            SlotLimits {
+                executor: limits["executor"].as_u64().unwrap() as usize,
+                host: limits["host"].as_u64().map(|n| n as usize),
+                local: limits["local"].as_u64().map(|n| n as usize),
+            },
+            &row["use"],
+            row.get("guard").cloned(),
+        );
+        assert_eq!(
+            actual.unwrap_or(Value::Null),
+            row["expected"],
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn direct_validation_number_and_utf16_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/validation-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        assert_eq!(
+            validate_input(&row["input"], true),
+            row["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect::<Vec<_>>(),
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn empty_default_repository_is_rejected() {
+    assert!(parse_delegate_brief(&json!({"goal":"work"}), "").is_err());
+}

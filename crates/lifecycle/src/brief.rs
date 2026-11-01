@@ -1,6 +1,13 @@
 use serde_json::{Map, Value};
 use std::{path::Path, process::Command};
 
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+fn codepoint_len(s: &str) -> usize {
+    s.chars().count()
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("{0}")]
 pub struct AdmissionError(pub String);
@@ -17,7 +24,7 @@ fn string_field<'a>(
     let text = value
         .as_str()
         .ok_or_else(|| AdmissionError(format!("{name}: Expected string")))?;
-    if text.chars().count() < min || max.is_some_and(|n| text.chars().count() > n) {
+    if codepoint_len(text) < min || max.is_some_and(|n| codepoint_len(text) > n) {
         return Err(AdmissionError(format!("{name}: invalid length")));
     }
     Ok(Some(text))
@@ -43,7 +50,11 @@ fn number_field(
     let n = value
         .as_f64()
         .ok_or_else(|| AdmissionError(format!("{name}: Expected number")))?;
-    if !n.is_finite() || n < min || n > max || (integer && n.fract() != 0.0) {
+    if !n.is_finite()
+        || n < min
+        || n > max
+        || (integer && (n.fract() != 0.0 || n.abs() > 9_007_199_254_740_991.0))
+    {
         return Err(AdmissionError(format!("{name}: invalid number")));
     }
     Ok(())
@@ -64,7 +75,7 @@ fn enum_field(
 }
 
 pub fn valid_base(base: &str) -> bool {
-    if (7..=40).contains(&base.len()) && base.bytes().all(|c| c.is_ascii_hexdigit()) {
+    if (7..=40).contains(&codepoint_len(base)) && base.bytes().all(|c| c.is_ascii_hexdigit()) {
         return true;
     }
     if base.is_empty() || base.contains('\0') || base.starts_with('-') || base.contains("@{") {
@@ -88,7 +99,9 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         return Err(AdmissionError("delegate input must be an object".into()));
     }
     string_field(raw, "goal", 1, None)?.ok_or_else(|| AdmissionError("goal: Required".into()))?;
-    string_field(raw, "repo", 1, None)?;
+    if string_field(raw, "repo", 1, None)?.is_none() && default_repo.is_empty() {
+        return Err(AdmissionError("repo: invalid length".into()));
+    }
     for name in ["scope", "acceptance", "constraints", "context", "executor"] {
         string_field(raw, name, 0, None)?;
     }
@@ -100,7 +113,7 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         string_field(raw, name, min, Some(max))?;
     }
     if let Some(title) = string_field(raw, "title", 0, None)?
-        && (title.trim().is_empty() || title.trim().chars().count() > 60)
+        && (title.trim().is_empty() || codepoint_len(title.trim()) > 60)
     {
         return Err(AdmissionError("title: invalid length".into()));
     }
@@ -150,7 +163,7 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
     if let Some(group) = string_field(raw, "group", 0, None)? {
         let bytes = group.as_bytes();
         if bytes.is_empty()
-            || bytes.len() > 40
+            || codepoint_len(group) > 40
             || !bytes[0].is_ascii_alphanumeric()
             || !bytes
                 .iter()
@@ -183,6 +196,16 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         copy_if_present(raw, &mut brief, source, target);
     }
     let mut input = Map::new();
+    if let Some(dispatch) = raw.get("dispatch")
+        && !matches!(dispatch, Value::Null | Value::Bool(false))
+        && !dispatch.as_f64().is_some_and(|n| n == 0.0)
+        && dispatch != ""
+    {
+        input.insert("dispatch".into(), crate::schema::dispatch(dispatch)?);
+    }
+    if let Some(messaging) = raw.get("messaging") {
+        input.insert("messaging".into(), crate::schema::messaging(messaging)?);
+    }
     for (source, target) in [
         ("request_id", "requestId"),
         ("source", "source"),
@@ -193,7 +216,6 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         ("worktree_reason", "worktree_reason"),
         ("interactive", "interactive"),
         ("group", "group"),
-        ("messaging", "messaging"),
         ("grant", "grant"),
     ] {
         copy_if_present(raw, &mut input, source, target);
@@ -210,7 +232,7 @@ pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
     let brief = &input["brief"];
     if input.get("title").is_some_and(|v| {
         !v.as_str()
-            .is_some_and(|s| (1..=60).contains(&s.trim().chars().count()))
+            .is_some_and(|s| (1..=60).contains(&utf16_len(s.trim())))
     }) {
         problems.push("title must be 1–60 characters after trimming".into());
     }
@@ -240,7 +262,7 @@ pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
     }
     if input.get("requestId").is_some_and(|v| {
         !v.as_str()
-            .is_some_and(|s| (1..=128).contains(&s.chars().count()))
+            .is_some_and(|s| (1..=128).contains(&utf16_len(s)))
     }) {
         problems.push("request_id must be 1–128 characters".into());
     }

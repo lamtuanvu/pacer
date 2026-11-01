@@ -1,0 +1,8 @@
+[
+  {"id":"title-codepoint-pass-but-utf16-fail","input":{"brief":{"goal":"work","repo":"/tmp"},"title":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"},"problems":["title must be 1–60 characters after trimming"]},
+  {"id":"request-codepoint-pass-but-utf16-fail","input":{"brief":{"goal":"work","repo":"/tmp"},"requestId":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"},"problems":["request_id must be 1–128 characters"]},
+  {"id":"integer-float","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1.0}},"problems":[]},
+  {"id":"integer-exponent","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1e2}},"problems":[]},
+  {"id":"integer-fraction","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1.5}},"problems":["acceptance_timeout_min must be an integer between 1 and 120"]},
+  {"id":"timeout-fraction","input":{"brief":{"goal":"work","repo":"/tmp"},"timeoutMin":1.5},"problems":[]}
+]
