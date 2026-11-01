@@ -37,7 +37,9 @@ test.skipIf(!front)("stdio accepts hello before native dispatch and flips back t
     expect(byId(8).result.protocol).toBe("3.0.0");
     expect(byId(9).result).toEqual({ n: 9 });
     expect(replies.some(reply => reply.error?.code === -32700)).toBe(true);
-    expect(stderr.match(/^native test\.echo$/gm)).toHaveLength(3);
+    expect(stderr.split("\n").filter(line => line.startsWith("native test.echo"))).toEqual([
+      "native test.echo 3", "native test.echo 5", "native test.echo 9",
+    ]);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 
@@ -60,7 +62,9 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
     expect(replies.map(reply => reply.id).sort()).toEqual([1, 2, 3, 4, 5]);
     for (const id of [1, 2, 3, 5]) expect(replies.find(reply => reply.id === id).result).toEqual({ n: id });
     expect(replies.find(reply => reply.id === 4).error.data.code).toBe("unknown_op");
-    expect(stderr.match(/^native test\.echo$/gm)).toHaveLength(4);
+    expect(stderr.split("\n").filter(line => line.startsWith("native test.echo"))).toEqual([
+      "native test.echo 1", "native test.echo 2", "native test.echo 3", "native test.echo 5",
+    ]);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 

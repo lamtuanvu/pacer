@@ -74,6 +74,8 @@ layer = 2
 layer = 3
 [crates.pacer-plugin-host]
 layer = 4
+[crates.pacer-sqlite-proof]
+layer = 2
 [crates.pacer-server]
 layer = 8
 heavy = ["axum", "hyper"]
@@ -90,3 +92,5 @@ layer = "sdk"
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
+[crates.pacer-engine]
+layer = 5
