@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { mkdir, readFile, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -50,17 +51,10 @@ export class CursorStore<T> {
       });
       const result = await action(tracked);
       if (!ctx.readOnly && this.dirty) {
-        const dir = join(ctx.pacerHome, "state");
-        const tmp = `${this.path}.${randomUUID()}.tmp`;
         try {
-          await mkdir(dir, { recursive: true, mode: 0o700 });
-          const file = await open(tmp, "wx", 0o600);
-          try { await file.writeFile(JSON.stringify({ version: this.version, files: this.files })); }
-          finally { await file.close(); }
-          await rename(tmp, this.path);
+          privateWrite(this.path, JSON.stringify({ version: this.version, files: this.files }));
           this.dirty = false;
         } catch (error) {
-          await unlink(tmp).catch(() => {});
           // Cache persistence must never discard a successfully read usage result.
           if (ctx.env.PACER_TRACE_STATUS === "1") console.error("[pacer:status:debug] cursor persistence failed", (error as NodeJS.ErrnoException).code);
         }

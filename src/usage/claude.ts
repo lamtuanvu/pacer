@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import type { AccountCfg } from "../config/accounts";
 import { defaultAccountFolder } from "../exec/account-folder";
 import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
@@ -27,16 +28,7 @@ export function captureClaudeStreamUsage(ctx: Ctx, account: AccountCfg, stdout: 
   // Do not replace a complete account snapshot with incomplete telemetry or
   // make an older, missing window look fresh by borrowing this timestamp.
   if (!windows.seven_day || !windows.five_hour) return false;
-  const path = claudeCacheFile(ctx, account), dir = dirname(path);
-  mkdirSync(dir, {recursive: true, mode: 0o700});
-  chmodSync(dir, 0o700);
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, JSON.stringify({...windows, captured_at: ctx.now, source: "session-log"}), {flag: "wx", mode: 0o600});
-    renameSync(temp, path);
-  } finally {
-    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
+  privateWrite(claudeCacheFile(ctx, account), JSON.stringify({...windows, captured_at: ctx.now, source: "session-log"}));
   return true;
 }
 

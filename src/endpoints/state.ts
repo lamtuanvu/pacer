@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -23,12 +24,7 @@ export function readEndpointState(ctx: Ctx, name: string): EndpointState {
 export function writeEndpointState(ctx: Ctx, name: string, state: EndpointState): void {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error("invalid endpoint name");
   const value = {...states(ctx), [name]: state};
-  const dir = join(ctx.pacerHome, "endpoints"), path = join(dir, "state.json"), temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    mkdirSync(dir, {recursive: true, mode: 0o700}); chmodSync(dir, 0o700);
-    writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", {flag: "wx", mode: 0o600});
-    renameSync(temp, path);
-  } finally { rmSync(temp, {force: true}); }
+  privateWrite(join(ctx.pacerHome, "endpoints", "state.json"), JSON.stringify(value, null, 2) + "\n");
 }
 
 function redactSecrets(text: string, secrets: string[]): string {

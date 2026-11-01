@@ -1,3 +1,4 @@
+import { privateAppend, privateDir, privateWrite } from "../private-file";
 import { appendFileSync, chmodSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, closeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -142,7 +143,9 @@ export function publishSessionFiles(localDir: string, stage: string, changed: Na
   replace: typeof renameSync = renameSync): void {
   if (!changed.length) return;
   const previous = join(localDir, backup), journal = join(localDir, marker);
-  mkdirSync(previous, { mode: 0o700 });
+  const journalTemp = `${journal}.${randomUUID()}.tmp`;
+  privateDir(localDir);
+  privateDir(previous);
   const old = changed.map(name => ({ name, present: existsSync(join(localDir, name)) }));
   try {
     for (const { name, present } of old) if (present) {
@@ -150,8 +153,8 @@ export function publishSessionFiles(localDir: string, stage: string, changed: Na
       if (!lstatSync(source).isFile()) throw Error("session recording target is not a regular file");
       copyFileSync(source, join(previous, name)); chmodSync(join(previous, name), 0o600); flush(join(previous, name));
     }
-    writeFileSync(`${journal}.tmp`, JSON.stringify(old), { mode: 0o600, flag: "wx" });
-    flush(`${journal}.tmp`); renameSync(`${journal}.tmp`, journal);
+    writeFileSync(journalTemp, JSON.stringify(old), { mode: 0o600, flag: "wx" });
+    flush(journalTemp); renameSync(journalTemp, journal);
     flush(localDir);
     for (const name of changed) {
       if (snapshot[name].bytes === null) rmSync(join(localDir, name), { force: true });
@@ -164,9 +167,9 @@ export function publishSessionFiles(localDir: string, stage: string, changed: Na
     try { flush(localDir); rmSync(previous, { recursive: true, force: true }); } catch { /* stale backup is safe */ }
   } catch (error) {
     if (existsSync(journal)) recoverSessionFiles(localDir);
-    else { rmSync(`${journal}.tmp`, { force: true }); rmSync(previous, { recursive: true, force: true }); }
+    else { rmSync(previous, { recursive: true, force: true }); }
     throw error;
-  }
+  } finally { rmSync(journalTemp, { force: true }); }
 }
 
 /** Mirror one stable recording generation through bounded, one-use plugin reads. */
@@ -202,7 +205,7 @@ export async function mirrorSessionFiles(ctx: Ctx, host: HostCfg, remoteDir: str
       const append = name === "session.log" && prior?.sum === entry.sum && prior.bytes !== null &&
         existsSync(target) && localBytes === prior.bytes && localBytes <= entry.bytes;
       if (append) { copyFileSync(target, join(stage, name)); chmodSync(join(stage, name), 0o600); offsets[name] = localBytes; }
-      else { writeFileSync(join(stage, name), "", { mode: 0o600 }); offsets[name] = 0; }
+      else { privateWrite(join(stage, name), ""); offsets[name] = 0; }
     }
     manifest = { binding, createdAt: Date.now(), snapshot: current, changed, offsets };
     saveStage(stage, manifest);
@@ -221,7 +224,7 @@ export async function mirrorSessionFiles(ctx: Ctx, host: HostCfg, remoteDir: str
         throw Error("remote session range unavailable");
       const bytes = Buffer.from(result.stdout, "hex");
       if (bytes.length !== count) throw Error("short remote session range");
-      appendFileSync(join(stage, name), bytes);
+      privateAppend(join(stage, name), bytes);
       at += count; budget -= count; manifest.offsets[name] = at;
       saveStage(stage, manifest);
     }
@@ -242,7 +245,7 @@ export async function mirrorSessionFiles(ctx: Ctx, host: HostCfg, remoteDir: str
       const result = await registry.readFromConfiguredHost(ctx, grant, AbortSignal.timeout(remaining()));
       if (result.code === 0 && !result.timedOut && /^(?:[a-f0-9]{2})*$/.test(result.stdout) &&
         Buffer.byteLength(result.stdout) === state.bytes * 2) {
-        writeFileSync(join(stage, "session.state"), Buffer.from(result.stdout, "hex"), { mode: 0o600 });
+        privateWrite(join(stage, "session.state"), Buffer.from(result.stdout, "hex"));
         changed.push("session.state");
       }
     } catch { /* active session state is optional */ }

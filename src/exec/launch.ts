@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { join } from "node:path";
@@ -105,7 +106,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     if (Buffer.byteLength(prompt, "utf8") > INTERACTIVE_PROMPT_BYTES) {
       mkdirSync(taskDir, {recursive: true, mode: 0o700});
       const promptFile = join(taskDir, "prompt.md");
-      writeFileSync(promptFile, prompt, {mode: 0o600});
+      privateWrite(promptFile, prompt);
       prompt = promptFileInstruction(promptFile);
     }
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;

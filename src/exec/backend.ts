@@ -1,3 +1,4 @@
+import { privateAppend } from "../private-file";
 import { appendFileSync } from "node:fs";
 import { resolveRunner } from "../config/runner-id";
 import type { ProviderCfg, Strategy } from "../config/strategy";
@@ -44,7 +45,7 @@ const loggedDirect = (line: string): Backend => ({
   note: line,
   runAttempt: async (ctx, cfg, task, onSpawn) => {
     const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
-    appendFileSync(out.attempt.log, `direct backend: ${line}\n`);
+    privateAppend(out.attempt.log, `direct backend: ${line}\n`);
     return out;
   },
 });

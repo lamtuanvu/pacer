@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
@@ -55,9 +56,7 @@ function directory(ctx: Ctx, id: string): string {
   return join(root(ctx), id);
 }
 function writePrivate(path: string, value: unknown): void {
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600 });
-  renameSync(temporary, path);
+  privateWrite(path, JSON.stringify(value));
 }
 function readStored(ctx: Ctx, id: string): StoredTerminal {
   try {

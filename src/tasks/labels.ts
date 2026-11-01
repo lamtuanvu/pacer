@@ -1,3 +1,4 @@
+import { privateAppend } from "../private-file";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
@@ -7,7 +8,7 @@ const labelsFile = (ctx: Ctx) => join(ctx.pacerHome, "labels.jsonl");
 /** Ground-truth labels for the classifier benchmark (spec §3.10). */
 export function appendLabel(ctx: Ctx, label: Record<string, unknown>): void {
   mkdirSync(ctx.pacerHome, { recursive: true });
-  appendFileSync(labelsFile(ctx), `${JSON.stringify({ ts: ctx.now, ...label })}\n`);
+  privateAppend(labelsFile(ctx), `${JSON.stringify({ ts: ctx.now, ...label })}\n`);
 }
 
 export function readLabels(ctx: Ctx): Record<string, unknown>[] {

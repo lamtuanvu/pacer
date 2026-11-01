@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { sha256 } from "../install/fsx";
 import { runDoctor } from "../install/doctor";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
@@ -37,8 +38,7 @@ export async function init(ctx: Ctx, planner: string) {
     else {
       const text = starterStrategy(await detect(ctx), planner);
       validateStrategy(Bun.YAML.parse(text), path);
-      mkdirSync(ctx.pacerHome, {recursive: true});
-      writeFileSync(path, text);
+      privateWrite(path, text);
       migrateStrategy(path);
     }
     return {strategy: path};
@@ -107,8 +107,7 @@ export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<Serv
 export function onboardingSkip(ctx:Ctx) {
   const dir=join(ctx.pacerHome,"onboarding"),path=join(dir,"skipped"),tmp=join(dir,`.skipped-${crypto.randomUUID()}`);
   try {
-    mkdirSync(dir,{recursive:true,mode:0o700});
-    writeFileSync(tmp,"",{flag:"wx",mode:0o600});renameSync(tmp,path);
+    privateWrite(path, "");
     return {skipped:true};
   }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
 }

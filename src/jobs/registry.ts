@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { publish } from "../link/publish";
 import { redactEndpointError } from "../endpoints/state";
@@ -53,10 +54,7 @@ function jobChanged(ctx: Ctx, job: Job) {
   void pending.finally(()=>{if(publications.get(home)===pending)publications.delete(home);});
 }
 function save(ctx: Ctx, job: Job, onChange?: OnChange) {
-  mkdirSync(directory(ctx), { recursive: true });
-  const file = path(ctx, job.id), temp = `${file}.${randomUUID()}.tmp`;
-  writeFileSync(temp, JSON.stringify(job), { mode: 0o600 });
-  renameSync(temp, file);
+  privateWrite(path(ctx, job.id), JSON.stringify(job));
   // Observers must never interrupt the work they are observing.
   try { jobChanged(ctx, structuredClone(job)); onChange?.(structuredClone(job)); } catch { /* best-effort notification */ }
 }

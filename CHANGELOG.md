@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Security
+
+- Write TypeScript state and secret files through exclusive, uniquely named temporary files with 0600 permissions, tighten their directories to 0700, and keep log appends on O_APPEND.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added

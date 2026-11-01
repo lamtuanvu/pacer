@@ -1,3 +1,4 @@
+import { privateAppend } from "../private-file";
 import { plannerBorrow } from "./planner-resources";
 import { answerWrite, checkWriteAuthority } from "./capability-write";
 import { fileWriteTransfers } from "./file-write-transfers";
@@ -32,7 +33,7 @@ export function appendPluginLog(ctx: Pick<Ctx, "pacerHome">, id: string, tag: st
   mkdirSync(join(ctx.pacerHome, "logs", "plugins"), { recursive: true, mode: 0o700 });
   const path = pluginLogPath(ctx, id);
   try { if (statSync(path).size >= PLUGIN_LOG_MAX_BYTES) renameSync(path, `${path}.1`); } catch { /* no log yet */ }
-  appendFileSync(path, `${new Date().toISOString()} [${tag}] ${line.slice(0, 4096)}\n`, { mode: 0o600 });
+  privateAppend(path, `${new Date().toISOString()} [${tag}] ${line.slice(0, 4096)}\n`);
 }
 /** One generation of rotation keeps a plugin-controlled log under twice this size. */
 export const PLUGIN_LOG_MAX_BYTES = 1024 * 1024;

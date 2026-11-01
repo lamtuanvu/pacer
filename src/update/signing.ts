@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { chmodSync, closeSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
@@ -87,11 +88,11 @@ export async function createIdentity(o: SigningOptions = {}): Promise<void> {
     const found = await run(["/usr/bin/security", "find-certificate", "-c", SIGNING_IDENTITY, "-p", keychain], 3000);
     if (found.timedOut) throw Error("Keychain lookup timed out; unlock the login keychain and retry.");
     if (found.code === 0 && found.stdout.includes("BEGIN CERTIFICATE")) {
-      writeFileSync(cert, found.stdout, {mode: 0o600});
+      privateWrite(cert, found.stdout);
       log(`Reusing ${SIGNING_IDENTITY} certificate already in the login keychain.`);
     } else {
       const config = join(dir, "openssl.cnf");
-      writeFileSync(config, `[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=ext\n[dn]\nCN=${SIGNING_IDENTITY}\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n`, {mode: 0o600});
+      privateWrite(config, `[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=ext\n[dn]\nCN=${SIGNING_IDENTITY}\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n`);
       await checked(run, ["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650", "-config", config, "-keyout", key, "-out", cert]);
       log(`Created a self-signed, ten-year code-signing certificate: ${SIGNING_IDENTITY}.`);
       // macOS cannot verify the MAC of a PKCS12 sealed with an empty passphrase, so use a one-time one.

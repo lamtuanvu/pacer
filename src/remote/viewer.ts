@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,7 +39,7 @@ export class RemoteViewer {
     await new Promise<void>((resolve,reject)=>{server.once("error",reject);server.listen(path,()=>{server.off("error",reject);resolve();});});
     this.path=path;
     chmodSync(path,0o600);
-    if(path!==join(this.mirror.dir,"session.sock")) writeFileSync(join(this.mirror.dir,"session.sock.path"),path,{mode:0o600});
+    if(path!==join(this.mirror.dir,"session.sock")) privateWrite(join(this.mirror.dir,"session.sock.path"), path);
     server.unref();
   }
   /** Protocol adapter also used by non-CLI viewers. */

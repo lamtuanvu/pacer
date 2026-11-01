@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { withLockSync } from "../core/lock";
@@ -20,10 +21,7 @@ export function markExhausted(ctx: Ctx, id: string, until: number, options: { ma
     const path = join(ctx.pacerHome, "state/exhausted-evidence.json");
     const evidence = readJson<Record<string, LimitObservation>>(path) ?? {};
     evidence[id] = { observedAt: ctx.now, until, manual: options.manual === true, ...(options.scope ? {scope: options.scope} : {}) };
-    mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-    const temp = `${path}.${randomUUID()}.tmp`;
-    writeFileSync(temp, JSON.stringify(evidence), { flag: "wx", mode: 0o600 });
-    renameSync(temp, path);
+    privateWrite(path, JSON.stringify(evidence));
   });
 }
 export interface LimitObservation { scope?: import("../evidence/types").EvidenceScope; observedAt: number | null; until: number; manual: boolean }

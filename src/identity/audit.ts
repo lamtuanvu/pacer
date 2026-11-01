@@ -1,3 +1,4 @@
+import { privateAppend } from "../private-file";
 import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -54,6 +55,5 @@ function append(ctx: Pick<Ctx, "pacerHome">, line: Record<string, unknown>): voi
   const full = () => { try { return statSync(path).size >= AUDIT_MAX_BYTES; } catch { return false; /* no log yet */ } };
   // Recheck under the lock: another process may have moved the log already, and renaming its fresh file would drop a generation.
   if (full()) withLockSync(ctx as Ctx, "identity-audit", () => { if (full()) renameSync(path, `${path}.1`); });
-  appendFileSync(path, JSON.stringify(line) + "\n", { mode: 0o600 });
-  chmodSync(path, 0o600);
+  privateAppend(path, JSON.stringify(line) + "\n");
 }

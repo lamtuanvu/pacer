@@ -1,3 +1,4 @@
+import { privateAppend, privateWrite } from "../private-file";
 import { appendFileSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { decodeLog, encodeHeader, encodeRecord, type Frame } from "./framing";
@@ -17,14 +18,14 @@ export class Recording extends Screen {
   private disk(fn:()=>void) { if (this.enabled) try { fn(); } catch { this.enabled=false; } }
   private newLog() {
     const h=encodeHeader({cols:this.term.cols,rows:this.term.rows,startedAt:this.startedAt,generation:this.generation,outputOffset:this.outputOffset});
-    this.disk(()=>writeFileSync(join(this.dir,"session.log"),h,{mode:0o600})); this.size=h.length;
+    this.disk(()=>privateWrite(join(this.dir,"session.log"),h)); this.size=h.length;
   }
   checkpoint() {
-    this.disk(()=> { const p=join(this.dir,"session.ckpt"); writeFileSync(`${p}.tmp`,JSON.stringify(this.snapshot()),{mode:0o600}); renameSync(`${p}.tmp`,p); });
+    this.disk(()=>privateWrite(join(this.dir,"session.ckpt"),JSON.stringify(this.snapshot())));
   }
   private record(type:number,data:Uint8Array) {
     const frame=encodeRecord(type,(Date.now()/1000-this.startedAt)*1000,data);
-    this.disk(()=>appendFileSync(join(this.dir,"session.log"),frame)); this.size+=frame.length;
+    this.disk(()=>privateAppend(join(this.dir,"session.log"),frame)); this.size+=frame.length;
     if(this.size >= this.cap && this.transcript.atBoundary) {
       this.checkpoint();
       this.disk(()=>renameSync(join(this.dir,"session.log"),join(this.dir,"session.log.1")));
@@ -36,7 +37,7 @@ export class Recording extends Screen {
     await super.output(data);
     const plain=this.transcript.push(data);
     this.record(1,data);
-    if(plain) this.disk(()=>appendFileSync(join(this.dir,"stdout"),plain,{mode:0o600}));
+    if(plain) this.disk(()=>privateAppend(join(this.dir,"stdout"),plain));
   }
   /** Resume only when the complete requested suffix still exists in retained generations. */
   since(from:number): Buffer[] | null {
@@ -49,7 +50,7 @@ export class Recording extends Screen {
     this.record(2,bytes);
   }
   marker(event:string,label:string) { this.record(3,Buffer.from(JSON.stringify({event,label}))); }
-  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>appendFileSync(join(this.dir,"stdout"),tail,{mode:0o600})); this.dispose(); }
+  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>privateAppend(join(this.dir,"stdout"),tail)); this.dispose(); }
 }
 /** Read a gap-free suffix shared by live resume and offline replay. */
 function recordingSince(dir:string,from:number,outputOffset:number):Buffer[]|null {

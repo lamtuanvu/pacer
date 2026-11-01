@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { resolveWorktreeBase } from "../supervisor/worktree";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -63,7 +64,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const launch = remoteLaunch(cfg, worktree, remoteDir);
     mkdirSync(dir, { recursive: true });
     mkdirSync(tasksDir(ctx), { recursive: true });
-    writeFileSync(join(dir, "argv"), launch.argv.join(" "));
+    privateWrite(join(dir, "argv"), launch.argv.join(" "));
     const run: RunRef = { dir, attempt, executor: cfg.id, startedAt, mode: "new", workdir: worktree, logFile: log, host: host.alias, remoteDir, remoteWorktree: worktree, remoteBranch, baseSha,
       ...(launch.lastMessageFile ? { lastMessageFile: join(dir, "last.md") } : {}) };
     updateTask(ctx, task.id, t => {

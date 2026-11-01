@@ -44,7 +44,7 @@ test("a grant trusts the folder, records the import answer on the repository roo
   // Recorded as "No": the prompt is not shown and external imports stay off.
   for (const key of folderKeys(root)) expect(config.projects[key]).toEqual({hasClaudeMdExternalIncludesWarningShown: true});
   expect(readFileSync(file, "utf8")).toBe(`${JSON.stringify(config, null, 2)}\n`);
-  expect(statSync(file).mode & 0o777).toBe(0o640);
+  expect(statSync(file).mode & 0o777).toBe(0o600);
   expect(leftovers(dir)).toEqual([]);
 });
 

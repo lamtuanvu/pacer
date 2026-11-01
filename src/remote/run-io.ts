@@ -1,3 +1,4 @@
+import { privateAppend, privateWrite } from "../private-file";
 import { beginWorkSync, attachRunEvidenceSync, finishWorkSync, reconcileAdmissionSync } from "../update/desktop/admission";
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -68,7 +69,7 @@ export class RemoteRunIO implements RunIO {
       attachRunEvidenceSync(this.ctx, lease, this.localDir, { host: this.host.alias, dir: this.remoteDir });
       mkdirSync(this.localDir, { recursive: true });
       recoverSessionFiles(this.localDir);
-      writeFileSync(join(this.localDir, "admission.json"), JSON.stringify({ lease, host: this.host.alias, remoteDir: this.remoteDir }), { mode: 0o600 });
+      privateWrite(join(this.localDir, "admission.json"), JSON.stringify({ lease, host: this.host.alias, remoteDir: this.remoteDir }));
       if (full) sent = true; // Binary staging can also outlive a lost SSH response.
       const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.remoteDir,this.localDir,this.runtime) : undefined;
       const launch = full ? JSON.stringify({argv,cwd,completionNonce:lease,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
@@ -87,9 +88,9 @@ export class RemoteRunIO implements RunIO {
       mkdirSync(this.localDir, { recursive: true });
       for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.state", "session.json", "session.remote.json", "session.remote-full"]) rmSync(join(this.localDir, file), { force: true });
       this.sessionFiles = undefined;
-      writeFileSync(join(this.localDir, "pid"), String(pid));
-      if (full) writeFileSync(join(this.localDir,"session.remote-full"),this.host.alias,{mode:0o600});
-      if (mode === "pty") writeFileSync(join(this.localDir,"session.json"), JSON.stringify({capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024}), {mode:0o600});
+      privateWrite(join(this.localDir, "pid"), String(pid));
+      if (full) privateWrite(join(this.localDir,"session.remote-full"), this.host.alias);
+      if (mode === "pty") privateWrite(join(this.localDir,"session.json"), JSON.stringify({capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024}));
       return { pid };
     } catch (e) { if (lease && !sent) finishWorkSync(this.ctx, lease); return { error: e instanceof Error ? e.message : String(e) }; }
   }
@@ -117,7 +118,7 @@ export class RemoteRunIO implements RunIO {
         if (mirrored.pending) pending = true;
       }
       catch(e){throw e instanceof Unreachable ? e : new Unreachable(`host ${this.host.alias}: session recording unavailable`);}
-      writeFileSync(join(this.localDir,"session.remote-full"),this.host.alias,{mode:0o600});
+      privateWrite(join(this.localDir,"session.remote-full"), this.host.alias);
       if(number(report.exit)===null) {
         this.session ??= new RemoteSession(this.ctx,this.host,this.remoteDir,this.localDir);
         try {await this.session.listen();} catch { /* transport failure does not stop the agent */ }
@@ -161,14 +162,14 @@ export class RemoteRunIO implements RunIO {
         const chunk = await this.readFrom(stream, size(file), Math.min(262144,budget));
         const bytes = Buffer.from(chunk.stdout,"hex");
         if (!bytes.length) break;
-        appendFileSync(file, bytes);
+        privateAppend(file, bytes);
         budget -= bytes.length;
       }
       if (size(file) < total) pending = true;
     }
     const pid = number(report.pid), startedAt = number(report.started), exit = number(report.exit);
     for (const [file, value] of [["pid", pid], ["started", startedAt], ["exit", pending ? null : exit]] as const) {
-      if (value !== null) writeFileSync(join(this.localDir, file), String(value));
+      if (value !== null) privateWrite(join(this.localDir, file), String(value));
       else rmSync(join(this.localDir, file), { force: true });
     }
     if (!pending && exit !== null && report.admission_complete) {
@@ -177,7 +178,7 @@ export class RemoteRunIO implements RunIO {
       try {
         const binding = JSON.parse(readFileSync(join(this.localDir, "admission.json"), "utf8"));
         if (binding.host === this.host.alias && binding.remoteDir === this.remoteDir && binding.lease === report.admission_complete) {
-          writeFileSync(join(this.localDir, "admission.complete"), binding.lease + "\n", { mode: 0o600 });
+          privateWrite(join(this.localDir, "admission.complete"), binding.lease + "\n");
           reconcileAdmissionSync(this.ctx);
         }
       } catch { /* Missing/malformed binding remains unresolved. */ }

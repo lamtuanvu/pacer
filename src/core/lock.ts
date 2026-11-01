@@ -1,3 +1,4 @@
+import { privateDir } from "../private-file";
 import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
@@ -10,13 +11,13 @@ export async function withLock<T>(
   ctx: Ctx, name: string, fn: () => Promise<T>, o: { timeoutMs?: number; staleMs?: number } = {},
 ): Promise<T> {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
-  mkdirSync(lockDir(ctx), { recursive: true });
+  privateDir(lockDir(ctx));
   const file = join(lockDir(ctx), `${name}.lock`);
   const deadline = Date.now() + (o.timeoutMs ?? 20_000);
   const staleMs = o.staleMs ?? 120_000;
   for (;;) {
     try {
-      closeSync(openSync(file, "wx"));
+      closeSync(openSync(file, "wx", 0o600));
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -44,13 +45,13 @@ export function withLockSync<T>(
   ctx: Ctx, name: string, fn: () => T, o: { timeoutMs?: number; staleMs?: number } = {},
 ): T {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
-  mkdirSync(lockDir(ctx), { recursive: true });
+  privateDir(lockDir(ctx));
   const file = join(lockDir(ctx), `${name}.lock`);
   const deadline = Date.now() + (o.timeoutMs ?? 20_000);
   const staleMs = o.staleMs ?? 120_000;
   const wait = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
-    try { closeSync(openSync(file, "wx")); break; }
+    try { closeSync(openSync(file, "wx", 0o600)); break; }
     catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       try {

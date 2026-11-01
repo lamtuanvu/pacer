@@ -1,3 +1,4 @@
+import { privateAppend, privateDir } from "../private-file";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -14,14 +15,14 @@ export function newDecisionId(): string {
 }
 
 export function appendDecision(ctx: Ctx, entry: DecisionEntry): void {
-  mkdirSync(ctx.pacerHome, { recursive: true });
+  privateDir(ctx.pacerHome);
   const path = decisionsFile(ctx);
   try {
     if (statSync(path).size > 10 * 1024 * 1024) renameSync(path, `${path}.1`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+  privateAppend(path, `${JSON.stringify(entry)}\n`);
 }
 
 export function readDecisions(ctx: Ctx, sinceTs = 0): DecisionEntry[] {

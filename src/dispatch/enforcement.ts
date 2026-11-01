@@ -1,3 +1,4 @@
+import { privateDir, privateWrite } from "../private-file";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -108,14 +109,10 @@ export function enforcementFingerprint(target:EnforcementTarget):string {
 }
 /** Adds the current Pacer guard to this Claude launch without editing account settings. */
 export function strictClaudeLaunch(ctx:Ctx,argv:string[],runDir:string):string[] {
-  mkdirSync(runDir,{recursive:true,mode:0o700});
+  privateDir(runDir);
   const settings=join(runDir,"strict-claude-settings.json");
   const command=shellCommand([...pacerArgv(ctx.env),"guard","--planner","claude-code"]);
-  const temporary=`${settings}.${randomBytes(6).toString("hex")}.tmp`;
-  try {
-    writeFileSync(temporary,JSON.stringify({hooks:{PreToolUse:[{matcher:"Agent|Task",hooks:[{type:"command",command,timeout:15}]}]}}),{mode:0o600,flag:"wx"});
-    renameSync(temporary,settings);
-  } finally {rmSync(temporary,{force:true});}
+  privateWrite(settings, JSON.stringify({hooks:{PreToolUse:[{matcher:"Agent|Task",hooks:[{type:"command",command,timeout:15}]}]}}));
   const at=argv.indexOf("--");
   const copy=[...argv];copy.splice(at>=0?at:Math.max(1,copy.length-1),0,"--settings",settings);
   return copy;

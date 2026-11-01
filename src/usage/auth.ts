@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { readEvidence } from "../core/evidence";
 import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -24,9 +25,7 @@ export function markAuthFailed(ctx: Ctx, account: string, text: string, o: {atte
   const path = join(ctx.pacerHome, "state/auth-evidence.json");
   const evidence = readJson<Record<string, {at: number; scope?: EvidenceScope}>>(path) ?? {};
   evidence[account] = {at: ctx.now, scope: o.scope};
-  mkdirSync(join(ctx.pacerHome, "state"), {recursive:true,mode:0o700});
-  const temp=`${path}.${randomUUID()}.tmp`;
-  writeFileSync(temp,JSON.stringify(evidence),{flag:"wx",mode:0o600});renameSync(temp,path);
+  privateWrite(path, JSON.stringify(evidence));
 }
 
 /** Call for a newly fetched reading, never a cached success from before an attempt. */

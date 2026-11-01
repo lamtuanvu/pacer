@@ -1,3 +1,4 @@
+import { privateCreate } from "../private-file";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { isMap, isScalar, parseDocument, type Node, YAMLMap } from "yaml";
 import { isObj } from "../util";
@@ -66,7 +67,7 @@ export function migrateStrategy(path: string, expected?: string): MigrationResul
   const backup = `${path}.pre-accounts.bak`;
   if (existsSync(backup)) {
     if (readFileSync(backup, "utf8") !== before) throw Error(`migration backup already exists: ${backup}; preserve or move it before retrying`);
-  } else writeFileSync(backup, before, { flag: "wx", mode: 0o600 });
+  } else privateCreate(backup, before);
   if (readFileSync(path, "utf8") !== before) throw Error("strategy changed during migration; retry");
   atomicStrategyWrite(path, after);
   return { changed: true, backup, summary: [

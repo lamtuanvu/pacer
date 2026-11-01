@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,9 +53,7 @@ export async function checkForUpdate(ctx: CheckCtx, options: { force?: boolean; 
   } catch (e) { result.error = e instanceof Error ? e.message : String(e); }
   finally { clearTimeout(timer); }
   if (!('readOnly' in ctx && ctx.readOnly)) try {
-    mkdirSync(ctx.pacerHome, { recursive: true });
-    const path = join(ctx.pacerHome, "update-check.json"), temp = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-    writeFileSync(temp, JSON.stringify(result) + "\n"); renameSync(temp, path);
+    privateWrite(join(ctx.pacerHome, "update-check.json"), JSON.stringify(result) + "\n");
   } catch { /* A check must never break the command, even on a read-only home. */ }
   return result;
 }

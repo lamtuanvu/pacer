@@ -1,3 +1,4 @@
+import { privateTouch, privateWrite } from "../private-file";
 import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
 import { nativeTerminalEnv } from "./environment";
@@ -62,17 +63,17 @@ export async function sessionHost(dir:string):Promise<number> {
   // Executor subprocesses must not inherit the private admission capability.
   delete process.env.PACER_ADMISSION_SESSION; delete process.env.PACER_ADMISSION_DIR; delete process.env.PACER_COMPLETION_NONCE;
   const result = await sessionHostAdmitted(dir);
-  writeFileSync(join(dir, "admission.complete"), (config.completionNonce ?? lease) + "\n", { mode: 0o600 });
+  privateWrite(join(dir, "admission.complete"), (config.completionNonce ?? lease) + "\n");
   finishWorkSync(ctx, lease);
   return result;
 }
 async function sessionHostAdmitted(dir:string):Promise<number> {
   const launch=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")) as SessionLaunch;
   if(launch.cwd.startsWith("~/"))launch.cwd=join(process.env.HOME ?? "",launch.cwd.slice(2));
-  const atomic=(name:string,value:string)=>{writeFileSync(join(dir,`${name}.tmp`),value,{mode:0o600});renameSync(join(dir,`${name}.tmp`),join(dir,name));};
+  const atomic=(name:string,value:string)=>privateWrite(join(dir,name),value);
   atomic("pid",String(process.pid)); atomic("started",String(Date.now()/1000));
   try { writeSessionVersion(dir, ownProcessIdentity()); } catch { /* optional metadata */ }
-  writeFileSync(join(dir,"stdout"),"",{mode:0o600}); writeFileSync(join(dir,"stderr"),"",{mode:0o600});
+  privateWrite(join(dir,"stdout"), ""); privateWrite(join(dir,"stderr"), "");
   const recording=new Recording(dir,{capBytes:launch.capBytes});
   const mask=new SecretMasker(sessionSecrets(process.env,launch.pacerHome ?? dirname(dirname(dirname(dir)))));
   let queue=Promise.resolve(), stopping=false;
@@ -96,15 +97,15 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     from=>recordingEnabled?recording.since(from):null,enqueue,(kind,label)=>{if(recordingEnabled)try{recording.marker(kind,label);}catch{disableRecording();}},(viewers,controller)=>{
       if(controller!==lastController){
         lastController=controller;
-        try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
+        try{privateTouch(join(dir,'session.activity'));}catch{/* optional activity */}
       }
       try{atomic('session.state',JSON.stringify({viewers,controller,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
     },{
       release:label=>{if(launch.takeover)writeReport(dir,"done",`Handed back by ${label}`,"user");},
       input:bytes=>{
-        if(bytes.length)try{writeFileSync(join(dir,"session.input"),"",{mode:0o600});}catch{/* optional input marker */}
+        if(bytes.length)try{privateWrite(join(dir,"session.input"), "");}catch{/* optional input marker */}
         proc.terminal?.write(bytes);
-        try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
+        try{privateTouch(join(dir,'session.activity'));}catch{/* optional activity */}
       },
       resize:(cols,rows)=>{
         proc.terminal?.resize(cols,rows);
@@ -123,7 +124,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
       terminal:{cols:120,rows:40,name:"xterm-256color",data(_term,data){
         try {
           // Count every redraw, even while masking or line normalization buffers output.
-          writeFileSync(join(dir,"session.activity"),"",{mode:0o600});
+          privateTouch(join(dir,"session.activity"));
           if(!recordingEnabled) return;
           const chunk=mask.push(Buffer.from(data));
           if(chunk.length) enqueue(async()=>{if(recordingEnabled)await recording.output(chunk);send(wire(FrameType.output,chunk));});
@@ -134,7 +135,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     if (launch.interactive) {
       removeErrorHandlers();
       await recording.close();
-      writeFileSync(join(dir, "stderr"), `pacer: interactive mode requires PTY support: ${String(error)}\n`, {mode: 0o600});
+      privateWrite(join(dir, "stderr"), `pacer: interactive mode requires PTY support: ${String(error)}\n`);
       atomic("session.ended",String(Date.now()/1000));
       atomic("exit", "127");
       return 127;
@@ -143,8 +144,8 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     removeErrorHandlers();
     await recording.close();
     for(const f of ["session.log","session.log.1","session.ckpt"]) rmSync(join(dir,f),{force:true});
-    writeFileSync(join(dir,"session.host"),"none",{mode:0o600});
-    const script=join(dir,"run.sh");writeFileSync(script,WRAPPER_SH,{mode:0o700});
+    privateWrite(join(dir,"session.host"), "none");
+    const script=join(dir,"run.sh");privateWrite(script,WRAPPER_SH,0o700);
     const fallback=Bun.spawn(["/bin/sh",script,dir,...launch.argv],{cwd:launch.cwd,env:process.env,stdin:"ignore",stdout:"ignore",stderr:"ignore"});
     const stop=()=>killTree(fallback.pid,"SIGTERM");
     for(const sig of ["SIGTERM","SIGINT","SIGHUP"] as const) process.on(sig,stop);
@@ -153,7 +154,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   const stop=()=>{stopping=true;killTree(proc.pid,"SIGTERM");};
   for(const sig of ["SIGTERM","SIGINT","SIGHUP"] as const) process.on(sig,stop);
   atomic("child",String(proc.pid));
-  try {writeFileSync(join(dir,"session.host"),"builtin",{mode:0o600});} catch { /* optional session metadata */ }
+  try {privateWrite(join(dir,"session.host"), "builtin");} catch { /* optional session metadata */ }
   // xterm supplies fixed DA replies. OSC colours need explicit handlers.
   recording.term.onData(reply=>{if(!hub!.controller)proc.terminal?.write(reply);});
   for(const code of [10,11]) recording.term.parser.registerOscHandler(code,body=>{
@@ -170,7 +171,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     if(!path) throw Error("session socket unavailable");
     await new Promise<void>((resolve,reject)=>{server.once("error",reject);server.listen(path!,()=>{server.off("error",reject);resolve();});});
     chmodSync(path!,0o600);
-    if(path && path!==join(dir,"session.sock")) writeFileSync(join(dir,"session.sock.path"),path,{mode:0o600});
+    if(path && path!==join(dir,"session.sock")) privateWrite(join(dir,"session.sock.path"), path);
   } catch { /* a socket failure must never terminate the attempt */ }
   // Completion is also consumed here so reporting still ends the TUI if its supervisor died.
   let escalation: ReturnType<typeof setTimeout> | undefined;

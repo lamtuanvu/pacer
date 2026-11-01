@@ -1,3 +1,4 @@
+import { privateAppend } from "../private-file";
 import { authorizeRoute } from "./policy-route";
 import { autoCleanTask } from "./cleanup";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
@@ -702,7 +703,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
               : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
               : runOwnedDirectCurrent(executionCtx, cfg, task));
           // The routing reason (for example, why Orca was not used) belongs in the attempt log whichever direct owner ran.
-          if (backend?.note && out.attempt.log) try { appendFileSync(out.attempt.log, `direct backend: ${backend.note}\n`); }
+          if (backend?.note && out.attempt.log) try { privateAppend(out.attempt.log, `direct backend: ${backend.note}\n`); }
           catch { /* the attempt result stands */ }
         } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
@@ -758,7 +759,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       if (remoteSkipped.size) {
         const note = [...remoteSkipped].map(([id, reason]) => `skipped ${id}: ${reason}`).join("\n");
         out.report = `${note}\n\n${out.report}`;
-        if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
+        if (existsSync(out.attempt.log)) privateAppend(out.attempt.log, `\n--- routing\n${note}\n`);
       }
       out.attempt.actualModel=observedAttemptModel(pick,out.exec.stdout);
       const executedRunner = resolveRunner(s, pick);

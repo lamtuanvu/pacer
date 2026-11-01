@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,11 +38,7 @@ export function clientHello(): { versions: [number, number]; pacer: string } {
 
 export function writeSessionVersion(dir: string, own: ProcessIdentity | null): void {
   const value: SessionVersion = { pacer: currentVersion(), versions: [SESSION_PROTOCOL[0], SESSION_PROTOCOL[1]], ...(own ? { identity: own } : {}) };
-  const temp = join(dir, `.${SESSION_VERSION_FILE}.${randomUUID()}.tmp`);
-  try {
-    writeFileSync(temp, JSON.stringify(value), { flag: "wx", mode: 0o600 });
-    renameSync(temp, join(dir, SESSION_VERSION_FILE));
-  } finally { rmSync(temp, { force: true }); }
+  privateWrite(join(dir, SESSION_VERSION_FILE), JSON.stringify(value));
 }
 
 export function readSessionVersion(dir: string): SessionVersion | null {

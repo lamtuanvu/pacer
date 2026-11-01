@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -25,15 +26,7 @@ function read(ctx: Ctx, store: Store): RecordEntry[] {
 }
 
 function write(ctx: Ctx, store: Store, records: RecordEntry[]): void {
-  const dir = join(ctx.pacerHome, "app");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
-  const path = join(dir, `${store}.json`);
-  const temp = join(dir, `.${store}.${randomBytes(12).toString("hex")}.tmp`);
-  try {
-    writeFileSync(temp, JSON.stringify(records) + "\n", { mode: 0o600, flag: "wx" });
-    renameSync(temp, path);
-  } finally { rmSync(temp, { force: true }); }
+  privateWrite(join(ctx.pacerHome, "app", `${store}.json`), JSON.stringify(records) + "\n");
 }
 
 function create(ctx: Ctx, store: Store, seconds: number): string {
