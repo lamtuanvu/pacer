@@ -17,6 +17,7 @@ test("Prepare release is a manual, main-only, token-gated button with one releas
   const job = prepare.jobs.prepare!;
   expect(job.permissions).toEqual({ contents: "read", "pull-requests": "read", actions: "write" });
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
+  expect(job.steps.find(s => s.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"]).toBe(0);
   // The PAT cannot dispatch workflows without the Actions permission; the job token can.
   expect(job.steps.find(s => s.name === "Dry-run the release on the PR branch")?.env?.GH_TOKEN).toBe("${{ github.token }}");
   const names = job.steps.map(s => s.name ?? s.uses ?? s.run);
