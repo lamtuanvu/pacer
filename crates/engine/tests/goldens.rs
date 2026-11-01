@@ -32,24 +32,24 @@ fn typescript_parity() {
     let fixture: Value =
         serde_json::from_str(include_str!("../../../test/fixtures/engine/goldens.json")).unwrap();
     for case in fixture["pace"].as_array().unwrap() {
-        let offset = if case["zone"] == "UTC" { 0 } else { 7 };
+        let zone = case["zone"].as_str().unwrap().parse().unwrap();
         let input = &case["input"];
         let usage = &input["usage"];
         let now = input["now"].as_f64().unwrap();
         let end = usage["resetsAt"].as_f64().unwrap_or(now);
         let start = end - usage["lengthS"].as_f64().unwrap();
         near(
-            &serde_json::json!(pace_pct(start, end, now, &input["profile"], offset)),
+            &serde_json::json!(pace_pct(start, end, now, &input["profile"], zone)),
             &case["output"]["pacePct"],
             "pacePct",
         );
         near(
-            &serde_json::json!(active_hours_left(now, end, &input["profile"], offset)),
+            &serde_json::json!(active_hours_left(now, end, &input["profile"], zone)),
             &case["output"]["activeHoursLeft"],
             "activeHoursLeft",
         );
         near(
-            &evaluate_window(input, offset),
+            &evaluate_window(input, zone),
             &case["output"]["window"],
             case["name"].as_str().unwrap(),
         );
@@ -79,5 +79,22 @@ fn typescript_parity() {
         &binding_window(fixture["binding"]["input"].as_array().unwrap()),
         &fixture["binding"]["output"],
         "binding",
+    );
+}
+
+#[test]
+fn priority_alias_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../test/fixtures/engine/goldens.json")).unwrap();
+    let case = fixture["rank"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "priority-alias")
+        .unwrap();
+    near(
+        &rank_executors(&case["input"]),
+        &case["output"],
+        "priority-alias",
     );
 }

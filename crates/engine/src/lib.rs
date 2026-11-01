@@ -1,5 +1,7 @@
 //! Pure engine calculations. Inputs and outputs use the TypeScript JSON shapes until
 //! the M2 operation boundary is ready to introduce protocol types.
+use chrono::{Datelike, TimeZone, Timelike};
+use chrono_tz::Tz;
 use serde_json::{Value, json};
 
 fn number(value: &Value) -> f64 {
@@ -21,13 +23,14 @@ fn field(value: &Value, key: &str) -> Value {
     value.get(key).cloned().unwrap_or(Value::Null)
 }
 
-fn hour_bin(ts: f64, offset_hours: i64) -> usize {
-    let hour = (ts / 3600.0).floor() as i64 + offset_hours;
-    // 1970-01-01 was Thursday. JavaScript Sunday is zero.
-    let day = (hour.div_euclid(24) + 4).rem_euclid(7);
-    (day * 24 + hour.rem_euclid(24)) as usize
+fn hour_bin(ts: f64, zone: Tz) -> usize {
+    let hour_start = ((ts / 3600.0).floor() as i64) * 3600;
+    let Some(local) = zone.timestamp_opt(hour_start, 0).single() else {
+        return 0;
+    };
+    (local.weekday().num_days_from_sunday() * 24 + local.hour()) as usize
 }
-fn active_seconds(start: f64, end: f64, profile: &Value, offset_hours: i64) -> f64 {
+fn active_seconds(start: f64, end: f64, profile: &Value, zone: Tz) -> f64 {
     if end <= start {
         return 0.0;
     }
@@ -40,25 +43,25 @@ fn active_seconds(start: f64, end: f64, profile: &Value, offset_hours: i64) -> f
     while t < end {
         let next = ((t / 3600.0).floor() + 1.0) * 3600.0;
         let segment_end = end.min(next);
-        if truth(&active[hour_bin(t, offset_hours)]) {
+        if truth(&active[hour_bin(t, zone)]) {
             total += segment_end - t;
         }
         t = segment_end;
     }
     total
 }
-pub fn pace_pct(start: f64, end: f64, now: f64, profile: &Value, offset_hours: i64) -> f64 {
-    let total = active_seconds(start, end, profile, offset_hours);
+pub fn pace_pct(start: f64, end: f64, now: f64, profile: &Value, zone: Tz) -> f64 {
+    let total = active_seconds(start, end, profile, zone);
     if total <= 0.0 {
         0.0
     } else {
-        100.0 * active_seconds(start, now.min(end), profile, offset_hours) / total
+        100.0 * active_seconds(start, now.min(end), profile, zone) / total
     }
 }
-pub fn active_hours_left(now: f64, end: f64, profile: &Value, offset_hours: i64) -> f64 {
-    active_seconds(now, end, profile, offset_hours) / 3600.0
+pub fn active_hours_left(now: f64, end: f64, profile: &Value, zone: Tz) -> f64 {
+    active_seconds(now, end, profile, zone) / 3600.0
 }
-pub fn evaluate_window(input: &Value, offset_hours: i64) -> Value {
+pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
     let now = number(&input["now"]);
     let usage = &input["usage"];
     let mut output = usage.clone();
@@ -82,14 +85,9 @@ pub fn evaluate_window(input: &Value, offset_hours: i64) -> Value {
     }
     let reset = number(&usage["resetsAt"]);
     let profile = &input["profile"];
-    let pace = pace_pct(
-        reset - number(&usage["lengthS"]),
-        reset,
-        now,
-        profile,
-        offset_hours,
-    ) * number(&input["thresholds"]["paceScale"]);
-    let hours = active_hours_left(now, reset, profile, offset_hours);
+    let pace = pace_pct(reset - number(&usage["lengthS"]), reset, now, profile, zone)
+        * number(&input["thresholds"]["paceScale"]);
+    let hours = active_hours_left(now, reset, profile, zone);
     let delta = used - pace;
     let verdict = if hours <= 9.0 && 100.0 - used >= 25.0 {
         "EXPIRING"
@@ -615,7 +613,7 @@ pub fn rank_executors(input: &Value) -> Value {
         if policy == "priority" {
             let mut sequence = Vec::<Candidate>::new();
             for reference in array(&strategy["pacing"]["order"]) {
-                let name = string(reference);
+                let name = canonical_id(strategy, string(reference));
                 for candidate in &candidates {
                     if (name == "opencode" && agent(strategy, &candidate.id) == "opencode"
                         || name == candidate.id)
@@ -775,9 +773,15 @@ mod tests {
     #[test]
     fn calendar_fallback_and_boundary() {
         let profile = json!({"days": 3, "active": [true]});
-        assert_eq!(pace_pct(0.0, 100.0, 25.0, &profile, 0), 25.0);
-        assert_eq!(active_hours_left(100.0, 100.0, &profile, 0), 0.0);
-        assert_eq!(active_hours_left(101.0, 100.0, &profile, 0), 0.0);
+        assert_eq!(pace_pct(0.0, 100.0, 25.0, &profile, chrono_tz::UTC), 25.0);
+        assert_eq!(
+            active_hours_left(100.0, 100.0, &profile, chrono_tz::UTC),
+            0.0
+        );
+        assert_eq!(
+            active_hours_left(101.0, 100.0, &profile, chrono_tz::UTC),
+            0.0
+        );
     }
 
     #[test]

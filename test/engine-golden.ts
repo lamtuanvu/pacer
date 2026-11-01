@@ -33,21 +33,29 @@ const status = (id: string, usedPct: number | null, verdict: ProviderStatus["ver
 
 export function engineGoldens() {
   const originalZone = process.env.TZ;
-  const zones = ["UTC", "Asia/Ho_Chi_Minh"];
+  const zones = ["UTC", "Asia/Ho_Chi_Minh", "America/New_York", "Europe/Berlin"];
   const pace = zones.flatMap(zone => {
     process.env.TZ = zone;
     const profile = { builtAt: now, days: 10, bins: Array(168).fill(0), active: Array.from({ length: 168 }, (_, i) => i % 24 >= 9 && i % 24 < 18) };
-    const cases = [
+    const cases = (zone === "America/New_York" || zone === "Europe/Berlin" ? [] : [
       { name: "active", profile, usage: window(33) },
       { name: "missing", profile: null, usage: window(null) },
       { name: "stale", profile, usage: window(80, true) },
       { name: "limited", profile, usage: window(98) },
       { name: "rolled", profile, usage: window(40, false, now - 1) },
-    ];
+    ]) as { name: string; profile: typeof profile | null; usage: ReturnType<typeof window> }[];
+    if (zone === "America/New_York" || zone === "Europe/Berlin") {
+      const day = zone === "America/New_York" ? 8 : 29;
+      const dstStart = new Date(2026, 2, day - 1, 0).getTime() / 1000;
+      const dstEnd = new Date(2026, 2, day + 1, 0).getTime() / 1000;
+      const dstProfile = { ...profile, active: Array.from({ length: 168 }, (_, i) => i % 24 === 9) };
+      cases.push({ name: "dst-transition", profile: dstProfile, usage: { ...window(40, false, dstEnd), lengthS: dstEnd - dstStart } });
+    }
     return cases.map(({ name, profile, usage }) => {
-      const start = usage.resetsAt === null ? now - 86_400 : usage.resetsAt - usage.lengthS;
-      const output = { pacePct: pacePct(start, usage.resetsAt ?? now, now, profile), activeHoursLeft: activeHoursLeft(now, usage.resetsAt ?? now, profile), window: evaluateWindow(usage, now, profile, { ahead: 10, behind: -10, paceScale: 1 }) };
-      return { zone, name, input: { now, profile, usage, thresholds: { ahead: 10, behind: -10, paceScale: 1 } }, output };
+      const caseNow = name === "dst-transition" ? new Date(2026, 2, zone === "America/New_York" ? 8 : 29, 9, 30).getTime() / 1000 : now;
+      const start = usage.resetsAt === null ? caseNow - 86_400 : usage.resetsAt - usage.lengthS;
+      const output = { pacePct: pacePct(start, usage.resetsAt ?? caseNow, caseNow, profile), activeHoursLeft: activeHoursLeft(caseNow, usage.resetsAt ?? caseNow, profile), window: evaluateWindow(usage, caseNow, profile, { ahead: 10, behind: -10, paceScale: 1 }) };
+      return { zone, name, input: { now: caseNow, profile, usage, thresholds: { ahead: 10, behind: -10, paceScale: 1 } }, output };
     });
   });
   const eligibilityInputs: { name: string; input: EligibilityInput }[] = [
@@ -72,6 +80,7 @@ export function engineGoldens() {
     { name: "project", strategy, statuses, selection: { executors: ["gamma", "beta", "alpha"], order: "configured" as const } },
     { name: "machine", strategy, statuses: { ...statuses, alpha: { ...statuses.alpha, eligibility: eligibility[5].output } } },
     { name: "priority", strategy: { ...strategy, pacing: { ...strategy.pacing, policy: "priority" } } as Strategy, statuses },
+    { name: "priority-alias", strategy: { ...strategy, runnerAliases: { first: "beta" }, pacing: { ...strategy.pacing, policy: "priority", order: ["first", "alpha", "gamma"] } } as Strategy, statuses: { ...statuses, beta: { ...statuses.beta, eligibility: eligibility[0].output } } },
     { name: "cheapest", strategy: { ...strategy, pacing: { ...strategy.pacing, policy: "cheapest-first" } } as Strategy, statuses },
     { name: "burn", strategy: { ...strategy, pacing: { ...strategy.pacing, policy: "burn-before-reset" } } as Strategy, statuses },
     { name: "fill", strategy: { ...strategy, pacing: { ...strategy.pacing, accounts: "fill" } } as Strategy, statuses },
