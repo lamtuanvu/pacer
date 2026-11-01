@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 import { parseEnvelope, reduce, type LinkSnapshot } from "../../../src/link/envelope";
 import type { ApiEvent } from "../../../src/api/protocol";
 import type { Hello } from "../../../src/api/client-types";
@@ -132,7 +133,7 @@ export function withoutReviewedAttention(snapshot: SnapshotV2, acknowledged: Rea
 }
 
 /** Effects live here; the reducer above remains usable without a DOM. */
-export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource = EventSource) {
+export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSource) {
   let state = initialState();
   const listeners = new Set<() => void>();
   let stream: EventSource | undefined;
@@ -146,7 +147,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let opened = false, dropped = false;
   let offlineTimer: ReturnType<typeof setTimeout> | undefined;
   const acknowledgedReviews = new Set<string>();
-  const dispatch = (action: StoreAction) => { if (["disconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; for (const listener of listeners) listener(); };
+  const dispatch = (action: StoreAction) => { if (["disconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; if (action.type === "disconnected") platform.setConnectionStatus("reconnecting"); else if (action.type === "reconnected") platform.setConnectionStatus("connected"); else if (action.type === "session-ended") platform.setConnectionStatus("disconnected"); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); api.setConnected?.(false); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
   const retry = () => {
@@ -175,12 +176,13 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       cursorReset = false;
       dispatch({ type: "hello", hello });
       dispatch({ type: "snapshot", snapshot: { ...result.snapshot, seq: result.seq } });
-      const source = stream = new Events(`${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`);
+      const eventPath = `${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`;
+      const source = stream = (Events ? new Events(eventPath) : platform.subscribeEvents(eventPath));
       const active = () => !stopped && stream === source && !state.sessionEnded;
       source.addEventListener("open", () => {
         if (!active()) return;
         retryDelay = 1000;
-        clearTimeout(offlineTimer); api.setConnected?.(true);
+        clearTimeout(offlineTimer); api.setConnected?.(true); platform.setConnectionStatus("connected");
         dispatch({ type: opened && dropped ? "reconnected" : "connected" });
         opened = true; dropped = false;
       });
@@ -224,6 +226,6 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
     /** Resynchronize after an unreplayable gap or an explicit identity/protocol change. */
     refresh: () => { cursorReset = true; state = { ...state, needsSnapshot: true }; invalidateQueryCache(api); return refresh(); },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    start() { stopped = false; void refresh(); return () => { stopped = true; generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); }; },
+    start() { stopped = false; platform.setConnectionStatus("connecting"); void refresh(); return () => { stopped = true; generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); platform.setConnectionStatus("disconnected"); }; },
   };
 }
