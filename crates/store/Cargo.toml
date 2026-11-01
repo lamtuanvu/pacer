@@ -1,0 +1,19 @@
+[package]
+name = "pacer-store"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-foundation = { path = "../foundation" }
+serde_json.workspace = true
+rand = "0.9"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
