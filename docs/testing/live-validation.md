@@ -6,6 +6,18 @@ OTA event traces remain in the report's evidence details. They do not assert a
 behavior verdict; the driver's outcome checks provide that verdict. Required
 behavior notes without a verdict still count as UNVERIFIED.
 
+## Native operation routing
+
+Release builds start with an empty native operation registry. In development and
+future native-enabled builds, `PACER_FORWARD_OPS` is a comma-separated list of
+operation names, or `*`, that forces native operations back through the TypeScript
+core. It cannot enable an operation. The setting is read at startup and logged once
+to stderr. `/v2` always forwards; stdio dispatches natively only after an accepted
+protocol 3 `hello`. Work-grant requests remain forwarded to the core for scoped
+authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op>`
+to stderr when the Rust handler executes. The test-only `test-ops` build exposes
+`test.echo` and `_debug.native` for strict native evidence; release builds do not.
+
 ## Start and inspect a sandbox
 
 From the checkout root:

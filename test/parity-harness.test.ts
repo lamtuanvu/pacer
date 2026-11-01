@@ -1,9 +1,11 @@
+import { helloBody } from "../src/api/protocol";
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { realpathSync } from "node:fs";
 import { parity } from "./parity-harness";
 const fixture = join(import.meta.dir, "fixtures/parity-basic");
 const command = [process.execPath, join(import.meta.dir, "fixtures/parity-peer.ts")];
+const coreArgv = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const run = (mode = "same", extra = {}) => parity({ fixture, reference: command, candidate: [...command, mode], steps: [{ op: "write", params: { value: "kept" } }, { op: "read" }], ...extra });
 test("two sessions compare results and persisted state on disposable copies", async () => { await run(); });
 test("result mismatch is detected", async () => { await expect(run("result")).rejects.toThrow("response mismatch"); });
@@ -20,7 +22,7 @@ test("real TypeScript stdio reference smoke", async () => {
   await parity({ fixture, reference: core, candidate: core, startup: { readyLine, timeoutMs: 30000 }, steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }] });
 }, 60000);
 test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("explicit compiled front door smoke (forwarding only, no native claim)", async () => {
-  await parity({ fixture, reference: process.env.PACER_TEST_REFERENCE_CORE ? [process.env.PACER_TEST_REFERENCE_CORE, "api", "--stdio"] : [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"], candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"], steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }] });
+  await parity({ fixture, reference: process.env.PACER_TEST_REFERENCE_CORE ? [process.env.PACER_TEST_REFERENCE_CORE, "api", "--stdio"] : [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"], candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"], steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }], candidateEnv: { PACER_CORE_ARGV: coreArgv } });
 });
 test("expected success cannot silently accept equal application errors", async () => {
   await expect(run("error", { reference: [...command, "error"], steps: [{ op: "write", expect: "ok" }] })).rejects.toThrow("expected success");
@@ -87,4 +89,24 @@ test("CLI readiness preload rejects substituted executable arguments", async () 
   const wrong = [process.execPath, "--preload", join(import.meta.dir, "fixtures/parity-stdin-ready.ts"), cli, "--help"];
   await expect(parity({ fixture, reference: wrong, candidate: wrong, steps: [],
     startup: { readyLine: "pacer-parity-ready", timeoutMs: 1000 } })).rejects.toThrow("requires the actual CLI entry and api --stdio argv");
+});
+
+test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("feature-gated echo runs natively with strict evidence", async () => {
+  await parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
+    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv }, native: ["test.echo"],
+    steps: [{ op: "test.echo", params: { ok: true }, expect: "ok" }] });
+});
+test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("echo mismatch is a parity failure", async () => {
+  await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
+    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv, PACER_TEST_ECHO_BREAK: "1" }, native: ["test.echo"],
+    steps: [{ op: "test.echo", params: { ok: true } }] })).rejects.toThrow("response mismatch");
+});
+
+test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("real forwarded operation cannot satisfy native requirement", async () => {
+  await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidateEnv: { PACER_CORE_ARGV: coreArgv, PACER_DEBUG_NATIVE: "1" },
+    native: ["version.get"], steps: [{ op: "version.get", expect: "ok" }] })).rejects.toThrow("native execution evidence unavailable");
 });
