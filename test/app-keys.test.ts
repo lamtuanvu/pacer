@@ -136,6 +136,19 @@ test('the shell detects terminal control ownership from the session marker', asy
  expect(sessionControlActive(undefined)).toBe(false);
 });
 
+test("Meta-[ and Meta-] stay with the browser in a text field; Mod-k still runs", () => {
+  const { registry, ran, add } = setup();
+  add("Meta-["); add("Meta-]"); add("Mod-k");
+  for (const k of ["[", "]"]) {
+    const e = key(k, { metaKey: true }, { tagName: "TEXTAREA" });
+    expect(registry.handle(e)).toBe(false);
+    expect(e.prevented).toBe(false);
+  }
+  expect(ran).toEqual([]);
+  registry.handle(key("k", { metaKey: true }, { tagName: "TEXTAREA" }));
+  expect(ran).toEqual(["Mod-k"]);
+});
+
 test("right panel uses Alt plus the platform command modifier without stealing terminal keys", () => {
   for (const mac of [true, false]) {
     let runs = 0, control = false;

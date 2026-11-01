@@ -27,7 +27,7 @@ export async function readDesktopVersion(host: DesktopHost = desktopHost()): Pro
   return version;
 }
 
-function isDesktop(host: DesktopHost): boolean {
+export function isDesktop(host: DesktopHost = desktopHost()): boolean {
   return !!host.__TAURI__?.core?.invoke;
 }
 
