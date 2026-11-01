@@ -338,7 +338,7 @@ test("lost provider reply reattaches to the exact wrapper without a second launc
 test("lost interactive completion reply recovers the same reported attempt", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   const executable = ctx.which("codex")!;
-  writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nprintf x >> launch-count\nprintf '%s' '{\"status\":\"done\",\"summary\":\"owned done\",\"at\":101}' > \"$PACER_RUN_DIR/report.json\"\nsleep 30\n",
+  writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nprintf x >> launch-count\nprintf '%s' '{\"status\":\"done\",\"summary\":\"owned done\",\"at\":101}' > \"$PACER_RUN_DIR/report.json\"\nexit 0\n",
     { mode: 0o700 });
   const runtime = { ...ctx, run: realRun }, interactive = { ...cfg, session: "interactive" as const };
   const registry = pluginRegistry(runtime);
