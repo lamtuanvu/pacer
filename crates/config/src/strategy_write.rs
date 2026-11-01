@@ -8,6 +8,7 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -48,24 +49,40 @@ fn write_active(home: &Path, name: &str) -> io::Result<()> {
     #[cfg(unix)]
     fs::set_permissions(home, fs::Permissions::from_mode(0o700))?;
     let active = home.join("active");
-    let temp = home.join(format!(
-        "active.{}.{}.tmp",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
+    for _ in 0..16 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(io::Error::other)?
+            .as_nanos();
+        let temp = home.join(format!(
+            "active.{}.{nanos}.{}.tmp",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
         options.mode(0o600);
+        let mut file = match options.open(&temp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
         use std::io::Write;
-        let mut file = options.open(&temp)?;
-        file.write_all(format!("{name}\n").as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temp, &active)
-    })();
-    let _ = fs::remove_file(&temp);
-    result
+        let result = (|| {
+            file.write_all(format!("{name}\n").as_bytes())?;
+            file.sync_all()?;
+            fs::rename(&temp, &active)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        return result;
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not create a unique strategy temp file",
+    ))
 }
 
 /// Apply the service-level `strategy.use` file effect. The P3-B caller must

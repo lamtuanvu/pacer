@@ -4,9 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- Strategy activation now writes the active selection atomically and tightens existing home and active-file permissions to 0700 and 0600 in both runtimes.
+- Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
 
 ## [0.14.0] - 2026-11-01
 

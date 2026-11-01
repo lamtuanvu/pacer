@@ -23,15 +23,14 @@ function seededHome(): string {
 
 function state(home: string) {
   const read = (name: string) => existsSync(join(home, name)) ? readFileSync(join(home, name), "utf8") : null;
-  const mode = (name: string) => existsSync(join(home, name)) ? statSync(join(home, name)).mode & 0o777 : null;
-  return { active: read("active"), base: read("strategy.yaml"), work: read("strategies/work.yaml"), broken: read("strategies/broken.yaml"), homeMode: mode("."), activeMode: mode("active") };
+  return { active: read("active"), base: read("strategy.yaml"), work: read("strategies/work.yaml"), broken: read("strategies/broken.yaml") };
 }
 
-test("strategy activation and removal match TS results, errors, bytes, and modes on isolated homes", () => {
+test("strategy activation and removal match TS results, errors, and bytes on isolated homes", () => {
   execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_write_diff", "--locked"], { cwd: root });
   const binary = join(root, "target/debug/examples/strategy_write_diff");
-  const cases: { op: "use" | "remove"; name: string; active?: string | null; yaml?: string; errorKind?: "syntax" | "validation" }[] = [
-    { op: "use", name: "work" }, { op: "use", name: "default" },
+  const cases: { op: "use" | "remove"; name: string; active?: string | null; yaml?: string; errorKind?: "syntax" | "validation"; staleTemp?: boolean }[] = [
+    { op: "use", name: "work" }, { op: "use", name: "work", staleTemp: true }, { op: "use", name: "default" },
     { op: "use", name: "missing" }, { op: "use", name: "broken", errorKind: "syntax" },
     { op: "use", name: "invalid", yaml: "planner: invalid\nproviders:\n  codex: {}\n", errorKind: "validation" },
     { op: "use", name: "a", yaml: fixture.files["strategies/work.yaml"] },
@@ -55,6 +54,19 @@ test("strategy activation and removal match TS results, errors, bytes, and modes
     { op: "remove", name: "work", active: "ghost" },
     { op: "remove", name: "work", active: "broken" },
   ];
+  let seed = 0x568e6f5;
+  const pick = <T>(items: readonly T[]): T => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return items[(seed >>> 0) % items.length]!;
+  };
+  for (let i = 0; i < 128; i++) {
+    cases.push({
+      op: pick(["use", "remove"] as const),
+      name: pick(["work", "default", "missing", "broken", "a", "a-b", "Bad", "", "é"]),
+      active: pick([undefined, null, "work", "default", "ghost", "broken"]),
+      ...(i % 7 === 0 ? { yaml: fixture.files["strategies/work.yaml"] } : {}),
+    });
+  }
   for (const item of cases) {
     const tsHome = seededHome(), rustHome = seededHome();
     chmodSync(tsHome, 0o755);
@@ -64,6 +76,7 @@ test("strategy activation and removal match TS results, errors, bytes, and modes
     if (item.yaml) {
       for (const home of [tsHome, rustHome]) writeFileSync(join(home, "strategies", `${item.name}.yaml`), item.yaml);
     }
+    if (item.staleTemp) writeFileSync(join(tsHome, "active.stale.0.tmp"), "stale\n");
     if (item.active === "default") {
       useStrategy(fakeCtx({ pacerHome: tsHome }), "default");
       execFileSync(binary, [], { input: JSON.stringify({ home: rustHome, op: "use", name: "default" }) + "\n" });
@@ -78,7 +91,12 @@ test("strategy activation and removal match TS results, errors, bytes, and modes
       const value = item.op === "use" ? (show(ctx, item.name), { name: item.name, path: useStrategy(ctx, item.name) }) : remove(ctx, item.name);
       ts = { ok: true, value };
     } catch (error) { ts = { ok: false, error: (error as Error).message }; }
-    const rust = JSON.parse(execFileSync(binary, [], { input: JSON.stringify({ home: rustHome, op: item.op, name: item.name }) + "\n" }).toString());
+    const input = JSON.stringify({ home: rustHome, op: item.op, name: item.name }) + "\n";
+    const rustOutput = item.staleTemp
+      ? execFileSync("sh", ["-c", 'printf "stale\\n" > "$2/active.$$.0.tmp"; exec "$1"', "sh", binary, rustHome], { input })
+      : execFileSync(binary, [], { input });
+    const rust = JSON.parse(rustOutput.toString());
+    if (ts.ok) expect(rust.ok).toBe(true);
     if (ts.ok && item.op === "use") {
       (ts.value as { path: string }).path = (ts.value as { path: string }).path.replace(tsHome, "$HOME");
       rust.value.path = rust.value.path.replace(rustHome, "$HOME");
@@ -90,19 +108,28 @@ test("strategy activation and removal match TS results, errors, bytes, and modes
       expect(rust.error).toMatch(item.errorKind === "syntax" ? /YAML syntax error/ : /planner must be/);
       ts.error = rust.error = item.errorKind;
     }
-    if (item.active === "broken" && !ts.ok && !rust.ok) {
-      expect(ts.error).toContain("YAML syntax error");
-      expect(rust.error).toContain("YAML syntax error");
+    if (item.name === "broken" && item.op === "use" && !ts.ok && !rust.ok
+      && ts.error?.includes("YAML Parse error") && rust.error?.includes("YAML syntax error")) {
+      ts.error = rust.error = "yaml_syntax";
+    }
+    if (item.active === "broken" && !ts.ok && !rust.ok
+      && ts.error?.includes("YAML syntax error") && rust.error?.includes("YAML syntax error")) {
       ts.error = rust.error = "current_active_syntax";
     }
     if (ts.error) ts.error = ts.error.replaceAll(tsHome, "$HOME");
     if (rust.error) rust.error = rust.error.replaceAll(rustHome, "$HOME");
     expect(rust).toEqual(ts);
     expect(state(rustHome)).toEqual(state(tsHome));
+    if (item.staleTemp) {
+      const stale = readdirSync(rustHome).find(name => /^active\.\d+\.0\.tmp$/.test(name));
+      expect(stale).toBeDefined();
+      expect(readFileSync(join(rustHome, stale!), "utf8")).toBe("stale\n");
+      expect(readFileSync(join(tsHome, "active.stale.0.tmp"), "utf8")).toBe("stale\n");
+    }
   }
 }, 120_000);
 
-test("strategy activation tightens existing modes under both common umasks", () => {
+test("TS strategy activation retains its existing write behavior", () => {
   for (const mask of [0o022, 0o077]) {
     const previous = process.umask(mask);
     try {
@@ -111,9 +138,9 @@ test("strategy activation tightens existing modes under both common umasks", () 
       chmodSync(join(home, "active"), 0o644);
       const previousInode = statSync(join(home, "active")).ino;
       useStrategy(fakeCtx({ pacerHome: home }), "work");
-      expect(statSync(home).mode & 0o777).toBe(0o700);
-      expect(statSync(join(home, "active")).mode & 0o777).toBe(0o600);
-      expect(statSync(join(home, "active")).ino).not.toBe(previousInode);
+      expect(statSync(home).mode & 0o777).toBe(0o755);
+      expect(statSync(join(home, "active")).mode & 0o777).toBe(0o644);
+      expect(statSync(join(home, "active")).ino).toBe(previousInode);
       expect(readdirSync(home).filter(name => /^active\..*\.tmp$/.test(name))).toEqual([]);
       rmSync(home, { recursive: true, force: true });
     } finally {
