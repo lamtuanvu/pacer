@@ -48,7 +48,7 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean, s
   return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 }
 
-/** Auth is enforced by startServer before dispatching any v2 route. */
+/** Auth is enforced by startServer before dispatching either versioned route family. */
 export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status>; snapshot?: () => ReturnType<typeof liveSnapshot> }): Promise<Response> {
   const url = new URL(req.url);
   const version=url.pathname.startsWith("/v3/")?3:2;
@@ -120,7 +120,8 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       if (isExecutorSession(deps.getCtx())) return errorResponse({ code: "not_allowed", message: "PACER_ROLE=executor: executors cannot use the assistant." });
       return (await import("../assistant/stream")).assistantStream(streamRoute[1]!);
     }
-    const logRoute = pathname.match(/^\/v2\/tasks\/([^/]+)\/log$/);
+    // Log follow is public in both majors and keeps the same frames and pre-stream errors.
+    const logRoute = url.pathname.match(/^\/v[23]\/tasks\/([^/]+)\/log$/);
     if (logRoute && url.searchParams.get("follow") === "1") {
       const id = logRoute[1]!;
       // Resolve errors before sending SSE headers, so unknown tasks retain their HTTP code.
