@@ -45,7 +45,7 @@ pub struct CapabilityBroker {
     manifest: ParsedManifest,
     authority: CallAuthority,
     transfers: Transfers,
-    file_write: Option<(String, String)>,
+    file_write: Option<(String, String, Option<u64>)>,
     features: Vec<String>,
     hosts: Option<HostLeaseBroker>,
     scope_roots: ScopeRoots,
@@ -134,13 +134,58 @@ impl CapabilityBroker {
         let p = params
             .as_object()
             .ok_or(BrokerError::Invalid("object required"))?;
+        validate_request_fields(method, p)?;
         let field = |name| {
             p.get(name)
                 .and_then(Value::as_str)
                 .ok_or(BrokerError::Invalid("missing string field"))
         };
         let mut forwarded = params.clone();
+        if matches!(
+            method,
+            "capability.identity.sign" | "capability.secrets.resolve"
+        ) && let Some(object) = forwarded.as_object_mut()
+        {
+            object.retain(|key, _| match method {
+                "capability.identity.sign" => ["purpose", "payload"].contains(&key.as_str()),
+                _ => key == "ref",
+            });
+        }
+        if method == "capability.fs.readRange"
+            && let Some(expected) = forwarded.get_mut("expected").and_then(Value::as_object_mut)
+        {
+            expected.retain(|key, _| {
+                ["size", "mtimeMs", "inode", "device", "mode"].contains(&key.as_str())
+            });
+        }
         match method {
+            "capability.fs.list" => {
+                let dir = field("dir")?;
+                self.authority.read_directory(dir)?;
+                let dir = crate::authority::normalize_path(dir);
+                if !self.scope_roots.declares_directory(&scopes, &dir)? {
+                    return Err(AuthorityError::Denied("undeclared read directory".into()).into());
+                }
+                forwarded["dir"] = json!(dir);
+                let pattern = field("glob")?;
+                if pattern.is_empty()
+                    || pattern.len() > 4096
+                    || pattern.starts_with('/')
+                    || pattern.contains('\0')
+                    || pattern
+                        .split(['/', '\\'])
+                        .any(|part| part == "." || part == "..")
+                {
+                    return Err(BrokerError::Invalid("read glob"));
+                }
+                if p.get("limit").is_some_and(|value| {
+                    value
+                        .as_u64()
+                        .is_none_or(|limit| !(1..=1000).contains(&limit))
+                }) {
+                    return Err(BrokerError::Invalid("list limit"));
+                }
+            }
             "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => {
                 let path = field("path")?;
                 self.authority.read(path)?;
@@ -155,6 +200,12 @@ impl CapabilityBroker {
                 if !self.scope_roots.declares_path(&scopes, path)? {
                     return Err(AuthorityError::Denied("undeclared write scope".into()).into());
                 }
+                if method == "capability.fs.write"
+                    && p.get("mode")
+                        .is_some_and(|mode| mode.as_u64() != Some(0o600))
+                {
+                    return Err(BrokerError::Invalid("write mode"));
+                }
             }
             "capability.fs.beginWrite" => {
                 self.feature("fileWriteChunks")?;
@@ -168,11 +219,15 @@ impl CapabilityBroker {
                     .and_then(Value::as_u64)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
+                let mode = p.get("mode").map(|mode| mode.as_u64());
+                if mode.is_some_and(|mode| mode != Some(0o600)) {
+                    return Err(BrokerError::Invalid("write mode"));
+                }
                 let handle = self
                     .transfers
                     .begin(TransferKind::FileWrite, size)
                     .map_err(|_| BrokerError::Invalid("transfer bounds"))?;
-                self.file_write = Some((handle.clone(), path));
+                self.file_write = Some((handle.clone(), path, mode.flatten()));
                 return Ok(json!({"handle":handle}));
             }
             "capability.fs.writeChunk" => {
@@ -196,11 +251,11 @@ impl CapabilityBroker {
             "capability.fs.commitWrite" => {
                 self.feature("fileWriteChunks")?;
                 let handle = field("handle")?;
-                let path = self
+                let (path, mode) = self
                     .file_write
                     .as_ref()
-                    .filter(|(h, _)| h == handle)
-                    .map(|(_, p)| p.clone())
+                    .filter(|(h, _, _)| h == handle)
+                    .map(|(_, p, mode)| (p.clone(), *mode))
                     .ok_or_else(|| AuthorityError::Denied("file write handle".into()))?;
                 self.authority.write(&path, "write")?;
                 let bytes = self
@@ -210,6 +265,9 @@ impl CapabilityBroker {
                 let text =
                     String::from_utf8(bytes).map_err(|_| BrokerError::Invalid("UTF-8 file"))?;
                 forwarded = json!({"path":path,"text":text});
+                if let Some(mode) = mode {
+                    forwarded["mode"] = json!(mode);
+                }
                 self.file_write = None;
             }
             "capability.fs.releaseWrite" => {
@@ -601,7 +659,10 @@ impl CapabilityBroker {
             "capability.identity.sign" => 15_000,
             "capability.net.http" => 125_000,
             "capability.hosts.run" => 120_000,
-            "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => 5_000,
+            "capability.fs.read"
+            | "capability.fs.list"
+            | "capability.fs.stat"
+            | "capability.fs.readRange" => 5_000,
             "capability.fs.write"
             | "capability.fs.mkdir"
             | "capability.fs.remove"
@@ -620,6 +681,56 @@ impl CapabilityBroker {
                 .min(Instant::now() + Duration::from_millis(ms))
         }
     }
+}
+
+fn validate_request_fields(
+    method: &str,
+    params: &serde_json::Map<String, Value>,
+) -> Result<(), BrokerError> {
+    let allowed: &[&str] = match method {
+        "capability.fs.list" => &["dir", "glob", "limit"],
+        "capability.fs.read" | "capability.fs.stat" | "capability.fs.mkdir" => &["path"],
+        "capability.fs.readRange" => &["path", "offset", "length", "expected"],
+        "capability.fs.write" => &["path", "text", "mode"],
+        "capability.fs.remove" => &["path", "recursive"],
+        "capability.fs.beginWrite" => &["path", "bytes", "mode"],
+        "capability.fs.writeChunk" | "capability.net.http.body.stageChunk" => {
+            &["handle", "offset", "base64"]
+        }
+        "capability.fs.commitWrite"
+        | "capability.fs.releaseWrite"
+        | "capability.net.http.body.release" => &["handle"],
+        "capability.process.spawn" => &["argv", "timeoutMs", "cwd", "stdin", "env"],
+        "capability.net.http" => &[
+            "url",
+            "method",
+            "headers",
+            "body",
+            "timeoutMs",
+            "authorization",
+        ],
+        "capability.net.http.body.begin" => &["bytes"],
+        "capability.net.http.body.readChunk" => &["handle", "offset", "length"],
+        "capability.secrets.check" => &["ref"],
+        "capability.identity.sign" | "capability.secrets.resolve" => return Ok(()),
+        "capability.worktree.createOrReuse" => &["taskId", "attempt", "baseSha"],
+        "capability.worktree.inspect" | "capability.worktree.resolveBase" => &["taskId", "attempt"],
+        "capability.hosts.open" => &["alias"],
+        "capability.hosts.run" => &[
+            "session",
+            "script",
+            "args",
+            "timeoutMs",
+            "maxBytes",
+            "stdin",
+        ],
+        "capability.hosts.close" => &["session"],
+        _ => return Err(BrokerError::Invalid("unknown host method")),
+    };
+    if params.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(BrokerError::Invalid("unknown request field"));
+    }
+    Ok(())
 }
 
 fn valid_http_secret_ref(value: &str) -> bool {

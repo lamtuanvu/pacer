@@ -170,6 +170,171 @@ impl CapabilityEffect for Echo {
         Ok(params)
     }
 }
+
+#[tokio::test]
+async fn list_requires_issued_directory_and_rejects_adversarial_globs() {
+    let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
+        "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();
+    let resources: CallResources = serde_json::from_value(json!({"reads":[
+        {"path":"/tmp/logs","kind":"codex-logs"}]}))
+    .unwrap();
+    let authority = CallAuthority::new(
+        resources,
+        ["fs.read".into()],
+        Instant::now() + Duration::from_secs(2),
+    );
+    let mut broker = CapabilityBroker::new(manifest, authority, vec![]);
+    let mut effect = Echo { calls: 0 };
+    for (dir, pattern, limit) in [
+        ("/tmp/logs/../logs", "rollout-*.jsonl", json!(100)),
+        ("/tmp/other", "rollout-*.jsonl", json!(100)),
+        ("/tmp/logs", "../secret", json!(100)),
+        ("/tmp/logs", "sub/./file", json!(100)),
+        ("/tmp/logs", "/etc/passwd", json!(100)),
+        ("/tmp/logs", "rollout-*.jsonl", json!(0)),
+        ("/tmp/logs", "rollout-*.jsonl", json!(1001)),
+    ] {
+        assert!(
+            broker
+                .handle(
+                    "capability.fs.list",
+                    json!({"dir":dir,"glob":pattern,"limit":limit}),
+                    &mut effect
+                )
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(effect.calls, 0);
+    assert!(
+        broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs",
+        "glob":"rollout-*.jsonl","limit":100}),
+                &mut effect
+            )
+            .await
+            .is_ok()
+    );
+    assert_eq!(effect.calls, 1);
+}
+
+#[tokio::test]
+async fn list_normalizes_valid_directory_and_rejects_unknown_fields() {
+    let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
+        "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();
+    let resources: CallResources = serde_json::from_value(json!({"reads":[
+        {"path":"/tmp/logs","kind":"codex-logs"}]}))
+    .unwrap();
+    let authority = CallAuthority::new(
+        resources,
+        ["fs.read".into()],
+        Instant::now() + Duration::from_secs(2),
+    );
+    let mut broker = CapabilityBroker::new(manifest, authority, vec![]);
+    let mut effect = Echo { calls: 0 };
+    for dir in ["/tmp/logs/", "/tmp//logs"] {
+        let value = broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":dir,"glob":"rollout-*.jsonl"}),
+                &mut effect,
+            )
+            .await
+            .unwrap();
+        assert_eq!(value["dir"], "/tmp/logs", "{dir}");
+    }
+    let calls = effect.calls;
+    assert!(
+        broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs","glob":"rollout-*.jsonl","extra":true}),
+                &mut effect
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(effect.calls, calls);
+}
+
+#[tokio::test]
+async fn broker_rejects_unknown_fields_for_other_effect_requests() {
+    let mut broker = broker(2000);
+    let mut effect = Echo { calls: 0 };
+    for (method, mut params) in [
+        ("capability.fs.read", json!({"path":"/tmp/issued"})),
+        (
+            "capability.fs.write",
+            json!({"path":"/tmp/issued","text":"ok"}),
+        ),
+        (
+            "capability.process.spawn",
+            json!({"argv":["echo","ok"],"timeoutMs":1000}),
+        ),
+    ] {
+        params["extra"] = json!(true);
+        assert!(
+            broker.handle(method, params, &mut effect).await.is_err(),
+            "{method}"
+        );
+    }
+    assert_eq!(effect.calls, 0);
+    let value = broker
+        .handle(
+            "capability.identity.sign",
+            json!({"purpose":"conformance","payload":"","extra":true}),
+            &mut effect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(value, json!({"purpose":"conformance","payload":""}));
+}
+
+#[test]
+fn strict_broker_request_inventory_rejects_extra_fields() {
+    let strict = [
+        "capability.fs.list",
+        "capability.fs.read",
+        "capability.fs.stat",
+        "capability.fs.readRange",
+        "capability.fs.write",
+        "capability.fs.mkdir",
+        "capability.fs.remove",
+        "capability.fs.beginWrite",
+        "capability.fs.writeChunk",
+        "capability.fs.commitWrite",
+        "capability.fs.releaseWrite",
+        "capability.process.spawn",
+        "capability.net.http",
+        "capability.net.http.body.begin",
+        "capability.net.http.body.stageChunk",
+        "capability.net.http.body.readChunk",
+        "capability.net.http.body.release",
+        "capability.secrets.check",
+        "capability.worktree.createOrReuse",
+        "capability.worktree.inspect",
+        "capability.worktree.resolveBase",
+        "capability.hosts.open",
+        "capability.hosts.run",
+        "capability.hosts.close",
+    ];
+    for method in strict {
+        let object = json!({"extra":true});
+        assert!(
+            validate_request_fields(method, object.as_object().unwrap()).is_err(),
+            "{method}"
+        );
+    }
+    for method in ["capability.identity.sign", "capability.secrets.resolve"] {
+        let object = json!({"extra":true});
+        assert!(
+            validate_request_fields(method, object.as_object().unwrap()).is_ok(),
+            "{method}"
+        );
+    }
+}
 fn broker(ms: u64) -> CapabilityBroker {
     let manifest = parse_manifest(
         json!({"id":"fx-broker","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
@@ -315,7 +480,7 @@ async fn file_transfer_rejects_cross_handle_and_incomplete_commit() {
     let h = b
         .handle(
             "capability.fs.beginWrite",
-            json!({"path":"/tmp/issued","bytes":3}),
+            json!({"path":"/tmp/issued","bytes":3,"mode":384}),
             &mut e,
         )
         .await
@@ -348,16 +513,46 @@ async fn file_transfer_rejects_cross_handle_and_incomplete_commit() {
         .await
         .is_ok()
     );
-    assert!(
-        b.handle(
+    let committed = b
+        .handle(
             "capability.fs.commitWrite",
             json!({"handle":handle}),
-            &mut e
+            &mut e,
         )
         .await
-        .is_ok()
+        .unwrap();
+    assert_eq!(
+        committed,
+        json!({"path":"/tmp/issued","text":"abc","mode":384})
     );
     assert_eq!(e.calls, 1);
+}
+
+#[tokio::test]
+async fn write_modes_are_0600_only_before_effect() {
+    let mut b = broker(1000);
+    let mut e = Echo { calls: 0 };
+    for mode in [json!(0), json!(420), json!("384"), json!(-1)] {
+        assert!(
+            b.handle(
+                "capability.fs.write",
+                json!({"path":"/tmp/issued","text":"x","mode":mode}),
+                &mut e
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            b.handle(
+                "capability.fs.beginWrite",
+                json!({"path":"/tmp/issued","bytes":1,"mode":mode}),
+                &mut e
+            )
+            .await
+            .is_err()
+        );
+    }
+    assert_eq!(e.calls, 0);
 }
 #[tokio::test]
 async fn http_upload_is_owner_local_and_requires_captured_host() {
