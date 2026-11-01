@@ -165,3 +165,71 @@ fn forwards_hello_ops_and_events_unchanged() {
             .any(|line| line["method"] == "event")
     );
 }
+
+#[test]
+fn hello_negotiates_v2_v3_and_preserves_validation() {
+    if Command::new("bun").arg("--version").output().is_err() {
+        return;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let home = tempfile::tempdir().unwrap();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"hello\",\"params\":{\"protocol\":4}}\n{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"hello\",\"params\":[] }\n{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"hello\",\"params\":{\"protocol\":2e0}}\n".to_vec();
+    let mut direct = Command::new("bun");
+    direct
+        .args([&cli, "api", "--stdio"])
+        .env("PACER_HOME", home.path())
+        .env(
+            "PATH",
+            keychain_stub::keychain_stub_path(home.path(), "bun"),
+        );
+    let expected = exchange(direct, input.clone());
+    let actual = exchange(proxy(&["bun".into(), cli], home.path()), input);
+    assert!(expected.status.success());
+    assert!(actual.status.success());
+    let parse = |bytes: &[u8]| -> Vec<serde_json::Value> {
+        bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect()
+    };
+    assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
+}
+
+#[test]
+fn hello_keeps_work_grant_snapshot_and_subscribe_scoped() {
+    if Command::new("bun").arg("--version").output().is_err() {
+        return;
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let home = tempfile::tempdir().unwrap();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"snapshot\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"subscribe\"}\n".to_vec();
+    let mut direct = Command::new("bun");
+    direct
+        .args([&cli, "api", "--stdio"])
+        .env("PACER_HOME", home.path())
+        .env("PACER_WORK_GRANT", "invalid-but-present")
+        .env(
+            "PATH",
+            keychain_stub::keychain_stub_path(home.path(), "bun"),
+        );
+    let expected = exchange(direct, input.clone());
+    let mut root = proxy(&["bun".into(), cli], home.path());
+    root.env("PACER_WORK_GRANT", "invalid-but-present");
+    let actual = exchange(root, input);
+    assert!(expected.status.success());
+    assert!(actual.status.success());
+    let parse = |bytes: &[u8]| -> Vec<serde_json::Value> {
+        bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect()
+    };
+    let actual = parse(&actual.stdout);
+    assert_eq!(actual, parse(&expected.stdout));
+    assert_eq!(actual[1]["error"]["data"]["code"], "not_allowed");
+    assert_eq!(actual[2]["error"]["data"]["code"], "not_allowed");
+}
