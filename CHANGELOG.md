@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Native operation routing in the Rust front door for authenticated v3 HTTP and accepted protocol 3 stdio sessions. The production registry starts empty; `PACER_FORWARD_OPS` can force registered operations through the TypeScript core.
+
 ### Fixed
 
 - Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.

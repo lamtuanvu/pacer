@@ -1,5 +1,5 @@
 // Controlled subprocess negative controls, never a substitute for native evidence.
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const mode = process.argv[2];
 if (mode === "startup-delay") { await Bun.sleep(150); console.error("pacer-parity-ready"); }
@@ -25,6 +25,16 @@ for await (const line of console) {
   const file = join(process.env.PACER_HOME!, "state.json");
   if (request.method === "write") {
     writeFileSync(file, JSON.stringify({ value: mode === "state" ? "broken" : request.params.value }));
+    if (mode === "bun-cache") {
+      const cache = join(process.env.PACER_HOME!, ".bun", "install", "cache");
+      mkdirSync(cache, { recursive: true });
+      writeFileSync(join(cache, "transpiled.js"), "runtime cache");
+    }
+    if (mode === "bun-install-state") {
+      const install = join(process.env.PACER_HOME!, ".bun", "install");
+      mkdirSync(install, { recursive: true });
+      writeFileSync(join(install, "state.json"), "{\"changed\":true}");
+    }
     result = { value: mode === "result" ? "broken" : request.params.value, updatedAt: mode === "timestamp" ? "2026-01-02" : "2026-01-01" };
   }
   if (request.method === "read") result = { value: "kept", fixture: readFileSync(join(process.env.PACER_HOME!, "seed.json"), "utf8") };
