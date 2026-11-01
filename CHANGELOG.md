@@ -4,21 +4,27 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
+
 ### Fixed
 
 - Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
+
+- Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
+
+- Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.
+
+- Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
+
+- Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
 
 ## [0.14.0] - 2026-11-01
 
 ### Added
 
 - Native operation routing in the Rust front door for authenticated v3 HTTP and accepted protocol 3 stdio sessions. The production registry starts empty; `PACER_FORWARD_OPS` can force registered operations through the TypeScript core.
-
-### Fixed
-
-- Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
-
-- Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.
 
 ## [0.13.0] - 2026-10-31
 
