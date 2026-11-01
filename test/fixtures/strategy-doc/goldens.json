@@ -1116,5 +1116,26 @@
       "local"
     ],
     "after": "pacing:\r\n  order:\r\n    - codex # default runner\r\n    - local\r\n  policy: priority # pace\r\n"
+  },
+  {
+    "id": "replace-map-multiple-length-changing-entries",
+    "classes": [
+      "replace-node",
+      "block-map",
+      "multi-edit"
+    ],
+    "before": "a:\n  first: x\n  second: y\n",
+    "op": "replaceNode",
+    "path": [
+      "a"
+    ],
+    "value": {
+      "kind": "setEntries",
+      "entries": {
+        "first": "longer",
+        "second": "z"
+      }
+    },
+    "after": "a:\n  first: longer\n  second: z\n"
   }
 ]
