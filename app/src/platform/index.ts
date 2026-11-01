@@ -7,5 +7,11 @@ export { desktopHost } from './native';
 export function createPlatform(host: PlatformHost): Platform {
   return host.__TAURI__ ? createDesktopPlatform(host) : createBrowserPlatform();
 }
-/** ESM initializes this once, before either page entry constructs a client. */
-export const platform = createPlatform(globalThis as typeof globalThis & PlatformHost);
+let current: { desktop: boolean; platform: Platform } | undefined;
+/** Re-checks the host on use, as the pre-adapter code did, so a shell injected after load is still found. */
+function resolve(): Platform {
+  const host = globalThis as typeof globalThis & PlatformHost, desktop = !!host.__TAURI__;
+  if (current?.desktop !== desktop) current = { desktop, platform: createPlatform(host) };
+  return current.platform;
+}
+export const platform: Platform = new Proxy({} as Platform, { get: (_, key) => Reflect.get(resolve(), key) });

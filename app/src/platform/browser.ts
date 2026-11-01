@@ -32,7 +32,8 @@ export function createBrowserPlatform(): Platform {
     subscribeConnection(listener) { listeners.add(listener); listener(status); return () => { listeners.delete(listener); }; },
     setConnectionStatus(next) { if (status === next) return; status = next; for (const listener of listeners) listener(status); },
     openExternal: url => { window.open(url, '_blank', 'noopener,noreferrer'); },
-    confirm: async message => window.confirm(message),
+    // Native browser dialogs are banned (they do not exist in desktop webviews); browser screens confirm with useDialogs().
+    confirm: async () => false,
     pickFiles: options => cancelledPicker(async () => {
       const host = pickerHost();
       if (!host.showOpenFilePicker) throw Error('File picker unavailable in this browser');
