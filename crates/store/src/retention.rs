@@ -54,7 +54,6 @@ fn artifacts(dir: &Path, id: &str, archived: bool) -> Result<Vec<String>> {
             names.push(name);
         }
     }
-    names.sort();
     Ok(names)
 }
 
@@ -376,7 +375,7 @@ impl TaskStore {
             let task = self
                 .read(id)?
                 .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-            if task.get("archived") != Some(&Value::Bool(true)) {
+            if !crate::task::truthy(task.get("archived")) {
                 return Ok(task);
             }
             let archive = self.archive_path(&task)?;

@@ -59,14 +59,18 @@ fn number(value: Option<&Value>) -> Option<f64> {
     value?.as_f64().filter(|v| v.is_finite())
 }
 pub(crate) fn revision(task: &Value) -> Option<i64> {
-    task.get("rev")?
-        .as_i64()
-        .filter(|r| *r >= 1 && *r <= 9_007_199_254_740_991)
+    let value = task.get("rev")?.as_f64()?;
+    if value.is_finite() && value.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&value)
+    {
+        Some(value as i64)
+    } else {
+        None
+    }
 }
 fn field<'a>(task: &'a Value, key: &str) -> Option<&'a str> {
     task.get(key)?.as_str()
 }
-fn truthy(value: Option<&Value>) -> bool {
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null | Value::Bool(false)) => false,
         Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
@@ -375,6 +379,8 @@ impl TaskStore {
             if !valid(&task, id) {
                 continue;
             }
+            // JSON.parse represents integral decimal and exponent forms as integers.
+            task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
             tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
             if let Some(at) = number(task.get("settledAt")) {

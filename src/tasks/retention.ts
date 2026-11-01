@@ -1,4 +1,4 @@
-import { chmodSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync } from "node:fs";
 import { chmod, copyFile, mkdtemp, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -79,16 +79,13 @@ export async function pruneTasks(ctx: Ctx, o: { days?: number; dryRun?: boolean 
       for (const task of page) {
         before = task.id;
         if (!eligibleForRetention(ctx, task, days)) continue;
-        const names = (await readdir(tasksDir(ctx))).filter(name => artifactName(task.id, name)).sort();
+        const names = (await readdir(tasksDir(ctx))).filter(name => artifactName(task.id, name));
         const archive = taskArchiveDir(ctx, task);
         let stage: string | undefined;
         if (!o.dryRun) {
           const parent = join(ctx.pacerHome, "archive", new Date(task.createdAt * 1000).toISOString().slice(0, 7));
-          const archiveRoot = join(ctx.pacerHome, "archive");
-          mkdirSync(archiveRoot, { recursive: true, mode: 0o700 });
-          chmodSync(archiveRoot, 0o700);
+          mkdirSync(join(ctx.pacerHome, "archive"), { recursive: true, mode: 0o700 });
           mkdirSync(parent, { recursive: true, mode: 0o700 });
-          chmodSync(parent, 0o700);
           stage = await mkdtemp(join(parent, ".staging-"));
         }
         try {
@@ -145,8 +142,7 @@ export async function restoreTask(ctx: Ctx, id: string): Promise<TaskRecord> {
     if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
     if (!task.archived) return task;
     const archive = taskArchiveDir(ctx, task);
-    const names = (await readdir(archive)).filter(n => artifactName(id, n.replace(/\.gz$/, ""))).sort();
-    chmodSync(tasksDir(ctx), 0o700);
+    const names = (await readdir(archive)).filter(n => artifactName(id, n.replace(/\.gz$/, "")));
     const stage = await mkdtemp(join(tasksDir(ctx), ".restore-"));
     try {
       const signatures = new Map(names.map(name => [name, signature(join(archive, name))]));

@@ -4,9 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- Keep task archive eligibility, artifact order and compressed byte accounting consistent between the TypeScript and Rust stores. Tighten existing archive and restore directories to private mode before writing.
+- Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
 
 ## [0.14.0] - 2026-11-01
 

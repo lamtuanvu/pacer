@@ -4,7 +4,7 @@ import { withLock, withLockSync } from "../core/lock";
 import { assertPacerHomeAllowed } from "../ctx";
 import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Ctx } from "../types";
 import { cachedMachineId } from "../identity/store";
 import { TERMINAL_STATES, type Brief, type TaskRecord, type TaskState } from "./types";
@@ -95,13 +95,7 @@ function importJson(ctx: Ctx, entry: Connection): void {
 }
 
 function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
-  const dir = task.archived ? taskArchiveDir(ctx, task) : tasksDir(ctx);
-  if (task.archived) {
-    chmodSync(join(ctx.pacerHome, "archive"), 0o700);
-    chmodSync(dirname(dir), 0o700);
-    chmodSync(dir, 0o700);
-  } else chmodSync(dir, 0o700);
-  const file = join(dir, `${task.id}.json`);
+  const file = join(task.archived ? taskArchiveDir(ctx, task) : tasksDir(ctx), `${task.id}.json`);
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(task), { flag: "wx", mode: 0o600 });
@@ -135,7 +129,6 @@ function connection(ctx: Ctx) {
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   chmodSync(stateDir, 0o700);
   mkdirSync(tasksDir(ctx), { recursive: true, mode: 0o700 });
-  chmodSync(tasksDir(ctx), 0o700);
   // Create privately before SQLite can create its WAL/SHM companions.
   closeSync(openSync(path, "a", 0o600));
   chmodSync(path, 0o600);
