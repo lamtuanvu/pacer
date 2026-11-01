@@ -261,6 +261,122 @@ async fn native_listing_is_admitted_and_never_calls_the_effect() {
     assert_eq!(effect.calls, 0);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn list_normalizes_valid_directory_and_rejects_unknown_fields() {
+    let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
+        "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();
+    let resources: CallResources = serde_json::from_value(json!({"reads":[
+        {"path":"/tmp/logs","kind":"codex-logs"}]}))
+    .unwrap();
+    let authority = CallAuthority::new(
+        resources,
+        ["fs.read".into()],
+        Instant::now() + Duration::from_secs(2),
+    );
+    let mut broker = CapabilityBroker::new(manifest, authority, vec![]);
+    let mut effect = Echo { calls: 0 };
+    for dir in ["/tmp/logs/", "/tmp//logs"] {
+        let value = broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":dir,"glob":"rollout-*.jsonl"}),
+                &mut effect,
+            )
+            .await
+            .unwrap();
+        assert_eq!(value["dir"], "/tmp/logs", "{dir}");
+    }
+    let calls = effect.calls;
+    assert!(
+        broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs","glob":"rollout-*.jsonl","extra":true}),
+                &mut effect
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(effect.calls, calls);
+}
+
+#[tokio::test]
+async fn broker_rejects_unknown_fields_for_other_effect_requests() {
+    let mut broker = broker(2000);
+    let mut effect = Echo { calls: 0 };
+    for (method, mut params) in [
+        ("capability.fs.read", json!({"path":"/tmp/issued"})),
+        (
+            "capability.fs.write",
+            json!({"path":"/tmp/issued","text":"ok"}),
+        ),
+        (
+            "capability.process.spawn",
+            json!({"argv":["echo","ok"],"timeoutMs":1000}),
+        ),
+    ] {
+        params["extra"] = json!(true);
+        assert!(
+            broker.handle(method, params, &mut effect).await.is_err(),
+            "{method}"
+        );
+    }
+    assert_eq!(effect.calls, 0);
+    let value = broker
+        .handle(
+            "capability.identity.sign",
+            json!({"purpose":"conformance","payload":"","extra":true}),
+            &mut effect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(value, json!({"purpose":"conformance","payload":""}));
+}
+
+#[test]
+fn strict_broker_request_inventory_rejects_extra_fields() {
+    let strict = [
+        "capability.fs.list",
+        "capability.fs.read",
+        "capability.fs.stat",
+        "capability.fs.readRange",
+        "capability.fs.write",
+        "capability.fs.mkdir",
+        "capability.fs.remove",
+        "capability.fs.beginWrite",
+        "capability.fs.writeChunk",
+        "capability.fs.commitWrite",
+        "capability.fs.releaseWrite",
+        "capability.process.spawn",
+        "capability.net.http",
+        "capability.net.http.body.begin",
+        "capability.net.http.body.stageChunk",
+        "capability.net.http.body.readChunk",
+        "capability.net.http.body.release",
+        "capability.secrets.check",
+        "capability.worktree.createOrReuse",
+        "capability.worktree.inspect",
+        "capability.worktree.resolveBase",
+        "capability.hosts.open",
+        "capability.hosts.run",
+        "capability.hosts.close",
+    ];
+    for method in strict {
+        let object = json!({"extra":true});
+        assert!(
+            validate_request_fields(method, object.as_object().unwrap()).is_err(),
+            "{method}"
+        );
+    }
+    for method in ["capability.identity.sign", "capability.secrets.resolve"] {
+        let object = json!({"extra":true});
+        assert!(
+            validate_request_fields(method, object.as_object().unwrap()).is_ok(),
+            "{method}"
+        );
+    }
+}
 fn broker(ms: u64) -> CapabilityBroker {
     let manifest = parse_manifest(
         json!({"id":"fx-broker","version":"1.0.0","publisher":"fixture","host":">=1.10.0",

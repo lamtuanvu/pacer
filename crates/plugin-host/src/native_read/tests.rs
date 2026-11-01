@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::symlink;
 
 #[test]
@@ -213,4 +214,111 @@ fn listing_keeps_newest_after_more_than_one_thousand_matches() {
     assert_eq!(result["files"][0]["path"], latest.to_str().unwrap());
     assert_eq!(result["complete"], false);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn listing_skips_hidden_directories_and_prunes_nonrecursive_globs() {
+    let root = std::env::temp_dir().join(format!("pacer-list-glob-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(root.join(".hidden")).unwrap();
+    fs::create_dir_all(root.join("nested")).unwrap();
+    fs::write(root.join("rollout-root.jsonl"), "root").unwrap();
+    fs::write(root.join(".hidden/rollout-hidden.jsonl"), "hidden").unwrap();
+    fs::write(root.join("nested/rollout-nested.jsonl"), "nested").unwrap();
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let scopes = vec![format!("{}/**", root.display())];
+    let list = |glob| {
+        reader
+            .list(
+                &json!({"dir":root,"glob":glob}),
+                &scopes,
+                &ScopeRoots::default(),
+                &authority,
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .unwrap()
+    };
+    let recursive = list("**/rollout-*.jsonl");
+    assert_eq!(recursive["files"].as_array().unwrap().len(), 2);
+    for (glob, expected) in [
+        ("rollout-*.jsonl", 1),
+        ("nested/rollout-*.jsonl", 1),
+        ("*/rollout-*.jsonl", 1),
+        ("missing/rollout-*.jsonl", 0),
+        (".hidden/rollout-*.jsonl", 1),
+    ] {
+        assert_eq!(
+            list(glob)["files"].as_array().unwrap().len(),
+            expected,
+            "{glob}"
+        );
+    }
+    fs::set_permissions(root.join("nested"), fs::Permissions::from_mode(0o000)).unwrap();
+    let flat = list("rollout-*.jsonl");
+    assert_eq!(flat["files"].as_array().unwrap().len(), 1);
+    fs::set_permissions(root.join("nested"), fs::Permissions::from_mode(0o700)).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn directory_descriptor_does_not_follow_a_swapped_descendant() {
+    let home = std::env::temp_dir().join(format!("pacer-list-swap-{}", uuid::Uuid::new_v4()));
+    let root = home.join("root");
+    let outside = home.join("outside");
+    fs::create_dir_all(root.join("nested")).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(root.join("nested/rollout-safe.jsonl"), "safe").unwrap();
+    fs::write(outside.join("rollout-secret.jsonl"), "secret").unwrap();
+    let root_fd = open_directory(&root).unwrap();
+    let mut child_fd = Dir::openat(&root_fd, "nested", directory_flags(), Mode::empty()).unwrap();
+    fs::rename(root.join("nested"), root.join("saved")).unwrap();
+    symlink(&outside, root.join("nested")).unwrap();
+    let names: Vec<_> = child_fd
+        .iter()
+        .map(|entry| entry.unwrap().file_name().to_owned())
+        .filter(|name| name.as_bytes() != b"." && name.as_bytes() != b"..")
+        .collect();
+    assert_eq!(
+        names,
+        vec![std::ffi::CString::new("rollout-safe.jsonl").unwrap()]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn exact_read_descriptor_does_not_follow_a_swapped_parent() {
+    let home = std::env::temp_dir().join(format!("pacer-read-swap-{}", uuid::Uuid::new_v4()));
+    let root = home.join("root");
+    let outside = home.join("outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(root.join("telemetry.json"), "safe").unwrap();
+    fs::write(outside.join("telemetry.json"), "secret").unwrap();
+    let root_fd = open_directory(&root).unwrap();
+    fs::rename(&root, home.join("saved")).unwrap();
+    symlink(&outside, &root).unwrap();
+    let mut file = File::from(
+        openat(
+            &root_fd,
+            "telemetry.json",
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW,
+            Mode::empty(),
+        )
+        .unwrap(),
+    );
+    let mut text = String::new();
+    file.read_to_string(&mut text).unwrap();
+    assert_eq!(text, "safe");
+    fs::remove_dir_all(home).unwrap();
 }

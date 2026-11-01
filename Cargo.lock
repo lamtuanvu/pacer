@@ -1133,6 +1133,7 @@ dependencies = [
  "base64 0.22.1",
  "glob",
  "libc",
+ "nix",
  "pacer-plugin-protocol",
  "semver",
  "serde",

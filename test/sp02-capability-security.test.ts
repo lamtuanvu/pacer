@@ -135,6 +135,27 @@ test("bounded listing selects a late newest rollout after more than one thousand
   } finally { await f.authority.revoke(); }
 }, 10000);
 
+test("listing skips hidden directories and a flat glob stays at the root", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, ".hidden"));
+  mkdirSync(join(f.sessions, "nested"));
+  writeFileSync(join(f.sessions, ".hidden", "rollout-hidden.jsonl"), "hidden");
+  writeFileSync(join(f.sessions, "nested", "rollout-nested.jsonl"), "nested");
+  try {
+    const list = async (glob: string) => answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob }) as Promise<{ files: { path: string }[] }>;
+    expect((await list("**/rollout-*.jsonl")).files.map(file => file.path).sort())
+      .toEqual([f.allowed, join(f.sessions, "nested", "rollout-nested.jsonl")].sort());
+    expect((await list("rollout-*.jsonl")).files.map(file => file.path)).toEqual([f.allowed]);
+    for (const [glob, expected] of [
+      ["nested/rollout-*.jsonl", [join(f.sessions, "nested", "rollout-nested.jsonl")]],
+      ["*/rollout-*.jsonl", [join(f.sessions, "nested", "rollout-nested.jsonl")]],
+      ["missing/rollout-*.jsonl", []],
+      [".hidden/rollout-*.jsonl", [join(f.sessions, ".hidden", "rollout-hidden.jsonl")]],
+    ] as const) expect((await list(glob)).files.map(file => file.path)).toEqual([...expected]);
+  } finally { await f.authority.revoke(); }
+});
+
 test("large or heavily escaped reads require bounded ranges, and stale size never yields partial bytes", async () => {
   const f = await resources();
   writeFileSync(f.allowed, Buffer.alloc(200000));

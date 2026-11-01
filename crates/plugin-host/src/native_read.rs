@@ -2,11 +2,17 @@
 //! Each request opens a no-follow descriptor and checks the observed file identity.
 use crate::{BrokerError, CallAuthority, ReadResource, ScopeRoots};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use nix::{
+    dir::Dir,
+    fcntl::{AtFlags, OFlag, openat},
+    sys::stat::{FileStat, Mode, SFlag, fstat, fstatat},
+};
 use serde_json::{Value, json};
 use std::{
-    fs::{self, Metadata, OpenOptions},
+    fs::{self, File, Metadata},
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::unix::fs::MetadataExt,
+    os::{fd::AsFd, unix::ffi::OsStrExt},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -115,80 +121,95 @@ impl NativeRead {
         };
         check_root(image)?;
         let pattern = glob::Pattern::new(glob).map_err(|_| BrokerError::Invalid("read glob"))?;
-        let mut stack = vec![(
-            root.clone(),
-            image
-                .parent_identity
-                .as_ref()
-                .ok_or(BrokerError::Invalid("read root unavailable"))?
-                .clone(),
-        )];
+        let root_dir = open_directory(root)?;
+        if !image.parent_identity.as_ref().is_some_and(|old| {
+            fstat(&root_dir)
+                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+        }) {
+            return Err(BrokerError::Invalid("read root changed"));
+        }
+        let mut stack = vec![(root_dir, PathBuf::new())];
         let mut files: Vec<Value> = Vec::new();
         let mut total = 0usize;
-        while let Some((directory, identity)) = stack.pop() {
+        while let Some((mut directory, relative_dir)) = stack.pop() {
             authority.active()?;
             if Instant::now() >= deadline {
                 return Err(BrokerError::Timeout);
             }
-            if !fs::symlink_metadata(&directory).is_ok_and(|m| same_root(&m, &identity)) {
-                return Err(BrokerError::Invalid("read directory changed"));
-            }
-            let entries = fs::read_dir(&directory)
+            let dir_fd = directory
+                .as_fd()
+                .try_clone_to_owned()
                 .map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
-            for entry in entries {
+            for entry in directory.iter() {
                 authority.active()?;
                 if Instant::now() >= deadline {
                     return Err(BrokerError::Timeout);
                 }
                 let entry = entry.map_err(|_| BrokerError::Invalid("read directory changed"))?;
-                let path = entry.path();
-                let meta = match fs::symlink_metadata(&path) {
-                    Ok(meta) => meta,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                let name = std::ffi::OsStr::from_bytes(entry.file_name().to_bytes());
+                if name.as_bytes() == b"." || name.as_bytes() == b".." {
+                    continue;
+                }
+                let relative = relative_dir.join(name);
+                let stat = match fstatat(&dir_fd, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                    Ok(stat) => stat,
+                    Err(nix::errno::Errno::ENOENT) => continue,
                     Err(_) => return Err(BrokerError::Invalid("read entry unavailable")),
                 };
-                if meta.file_type().is_symlink() {
+                let kind = SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT);
+                if kind == SFlag::S_IFLNK {
                     continue;
                 }
-                if meta.is_dir() {
-                    stack.push((path, meta));
+                if kind == SFlag::S_IFDIR {
+                    if may_descend(glob, &relative) {
+                        let child = Dir::openat(&dir_fd, name, directory_flags(), Mode::empty())
+                            .map_err(|_| BrokerError::Invalid("read directory changed"))?;
+                        if !fstat(&child)
+                            .is_ok_and(|now| now.st_dev == stat.st_dev && now.st_ino == stat.st_ino)
+                        {
+                            return Err(BrokerError::Invalid("read directory changed"));
+                        }
+                        stack.push((child, relative));
+                    }
                     continue;
                 }
-                if !meta.is_file() {
+                if kind != SFlag::S_IFREG {
                     continue;
                 }
-                let relative = path
-                    .strip_prefix(root)
-                    .map_err(|_| BrokerError::Invalid("read entry escaped"))?;
                 if !pattern.matches_path_with(
-                    relative,
+                    &relative,
                     glob::MatchOptions {
                         require_literal_separator: true,
                         ..Default::default()
                     },
-                ) {
+                ) || !matches_visible(glob, &relative)
+                {
                     continue;
                 }
-                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                let Some(name) = name.to_str() else {
                     continue;
                 };
                 if !(name.starts_with("rollout-") && name.ends_with(".jsonl")) {
                     continue;
                 }
-                let logical = Path::new(dir).join(relative);
+                let logical = Path::new(dir).join(&relative);
                 let Some(path_str) = logical.to_str() else {
                     continue;
                 };
                 if !scope_roots.declares_path(scopes, path_str)? {
                     continue;
                 }
-                let current = fs::symlink_metadata(&path)
+                let current = fstatat(&dir_fd, name, AtFlags::AT_SYMLINK_NOFOLLOW)
                     .map_err(|_| BrokerError::Invalid("read entry changed"))?;
-                if !same(&meta, &current) {
+                if current.st_dev != stat.st_dev
+                    || current.st_ino != stat.st_ino
+                    || current.st_mode != stat.st_mode
+                    || current.st_size != stat.st_size
+                {
                     return Err(BrokerError::Invalid("read entry changed"));
                 }
                 total += 1;
-                let item = info(path_str, &meta);
+                let item = stat_info(path_str, &current);
                 let index = files
                     .iter()
                     .position(|old| {
@@ -202,9 +223,6 @@ impl NativeRead {
                 if files.len() > limit {
                     files.pop();
                 }
-            }
-            if !fs::symlink_metadata(&directory).is_ok_and(|m| same_root(&m, &identity)) {
-                return Err(BrokerError::Invalid("read directory changed"));
             }
         }
         check_root(image)?;
@@ -238,32 +256,48 @@ impl NativeRead {
             return Err(BrokerError::Invalid("read root changed"));
         }
         let named = Path::new(path);
-        let current = match fs::symlink_metadata(named) {
+        let name = named
+            .file_name()
+            .ok_or(BrokerError::Invalid("read file name"))?;
+        let root_dir = open_directory(parent)?;
+        if !image.parent_identity.as_ref().is_some_and(|old| {
+            fstat(&root_dir)
+                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+        }) {
+            return Err(BrokerError::Invalid("read root changed"));
+        }
+        let current = match fstatat(&root_dir, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
             Ok(current) => current,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(nix::errno::Errno::ENOENT) => {
                 return Ok(json!({"missing":true}));
             }
             Err(_) => return Err(BrokerError::Invalid("read target unavailable")),
         };
-        if !current.is_file() || current.file_type().is_symlink() {
+        if SFlag::from_bits_truncate(current.st_mode & libc::S_IFMT) != SFlag::S_IFREG {
             return Err(BrokerError::Invalid("read target is not a regular file"));
         }
-        let mut file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(named)
-            .map_err(|_| BrokerError::Invalid("read file unavailable"))?;
+        let mut file = File::from(
+            openat(
+                &root_dir,
+                name,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| BrokerError::Invalid("read file unavailable"))?,
+        );
         let before = file
             .metadata()
             .map_err(|_| BrokerError::Invalid("read descriptor unavailable"))?;
-        if !same(&before, &current) {
+        if !same_stat_meta(&current, &before) {
             return Err(BrokerError::Invalid("read contents changed"));
         }
         let info = info(path, &before);
         if method == "capability.fs.stat" {
+            check_root(image)?;
             return Ok(json!({"info":info}));
         }
         if method == "capability.fs.read" && before.len() > CHUNK {
+            check_root(image)?;
             return Ok(json!({"ranged":info}));
         }
         let (offset, length) = if method == "capability.fs.readRange" {
@@ -296,11 +330,12 @@ impl NativeRead {
         let after = file
             .metadata()
             .map_err(|_| BrokerError::Invalid("read descriptor unavailable"))?;
-        let named_after = fs::symlink_metadata(named)
+        let named_after = fstatat(&root_dir, name, AtFlags::AT_SYMLINK_NOFOLLOW)
             .map_err(|_| BrokerError::Invalid("read target disappeared"))?;
-        if !same(&after, &before) || !same(&named_after, &before) {
+        if !same(&after, &before) || !same_stat_meta(&named_after, &before) {
             return Err(BrokerError::Invalid("read changed"));
         }
+        check_root(image)?;
         if method == "capability.fs.readRange" {
             Ok(json!({"base64":STANDARD.encode(bytes),"info":info}))
         } else {
@@ -324,8 +359,60 @@ fn same(a: &Metadata, b: &Metadata) -> bool {
         && a.mode() == b.mode()
 }
 
+fn same_stat_meta(stat: &FileStat, meta: &Metadata) -> bool {
+    stat.st_dev as u64 == meta.dev()
+        && stat.st_ino == meta.ino()
+        && stat.st_size as u64 == meta.len()
+        && stat.st_mtime == meta.mtime()
+        && stat.st_mtime_nsec == meta.mtime_nsec()
+        && stat.st_mode as u32 == meta.mode()
+}
+
 fn same_root(a: &Metadata, b: &Metadata) -> bool {
     a.is_dir() && !a.file_type().is_symlink() && a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+fn directory_flags() -> OFlag {
+    OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
+}
+
+fn open_directory(path: &Path) -> Result<Dir, BrokerError> {
+    Dir::open(path, directory_flags(), Mode::empty())
+        .map_err(|_| BrokerError::Invalid("read directory changed"))
+}
+
+fn pattern_reaches(glob: &str, path: &Path, complete: bool) -> bool {
+    let patterns: Vec<_> = glob.split('/').collect();
+    let parts: Vec<_> = path.iter().filter_map(|part| part.to_str()).collect();
+    fn reachable(patterns: &[&str], parts: &[&str], pi: usize, di: usize, complete: bool) -> bool {
+        if di == parts.len() {
+            return if complete {
+                patterns[pi..].iter().all(|part| *part == "**")
+            } else {
+                pi < patterns.len()
+            };
+        }
+        if pi >= patterns.len() {
+            return false;
+        }
+        if patterns[pi] == "**" {
+            return reachable(patterns, parts, pi + 1, di, complete)
+                || (!parts[di].starts_with('.')
+                    && reachable(patterns, parts, pi, di + 1, complete));
+        }
+        (!parts[di].starts_with('.') || patterns[pi].starts_with('.'))
+            && glob::Pattern::new(patterns[pi]).is_ok_and(|p| p.matches(parts[di]))
+            && reachable(patterns, parts, pi + 1, di + 1, complete)
+    }
+    reachable(&patterns, &parts, 0, 0, complete)
+}
+
+fn may_descend(glob: &str, directory: &Path) -> bool {
+    pattern_reaches(glob, directory, false)
+}
+
+fn matches_visible(glob: &str, file: &Path) -> bool {
+    pattern_reaches(glob, file, true)
 }
 
 fn check_root(image: &Image) -> Result<(), BrokerError> {
@@ -348,6 +435,12 @@ fn check_root(image: &Image) -> Result<(), BrokerError> {
 fn info(path: &str, meta: &Metadata) -> Value {
     json!({"path":path,"size":meta.len(),"mtimeMs":meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6,
         "inode":meta.ino(),"device":meta.dev(),"mode":meta.mode()})
+}
+
+fn stat_info(path: &str, stat: &FileStat) -> Value {
+    let (seconds, nanos) = (stat.st_mtime, stat.st_mtime_nsec);
+    json!({"path":path,"size":stat.st_size,"mtimeMs":seconds as f64 * 1000.0 + nanos as f64 / 1e6,
+        "inode":stat.st_ino,"device":stat.st_dev,"mode":stat.st_mode})
 }
 
 fn expected_identity(value: &Value, meta: &Metadata) -> bool {

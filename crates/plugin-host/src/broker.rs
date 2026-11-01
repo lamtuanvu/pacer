@@ -134,19 +134,39 @@ impl CapabilityBroker {
         let p = params
             .as_object()
             .ok_or(BrokerError::Invalid("object required"))?;
+        validate_request_fields(method, p)?;
         let field = |name| {
             p.get(name)
                 .and_then(Value::as_str)
                 .ok_or(BrokerError::Invalid("missing string field"))
         };
         let mut forwarded = params.clone();
+        if matches!(
+            method,
+            "capability.identity.sign" | "capability.secrets.resolve"
+        ) && let Some(object) = forwarded.as_object_mut()
+        {
+            object.retain(|key, _| match method {
+                "capability.identity.sign" => ["purpose", "payload"].contains(&key.as_str()),
+                _ => key == "ref",
+            });
+        }
+        if method == "capability.fs.readRange"
+            && let Some(expected) = forwarded.get_mut("expected").and_then(Value::as_object_mut)
+        {
+            expected.retain(|key, _| {
+                ["size", "mtimeMs", "inode", "device", "mode"].contains(&key.as_str())
+            });
+        }
         match method {
             "capability.fs.list" => {
                 let dir = field("dir")?;
                 self.authority.read_directory(dir)?;
-                if !self.scope_roots.declares_directory(&scopes, dir)? {
+                let dir = crate::authority::normalize_path(dir);
+                if !self.scope_roots.declares_directory(&scopes, &dir)? {
                     return Err(AuthorityError::Denied("undeclared read directory".into()).into());
                 }
+                forwarded["dir"] = json!(dir);
                 let pattern = field("glob")?;
                 if pattern.is_empty()
                     || pattern.len() > 4096
@@ -678,6 +698,56 @@ impl CapabilityBroker {
                 .min(Instant::now() + Duration::from_millis(ms))
         }
     }
+}
+
+fn validate_request_fields(
+    method: &str,
+    params: &serde_json::Map<String, Value>,
+) -> Result<(), BrokerError> {
+    let allowed: &[&str] = match method {
+        "capability.fs.list" => &["dir", "glob", "limit"],
+        "capability.fs.read" | "capability.fs.stat" | "capability.fs.mkdir" => &["path"],
+        "capability.fs.readRange" => &["path", "offset", "length", "expected"],
+        "capability.fs.write" => &["path", "text", "mode"],
+        "capability.fs.remove" => &["path", "recursive"],
+        "capability.fs.beginWrite" => &["path", "bytes", "mode"],
+        "capability.fs.writeChunk" | "capability.net.http.body.stageChunk" => {
+            &["handle", "offset", "base64"]
+        }
+        "capability.fs.commitWrite"
+        | "capability.fs.releaseWrite"
+        | "capability.net.http.body.release" => &["handle"],
+        "capability.process.spawn" => &["argv", "timeoutMs", "cwd", "stdin", "env"],
+        "capability.net.http" => &[
+            "url",
+            "method",
+            "headers",
+            "body",
+            "timeoutMs",
+            "authorization",
+        ],
+        "capability.net.http.body.begin" => &["bytes"],
+        "capability.net.http.body.readChunk" => &["handle", "offset", "length"],
+        "capability.secrets.check" => &["ref"],
+        "capability.identity.sign" | "capability.secrets.resolve" => return Ok(()),
+        "capability.worktree.createOrReuse" => &["taskId", "attempt", "baseSha"],
+        "capability.worktree.inspect" | "capability.worktree.resolveBase" => &["taskId", "attempt"],
+        "capability.hosts.open" => &["alias"],
+        "capability.hosts.run" => &[
+            "session",
+            "script",
+            "args",
+            "timeoutMs",
+            "maxBytes",
+            "stdin",
+        ],
+        "capability.hosts.close" => &["session"],
+        _ => return Err(BrokerError::Invalid("unknown host method")),
+    };
+    if params.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(BrokerError::Invalid("unknown request field"));
+    }
+    Ok(())
 }
 
 fn valid_http_secret_ref(value: &str) -> bool {
