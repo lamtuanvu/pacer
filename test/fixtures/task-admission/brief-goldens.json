@@ -1,0 +1,12 @@
+[
+  {"id":"defaults","raw":{"goal":"Repair queue","repo":"$REPO"},"brief":{"goal":"Repair queue","repo":"$REPO"},"input":{}},
+  {"id":"full-brief","raw":{"goal":"Run checks","repo":"$REPO","scope":"src/tasks","acceptance":"bun test","acceptance_pipefail":true,"acceptance_timeout_min":120,"constraints":"no network","context":"repro","base":"main","worktree_base":"head","title":"  Checks  ","worktree":"new","worktree_reason":"isolated","timeout_min":30,"interactive":true,"group":"lane_1","grant":false},"brief":{"goal":"Run checks","repo":"$REPO","scope":"src/tasks","acceptance":"bun test","pipefail":true,"acceptanceTimeoutMin":120,"constraints":"no network","context":"repro","base":"main","worktreeBase":"head"},"input":{"title":"Checks","worktree":"new","worktree_reason":"isolated","timeoutMin":30,"interactive":true,"group":"lane_1","grant":false}},
+  {"id":"minimum-acceptance-timeout","raw":{"goal":"Check","repo":"$REPO","acceptance_timeout_min":1},"brief":{"goal":"Check","repo":"$REPO","acceptanceTimeoutMin":1},"input":{}},
+  {"id":"bad-timeout-zero","raw":{"goal":"Check","repo":"$REPO","acceptance_timeout_min":0},"error":"acceptance_timeout_min"},
+  {"id":"bad-timeout-fraction","raw":{"goal":"Check","repo":"$REPO","acceptance_timeout_min":1.5},"error":"acceptance_timeout_min"},
+  {"id":"bad-timeout-over-limit","raw":{"goal":"Check","repo":"$REPO","acceptance_timeout_min":121},"error":"acceptance_timeout_min"},
+  {"id":"bad-timeout-string","raw":{"goal":"Check","repo":"$REPO","acceptance_timeout_min":"10"},"error":"acceptance_timeout_min"},
+  {"id":"bad-worktree","raw":{"goal":"Check","repo":"$REPO","worktree":"other"},"error":"worktree must be one of current, new, auto"},
+  {"id":"bad-group","raw":{"goal":"Check","repo":"$REPO","group":"-bad"},"error":"group must be"},
+  {"id":"bad-base","raw":{"goal":"Check","repo":"$REPO","base":"@{1}"},"error":"base"}
+]

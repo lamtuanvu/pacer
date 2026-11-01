@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
@@ -81,6 +81,32 @@ test("updates in separate processes do not lose revisions", async () => {
   const children = Array.from({ length: 3 }, () => Bun.spawn([process.execPath, "-e", script, JSON.stringify({ pacerHome: ctx.pacerHome }), task.id], { stdout: "pipe", stderr: "pipe" }));
   expect(await Promise.all(children.map(child => child.exited))).toEqual([0, 0, 0]);
   expect(readTask(ctx, task.id)?.rev).toBe(61);
+});
+
+test("cross-process reviews serialize the SQLite revision and record one verdict", async () => {
+  const { ctx, task } = fixture();
+  const rev = updateTask(ctx, task.id, t => { t.state = "done"; }).rev;
+  const release = join(ctx.home, "review-release");
+  const workers = ["accept", "reject"].map((verdict, index) => {
+    const ready = join(ctx.home, `review-ready-${index}`);
+    const child = Bun.spawn([process.execPath, new URL("./fixtures/task-admission/review-worker.ts", import.meta.url).pathname,
+      ctx.pacerHome, task.id, String(rev), verdict, ready, release], { stdout: "pipe", stderr: "pipe" });
+    return { child, ready };
+  });
+  const until = Date.now() + 10_000;
+  while (workers.some(worker => !existsSync(worker.ready)) && Date.now() < until) await Bun.sleep(5);
+  expect(workers.every(worker => existsSync(worker.ready))).toBe(true);
+  writeFileSync(release, "go");
+  const outcomes = await Promise.all(workers.map(async ({ child }) => {
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    return JSON.parse(stdout.trim()) as { ok?: boolean; code?: string; rev?: number };
+  }));
+  expect(outcomes.filter(outcome => outcome.ok)).toHaveLength(1);
+  expect(outcomes.filter(outcome => outcome.code === "conflict")).toEqual([{ code: "conflict", rev: rev + 1 }]);
+  expect(readTask(ctx, task.id)?.rev).toBe(rev + 1);
+  expect(readLabels(ctx).filter(label => label.type === "task_review")).toHaveLength(1);
 });
 
 test("a stale request cannot refresh liveness before checking the revision", async () => {
