@@ -107,7 +107,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
   const connection=runtime;
   const renderer={reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{setState(s);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}};
   const detach=runtime.attach(renderer,{control,live,autoControl});
-  const visibility=()=>{const visible=!!pane.current?.clientWidth&&!!pane.current?.clientHeight;runtime.setVisible(renderer,visible);if(visible&&mount.current&&host.parentElement!==mount.current){mount.current.append(host);term.attachCustomKeyEventHandler(keys);}};
+  const visibility=()=>{const visible=!!pane.current?.clientWidth&&!!pane.current?.clientHeight;runtime.setVisible(renderer,visible);if(visible&&mount.current&&host.parentElement!==mount.current)mount.current.append(host);};
   client.current=connection;
   const keys=(event:KeyboardEvent)=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}
    // A watcher's keys never reach the agent; let Tab move focus out of the terminal.
@@ -117,7 +117,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
    return true;};
   const input=term.onData(data=>{if(host.parentElement===mount.current&&viewRef.current.control&&viewRef.current.live)connection.input(data);});
   const resizer=new ResizeObserver(()=>{visibility();clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
-  visibility();scale();
+  term.attachCustomKeyEventHandler(keys);visibility();scale();
   return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();detach();results?.dispose();webLinks.dispose();fileLinks?.dispose();if(host.parentElement===mount.current)host.remove();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
  },[runtime,shell,preview,conversation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
