@@ -140,10 +140,15 @@ impl CallAuthority {
     pub fn read_directory(&self, path: &str) -> Result<&ReadResource, AuthorityError> {
         self.granted("fs.read")?;
         valid_path(path)?;
+        let normalized = normalize_path(path);
         self.resources
             .reads
             .iter()
-            .find(|r| r.path == path && r.kind == "codex-logs")
+            .find(|r| {
+                r.kind == "codex-logs"
+                    && valid_path(&r.path).is_ok()
+                    && normalize_path(&r.path) == normalized
+            })
             .ok_or_else(|| AuthorityError::Denied("read directory was not issued".into()))
     }
     pub fn write(&self, path: &str, operation: &str) -> Result<&WriteResource, AuthorityError> {
@@ -334,6 +339,14 @@ pub fn valid_path(path: &str) -> Result<(), AuthorityError> {
         return Err(AuthorityError::Denied("invalid absolute path".into()));
     }
     Ok(())
+}
+
+pub fn normalize_path(path: &str) -> String {
+    Path::new(path)
+        .components()
+        .collect::<std::path::PathBuf>()
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[derive(Clone, Debug, Default)]
