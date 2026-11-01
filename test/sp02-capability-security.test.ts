@@ -170,6 +170,25 @@ test("listing expands nested brace alternatives and character classes", async ()
   } finally { await f.authority.revoke(); }
 });
 
+test("listing negated classes and brace alternatives retain scan visibility", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, ".hidden"));
+  mkdirSync(join(f.sessions, "x"));
+  for (const name of ["rollout-a.jsonl", "rollout-b.jsonl"]) {
+    writeFileSync(join(f.sessions, ".hidden", name), name);
+    writeFileSync(join(f.sessions, "x", name), name);
+  }
+  writeFileSync(join(f.sessions, "rollout-b.jsonl"), "b");
+  try {
+    const list = async (glob: string) => answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob }) as Promise<{ files: { path: string }[] }>;
+    expect((await list("rollout-[^a].jsonl")).files.map(file => file.path)).toEqual([join(f.sessions, "rollout-b.jsonl")]);
+    expect((await list("{.hidden,x}/rollout-*.jsonl")).files.map(file => file.path).sort())
+      .toEqual(["a", "b"].map(name => join(f.sessions, "x", `rollout-${name}.jsonl`)).sort());
+    expect((await list("{x/nested,x}/rollout-*.jsonl")).files).toEqual([]);
+  } finally { await f.authority.revoke(); }
+});
+
 test("large or heavily escaped reads require bounded ranges, and stale size never yields partial bytes", async () => {
   const f = await resources();
   writeFileSync(f.allowed, Buffer.alloc(200000));

@@ -134,7 +134,7 @@ impl NativeRead {
         check_root(image)?;
         let patterns = expand_braces(glob, deadline)?;
         for pattern in &patterns {
-            glob::Pattern::new(pattern).map_err(|_| BrokerError::Invalid("read glob"))?;
+            glob::Pattern::new(&pattern.glob).map_err(|_| BrokerError::Invalid("read glob"))?;
         }
         let root_dir = open_directory(root)?;
         if !image.parent_identity.as_ref().is_some_and(|old| {
@@ -457,10 +457,30 @@ fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), B
     Ok(())
 }
 
-fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<String>, BrokerError> {
-    let mut pending = vec![input.to_owned()];
+struct ScanPattern {
+    glob: String,
+    explicit_dot: Vec<bool>,
+}
+
+fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<ScanPattern>, BrokerError> {
+    // Keep each byte's original component visibility. A dot introduced by brace
+    // expansion is not an explicit dot in Bun.Glob.scan's source pattern.
+    let mut source_dot = Vec::with_capacity(input.len());
+    let mut component_dot = false;
+    let mut at_start = true;
+    for byte in input.bytes() {
+        if at_start {
+            component_dot = byte == b'.';
+            at_start = false;
+        }
+        source_dot.push(component_dot);
+        if byte == b'/' {
+            at_start = true;
+        }
+    }
+    let mut pending = vec![(input.to_owned(), source_dot)];
     let mut expanded = Vec::new();
-    while let Some(pattern) = pending.pop() {
+    while let Some((pattern, source_dot)) = pending.pop() {
         if Instant::now() >= deadline {
             return Err(BrokerError::Timeout);
         }
@@ -504,9 +524,28 @@ fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<String>, BrokerEr
             }
         }
         let (Some(start), Some(end)) = (opening, closing) else {
-            expanded.push(pattern);
+            let mut explicit_dot = Vec::new();
+            let mut at_start = true;
+            for (index, byte) in pattern.bytes().enumerate() {
+                if at_start {
+                    explicit_dot.push(source_dot[index]);
+                    at_start = false;
+                }
+                if byte == b'/' {
+                    at_start = true;
+                }
+            }
+            expanded.push(ScanPattern {
+                glob: normalize_classes(&pattern),
+                explicit_dot,
+            });
             continue;
         };
+        // Bun.Glob.scan does not enumerate patterns whose brace expression
+        // spans path components, even when another alternative has no slash.
+        if bytes[start..=end].contains(&b'/') {
+            return Ok(Vec::new());
+        }
         let mut start_alt = start + 1;
         let mut depth = 0usize;
         let mut escaped = false;
@@ -539,12 +578,17 @@ fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<String>, BrokerEr
                 depth -= 1;
             }
             if index == end || (byte == b',' && depth == 0) {
-                pending.push(format!(
+                let next = format!(
                     "{}{}{}",
                     &pattern[..start],
                     &pattern[start_alt..index],
                     &pattern[end + 1..]
-                ));
+                );
+                let mut next_source = Vec::with_capacity(next.len());
+                next_source.extend_from_slice(&source_dot[..start]);
+                next_source.extend_from_slice(&source_dot[start_alt..index]);
+                next_source.extend_from_slice(&source_dot[end + 1..]);
+                pending.push((next, next_source));
                 start_alt = index + 1;
             }
         }
@@ -552,10 +596,32 @@ fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<String>, BrokerEr
     Ok(expanded)
 }
 
-fn pattern_reaches(glob: &str, path: &Path, complete: bool) -> bool {
-    let patterns: Vec<_> = glob.split('/').collect();
+fn normalize_classes(input: &str) -> String {
+    let mut normalized = input.as_bytes().to_vec();
+    let mut escaped = false;
+    for index in 0..normalized.len() {
+        if escaped {
+            escaped = false;
+        } else if normalized[index] == b'\\' {
+            escaped = true;
+        } else if normalized[index] == b'[' && normalized.get(index + 1) == Some(&b'^') {
+            normalized[index + 1] = b'!';
+        }
+    }
+    String::from_utf8(normalized).unwrap_or_else(|_| input.to_owned())
+}
+
+fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool) -> bool {
+    let patterns: Vec<_> = pattern.glob.split('/').collect();
     let parts: Vec<_> = path.iter().filter_map(|part| part.to_str()).collect();
-    fn reachable(patterns: &[&str], parts: &[&str], pi: usize, di: usize, complete: bool) -> bool {
+    fn reachable(
+        patterns: &[&str],
+        explicit_dot: &[bool],
+        parts: &[&str],
+        pi: usize,
+        di: usize,
+        complete: bool,
+    ) -> bool {
         if di == parts.len() {
             return if complete {
                 patterns[pi..].iter().all(|part| *part == "**")
@@ -567,23 +633,23 @@ fn pattern_reaches(glob: &str, path: &Path, complete: bool) -> bool {
             return false;
         }
         if patterns[pi] == "**" {
-            return reachable(patterns, parts, pi + 1, di, complete)
+            return reachable(patterns, explicit_dot, parts, pi + 1, di, complete)
                 || (!parts[di].starts_with('.')
-                    && reachable(patterns, parts, pi, di + 1, complete));
+                    && reachable(patterns, explicit_dot, parts, pi, di + 1, complete));
         }
-        (!parts[di].starts_with('.') || patterns[pi].starts_with('.'))
+        (!parts[di].starts_with('.') || explicit_dot.get(pi) == Some(&true))
             && glob::Pattern::new(patterns[pi]).is_ok_and(|p| p.matches(parts[di]))
-            && reachable(patterns, parts, pi + 1, di + 1, complete)
+            && reachable(patterns, explicit_dot, parts, pi + 1, di + 1, complete)
     }
-    reachable(&patterns, &parts, 0, 0, complete)
+    reachable(&patterns, &pattern.explicit_dot, &parts, 0, 0, complete)
 }
 
-fn may_descend(glob: &str, directory: &Path) -> bool {
-    pattern_reaches(glob, directory, false)
+fn may_descend(pattern: &ScanPattern, directory: &Path) -> bool {
+    pattern_reaches(pattern, directory, false)
 }
 
-fn matches_visible(glob: &str, file: &Path) -> bool {
-    pattern_reaches(glob, file, true)
+fn matches_visible(pattern: &ScanPattern, file: &Path) -> bool {
+    pattern_reaches(pattern, file, true)
 }
 
 fn check_root(image: &Image) -> Result<(), BrokerError> {

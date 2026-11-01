@@ -332,6 +332,48 @@ fn listing_brace_alternatives_include_both_descendants() {
 }
 
 #[test]
+fn listing_brace_expansion_does_not_reveal_hidden_directory() {
+    let home = std::env::temp_dir().join(format!("pacer-brace-hidden-{}", uuid::Uuid::new_v4()));
+    let root = home.join("logs");
+    fs::create_dir_all(root.join(".hidden")).unwrap();
+    fs::create_dir(root.join("x")).unwrap();
+    fs::write(root.join(".hidden/rollout-a.jsonl"), "hidden").unwrap();
+    fs::write(root.join("x/rollout-b.jsonl"), "visible").unwrap();
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let listed = reader
+        .list(
+            &json!({"dir":root,"glob":"{.hidden,x}/rollout-*.jsonl"}),
+            &[format!("{}/**", root.display())],
+            &ScopeRoots::default(),
+            &authority,
+            Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+    assert_eq!(
+        listed["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["path"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec![root.join("x/rollout-b.jsonl").to_str().unwrap()]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn structured_glob_corpus_matches_bun() {
     let directory_patterns = [
         "a",
@@ -348,6 +390,8 @@ fn structured_glob_corpus_matches_bun() {
         "rollout-*.jsonl",
         "rollout-?.jsonl",
         "rollout-[ab].jsonl",
+        "rollout-[^a].jsonl",
+        "rollout-[!a].jsonl",
         "rollout-{a,b}.jsonl",
     ];
     let directories = ["a", "b", "c", "a/x", "b/y", "c/z", "a/x/y"];
@@ -392,6 +436,107 @@ fn structured_glob_corpus_matches_bun() {
             assert_eq!(rust_match, bun_match, "pattern={pattern:?} path={path:?}");
         }
     }
+}
+
+#[test]
+fn structured_scan_corpus_matches_bun_listing() {
+    let home = std::env::temp_dir().join(format!("pacer-scan-corpus-{}", uuid::Uuid::new_v4()));
+    let root = home.join("logs");
+    for dir in ["a", "b", "x", ".hidden", "a/.hidden"] {
+        fs::create_dir_all(root.join(dir)).unwrap();
+        for name in ["rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"] {
+            fs::write(root.join(dir).join(name), name).unwrap();
+        }
+    }
+    for name in ["rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"] {
+        fs::write(root.join(name), name).unwrap();
+    }
+    let directory_patterns = [
+        "",
+        "a/",
+        "{a,b}/",
+        "**/",
+        ".hidden/",
+        "{.hidden,x}/",
+        "a/{.hidden,x}/",
+        "{a/.hidden,b}/",
+        "a/.hidden/",
+        "{a,.hidden}/",
+        "**/.hidden/",
+    ];
+    let file_patterns = [
+        "rollout-*.jsonl",
+        "rollout-[ab].jsonl",
+        "rollout-[^a].jsonl",
+        "rollout-[!a].jsonl",
+        "rollout-[^ab].jsonl",
+    ];
+    let mut patterns: Vec<_> = directory_patterns
+        .iter()
+        .flat_map(|dir| file_patterns.iter().map(move |file| format!("{dir}{file}")))
+        .collect();
+    // A fixed seed explores grammar combinations while keeping failures reproducible.
+    let mut seed = 0x5ca1_2026_u64;
+    for _ in 0..32 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let dir = directory_patterns[(seed as usize) % directory_patterns.len()];
+        let file = file_patterns[((seed >> 16) as usize) % file_patterns.len()];
+        patterns.push(format!("{dir}{file}"));
+    }
+    let corpus = json!({"cwd":root,"patterns":patterns});
+    let script = "const {cwd,patterns}=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(patterns.map(p=>[...new Bun.Glob(p).scanSync({cwd,onlyFiles:true,followSymlinks:false})].sort())));";
+    let output = Command::new("bun")
+        .args(["-e", script, &corpus.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Vec<String>> = serde_json::from_slice(&output.stdout).unwrap();
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        Instant::now() + std::time::Duration::from_secs(30),
+    );
+    for (pattern, bun_paths) in patterns.iter().zip(expected) {
+        let result = reader
+            .list(
+                &json!({"dir":root,"glob":pattern}),
+                &[format!("{}/**", root.display())],
+                &ScopeRoots::default(),
+                &authority,
+                Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .unwrap();
+        let mut rust_paths: Vec<_> = result["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                Path::new(item["path"].as_str().unwrap())
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        rust_paths.sort();
+        assert_eq!(rust_paths, bun_paths, "pattern={pattern:?}");
+    }
+    fs::remove_dir_all(home).unwrap();
 }
 
 #[test]
