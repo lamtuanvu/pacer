@@ -15,10 +15,10 @@ import golden from "./fixtures/config-writes-goldens.json";
 const root = join(import.meta.dir, "..");
 const yaml = golden.initial;
 
-function home() {
+function home(initial = yaml) {
   const dir = mkdtempSync(join(tmpdir(), "pacer-config-diff-"));
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "strategy.yaml"), yaml, { mode: 0o600 });
+  writeFileSync(join(dir, "strategy.yaml"), initial, { mode: 0o600 });
   return dir;
 }
 
@@ -145,6 +145,75 @@ test("runner.set accepts integral JSON decimal rank with byte parity", async () 
   expect(result(rs, rsHome)).toEqual(result({ ok: true, value: ts }, tsHome));
   expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
 });
+
+test("runner references resolve like TypeScript across mutation and routing", async () => {
+  const binary = configBinary();
+  const aliased = yaml.replace("  codex: {} # keep runner", "  fast: {agent: codex, account: codex} # keep runner");
+  const cases = [
+    { op: "runner.set", id: "codex", options: { enabled: false } },
+    { op: "runner.set", id: "codex#codex", options: { enabled: false } },
+    { op: "runner.set", id: "codex#codex@local", options: { enabled: false } },
+    { op: "runner.set", id: "codex@missing", options: { enabled: false } },
+    { op: "runner.set", id: "fast", options: { enabled: false }, initial: aliased },
+    { op: "runner.remove", id: "cursor#cursor" },
+    { op: "runner.remove", id: "cursor#cursor@local" },
+    { op: "runner.remove", id: "fast", initial: aliased },
+    { op: "runner.remove", id: "cursor@missing" },
+    { op: "runner.remove", id: "cursor#missing" },
+    { op: "routing.set", rules: [{ kinds: ["docs"], executors: ["codex#codex@local"] }, { executors: ["cursor#cursor"] }] },
+  ] as const;
+  for (const input of cases) {
+    const tsHome = home("initial" in input ? input.initial : yaml), rsHome = home("initial" in input ? input.initial : yaml);
+    const ctx = fakeCtx({ pacerHome: tsHome });
+    let ts: unknown;
+    try {
+      ts = { ok: true, value: input.op === "runner.set" ? await runners.set(ctx, input.id, input.options)
+        : input.op === "runner.remove" ? await runners.remove(ctx, input.id) : await routing.set(ctx, structuredClone(input.rules) as unknown as Parameters<typeof routing.set>[1]) };
+    } catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const rs = rust(binary, { ...input, home: rsHome });
+    expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+    expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
+  }
+}, 30_000);
+
+test("generated string corpus matches Bun YAML bytes and saved strategies re-read", () => {
+  const binary = configBinary();
+  const fixed = ["with \"quote\"", "line\nbreak", "true", "null", "~", "on", "yes", "123", "1.0", "01", "0x10", ".nan", "+2", "a#b", "a #b", " leading", "trailing ", "éclair", "雪", "😀", "tab\there", "single'quote", "a,b", "a\nb\n", "", "colon:", "0b10", "0o12", "-0", "+0", "1e2", "NaN", "Infinity", "y", "n", "True", "NULL", "a\u0000b", "a\u001fb", "a\u0085b", "a\u2028b", "a\u2029b", ".5", "-.5", "1_000", "1.2.3", ".inf", "-.inf", "+.nan", "0Xff", "0O77", "2026-01-01", "a\\b", "a: b", "[abc]", "{abc}"];
+  let seed = 0x5745a11;
+  const next = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed >>> 0; };
+  const alphabet = ["a", "0", " ", ":", "#", "'", "\"", "\n", "\t", "é", "雪", "_", "-", ",", "[", "]", ".", "+", "\\"];
+  const corpus = [...fixed];
+  for (let n = -20; n <= 20; n++) corpus.push(`${n}`, `+${Math.abs(n)}`, `${n}.0`, `${n}e2`, `${n}e-2`, `${n}_000`);
+  for (const prefix of ["0x", "0X", "0o", "0O", "0b", "0B"]) for (const suffix of ["0", "1", "10", "ff", "77"]) corpus.push(prefix + suffix);
+  for (const mark of [":", "#", ",", "'", "\"", "[", "]", "{", "}", "`", "?", "-", "+", "%", "@", "!", "&", "*", "|"]) corpus.push(mark, mark + "a", "a" + mark, "a" + mark + "b");
+  for (let i = 0; i < 512; i++) corpus.push(Array.from({ length: 1 + next() % 16 }, () => alphabet[next() % alphabet.length]).join(""));
+  const ascii = Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32));
+  corpus.push(...ascii, ...ascii.flatMap(a => ascii.map(b => a + b)));
+  for (let code = 0; code <= 0x9f; code++) corpus.push(String.fromCharCode(code), `a${String.fromCharCode(code)}b`);
+  const input = corpus.map(value => JSON.stringify({ op: "yaml.stringify", value: { execution: { base_branch: value } } })).join("\n") + "\n";
+  const outputs = execFileSync(binary, [], { input, maxBuffer: 20 * 1024 * 1024 }).toString().trimEnd().split("\n");
+  expect(outputs.length).toBe(corpus.length);
+  for (const [index, value] of corpus.entries()) {
+    const mapping = { execution: { base_branch: value } };
+    const ts = Bun.YAML.stringify(mapping, null, 2).replace(/\n?$/, "\n");
+    const rs = JSON.parse(outputs[index]!);
+    expect(rs.value).toBe(ts);
+  }
+  for (const value of fixed) {
+    const tsHome = home(), rsHome = home();
+    const ctx = fakeCtx({ pacerHome: tsHome });
+    const draft: strategy.Draft = { from: "default", set: { "execution.base_branch": value } };
+    let ts: unknown;
+    try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
+    catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const rs = rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString() });
+    expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+    if ((ts as {ok:boolean}).ok) {
+      expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
+      expect(strategy.show(fakeCtx({ pacerHome: rsHome }), "review").yaml).toBe(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8"));
+    }
+  }
+}, 30_000);
 
 test("Rust state writers tighten file and directory modes under both umasks", async () => {
   const binary = configBinary();

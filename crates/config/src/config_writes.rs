@@ -8,6 +8,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::{collections::HashSet, fs, path::Path};
 
+#[cfg(test)]
+mod tests;
+
 fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
     let (path, _) = strategy_path(home)?;
     let before = fs::read_to_string(&path)?;
@@ -87,10 +90,73 @@ fn diff(path: &str, before: &str, after: &str) -> String {
 }
 
 fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
-    strategy["runners"].get(id).or_else(|| {
-        let canonical = strategy["runnerAliases"].get(id)?.as_str()?;
-        strategy["runners"].get(canonical)
-    })
+    if let Some(runner) = strategy["runners"].get(id) {
+        return Some(runner);
+    }
+    if let Some(alias) = strategy["runnerAliases"].get(id).and_then(Value::as_str)
+        && let Some(runner) = strategy["runners"].get(alias)
+    {
+        return Some(runner);
+    }
+    let (agent, account, host) = parse_runner_ref(id).or_else(|| {
+        (strategy["accounts"][id]["kind"] == "endpoint").then_some(("opencode", Some(id), None))
+    })?;
+    let account = account.or_else(|| default_account(strategy, agent));
+    let account_part = if agent != "opencode" && account == default_account(strategy, agent) {
+        String::new()
+    } else {
+        account.map_or(String::new(), |name| format!("#{name}"))
+    };
+    let canonical = format!(
+        "{agent}{account_part}{}",
+        host.map_or(String::new(), |name| format!("@{name}"))
+    );
+    strategy["runners"].get(&canonical)
+}
+
+fn runner_component(text: &str) -> bool {
+    (text.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        || text.as_bytes().first().is_some_and(u8::is_ascii_digit))
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn parse_runner_ref(reference: &str) -> Option<(&str, Option<&str>, Option<&str>)> {
+    let (body, host) = match reference.split_once('@') {
+        Some((body, host)) if runner_component(host) => (body, Some(host)),
+        Some(_) => return None,
+        None => (reference, None),
+    };
+    let (agent, account) = match body.split_once('#') {
+        Some((agent, account)) if runner_component(account) => (agent, Some(account)),
+        Some(_) => return None,
+        None => (body, None),
+    };
+    if !["claude-code", "codex", "cursor", "agy", "opencode"].contains(&agent)
+        || !runner_component(agent)
+    {
+        return None;
+    }
+    Some((agent, account, host.filter(|name| *name != "local")))
+}
+
+fn default_account<'a>(strategy: &'a Value, agent: &str) -> Option<&'a str> {
+    let kind = match agent {
+        "claude-code" => "claude",
+        "codex" => "codex",
+        "cursor" => "cursor",
+        "agy" => "agy",
+        _ => return None,
+    };
+    let mut matches = strategy["accounts"]
+        .as_object()?
+        .values()
+        .filter(|account| {
+            account["kind"] == kind && account["home"].is_null() && account["orcaAccount"].is_null()
+        });
+    let one = matches.next()?["name"].as_str()?;
+    matches.next().is_none().then_some(one)
 }
 
 fn planner(strategy: &Value, runner: &Value) -> bool {
@@ -364,6 +430,34 @@ pub fn set_runner(home: &Path, reference: &str, options: &Value) -> Result<Value
 pub fn remove_runner(home: &Path, reference: &str) -> Result<Value, StrategyError> {
     let migrated = ensure_migrated(home)?;
     let strategy = load_strategy(home)?;
+    let (agent, named_account, host) = parse_runner_ref(reference)
+        .ok_or_else(|| StrategyError::Other("invalid runner id".into()))?;
+    if let Some(host) = host
+        && strategy["hosts"].get(host).is_none()
+    {
+        let names = strategy["hosts"]
+            .as_object()
+            .map(|hosts| hosts.keys().cloned().collect::<Vec<_>>().join(", "))
+            .unwrap_or_default();
+        return Err(StrategyError::Other(format!(
+            "unknown host {host} (hosts: {})",
+            if names.is_empty() { "none" } else { &names }
+        )));
+    }
+    let account = named_account.or_else(|| default_account(&strategy, agent));
+    let expected_kind = match agent {
+        "claude-code" => "claude",
+        "codex" => "codex",
+        "cursor" => "cursor",
+        "agy" => "agy",
+        "opencode" => "endpoint",
+        _ => "",
+    };
+    if account.is_none_or(|name| strategy["accounts"][name]["kind"] != expected_kind) {
+        return Err(StrategyError::Other(
+            "agent/account pairing not allowed or account not found".into(),
+        ));
+    }
     let runner = resolve(&strategy, reference)
         .ok_or_else(|| StrategyError::Other("unknown runner".into()))?;
     if planner(&strategy, runner) {

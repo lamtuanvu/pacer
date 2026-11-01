@@ -1,5 +1,5 @@
 //! JSON-line driver for library-only config write parity on disposable homes.
-use pacer_config::{config_writes, notifications, strategy_write};
+use pacer_config::{config_writes, doc, notifications, strategy_write};
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -11,6 +11,9 @@ fn main() -> io::Result<()> {
         let input: Value = serde_json::from_str(&line?).map_err(io::Error::other)?;
         let home = Path::new(input["home"].as_str().unwrap_or(""));
         let output = match input["op"].as_str() {
+            Some("yaml.stringify") => {
+                json!({"ok":true,"value":doc::stringify_bun(&input["value"])})
+            }
             Some("routing.set") => {
                 let rules = input["rules"]
                     .as_array()

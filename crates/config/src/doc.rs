@@ -954,14 +954,118 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
 }
 
 fn emit_bun_scalar(value: &Value) -> String {
-    if let Value::String(s) = value
-        && (matches!(s.as_str(), "on" | "off" | "yes" | "no")
-            || s.parse::<f64>().is_ok()
-            || s.contains('#'))
-    {
-        return serde_json::to_string(s).unwrap_or_default();
+    if let Value::String(s) = value {
+        let lower = s.to_ascii_lowercase();
+        let canonical_case = s.as_str() == lower
+            || s.as_str() == s.to_ascii_uppercase()
+            || s.as_str() == capitalize_ascii(&lower);
+        let reserved = (canonical_case
+            && matches!(
+                lower.as_str(),
+                "true" | "false" | "null" | "~" | "yes" | "no" | "on" | "off" | "y" | "n"
+            ))
+            || s.parse::<f64>().is_ok_and(f64::is_finite)
+            || numeric_prefix_ambiguous(s)
+            || (s.get(2..).is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit())
+            }) && (s.starts_with("0x") || s.starts_with("0X")))
+            || (s.get(2..).is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+            }) && (s.starts_with("0o") || s.starts_with("0O")))
+            || matches!(lower.as_str(), ".inf" | ".nan")
+            || matches!(s.as_str(), "." | "...");
+        let syntax = s.is_empty()
+            || s.trim() != s
+            || s.starts_with([
+                '{', '[', '-', '?', ':', '#', '!', '&', '*', '|', '>', '<', '%', '@', '`',
+            ])
+            || s.ends_with(':')
+            || s.contains(": ")
+            || s.chars().any(|ch| {
+                ((ch as u32) <= 0x1f || ch == '\u{7f}' || ch == '\u{85}')
+                    || matches!(
+                        ch,
+                        '\'' | '"'
+                            | '#'
+                            | ','
+                            | '['
+                            | ']'
+                            | '{'
+                            | '}'
+                            | '`'
+                            | '\u{2028}'
+                            | '\u{2029}'
+                    )
+            });
+        if reserved || syntax {
+            return bun_quoted(s);
+        }
+        return s.clone();
     }
     emit_scalar(value, None)
+}
+
+fn capitalize_ascii(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn numeric_prefix_ambiguous(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 2 || !matches!(bytes[0], b'+' | b'-' | b'.' | b'0'..=b'9') {
+        return false;
+    }
+    let mut signs = 0;
+    let mut dots = 0;
+    let mut exponents = 0;
+    for byte in bytes {
+        match byte {
+            b'0'..=b'9' => {}
+            b'+' | b'-' => signs += 1,
+            b'.' => dots += 1,
+            b'e' | b'E' => exponents += 1,
+            _ => return false,
+        }
+    }
+    dots <= 1
+        && exponents <= 1
+        && signs
+            <= if matches!(bytes[0], b'+' | b'-') {
+                2
+            } else {
+                1
+            }
+}
+
+fn bun_quoted(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\0' => out.push_str("\\0"),
+            '\u{7}' => out.push_str("\\a"),
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{b}' => out.push_str("\\v"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            '\u{85}' => out.push_str("\\N"),
+            '\u{1b}' => out.push_str("\\e"),
+            '\u{2028}' => out.push_str("\\L"),
+            '\u{2029}' => out.push_str("\\P"),
+            ch if ((ch as u32) <= 0x1f || ch == '\u{7f}') && (ch as u32) <= 0xff => {
+                out.push_str(&format!("\\x{:02x}", ch as u32))
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
