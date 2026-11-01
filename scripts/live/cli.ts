@@ -1,4 +1,5 @@
 import { exerciseSettings } from './settings';
+import { exercisePublication } from './publication';
 import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -31,6 +32,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
   settings --id <id>              exercise fixed file-only settings save/reject/restore (seeded sandbox)
+  publication --id <id>           exercise fixed TypeScript publication boundaries (seeded sandbox)
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
@@ -184,6 +186,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     await exerciseSettings(loadSession(id));
     return 0;
   }
+  if (command === "publication") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live publication --id <id>");
+    await exercisePublication(loadSession(id));
+    return 0;
+  }
   // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.
   const reason = command === "pacer" ? executorRefusal(forwarded, outer) : undefined;
   if (reason) {
@@ -238,5 +245,5 @@ if (import.meta.main) {
   catch (error) { console.error(`live: ${(error as Error).message}`); process.exitCode = 1; }
   // An OTA driver's event subscription and Desktop reference must not keep a finished
   // (or failed) exercise alive; the lease, not the driver, retires native participants.
-  if (process.argv[2] === "ota") process.exit(process.exitCode);
+  if (process.argv[2] === "ota" || process.argv[2] === "publication") process.exit(process.exitCode);
 }
