@@ -11,7 +11,7 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
+import { inheritQuery, resolveRouteBeforeRender, setupCompleteFrom, titleFor } from "./router";
 import { attachKeyRegistry, newTaskShortcut } from "./keys/registry";
 import { openNewTask } from "./screens/new-task/entry";
 import { commands, keys } from "./keys/instance";
@@ -33,12 +33,12 @@ void readNativeTitlebarSupport().then(supported => {
   if (supported) document.documentElement.dataset.pacerNativeTitlebar = "";
 });
 followSavedTheme();
-const store = createStore();
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
-  const [state, setState] = useState(store.getState);
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
+  const store = useMemo(() => createStore(api), [api]);
+  const [state, setState] = useState(store.getState);
   const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
   const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), reviewAccepted: id => store.acceptReview(id), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
@@ -83,10 +83,10 @@ function App() {
   }, [api, state.invalidations.setup, state.connected, setupRevision]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
   const setupComplete = state.features.ops.size ? setupCompleteFrom(checklist) : null;
-  const resolved = resolveRoute(hash, setupComplete, state.features.ops.has("session.create"));
-  useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
-  const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
-  const pendingRoute = resolveRoute(hash, true);
+  const resolved = resolveRouteBeforeRender(hash, setupComplete, state.features.ops.has("session.create"));
+  useEffect(() => { if (resolved.hash !== hash) location.replace(resolved.hash); }, [hash, resolved.hash]);
+  const route = resolved.route;
+  const pendingRoute = resolveRouteBeforeRender(hash, true).route;
   const narrow = useNarrow(route.query);
   if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
@@ -124,7 +124,7 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} loadingRoute={"redirect" in pendingRoute ? route : pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
+      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} loadingRoute={pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
         the update notice stays in the corner and its Restart and Later never move. */}

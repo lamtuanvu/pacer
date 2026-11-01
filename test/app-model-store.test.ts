@@ -24,16 +24,16 @@ test("machine event leaves the app state intact and later task events still appl
   expect(task.snapshot?.seq).toBe(7);
 });
 
-test("reset and reconnect require a snapshot; errors retain content; config invalidates its area and refreshes snapshot capacity", () => {
+test("only reset requires a snapshot; reconnect retains content and config invalidates its area", () => {
   const start = reduceStore(initialState(), { type: "snapshot", snapshot });
   const config = reduceStore(start, { type: "event", event: { seq: 6, at: 1, type: "config", data: { area: "accounts", at: 1 } } });
   expect(config.invalidations).toEqual({ accounts: 1 });
   expect(config.snapshot?.seq).toBe(6);
-  expect(config.needsSnapshot).toBe(true);
+  expect(config.needsSnapshot).toBe(false);
   const offline = reduceStore(config, { type: "disconnected" });
   expect(offline.snapshot).toBe(config.snapshot);
   expect(offline.connected).toBe(false);
-  expect(reduceStore(offline, { type: "reconnected" }).needsSnapshot).toBe(true);
+  expect(reduceStore(offline, { type: "reconnected" }).needsSnapshot).toBe(false);
   expect(reduceStore(config, { type: "event", event: { seq: 0, at: 2, type: "reset", data: {} } }).needsSnapshot).toBe(true);
   expect(reduceStore(config, { type: "session-ended" }).sessionEnded).toBe(true);
 });
@@ -94,7 +94,7 @@ test("v3 stream receives machine and continues applying task events", async () =
     expect(store.getState().snapshot?.seq).toBe(7);
   } finally { stop(); }
 });
-test("live store snapshots before streaming and refetches on reset and reconnect", async () => {
+test("live store snapshots before streaming and refetches only on reset", async () => {
   FakeEvents.instances = [];
   let reads = 0;
   const api = { hello: async () => ({ pacer: "1.0.0", protocol: "2.0.0", ops: [], events: [] }), snapshot: async () => ({ protocol: "2.0.0", seq: 5 + reads, snapshot: { ...snapshot, seq: 5 + reads++ } }), call: async <T>() => ({} as T) };
@@ -109,12 +109,12 @@ test("live store snapshots before streaming and refetches on reset and reconnect
   FakeEvents.instances[0]!.emit("open");
   FakeEvents.instances[0]!.emit("error");
   expect(store.getState().connected).toBe(false);
-  FakeEvents.instances[0]!.emit("open");
-  await flush();
-  expect(reads).toBe(2);
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  FakeEvents.instances.at(-1)!.emit("open");
+  expect(reads).toBe(1);
   FakeEvents.instances.at(-1)!.emit("reset");
   await flush();
-  expect(reads).toBe(3);
+  expect(reads).toBe(2);
   stop();
   expect(FakeEvents.instances.every(s => s.closed)).toBe(true);
 });
@@ -345,16 +345,13 @@ test('a stale snapshot after a config event cannot replay invalidations in a req
   await flush();
   expect(store.getState().snapshot?.seq).toBe(121);
   expect(FakeEvents.instances).toHaveLength(1);
-  expect(reads).toBe(2);
-  expect(pending[0]?.delay).toBe(1000);
-  seq=121;pending.shift()!.callback();await flush();
-  expect(FakeEvents.instances).toHaveLength(2);
-  FakeEvents.instances[1]!.emit('open');
+  expect(reads).toBe(1);
+  expect(pending).toHaveLength(0);
   expect(store.getState().invalidations.accounts).toBe(1);
   expect(store.getState().needsSnapshot).toBe(false);
   // Explicit reset is the one authority to replace a cursor after service reset.
-  seq=5;FakeEvents.instances[1]!.emit('reset',{},'0');await flush();
-  expect(FakeEvents.instances).toHaveLength(3);
+  seq=5;FakeEvents.instances[0]!.emit('reset',{},'0');await flush();
+  expect(FakeEvents.instances).toHaveLength(2);
   expect(store.getState().snapshot?.seq).toBe(5);
  }finally{stop();clock.mockRestore();}
 });
@@ -385,6 +382,8 @@ test('a separate screen API refreshes cached reads after a store reconnect while
     await flush(); a.dispose();
     expect(reads).toBe(1);
     FakeEvents.instances[0]!.emit('error');
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    FakeEvents.instances.at(-1)!.emit('open');
     const b = cache.createQuery(() => {});
     b.update('repo.list', '{}', JSON.stringify(store.getState().connectionRevision));
     await flush(); b.dispose();

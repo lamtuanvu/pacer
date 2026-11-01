@@ -16,51 +16,65 @@ export function ErrorMessage({ error }: { error: unknown }) {
   return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
+const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging'];
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
   const budget = budgetResourceRevision(op, state.invalidations, state.snapshot?.accounts);
-  if (budget !== undefined) return budget;
+  if (budget !== undefined && op !== "account.list") return budget;
   if (op === "msg.log") {
     const task = (params as { task?: string } | null)?.task;
     return JSON.stringify([state.invalidations[`msg:${task}`] ?? 0]);
   }
-  if (op === "task.list") return JSON.stringify([state.invalidations, state.snapshot?.tasks.map(t=>[t.id,t.rev,t.state,t.updatedAt])]);
+  if (op === "task.list") return JSON.stringify([state.invalidations["project-strategies"], state.snapshot?.tasks.map(t=>[t.id,t.rev,t.state,t.updatedAt])]);
   // Work rows carry the token roll-up; an attempt's tokens are recorded before its task changes state, so a
   // state change (or a new node) is when they move. Progress revisions alone would refetch every row each tick.
-  if (op === "dispatch.list") return JSON.stringify([state.invalidations, state.snapshot?.tasks.map(t=>[t.id,t.state])]);
+  if (op === "dispatch.list") return JSON.stringify([state.invalidations["project-strategies"], state.snapshot?.tasks.map(t=>[t.id,t.state])]);
   if (op === "dispatch.tree") return JSON.stringify([state.invalidations["project-strategies"], state.snapshot?.tasks.map(task => [task.id, task.rev, task.state, task.updatedAt])]);
   if (["task.get", "task.diff", "task.session"].includes(op)) {
     const id = (params as { id?: string } | null)?.id;
     const task = state.snapshot?.tasks.find(task => task.id === id);
-    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), task?.messages, state.activity.filter(entry => entry.taskId === id)]);
+    return JSON.stringify([...(op === "task.get" ? [state.invalidations["project-strategies"]] : []), ...(op === "task.session" ? [task?.rev, task?.state, task?.executor, task?.backend] : [task?.rev, task?.state, task?.updatedAt]), task?.messages, ...(op !== "task.get" ? [state.activity.find(entry => entry.taskId === id)?.id] : []), ...(op === "task.get" ? [state.invalidations[`msg:${id}`] ?? 0] : [])]);
   }
-  return JSON.stringify(state.invalidations);
+  const areas: Record<string, string[]> = {
+    account: ['accounts'], config: CONFIG_AREAS, notifications: ['config'],
+    runner: ['runners'], agent: ['accounts', 'runners', 'setup'], msg: ['project-messaging'],
+    routing: ['accounts', 'runners', 'routing', 'strategy', 'hosts', 'mode', 'config', 'project-strategies'],
+    dispatch: ['project-strategies', 'strategy', 'routing', 'runners', 'config'],
+    session: ['accounts', 'runners', 'hosts'], plugin: ['plugins'],
+    setup: ['setup', 'accounts', 'runners'],
+  };
+  const revisions = (areas[op.split('.')[0]!] ?? CONFIG_AREAS).map(area => [area, state.invalidations[area] ?? 0]);
+  if (op === "account.list") return JSON.stringify([revisions, state.snapshot?.accounts?.map(account => [account.name, account.capturedAt, account.usedPct, account.resetsAt, account.stale, account.signedIn])]);
+  return JSON.stringify(op.startsWith('plugin.') ? [...revisions, ['plugin', state.invalidations.plugin ?? 0]] : revisions);
 }
-export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = false, enabled = true) {
+export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = op === "task.get", enabled = true) {
   const { api, state } = useTaskContext();
   const [published, setResult] = useState<{ api: BrowserApi; key: string; state: QueryState<T> }>();
   const serialized = JSON.stringify(params);
   const invalidation = queryRevision(state, op, params);
-  const query = useMemo(() => queryCacheFor(api, (op, params) => api.call(op, params)).createQuery<T>((state, key) => setResult({ api, state, key }), keepPreviousData), [api, keepPreviousData]);
+  const cache = queryCacheFor(api, (op, params) => api.call(op, params));
+  const query = useMemo(() => cache.createQuery<T>((state, key) => setResult({ api, state, key }), keepPreviousData), [api, keepPreviousData]);
   useEffect(() => () => query.dispose(), [query]);
   const last = useRef<{ query: typeof query; key: string; connected: boolean; connectionRevision: number }>();
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || state.sessionEnded) return;
     const key = JSON.stringify([op, serialized, revision]);
     const immediate = !last.current || last.current.query !== query || last.current.key !== key
-      || last.current.connected !== state.connected || last.current.connectionRevision !== state.connectionRevision;
+      || last.current.connectionRevision !== state.connectionRevision;
     const update = () => {
+      const mounted = !last.current || last.current.query !== query;
       last.current = { query, key, connected: state.connected, connectionRevision: state.connectionRevision };
-      query.update(op, serialized, JSON.stringify([revision, invalidation, state.connected, state.connectionRevision]));
+      query.update(op, serialized, JSON.stringify([revision, invalidation, state.connectionRevision]), mounted);
     };
     // Initial selection and reconnects are immediate. Event bursts settle once.
     if (immediate) { update(); return; }
     const timer = setTimeout(update, 150);
     return () => clearTimeout(timer);
-  }, [query, op, serialized, revision, invalidation, state.connected, state.connectionRevision, enabled]);
+  }, [query, op, serialized, revision, invalidation, state.connected, state.connectionRevision, state.sessionEnded, enabled]);
   const sameClient = published?.api === api;
+  const cached = enabled ? cache.peek<T>(op, serialized) : undefined;
   const result = sameClient && published.key === JSON.stringify([op, serialized]) ? published.state : {
-    loading: true,
-    ...(keepPreviousData && sameClient && JSON.parse(published.key)[0] === op ? { data: published.state.data } : {}),
+    ...cached, loading: true,
+    ...(cached?.data === undefined && keepPreviousData && sameClient && JSON.parse(published.key)[0] === op && (op !== "task.get" || JSON.parse(JSON.parse(published.key)[1]).id === (params as { id?: string } | null)?.id) ? { data: published.state.data } : {}),
   };
   return { ...result, updating: result.loading && result.data !== undefined, setData: (data: T) => query.setData(op, serialized, data), reload: () => { if (enabled) query.refresh(); } };
 }

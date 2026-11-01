@@ -100,8 +100,7 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
       if (answerDelivered(result?.delivery)) await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
       requestId.current = "";setAnswer("");
       onSent(answerDeliveryWords(result?.delivery, result?.hold));
-      // The service publishes the cleared question too; refetching keeps this session right if that event is late.
-      void runner?.refetch();
+      // Message events update the question and invalidate this task’s messages.
     } catch (error) {
       setRefused(messageRefusalWords(error instanceof ApiError ? (error.data as { reason?: unknown } | undefined)?.reason : undefined));
       input.current?.focus();
