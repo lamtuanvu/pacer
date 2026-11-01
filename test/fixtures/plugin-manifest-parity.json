@@ -1,0 +1,6741 @@
+[
+  {
+    "name": "baseline",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1"
+    }
+  },
+  {
+    "name": "ui-old-host",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1",
+      "contributes": {
+        "ui": {}
+      }
+    }
+  },
+  {
+    "name": "ui-current-host",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {}
+      }
+    }
+  },
+  {
+    "name": "sign-bad-scope",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "BAD!"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "sign-good-scope",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sign-purpose"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "ui-settings-without-config-get",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-settings-with-config-get",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-duplicate-ids",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "same",
+              "title": "One",
+              "view": "one"
+            },
+            {
+              "id": "same",
+              "title": "Two",
+              "view": "two"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-unknown-key",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "unrecognized": []
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-settings-plain-secret",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "apiToken": {
+                    "type": "string",
+                    "title": "API Token"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-title-cleaned-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "\u0000‮",
+              "view": "sample"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-title-normalized",
+    "accepted": true,
+    "normalizedTitle": "Café",
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Café\u0000‮",
+              "view": "sample"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-top-level-stripped",
+    "accepted": true,
+    "strippedTopLevel": "extra",
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "extra": "ignored"
+    }
+  },
+  {
+    "name": "length-publisher-accented-127",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-accented-128",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-accented-129",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-cjk-127",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-cjk-128",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-cjk-129",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-astral-127",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-astral-128",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-astral-129",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-accented-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "ééééééééééééééééééééééééééééééééééééééé",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-accented-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "éééééééééééééééééééééééééééééééééééééééé",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-accented-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "ééééééééééééééééééééééééééééééééééééééééé",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-cjk-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-cjk-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-cjk-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-astral-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-astral-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-astral-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-accented-63",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-accented-64",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-accented-65",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-cjk-63",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-cjk-64",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-cjk-65",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-astral-63",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-astral-64",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-astral-65",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-accented-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "ééééééééééééééééééééééééééééééééééééééé",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-accented-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "éééééééééééééééééééééééééééééééééééééééé",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-accented-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "ééééééééééééééééééééééééééééééééééééééééé",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-cjk-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-cjk-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-cjk-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-astral-39",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-astral-40",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-astral-41",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-accented-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-accented-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-accented-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-cjk-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-cjk-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-cjk-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-astral-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-astral-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-astral-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-accented-199",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-accented-200",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-accented-201",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-cjk-199",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-cjk-200",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-cjk-201",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-astral-199",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-astral-200",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-description-astral-201",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-accented-1999",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-accented-2000",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-accented-2001",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-cjk-1999",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-cjk-2000",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-cjk-2001",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-astral-1999",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-astral-2000",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-default-astral-2001",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-accented-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-accented-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-accented-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-cjk-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-cjk-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-cjk-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-astral-79",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-astral-80",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-astral-81",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-ascii-63",
+    "accepted": true,
+    "manifest": {
+      "id": "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-ascii-64",
+    "accepted": true,
+    "manifest": {
+      "id": "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-ascii-65",
+    "accepted": false,
+    "manifest": {
+      "id": "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-non-ascii",
+    "accepted": false,
+    "manifest": {
+      "id": "é",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-ascii-31",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-ascii-32",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-ascii-33",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-non-ascii",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "é",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-ascii-31",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-ascii-32",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-ascii-33",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-non-ascii",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "é": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-ascii-63",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-ascii-64",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-ascii-65",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-non-ascii",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "é"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "nonempty-entry-accented",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "entry": "é"
+    }
+  },
+  {
+    "name": "nonempty-capability-scope-accented",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get",
+          "scopes": [
+            "é"
+          ]
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "nonempty-entry-cjk",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "entry": "界"
+    }
+  },
+  {
+    "name": "nonempty-capability-scope-cjk",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get",
+          "scopes": [
+            "界"
+          ]
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "nonempty-entry-astral",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "entry": "😀"
+    }
+  },
+  {
+    "name": "nonempty-capability-scope-astral",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get",
+          "scopes": [
+            "😀"
+          ]
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "nonempty-entry-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "entry": ""
+    }
+  },
+  {
+    "name": "nonempty-capability-scope-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get",
+          "scopes": [
+            ""
+          ]
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-publisher-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-title-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-status-view-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": ""
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-settings-title-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-title-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-enum-empty",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      ""
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-activity-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "activity": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-activity-2",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "activity": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-activity-3",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "activity": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item2",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-panelTabs-2",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "panelTabs": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-panelTabs-3",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "panelTabs": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item2",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-panelTabs-4",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "panelTabs": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item2",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            },
+            {
+              "id": "item3",
+              "title": "Item",
+              "icon": "list",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-0",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": []
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page0",
+              "title": "Page",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-2",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page0",
+              "title": "Page",
+              "schema": {
+                "fields": {}
+              }
+            },
+            {
+              "id": "page1",
+              "title": "Page",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-status-0",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": []
+        }
+      }
+    }
+  },
+  {
+    "name": "count-status-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-status-2",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "item0",
+              "title": "Item",
+              "view": "view"
+            },
+            {
+              "id": "item1",
+              "title": "Item",
+              "view": "view"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-fields-29",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "field0": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field1": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field2": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field3": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field4": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field5": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field6": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field7": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field8": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field9": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field10": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field11": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field12": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field13": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field14": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field15": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field16": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field17": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field18": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field19": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field20": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field21": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field22": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field23": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field24": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field25": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field26": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field27": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field28": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-fields-30",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "field0": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field1": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field2": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field3": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field4": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field5": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field6": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field7": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field8": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field9": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field10": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field11": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field12": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field13": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field14": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field15": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field16": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field17": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field18": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field19": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field20": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field21": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field22": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field23": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field24": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field25": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field26": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field27": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field28": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field29": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-settings-fields-31",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "field0": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field1": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field2": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field3": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field4": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field5": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field6": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field7": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field8": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field9": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field10": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field11": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field12": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field13": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field14": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field15": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field16": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field17": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field18": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field19": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field20": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field21": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field22": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field23": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field24": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field25": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field26": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field27": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field28": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field29": {
+                    "type": "string",
+                    "title": "Example"
+                  },
+                  "field30": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-field-enum-19",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-field-enum-20",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "count-field-enum-21",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "Example",
+                    "default": "example",
+                    "enum": [
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value",
+                      "value"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxLength-0",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "maxLength": 0
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxLength-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "maxLength": 1
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxLength-2000",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "maxLength": 2000
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxLength-2001",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "maxLength": 2001
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxItems-0",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "repos",
+                    "title": "Example",
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxItems-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "repos",
+                    "title": "Example",
+                    "maxItems": 1
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxItems-100",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "repos",
+                    "title": "Example",
+                    "maxItems": 100
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "number-maxItems-101",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "repos",
+                    "title": "Example",
+                    "maxItems": 101
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "settings-description-150-accented-characters",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-minimum-0",
+    "accepted": false,
+    "manifest": {
+      "id": "",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-minimum-1",
+    "accepted": false,
+    "manifest": {
+      "id": "f",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-plugin-id-minimum-2",
+    "accepted": true,
+    "manifest": {
+      "id": "fx",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-minimum-0",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-surface-id-minimum-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "s",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-minimum-0",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-field-name-minimum-1",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "f": {
+                    "type": "string",
+                    "title": "Example"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-minimum-0",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            ""
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-minimum-1",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "s"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "length-signing-purpose-minimum-2",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sx"
+          ]
+        },
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "sample",
+              "title": "Sample",
+              "view": "sample"
+            }
+          ],
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "example": {
+                    "type": "string",
+                    "title": "Example",
+                    "description": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+                    "default": "example",
+                    "enum": [
+                      "example"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
