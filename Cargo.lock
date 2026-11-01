@@ -947,6 +947,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-engine"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-fixtures"
 version = "0.0.0"
 dependencies = [

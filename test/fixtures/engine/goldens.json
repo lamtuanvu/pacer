@@ -1,0 +1,6451 @@
+{
+  "pace": [
+    {
+      "zone": "UTC",
+      "name": "active",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 33,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 99.29453262786596,
+        "activeHoursLeft": 0.4444444444444444,
+        "window": {
+          "name": "weekly",
+          "usedPct": 33,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXPIRING",
+          "pace": 99.29453262786596,
+          "delta": -66.29453262786596,
+          "activeHoursLeft": 0.4444444444444444
+        }
+      }
+    },
+    {
+      "zone": "UTC",
+      "name": "missing",
+      "input": {
+        "now": 1798000000,
+        "profile": null,
+        "usage": {
+          "name": "weekly",
+          "usedPct": null,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 97.02380952380952,
+        "activeHoursLeft": 5,
+        "window": {
+          "name": "weekly",
+          "usedPct": null,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "zone": "UTC",
+      "name": "stale",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 80,
+          "stale": true,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 99.29453262786596,
+        "activeHoursLeft": 0.4444444444444444,
+        "window": {
+          "name": "weekly",
+          "usedPct": 80,
+          "stale": true,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "zone": "UTC",
+      "name": "limited",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 98,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 99.29453262786596,
+        "activeHoursLeft": 0.4444444444444444,
+        "window": {
+          "name": "weekly",
+          "usedPct": 98,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXHAUSTED"
+        }
+      }
+    },
+    {
+      "zone": "UTC",
+      "name": "rolled",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1797999999,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 100,
+        "activeHoursLeft": 0,
+        "window": {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": true,
+          "resetsAt": 1797999999,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN",
+          "rolled": true
+        }
+      }
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "name": "active",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 33,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 92.06349206349206,
+        "activeHoursLeft": 5,
+        "window": {
+          "name": "weekly",
+          "usedPct": 33,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXPIRING",
+          "pace": 92.06349206349206,
+          "delta": -59.06349206349206,
+          "activeHoursLeft": 5
+        }
+      }
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "name": "missing",
+      "input": {
+        "now": 1798000000,
+        "profile": null,
+        "usage": {
+          "name": "weekly",
+          "usedPct": null,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 97.02380952380952,
+        "activeHoursLeft": 5,
+        "window": {
+          "name": "weekly",
+          "usedPct": null,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "name": "stale",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 80,
+          "stale": true,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 92.06349206349206,
+        "activeHoursLeft": 5,
+        "window": {
+          "name": "weekly",
+          "usedPct": 80,
+          "stale": true,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "name": "limited",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 98,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 92.06349206349206,
+        "activeHoursLeft": 5,
+        "window": {
+          "name": "weekly",
+          "usedPct": 98,
+          "stale": false,
+          "resetsAt": 1798018000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXHAUSTED"
+        }
+      }
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "name": "rolled",
+      "input": {
+        "now": 1798000000,
+        "profile": {
+          "builtAt": 1798000000,
+          "days": 10,
+          "bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "usage": {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1797999999,
+          "lengthS": 604800,
+          "paced": true
+        },
+        "thresholds": {
+          "ahead": 10,
+          "behind": -10,
+          "paceScale": 1
+        }
+      },
+      "output": {
+        "pacePct": 100,
+        "activeHoursLeft": 0,
+        "window": {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": true,
+          "resetsAt": 1797999999,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "UNKNOWN",
+          "rolled": true
+        }
+      }
+    }
+  ],
+  "eligibility": [
+    {
+      "name": "ready",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_failed",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-30",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "eligible",
+        "reasons": [],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 100,
+        "availability": "ready",
+        "budget": "permitted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "missing",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [],
+            "budget": [],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "uncertain",
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": []
+          },
+          {
+            "code": "budget_missing",
+            "evidenceIds": []
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": null,
+        "evidenceAgeS": null,
+        "availability": "unknown",
+        "budget": "unknown",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "stale",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1797999999,
+                "reason": "subscription_failed",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-30",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797910000,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "uncertain",
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [
+              "availability-ready"
+            ]
+          },
+          {
+            "code": "budget_expired_or_unknown",
+            "evidenceIds": [
+              "budget-30"
+            ]
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": null,
+        "evidenceAgeS": 90000,
+        "availability": "unknown",
+        "budget": "unknown",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "limited",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_failed",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-98",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 98,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "ineligible",
+        "reasons": [
+          {
+            "code": "budget_exhausted",
+            "evidenceIds": [
+              "budget-98"
+            ]
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 100,
+        "availability": "ready",
+        "budget": "exhausted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "paid",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": true,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_failed",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-98",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 98,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "eligible",
+        "reasons": [],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 100,
+        "availability": "ready",
+        "budget": "exhausted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "machine",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_failed",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-30",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": [
+          {
+            "code": "machine_load",
+            "evidenceIds": []
+          }
+        ]
+      },
+      "output": {
+        "state": "ineligible",
+        "reasons": [
+          {
+            "code": "machine_load",
+            "evidenceIds": []
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 100,
+        "availability": "ready",
+        "budget": "permitted",
+        "spendingRisk": "unknown"
+      }
+    }
+  ],
+  "machine": [
+    {
+      "name": "clear",
+      "input": {
+        "config": {
+          "localMemoryPressureLimit": "critical",
+          "localLoadLimit": 1
+        },
+        "signals": {
+          "memoryPressure": "normal",
+          "loadPerCore": 0.5,
+          "sampledAt": 1798000000
+        }
+      },
+      "output": null
+    },
+    {
+      "name": "load",
+      "input": {
+        "config": {
+          "localMemoryPressureLimit": "critical",
+          "localLoadLimit": 1
+        },
+        "signals": {
+          "memoryPressure": "normal",
+          "loadPerCore": 1.25,
+          "sampledAt": 1798000000
+        }
+      },
+      "output": {
+        "reason": "machine_load",
+        "detail": "load 1.3/core over limit 1",
+        "machine": {
+          "loadPerCore": 1.25,
+          "loadLimit": 1
+        }
+      }
+    },
+    {
+      "name": "pressure",
+      "input": {
+        "config": {
+          "localMemoryPressureLimit": "warning",
+          "localLoadLimit": 1
+        },
+        "signals": {
+          "memoryPressure": "warning",
+          "loadPerCore": 2,
+          "sampledAt": 1798000000
+        }
+      },
+      "output": {
+        "reason": "machine_memory_pressure",
+        "detail": "memory pressure warning",
+        "machine": {
+          "memoryPressure": "warning",
+          "memoryPressureLimit": "warning"
+        }
+      }
+    },
+    {
+      "name": "unknown",
+      "input": {
+        "config": {
+          "localMemoryPressureLimit": "critical",
+          "localLoadLimit": 1
+        },
+        "signals": {
+          "memoryPressure": null,
+          "loadPerCore": null,
+          "sampledAt": 1798000000
+        }
+      },
+      "output": null
+    }
+  ],
+  "rank": [
+    {
+      "name": "even",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -20,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "project",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        },
+        "selection": {
+          "executors": [
+            "gamma",
+            "beta",
+            "alpha"
+          ],
+          "order": "configured"
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 3,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 2,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 1,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": []
+      }
+    },
+    {
+      "name": "machine",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "machine_load",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -20,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "reason": "Execution evidence needs attention",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "machine_load",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "priority",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "priority",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 3,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 2,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 1,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 1,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cheapest",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "cheapest-first",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -990,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -2020,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": -1000,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": -1000,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "burn",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "burn-before-reset",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 12,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 6,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fill",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "fill",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "disabled": {
+            "id": "disabled",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 10,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "OK",
+              "delta": -40,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "OK",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -20,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-status",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {},
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "alpha",
+                "beta",
+                "gamma",
+                "disabled"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "alpha": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "reason": "not configured",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          {
+            "id": "disabled",
+            "account": "quota",
+            "reason": "disabled",
+            "eligibility": {
+              "state": "ineligible",
+              "reasons": [
+                {
+                  "code": "evidence_missing",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "unavailable",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 0,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          }
+        ],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aliases",
+      "input": {
+        "kind": null,
+        "strategy": {
+          "planner": {
+            "agent": "claude-code",
+            "account": "planner"
+          },
+          "accounts": {
+            "planner": {
+              "kind": "subscription"
+            },
+            "quota": {
+              "kind": "subscription"
+            },
+            "other": {
+              "kind": "subscription"
+            },
+            "endpoint": {
+              "kind": "endpoint"
+            }
+          },
+          "runners": {
+            "alpha": {
+              "id": "alpha",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": true
+            },
+            "beta": {
+              "id": "beta",
+              "account": "other",
+              "agent": "codex",
+              "enabled": true
+            },
+            "gamma": {
+              "id": "gamma",
+              "account": "endpoint",
+              "agent": "opencode",
+              "enabled": true
+            },
+            "disabled": {
+              "id": "disabled",
+              "account": "quota",
+              "agent": "codex",
+              "enabled": false
+            }
+          },
+          "runnerAliases": {
+            "first": "alpha"
+          },
+          "routing": [
+            {
+              "kinds": null,
+              "executors": [
+                "first",
+                "beta",
+                "gamma"
+              ]
+            }
+          ],
+          "pacing": {
+            "policy": "even",
+            "order": [
+              "beta",
+              "alpha",
+              "gamma"
+            ],
+            "accounts": "spread",
+            "fillThreshold": 90
+          }
+        },
+        "statuses": {
+          "first": {
+            "id": "alpha",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 40,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "BEHIND",
+              "delta": -10,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "BEHIND",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          },
+          "beta": {
+            "id": "beta",
+            "usage": "quota",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": null,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "UNKNOWN"
+            },
+            "verdict": "UNKNOWN",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            }
+          },
+          "gamma": {
+            "id": "gamma",
+            "usage": "metered",
+            "windows": [],
+            "binding": {
+              "name": "weekly",
+              "usedPct": 70,
+              "stale": false,
+              "resetsAt": 1798018000,
+              "lengthS": 604800,
+              "paced": true,
+              "verdict": "AHEAD",
+              "delta": 20,
+              "pace": 50,
+              "activeHoursLeft": 5
+            },
+            "verdict": "AHEAD",
+            "installed": true,
+            "stale": false,
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            }
+          }
+        }
+      },
+      "output": {
+        "ranked": [
+          {
+            "id": "alpha",
+            "account": "quota",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": 10,
+            "verdict": "BEHIND",
+            "reason": "behind, used 40% / pace 50%"
+          },
+          {
+            "id": "gamma",
+            "account": "endpoint",
+            "eligibility": {
+              "state": "eligible",
+              "reasons": [],
+              "evaluatedAt": 1798000000,
+              "validUntil": 1798003600,
+              "evidenceAgeS": 100,
+              "availability": "ready",
+              "budget": "permitted",
+              "spendingRisk": "unknown"
+            },
+            "score": -20,
+            "verdict": "AHEAD",
+            "reason": "ahead, used 70% / pace 50%"
+          },
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ],
+        "excluded": [],
+        "uncertain": [
+          {
+            "id": "beta",
+            "account": "other",
+            "eligibility": {
+              "state": "uncertain",
+              "reasons": [
+                {
+                  "code": "availability_unknown",
+                  "evidenceIds": []
+                },
+                {
+                  "code": "budget_missing",
+                  "evidenceIds": []
+                }
+              ],
+              "evaluatedAt": 1798000000,
+              "validUntil": null,
+              "evidenceAgeS": null,
+              "availability": "unknown",
+              "budget": "unknown",
+              "spendingRisk": "unknown"
+            },
+            "fallback": "uncertain",
+            "score": 0,
+            "verdict": "UNKNOWN",
+            "reason": "Uncertain fallback: Executor availability is not confirmed; No budget observation is available"
+          }
+        ]
+      }
+    }
+  ],
+  "binding": {
+    "input": [
+      {
+        "name": "weekly",
+        "usedPct": 33,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXPIRING",
+        "pace": 99.29453262786596,
+        "delta": -66.29453262786596,
+        "activeHoursLeft": 0.4444444444444444
+      },
+      {
+        "name": "weekly",
+        "usedPct": null,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 80,
+        "stale": true,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 98,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXHAUSTED"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": true,
+        "resetsAt": 1797999999,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN",
+        "rolled": true
+      },
+      {
+        "name": "weekly",
+        "usedPct": 33,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXPIRING",
+        "pace": 92.06349206349206,
+        "delta": -59.06349206349206,
+        "activeHoursLeft": 5
+      },
+      {
+        "name": "weekly",
+        "usedPct": null,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 80,
+        "stale": true,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 98,
+        "stale": false,
+        "resetsAt": 1798018000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXHAUSTED"
+      },
+      {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": true,
+        "resetsAt": 1797999999,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "UNKNOWN",
+        "rolled": true
+      }
+    ],
+    "output": {
+      "name": "weekly",
+      "usedPct": 98,
+      "stale": false,
+      "resetsAt": 1798018000,
+      "lengthS": 604800,
+      "paced": true,
+      "verdict": "EXHAUSTED"
+    }
+  }
+}
