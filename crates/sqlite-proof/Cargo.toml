@@ -1,0 +1,14 @@
+[package]
+name = "pacer-sqlite-proof"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pacer-foundation = { path = "../foundation" }
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -58,9 +58,10 @@ fn atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     private_dir(parent)?;
     let tmp = path.with_file_name(format!(
-        "{}.{}.tmp",
+        "{}.{}.{}.tmp",
         path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
+        std::process::id(),
+        rand::random::<u64>()
     ));
     let mut options = fs::OpenOptions::new();
     options.create_new(true).write(true);
@@ -69,8 +70,10 @@ fn atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+    let mut file = options.open(&tmp)?;
     let result = (|| {
-        options.open(&tmp)?.write_all(bytes)?;
+        file.write_all(bytes)?;
+        drop(file);
         fs::rename(&tmp, path)
     })();
     if result.is_err() {

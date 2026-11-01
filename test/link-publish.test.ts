@@ -31,6 +31,32 @@ test("outbox rotation keeps the last 1000 records", async () => {
   const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
   expect(statSync(outboxPath(c)).mode & 0o777).toBe(0o600);
 });
+test("stale rotation temp does not block publication or change the stale file", async () => {
+  const c = fakeCtx();
+  mkdirSync(join(c.pacerHome, "link"), { recursive: true });
+  const stale = `${outboxPath(c)}.tmp`;
+  writeFileSync(stale, "stale", { mode: 0o600 });
+  const events = Array.from({ length: 1001 }, (_, i) => ({ type: "config" as const, data: { area: `a${i}`, at: c.now } }));
+  const first = await publish(c, events);
+  expect(first.errors).toEqual([]);
+  expect(first.seq).toBe(1001);
+  expect(JSON.parse(readFileSync(latestPath(c), "utf8")).seq).toBe(1001);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
+  const second = await publish(c, [b]);
+  expect(second.errors).toEqual([]);
+  expect(second.seq).toBe(1002);
+  expect(readOutboxSince(c, 1001).map(e => e.seq)).toEqual([1002]);
+});
+test("publication replays an outbox tail when latest is behind", async () => {
+  const c = fakeCtx();
+  expect((await publish(c, [t])).seq).toBe(1);
+  writeFileSync(latestPath(c), JSON.stringify({ v: 1, seq: 0, at: 0 }));
+  const retry = await publish(c, [b]);
+  expect(retry.errors).toEqual([]);
+  expect(retry.seq).toBe(2);
+  expect(readOutboxSince(c, 0).map(e => e.seq)).toEqual([1, 2]);
+  expect(JSON.parse(readFileSync(latestPath(c), "utf8")).tasks).toHaveLength(1);
+});
 test("entity envelopes stay in the outbox even when the channel is available", async () => {
   const calls: string[][] = [];
   const c = fakeCtx({run:async argv=>{calls.push(argv);return {code:0,stdout:'{"commands":[{"path":["plugin","send"]}]}',stderr:""};}});

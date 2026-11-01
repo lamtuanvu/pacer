@@ -559,6 +559,14 @@ pub fn reduce(snapshot: &Value, event: &Value, at: f64) -> Value {
 
 /// Callers hold the shared `link` lock before appending and updating `latest.json`.
 pub fn append_outbox(ctx: &Ctx, entries: &[Value]) -> io::Result<()> {
+    append_outbox_inner(ctx, entries, true)
+}
+
+pub(crate) fn append_outbox_for_publish(ctx: &Ctx, entries: &[Value]) -> io::Result<()> {
+    append_outbox_inner(ctx, entries, false)
+}
+
+fn append_outbox_inner(ctx: &Ctx, entries: &[Value], rotate: bool) -> io::Result<()> {
     if entries.is_empty() {
         return Ok(());
     }
@@ -575,6 +583,14 @@ pub fn append_outbox(ctx: &Ctx, entries: &[Value]) -> io::Result<()> {
         bytes.push(b'\n');
     }
     append_publication(&path, &bytes)?;
+    if rotate {
+        rotate_outbox(ctx)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn rotate_outbox(ctx: &Ctx) -> io::Result<()> {
+    let path = outbox_path(ctx);
     let content = fs::read(&path)?;
     let lines: Vec<&[u8]> = content
         .split(|byte| *byte == b'\n')

@@ -2,7 +2,7 @@
 use pacer_foundation::Ctx;
 use pacer_store::outbox::{append_outbox, parse_outbox_event, parse_snapshot};
 use pacer_store::{
-    ActivityOptions, append_activity, publish, publish_config_change, read_activity,
+    ActivityOptions, append_activity, publish, publish_config_change, read_activity, read_latest,
     read_outbox_since, rotate_activity,
 };
 use regex::Regex;
@@ -93,6 +93,43 @@ await publishConfigChange(c,'strategy');
     b["id"] = json!("fixed");
     assert_eq!(a, b);
     assert_eq!(read_outbox_since(&c, 0.0).unwrap().len(), 2);
+}
+
+#[test]
+fn stale_pid_temp_survives_and_publication_retries_from_outbox_tail() {
+    let root = tempfile::tempdir().unwrap();
+    let c = ctx(root.path());
+    let link = c.pacer_home.join("link");
+    fs::create_dir_all(&link).unwrap();
+    let stale = link.join(format!("latest.json.{}.tmp", std::process::id()));
+    fs::write(&stale, "stale").unwrap();
+    let event = json!({"type":"config","data":{"area":"first","at":c.now}});
+    let first = publish(&c, &[event]);
+    assert!(first.errors.is_empty(), "{:?}", first.errors);
+    assert_eq!(first.seq, 1);
+    assert_eq!(fs::read_to_string(&stale).unwrap(), "stale");
+    fs::write(link.join("latest.json"), r#"{"v":1,"seq":0,"at":0}"#).unwrap();
+    let second = publish(
+        &c,
+        &[json!({"type":"config","data":{"area":"second","at":c.now}})],
+    );
+    assert!(second.errors.is_empty(), "{:?}", second.errors);
+    assert_eq!(second.seq, 2);
+    assert_eq!(read_outbox_since(&c, 0.0).unwrap().len(), 2);
+
+    let stale_rotation = link.join(format!("outbox.jsonl.{}.tmp", std::process::id()));
+    fs::write(&stale_rotation, "stale rotation").unwrap();
+    let events: Vec<Value> = (0..1001)
+        .map(|i| json!({"type":"config","data":{"area":format!("fixture-{i}"),"at":c.now}}))
+        .collect();
+    let rotated = publish(&c, &events);
+    assert!(rotated.errors.is_empty(), "{:?}", rotated.errors);
+    assert_eq!(rotated.seq, 1003);
+    assert_eq!(
+        fs::read_to_string(&stale_rotation).unwrap(),
+        "stale rotation"
+    );
+    assert_eq!(read_latest(&c)["seq"], json!(1003));
 }
 
 #[cfg(unix)]

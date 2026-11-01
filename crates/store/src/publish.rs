@@ -1,5 +1,7 @@
 use crate::file::js_number;
-use crate::outbox::{append_outbox, read_latest, reduce, write_latest};
+use crate::outbox::{
+    append_outbox_for_publish, read_latest, read_outbox_since, reduce, rotate_outbox, write_latest,
+};
 use pacer_foundation::{
     Ctx,
     lock::{LockOptions, with_lock},
@@ -24,14 +26,29 @@ pub fn publish(ctx: &Ctx, events: &[Value]) -> PublishReport {
     };
     let result = with_lock(ctx, "link", options, || -> io::Result<u64> {
         let mut snapshot = read_latest(ctx);
+        for pending in read_outbox_since(ctx, snapshot["seq"].as_f64().unwrap_or(0.0))? {
+            if pending["seq"].as_u64()
+                != snapshot["seq"].as_u64().and_then(|seq| seq.checked_add(1))
+            {
+                return Err(io::Error::other(
+                    "outbox sequence gap; latest snapshot requires recovery",
+                ));
+            }
+            snapshot = reduce(
+                &snapshot,
+                &pending["envelope"],
+                pending["at"].as_f64().unwrap_or(ctx.now),
+            );
+        }
         let mut entries = Vec::new();
         for event in events {
             snapshot = reduce(&snapshot, event, ctx.now);
             entries.push(json!({"seq":snapshot["seq"],"at":js_number(ctx.now),"envelope":event}));
         }
         if !entries.is_empty() {
-            append_outbox(ctx, &entries)?;
+            append_outbox_for_publish(ctx, &entries)?;
             write_latest(ctx, &snapshot)?;
+            rotate_outbox(ctx)?;
         }
         Ok(snapshot["seq"].as_u64().unwrap_or(0))
     });

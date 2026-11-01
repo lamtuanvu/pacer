@@ -36,7 +36,7 @@ jobs:
   release-readiness:
     name: Release readiness
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 240
     permissions:
       contents: read
       actions: read
@@ -54,7 +54,7 @@ jobs:
           if test "$EVENT" != pull_request; then exit 0; fi
           case "$BRANCH" in release/v*) ;; *) exit 0 ;; esac
           test "$HEAD_REPO" = "$REPO" || { echo '::error::Release PR must be in this repository'; exit 1; }
-          for _ in $(seq 1 590); do
+          for _ in $(seq 1 1400); do
             runs=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json status,conclusion,url)
             status=$(printf '%s' "$runs" | jq -r '.[0].status // "missing"')
             if test "$status" = completed; then
@@ -142,6 +142,9 @@ jobs:
           cp target/debug/pacer "$RUNNER_TEMP/pacer-native-test"
           bun -e 'import { compileCore } from "./scripts/release/build"; import { hostTarget } from "./src/update/manifest"; import { join } from "node:path"; import pkg from "./package.json"; const target = hostTarget(); if (!target) throw Error("Unsupported CI host"); await compileCore({ root: process.cwd(), target, version: pkg.version, outfile: join(process.env.RUNNER_TEMP!, "pacer-core") });'
           echo "PACER_TEST_FRONT_DOOR=$RUNNER_TEMP/pacer-native-test" >> "$GITHUB_ENV"
+      - name: Build the SQLite cross-runtime proof
+        if: ${{ needs.changes.outputs.bun == 'true' }}
+        run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Install Linux test cross-build prerequisites
         if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}
         run: |
@@ -157,6 +160,8 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test
         if: ${{ needs.changes.outputs.bun == 'true' }}
+        env:
+          PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
         run: bun run test
       - name: Build
         if: ${{ needs.changes.outputs.bun == 'true' }}
