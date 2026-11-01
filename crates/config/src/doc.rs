@@ -60,6 +60,7 @@ impl Node {
 struct Frame {
     start: usize,
     mapping: bool,
+    anchor: usize,
     children: Vec<Node>,
 }
 
@@ -146,6 +147,7 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
 fn parse(text: &str) -> Result<Node> {
     let mut stack: Vec<Frame> = Vec::new();
     let mut root = None;
+    let mut anchors = std::collections::HashMap::<usize, Node>::new();
     for event in Parser::new_from_str(text) {
         let (event, span) = event.map_err(|e| {
             let message = e.to_string();
@@ -158,11 +160,23 @@ fn parse(text: &str) -> Result<Node> {
         let start = byte_index(text, span.start.index());
         let end = byte_index(text, span.end.index());
         let node = match event {
-            Event::Scalar(content, style, _, _) => Some(scalar(text, start..end, &content, style)),
-            Event::MappingStart(_, _) | Event::SequenceStart(_, _) => {
+            Event::Scalar(content, style, anchor, _) => {
+                let node = scalar(text, start..end, &content, style);
+                if anchor != 0 {
+                    anchors.insert(anchor, node.clone());
+                }
+                Some(node)
+            }
+            Event::Alias(anchor) => anchors.get(&anchor).cloned().map(|mut node| {
+                node.span = start..end;
+                node.core_end = end;
+                node
+            }),
+            Event::MappingStart(anchor, _) | Event::SequenceStart(anchor, _) => {
                 stack.push(Frame {
                     start,
                     mapping: matches!(event, Event::MappingStart(..)),
+                    anchor,
                     children: Vec::new(),
                 });
                 None
@@ -198,11 +212,15 @@ fn parse(text: &str) -> Result<Node> {
                         .take_while(|c| *c == ' ')
                         .count()
                 };
-                Some(Node {
+                let node = Node {
                     span: frame.start..end,
                     core_end,
                     kind,
-                })
+                };
+                if frame.anchor != 0 {
+                    anchors.insert(frame.anchor, node.clone());
+                }
+                Some(node)
             }
             _ => None,
         };
@@ -215,6 +233,12 @@ fn parse(text: &str) -> Result<Node> {
         }
     }
     root.ok_or_else(|| EditError("empty strategy document".into()))
+}
+
+/// Parse a strategy document into the same JSON-shaped value used by the
+/// validator. Source spans remain available separately through `StrategyDoc`.
+pub fn parse_value(text: &str) -> Result<Value> {
+    parse(text).map(|node| node.value())
 }
 
 fn key_text(key: &Value) -> String {
@@ -653,6 +677,128 @@ impl StrategyDoc {
             key.span.start..key.core_end,
             &emit_scalar(&Value::String(name.into()), None),
         );
+        Ok(())
+    }
+
+    /// Add account kind to each legacy provider while keeping untouched source
+    /// spans, including comments and scalar quoting.
+    pub fn migrate_provider_kinds(&mut self, kinds: &Value) -> Result<()> {
+        let doc = self.document()?;
+        let Some(Node {
+            kind: Kind::Map(providers, outer_flow),
+            span: outer_span,
+            core_end: outer_end,
+        }) = doc.at(&[Value::String("providers".into())])
+        else {
+            return Err(EditError("providers must be a mapping".into()));
+        };
+        let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+        if *outer_flow {
+            let open = outer_span.start;
+            if self.text.as_bytes().get(open + 1) != Some(&b' ') {
+                edits.push((open + 1..open + 1, " ".into()));
+            }
+            let close = outer_end - 1;
+            if self.text.as_bytes().get(close - 1) != Some(&b' ') {
+                edits.push((close..close, " ".into()));
+            }
+        }
+        for (key, value) in providers {
+            let name = key_text(&key.value());
+            let kind = kinds
+                .get(&name)
+                .and_then(Value::as_str)
+                .unwrap_or("endpoint");
+            let Kind::Map(entries, flow) = &value.kind else {
+                edits.push((value.span.clone(), format!("{{kind: {kind}}}")));
+                continue;
+            };
+            if self.text[value.span.clone()].trim_start().starts_with('*') {
+                let mut expanded = value.value();
+                if let Some(map) = expanded.as_object_mut() {
+                    map.remove("via");
+                    map.insert("kind".into(), Value::String(kind.into()));
+                }
+                edits.push((value.span.clone(), emit(&expanded, true, 0)));
+                continue;
+            }
+            let flow = *flow
+                || self.text[value.span.clone()]
+                    .split('\n')
+                    .next()
+                    .is_some_and(|line| line.contains('{') && line.contains('}'));
+            if let Some((index, (via_key, via_value))) = entries
+                .iter()
+                .enumerate()
+                .find(|(_, (k, _))| k.value() == Value::String("via".into()))
+            {
+                if flow {
+                    let start = if index + 1 < entries.len() {
+                        via_key.span.start
+                    } else if index > 0 {
+                        entries[index - 1].1.core_end
+                    } else {
+                        via_key.span.start
+                    };
+                    let end = if index + 1 < entries.len() {
+                        entries[index + 1].0.span.start
+                    } else {
+                        via_value.core_end
+                    };
+                    edits.push((start..end, String::new()));
+                } else {
+                    let line_start = self.text[..via_key.span.start]
+                        .rfind('\n')
+                        .map_or(0, |i| i + 1);
+                    let line_end = self.text[via_value.core_end..]
+                        .find('\n')
+                        .map_or(self.text.len(), |i| via_value.core_end + i + 1);
+                    edits.push((line_start..line_end, String::new()));
+                }
+            }
+            if flow {
+                let before = self.text[value.span.start..value.core_end].trim_end();
+                let closer = before
+                    .rfind('}')
+                    .map_or(value.core_end, |i| value.span.start + i);
+                let open = value.span.start + self.text[value.span.clone()].find('{').unwrap_or(0);
+                if self.text.as_bytes().get(open + 1) != Some(&b' ') {
+                    edits.push((open + 1..open + 1, " ".into()));
+                }
+                let content_end = self.text[..closer].trim_end_matches(' ').len();
+                edits.push((
+                    content_end..content_end,
+                    format!(
+                        "{}kind: {kind}{}",
+                        if entries.is_empty() { "" } else { ", " },
+                        if content_end == closer { " " } else { "" }
+                    ),
+                ));
+            } else {
+                let indent = entries
+                    .first()
+                    .map_or(self.column(value.span.start) + 2, |(k, _)| {
+                        self.column(k.span.start)
+                    });
+                edits.push((
+                    value.span.end..value.span.end,
+                    format!(
+                        "{}{}kind: {kind}{}",
+                        if self.text[..value.span.end].ends_with('\n') {
+                            ""
+                        } else {
+                            self.newline()
+                        },
+                        " ".repeat(indent),
+                        self.newline()
+                    ),
+                ));
+            }
+        }
+        edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+        for (range, replacement) in edits {
+            self.replace(range, &replacement);
+        }
         Ok(())
     }
 }

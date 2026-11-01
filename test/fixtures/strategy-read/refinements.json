@@ -1,0 +1,2335 @@
+[
+  {
+    "name": "audit-top-level",
+    "raw": null,
+    "problems": [
+      "top level must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-empty-accounts",
+    "raw": {
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts must be a non-empty mapping",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-empty-providers",
+    "raw": {
+      "planner": "codex",
+      "providers": {}
+    },
+    "problems": [
+      "providers must be a non-empty mapping"
+    ]
+  },
+  {
+    "name": "audit-legacy-mixed",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        }
+      }
+    },
+    "problems": [
+      "providers cannot be combined with accounts or runners"
+    ]
+  },
+  {
+    "name": "audit-legacy-native-via",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {
+          "via": "opencode",
+          "usage": "quota"
+        }
+      }
+    },
+    "problems": [
+      "providers.codex: native providers cannot set \"via\"",
+      "providers.codex: model must look like \"<provider>/<model>\""
+    ]
+  },
+  {
+    "name": "audit-legacy-model",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {},
+        "edge": {
+          "via": "opencode",
+          "model": "bad",
+          "budget": {
+            "weekly_tokens": "20M"
+          }
+        }
+      }
+    },
+    "problems": [
+      "providers.edge: model must look like \"<provider>/<model>\""
+    ]
+  },
+  {
+    "name": "audit-legacy-usage",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {
+          "usage": "invalid"
+        }
+      }
+    },
+    "problems": [
+      "providers.codex: usage must be one of quota, metered, reactive, unmetered"
+    ]
+  },
+  {
+    "name": "audit-legacy-quota-source",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {},
+        "edge": {
+          "via": "opencode",
+          "model": "edge/model",
+          "usage": "quota"
+        }
+      }
+    },
+    "problems": [
+      "providers.edge: quota usage via opencode needs quota_source: arkcli"
+    ]
+  },
+  {
+    "name": "audit-accounts-mapping",
+    "raw": {
+      "accounts": false,
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts must be a non-empty mapping",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-modern-planner-agent",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "agy"
+    },
+    "problems": [
+      "runner agy: no default account for agy",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-modern-planner-agent-with-account",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "agy": {
+          "kind": "agy"
+        }
+      },
+      "planner": "agy"
+    },
+    "problems": [
+      "planner must be one of claude-code, codex, cursor, opencode"
+    ]
+  },
+  {
+    "name": "audit-account-mapping",
+    "raw": {
+      "accounts": {
+        "codex": false,
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex must be a mapping",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-account-kind",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "wrong"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: unknown account kind",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-account-orca-home",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "team": {
+          "kind": "codex",
+          "orca_account": 0
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.team: orca_account requires a non-empty id on a claude or codex account",
+      "accounts: more than one default codex account",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-account-home-orca-exclusive",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "home": "~/codex",
+          "orca_account": "id"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: home and orca_account are mutually exclusive",
+      "runner codex: no default account for codex",
+      "routing[0] needs a non-empty executors (or default) list"
+    ]
+  },
+  {
+    "name": "audit-account-usage",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "usage": "bad"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: unknown usage kind",
+      "accounts.codex: unknown usage_source"
+    ]
+  },
+  {
+    "name": "audit-account-usage-source",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "usage_source": "bad"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: unknown usage_source"
+    ]
+  },
+  {
+    "name": "audit-account-source-kind",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "source": "opencode"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: source: opencode requires an endpoint account"
+    ]
+  },
+  {
+    "name": "audit-account-source-provider",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "source": "opencode"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.edge: source: opencode needs provider (an OpenCode provider id)"
+    ]
+  },
+  {
+    "name": "audit-account-source-connection",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          },
+          "source": "opencode",
+          "provider": "edge"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge: source: opencode cannot have a connection",
+      "runner opencode#edge: model must start with \"edge/\""
+    ]
+  },
+  {
+    "name": "audit-account-weekly-usd",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "budget": {
+            "weekly_usd": 0
+          }
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: budget.weekly_usd must be a positive number"
+    ]
+  },
+  {
+    "name": "audit-account-quota-source",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "usage": "quota"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.edge: quota usage needs quota_source: arkcli"
+    ]
+  },
+  {
+    "name": "audit-account-metered-budget",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "usage": "metered"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: metered usage needs budget.weekly_tokens"
+    ]
+  },
+  {
+    "name": "audit-account-endpoint-budget",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          },
+          "budget": {
+            "weekly_tokens": "bad"
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge: budget.weekly_tokens must be a positive size such as 20M"
+    ]
+  },
+  {
+    "name": "audit-account-cooldown",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "cooldown": "bad"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: cooldown must look like 30m, 6h or 2d"
+    ]
+  },
+  {
+    "name": "audit-connection-kind",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex"
+    },
+    "problems": [
+      "accounts.codex: connection requires an endpoint account"
+    ]
+  },
+  {
+    "name": "audit-connection-name",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "Bad_Name": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {}
+    },
+    "problems": [
+      "accounts.Bad_Name: connection account name must contain lowercase letters, digits and hyphens"
+    ]
+  },
+  {
+    "name": "audit-connection-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": false
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-connection-api",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "bad",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.api must be openai-compatible"
+    ]
+  },
+  {
+    "name": "audit-connection-url",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "bad",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.base_url must be an http(s) URL without credentials"
+    ]
+  },
+  {
+    "name": "audit-connection-key",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "env:3BAD",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.key must be keychain, file, env:VAR or none"
+    ]
+  },
+  {
+    "name": "audit-connection-empty-models",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": []
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models must be a non-empty list"
+    ]
+  },
+  {
+    "name": "audit-connection-model-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              false
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0 must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-connection-model-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0.id must be non-empty"
+    ]
+  },
+  {
+    "name": "audit-connection-model-name",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true,
+                "name": ""
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0.name must be non-empty"
+    ]
+  },
+  {
+    "name": "audit-connection-model-context",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 0,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0.context must be a positive integer"
+    ]
+  },
+  {
+    "name": "audit-connection-model-output",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 0,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0.output must be a positive integer"
+    ]
+  },
+  {
+    "name": "audit-connection-model-tools",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": "yes"
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/valid"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.models.0.tools must be a boolean"
+    ]
+  },
+  {
+    "name": "audit-runner-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": false
+      }
+    },
+    "problems": [
+      "runner codex: must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-runner-session",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "session": "bad"
+        }
+      }
+    },
+    "problems": [
+      "runner codex: session must be headless or interactive"
+    ]
+  },
+  {
+    "name": "audit-runner-unknown-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "unknown": {}
+      }
+    },
+    "problems": [
+      "runner unknown: invalid runner id or unknown agent"
+    ]
+  },
+  {
+    "name": "audit-runner-unknown-account",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex#missing": {}
+      }
+    },
+    "problems": [
+      "runner codex#missing: unknown account \"missing\""
+    ]
+  },
+  {
+    "name": "audit-runner-account-kind",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex#claude": {}
+      }
+    },
+    "problems": [
+      "runner codex#claude: codex cannot use claude account \"claude\""
+    ]
+  },
+  {
+    "name": "audit-runner-invalid-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex#bad_name": {}
+      }
+    },
+    "problems": [
+      "runner codex#bad_name: invalid runner id or unknown agent"
+    ]
+  },
+  {
+    "name": "audit-runner-invalid-id-interactive",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          }
+        }
+      },
+      "runners": {
+        "codex#bad_name@box": {
+          "session": "interactive"
+        }
+      }
+    },
+    "problems": [
+      "runner codex#bad_name@box: invalid runner id or unknown agent"
+    ]
+  },
+  {
+    "name": "audit-runner-invalid-canonical-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "Bad_Name": {
+          "kind": "codex",
+          "home": "~/bad"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "alias": {
+          "agent": "codex",
+          "account": "Bad_Name"
+        }
+      }
+    },
+    "problems": [
+      "runner alias: invalid runner id"
+    ]
+  },
+  {
+    "name": "audit-runner-enabled",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "enabled": "yes"
+        }
+      }
+    },
+    "problems": [
+      "runner codex: enabled must be a boolean"
+    ]
+  },
+  {
+    "name": "audit-runner-max-tasks",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "max_tasks": 0
+        }
+      }
+    },
+    "problems": [
+      "runners.codex.max_tasks must be 1..16"
+    ]
+  },
+  {
+    "name": "audit-runner-test",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "test": "yes"
+        }
+      }
+    },
+    "problems": [
+      "runner codex: test must be a boolean"
+    ]
+  },
+  {
+    "name": "audit-runner-models-invalid",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "models": []
+        }
+      }
+    },
+    "problems": [
+      "runner codex: invalid models declaration"
+    ]
+  },
+  {
+    "name": "audit-runner-models-schema",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "models": [
+            {
+              "id": "a",
+              "tier": "bad"
+            }
+          ]
+        }
+      }
+    },
+    "problems": [
+      "runner codex: invalid models declaration"
+    ]
+  },
+  {
+    "name": "audit-runner-models-duplicate",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "models": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "a"
+            }
+          ]
+        }
+      }
+    },
+    "problems": [
+      "runner codex: duplicate models"
+    ]
+  },
+  {
+    "name": "audit-runner-models-invalid-before-duplicate",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "codex": {
+          "models": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "a"
+            },
+            {
+              "id": ""
+            }
+          ]
+        }
+      }
+    },
+    "problems": [
+      "runner codex: invalid models declaration"
+    ]
+  },
+  {
+    "name": "audit-runner-connection-model",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "none",
+            "models": [
+              {
+                "id": "valid",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "pacer-edge/missing"
+        }
+      }
+    },
+    "problems": [
+      "runner opencode#edge: model must be selected from connection.models"
+    ]
+  },
+  {
+    "name": "audit-runner-opencode-prefix",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "source": "opencode",
+          "provider": "provider"
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "opencode#edge": {
+          "model": "other/model"
+        }
+      }
+    },
+    "problems": [
+      "runner opencode#edge: model must start with \"provider/\""
+    ]
+  },
+  {
+    "name": "audit-runner-conflicting-model",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": {
+        "agent": "codex",
+        "account": "codex",
+        "model": "first"
+      },
+      "runners": {
+        "codex": {
+          "model": "second"
+        }
+      }
+    },
+    "problems": [
+      "runner codex: conflicting model declarations for codex"
+    ]
+  },
+  {
+    "name": "audit-remote-agent",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "cursor": {
+          "kind": "cursor"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          }
+        }
+      },
+      "runners": {
+        "cursor@box": {}
+      }
+    },
+    "problems": [
+      "runner cursor@box: remote runners support codex and claude-code"
+    ]
+  },
+  {
+    "name": "audit-remote-account-home",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        },
+        "team": {
+          "kind": "codex",
+          "home": "~/team"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {}
+        }
+      },
+      "runners": {
+        "codex#team@box": {}
+      }
+    },
+    "problems": [
+      "runner codex#team@box: account team on box needs hosts.box.accounts.team.home"
+    ]
+  },
+  {
+    "name": "audit-pacing-order-list",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "order": "codex"
+      }
+    },
+    "problems": [
+      "pacing.order must be a list"
+    ]
+  },
+  {
+    "name": "audit-pacing-order-unknown",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "order": [
+          "nobody"
+        ]
+      }
+    },
+    "problems": [
+      "pacing.order: unknown provider \"nobody\""
+    ]
+  },
+  {
+    "name": "audit-pacing-order-account-kind",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "order": [
+          "codex#claude"
+        ]
+      }
+    },
+    "problems": [
+      "pacing.order: codex cannot use claude account \"claude\""
+    ]
+  },
+  {
+    "name": "audit-pacing-order-remote",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "order": [
+          "codex@missing"
+        ]
+      }
+    },
+    "problems": [
+      "runner codex@missing: unknown host missing (hosts: none)"
+    ]
+  },
+  {
+    "name": "audit-pacing-number",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "ahead_threshold": "bad"
+      }
+    },
+    "problems": [
+      "pacing.ahead_threshold must be a number"
+    ]
+  },
+  {
+    "name": "audit-pacing-reserve-number",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "planner_reserve": "bad"
+      }
+    },
+    "problems": [
+      "pacing.planner_reserve must be a number"
+    ]
+  },
+  {
+    "name": "audit-pacing-headroom-number",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "planner_reserve_headroom": "bad"
+      }
+    },
+    "problems": [
+      "pacing.planner_reserve_headroom must be a number"
+    ]
+  },
+  {
+    "name": "audit-pacing-behind-number",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "behind_threshold": "bad"
+      }
+    },
+    "problems": [
+      "pacing.behind_threshold must be a number"
+    ]
+  },
+  {
+    "name": "audit-pacing-fill-number",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "fill_threshold": "bad"
+      }
+    },
+    "problems": [
+      "pacing.fill_threshold must be a number"
+    ]
+  },
+  {
+    "name": "audit-pacing-headroom",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "pacing": {
+        "planner_reserve_headroom": 100
+      }
+    },
+    "problems": [
+      "pacing.planner_reserve_headroom must be between 0 and 99"
+    ]
+  },
+  {
+    "name": "audit-routing-list",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "routing": false
+    },
+    "problems": [
+      "routing must be a list"
+    ]
+  },
+  {
+    "name": "audit-routing-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "routing": [
+        false
+      ]
+    },
+    "problems": [
+      "routing[0] must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-routing-kinds",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "routing": [
+        {
+          "executors": [
+            "codex"
+          ]
+        }
+      ]
+    },
+    "problems": [
+      "routing[0] needs kinds (or use default:)"
+    ]
+  },
+  {
+    "name": "audit-plugin-policy-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "policy": false
+      }
+    },
+    "problems": [
+      "plugins.policy must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-plugin-policy-mode",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "policy": {
+          "mode": "bad"
+        }
+      }
+    },
+    "problems": [
+      "plugins.policy.mode must be open or closed"
+    ]
+  },
+  {
+    "name": "audit-plugin-disabled-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "disabled": [
+          "--"
+        ]
+      }
+    },
+    "problems": [
+      "plugins.disabled: invalid plugin id \"--\""
+    ]
+  },
+  {
+    "name": "audit-plugin-installed-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "installed": false
+      }
+    },
+    "problems": [
+      "plugins.installed must be a mapping of plugin id to grant"
+    ]
+  },
+  {
+    "name": "audit-plugin-grant-id",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "installed": {
+          "--": {
+            "version": "1.0.0",
+            "capabilities": []
+          }
+        }
+      }
+    },
+    "problems": [
+      "plugins.installed: invalid plugin id \"--\""
+    ]
+  },
+  {
+    "name": "audit-plugin-grant-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "installed": {
+          "acme": false
+        }
+      }
+    },
+    "problems": [
+      "plugins.installed.acme must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-plugin-surfaces",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "installed": {
+          "acme": {
+            "version": "1.0.0",
+            "capabilities": [],
+            "surfaces": false
+          }
+        }
+      }
+    },
+    "problems": [
+      "plugins.installed.acme.surfaces must be a list of names"
+    ]
+  },
+  {
+    "name": "audit-plugin-config-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "config": false
+      }
+    },
+    "problems": [
+      "plugins.config must be a mapping of plugin id to settings"
+    ]
+  },
+  {
+    "name": "audit-plugin-config-entry",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "plugins": {
+        "config": {
+          "acme": false
+        }
+      }
+    },
+    "problems": [
+      "plugins.config.acme must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-host-reserved",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          }
+        },
+        "local": {
+          "ssh": "local"
+        }
+      }
+    },
+    "problems": [
+      "hosts: \"local\" is reserved"
+    ]
+  },
+  {
+    "name": "audit-host-alias",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          }
+        },
+        "Bad_": {
+          "ssh": "box"
+        }
+      }
+    },
+    "problems": [
+      "hosts.Bad_: invalid host alias"
+    ]
+  },
+  {
+    "name": "audit-host-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": false
+      }
+    },
+    "problems": [
+      "hosts.box must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-host-unknown-key",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "extra": true
+        }
+      }
+    },
+    "problems": [
+      "hosts.box: unknown key extra"
+    ]
+  },
+  {
+    "name": "audit-host-account-unknown-key",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team",
+              "extra": true
+            }
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.accounts.team: unknown key extra"
+    ]
+  },
+  {
+    "name": "audit-host-ssh",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "bad alias",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.ssh must be an ssh alias"
+    ]
+  },
+  {
+    "name": "audit-host-paused",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "paused": "yes"
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.paused must be a boolean"
+    ]
+  },
+  {
+    "name": "audit-host-session",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "session": "bad"
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.session must be recording or full"
+    ]
+  },
+  {
+    "name": "audit-host-max-tasks",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "max_tasks": 0
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.max_tasks must be 1..16"
+    ]
+  },
+  {
+    "name": "audit-host-repos-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "repos": false
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.repos must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-host-repo-key",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "repos": {
+            "bad": "~/src"
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.repos: bad is not a canonical repo key (host/owner/repo)"
+    ]
+  },
+  {
+    "name": "audit-host-repo-path",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": "~/team"
+            }
+          },
+          "repos": {
+            "github.com/o/r": ""
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.repos.github.com/o/r must be a non-empty path"
+    ]
+  },
+  {
+    "name": "audit-host-accounts-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": false
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.accounts must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-host-account-name",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "Bad_": {
+              "home": "~/src"
+            }
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.accounts.Bad_: invalid account name"
+    ]
+  },
+  {
+    "name": "audit-host-account-mapping",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": false
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.accounts.team must be a mapping"
+    ]
+  },
+  {
+    "name": "audit-host-account-home",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "hosts": {
+        "box": {
+          "ssh": "box",
+          "accounts": {
+            "team": {
+              "home": ""
+            }
+          }
+        }
+      }
+    },
+    "problems": [
+      "hosts.box.accounts.team.home must be a non-empty folder"
+    ]
+  },
+  {
+    "name": "audit-dispatch-duplicate-steps",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "claude": {
+          "kind": "claude"
+        }
+      },
+      "planner": "codex",
+      "dispatch": {
+        "steps": [
+          {
+            "id": "same"
+          },
+          {
+            "id": "same"
+          }
+        ]
+      }
+    },
+    "problems": [
+      "Invalid dispatch configuration"
+    ]
+  }
+]

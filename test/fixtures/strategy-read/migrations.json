@@ -1,0 +1,52 @@
+[
+  {
+    "name": "case-1",
+    "before": "planner: codex\nproviders:\n  codex: {usage: quota}\n",
+    "after": "planner: codex\naccounts:\n  codex: { usage: quota, kind: codex }\npacing: { order: [ codex ] }\nrouting: [ { default: [ codex ] } ]\n"
+  },
+  {
+    "name": "case-2",
+    "before": "planner: codex\nproviders:\n  claude-code: &quota {usage: quota, allow_paid: true}\n  codex: *quota\n",
+    "after": "planner: codex\naccounts:\n  claude-code: &quota { usage: quota, allow_paid: true, kind: claude }\n  codex: { usage: quota, allow_paid: true, kind: codex }\npacing: { order: [ codex ] }\nrouting: [ { default: [ claude-code, codex ] } ]\n"
+  },
+  {
+    "name": "case-3",
+    "before": "planner: codex\nproviders: {codex: {usage: quota}, local: {via: opencode, model: ollama/qwen3, usage: unmetered}} # budgets\n",
+    "after": "planner: codex\naccounts: { codex: { usage: quota, kind: codex }, local: { model: ollama/qwen3, usage: unmetered, kind: endpoint } } # budgets\npacing: { order: [ codex, opencode ] }\nrouting: [ { default: [ codex, opencode#local ] } ]\n"
+  },
+  {
+    "name": "case-4",
+    "before": "{planner: codex, providers: {codex: {usage: quota}}}\n",
+    "after": "{planner: codex, accounts: { codex: { usage: quota, kind: codex } }, pacing: { order: [ codex ] }, routing: [ { default: [ codex ] } ]}\n"
+  },
+  {
+    "name": "case-5",
+    "before": "planner: claude-code\nproviders:\n  codex: {usage: quota}\n  local: {via: opencode, model: ollama/qwen3, usage: unmetered}\n",
+    "after": "planner: claude-code\naccounts:\n  codex: { usage: quota, kind: codex }\n  local: { model: ollama/qwen3, usage: unmetered, kind: endpoint }\n  claude-code: { kind: claude, usage: quota }\npacing: { order: [ codex, opencode ] }\nrouting: [ { default: [ codex, opencode#local, claude-code ] } ]\n"
+  },
+  {
+    "name": "case-6",
+    "before": "planner: codex\nproviders:\n  codex: {usage: quota}\n  agy: {usage: reactive}\nrouting: [{default: [codex]}]\n",
+    "after": "planner: codex\naccounts:\n  codex: { usage: quota, kind: codex }\n  agy: { usage: reactive, kind: agy }\nrouting: [{default: [codex]}]\npacing: { order: [ codex, agy ] }\nrunners: { agy: {} }\n"
+  },
+  {
+    "name": "case-7",
+    "before": "planner: codex\nproviders:\n  codex:\n    usage: quota\n    allow_paid: false\n",
+    "after": "planner: codex\naccounts:\n  codex:\n    usage: quota\n    allow_paid: false\n    kind: codex\npacing: { order: [ codex ] }\nrouting: [ { default: [ codex ] } ]\n"
+  },
+  {
+    "name": "case-8",
+    "before": "planner: codex\r\nproviders:\r\n  codex: {usage: quota}\r\n",
+    "after": "planner: codex\r\naccounts:\r\n  codex: { usage: quota, kind: codex }\r\npacing: { order: [ codex ] }\r\nrouting: [ { default: [ codex ] } ]\r\n"
+  },
+  {
+    "name": "case-9",
+    "before": "# starter shape\nplanner: claude-code # planning account\nproviders:\n  # Claude budget\n  claude-code: {usage: quota}\n  codex: {usage: quota, allow_paid: false} # no paid fallback\n  local: {via: opencode, model: ollama/qwen3, usage: unmetered}\npacing: {policy: priority, order: [codex, opencode]}\nrouting:\n  - default: [codex, local]\n",
+    "after": "# starter shape\nplanner: claude-code # planning account\naccounts:\n  # Claude budget\n  claude-code: { usage: quota, kind: claude }\n  codex: { usage: quota, allow_paid: false, kind: codex } # no paid fallback\n  local: { model: ollama/qwen3, usage: unmetered, kind: endpoint }\npacing: {policy: priority, order: [codex, opencode]}\nrouting:\n  - default: [codex, opencode#local]\n"
+  },
+  {
+    "name": "case-10",
+    "before": "# starter shape\nplanner: claude-code # planning account\nproviders:\n  # Claude budget\n  claude-code: {usage: quota}\n  codex: {usage: quota, allow_paid: false} # no paid fallback\n  cursor: {usage: reactive, model: auto, cooldown: 6h}\n  agy: {usage: reactive}\n  # Hosted endpoint\n  byteplus: {via: opencode, model: \"coding-plan/dola-seed-2.0-code\", usage: quota, quota_source: arkcli}\n  local: {via: opencode, model: \"ollama/qwen3\", usage: unmetered}\n# Keep pacing layout\npacing: {policy: priority, order: [codex, cursor, agy, opencode]}\nrouting:\n  - kinds: [docs, tests]\n    executors: [codex, local]\n  - default: [codex, cursor, agy, byteplus, local]\nexecution: {backend: direct}\n",
+    "after": "# starter shape\nplanner: claude-code # planning account\naccounts:\n  # Claude budget\n  claude-code: { usage: quota, kind: claude }\n  codex: { usage: quota, allow_paid: false, kind: codex } # no paid fallback\n  cursor: { usage: reactive, model: auto, cooldown: 6h, kind: cursor }\n  agy: { usage: reactive, kind: agy }\n  # Hosted endpoint\n  byteplus: { model: \"coding-plan/dola-seed-2.0-code\", usage: quota, quota_source: arkcli, kind: endpoint }\n  local: { model: \"ollama/qwen3\", usage: unmetered, kind: endpoint }\n# Keep pacing layout\npacing: {policy: priority, order: [codex, cursor, agy, opencode]}\nrouting:\n  - kinds: [docs, tests]\n    executors: [codex, opencode#local]\n  - default: [codex, cursor, agy, opencode#byteplus, opencode#local]\nexecution: {backend: direct}\n"
+  }
+]
