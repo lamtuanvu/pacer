@@ -42,9 +42,18 @@ pub fn registry(forward: &str) -> Registry<'static> {
 }
 
 #[allow(clippy::result_large_err)]
-pub async fn call_native(ctx: &Ctx, op: &NativeOp, params: Value) -> Result<Value, CoreError> {
+pub async fn call_native(
+    ctx: &Ctx,
+    op: &NativeOp,
+    params: Value,
+    request_id: Option<&Value>,
+) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
-        eprintln!("native {}", op.name);
+        if let Some(id) = request_id {
+            eprintln!("native {} {}", op.name, id);
+        } else {
+            eprintln!("native {}", op.name);
+        }
     }
     (op.call)(ctx, params).await
 }
