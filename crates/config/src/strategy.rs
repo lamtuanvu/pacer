@@ -45,6 +45,18 @@ fn string(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Null => "null".into(),
+        Value::Object(_) => "[object Object]".into(),
+        Value::Array(values) => values
+            .iter()
+            .map(|v| {
+                if v.is_null() {
+                    String::new()
+                } else {
+                    string(v)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(","),
         _ => value.to_string(),
     }
 }
@@ -140,7 +152,7 @@ fn default_usage(kind: &str) -> &'static str {
         _ => "reactive",
     }
 }
-fn account(name: &str, c: &Value, kind: &str) -> Value {
+fn account(name: &str, c: &Value, kind: &str, raw_kind: bool) -> Value {
     let source = if field(c, "orca_account").as_str().is_some() {
         "orca"
     } else if field(c, "home").as_str().is_some() {
@@ -154,6 +166,7 @@ fn account(name: &str, c: &Value, kind: &str) -> Value {
     };
     let usage = c
         .get("usage")
+        .filter(|value| !value.is_null())
         .map(string)
         .unwrap_or_else(|| default_usage(kind).into());
     let quota = c.get("quota_source").and_then(Value::as_str).or_else(|| {
@@ -170,16 +183,25 @@ fn account(name: &str, c: &Value, kind: &str) -> Value {
             None
         }
     });
-    let usage_source = c.get("usage_source").map(string).unwrap_or_else(|| {
-        if quota == Some("arkcli") {
-            "arkcli".into()
-        } else if usage == "quota" {
-            "native".into()
-        } else {
-            usage.clone()
-        }
-    });
-    json!({"name":name,"model":optional_string(field(c,"model")),"kind":kind,"source":source,
+    let usage_source = c
+        .get("usage_source")
+        .filter(|value| !value.is_null())
+        .map(string)
+        .unwrap_or_else(|| {
+            if quota == Some("arkcli") {
+                "arkcli".into()
+            } else if usage == "quota" {
+                "native".into()
+            } else {
+                usage.clone()
+            }
+        });
+    let kind_value = if raw_kind {
+        c.get("kind").cloned().unwrap_or_else(|| json!("undefined"))
+    } else {
+        json!(kind)
+    };
+    json!({"name":name,"model":optional_string(field(c,"model")),"kind":kind_value,"source":source,
         "home":field(c,"home").as_str(),"orcaAccount":field(c,"orca_account").as_str(),"usage":usage,
         "usageSource":usage_source,"quotaSource":quota,"provider":field(c,"provider").as_str(),
         "weeklyUsd":field(field(c,"budget"),"weekly_usd").as_f64().map(numeric),"weeklyTokens":size(field(field(c,"budget"),"weekly_tokens")).map(numeric),
@@ -187,14 +209,100 @@ fn account(name: &str, c: &Value, kind: &str) -> Value {
 }
 fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut Vec<String>) {
     let at = format!("accounts.{name}");
-    let kind = cfg["kind"].as_str().unwrap_or("");
-    if !["claude", "codex", "cursor", "agy", "endpoint"].contains(&kind) {
+    let kind = cfg["kind"].as_str().unwrap_or("").to_owned();
+    if let Some(connection) = value.get("connection") {
+        if kind != "endpoint" {
+            problems.push(format!("{at}: connection requires an endpoint account"));
+        }
+        if name.is_empty()
+            || !name.as_bytes()[0].is_ascii_lowercase() && !name.as_bytes()[0].is_ascii_digit()
+            || !name
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        {
+            problems.push(format!(
+                "{at}: connection account name must contain lowercase letters, digits and hyphens"
+            ));
+        }
+        let before = problems.len();
+        if let Some(conn) = connection.as_object() {
+            if conn.get("api") != Some(&json!("openai-compatible")) {
+                problems.push(format!("{at}.connection.api must be openai-compatible"));
+            }
+            let url = conn.get("base_url").and_then(Value::as_str).unwrap_or("");
+            if !url::Url::parse(url).is_ok_and(|parsed| {
+                matches!(parsed.scheme(), "http" | "https")
+                    && parsed.username().is_empty()
+                    && parsed.password().is_none()
+            }) {
+                problems.push(format!(
+                    "{at}.connection.base_url must be an http(s) URL without credentials"
+                ));
+            }
+            let key = conn.get("key").and_then(Value::as_str).unwrap_or("");
+            if !["keychain", "file", "none"].contains(&key)
+                && !key.strip_prefix("env:").is_some_and(|s| {
+                    !s.is_empty()
+                        && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                        && !s.as_bytes()[0].is_ascii_digit()
+                })
+            {
+                problems.push(format!(
+                    "{at}.connection.key must be keychain, file, env:VAR or none"
+                ));
+            }
+            let models = conn.get("models").and_then(Value::as_array);
+            if models.is_none_or(Vec::is_empty) {
+                problems.push(format!("{at}.connection.models must be a non-empty list"));
+            }
+            let mut normalized_models = Vec::new();
+            let mut ids = std::collections::HashSet::new();
+            if let Some(models) = models {
+                for (i, m) in models.iter().enumerate() {
+                    let loc = format!("{at}.connection.models.{i}");
+                    if m.as_object().is_none() {
+                        problems.push(format!("{loc} must be a mapping"));
+                        continue;
+                    }
+                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                        problems.push(format!("{loc}.id must be non-empty"));
+                    } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
+                        problems.push(format!("{loc}.id must be unique"));
+                    }
+                    if m.get("name")
+                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+                    {
+                        problems.push(format!("{loc}.name must be non-empty"));
+                    }
+                    for key in ["context", "output"] {
+                        if !m[key].as_u64().is_some_and(|n| n > 0) {
+                            problems.push(format!("{loc}.{key} must be a positive integer"));
+                        }
+                    }
+                    if !m["tools"].is_boolean() {
+                        problems.push(format!("{loc}.tools must be a boolean"));
+                    }
+                    let mut model = json!({"id":m["id"],"context":m["context"],"output":m["output"],"tools":m["tools"]});
+                    if let Some(v) = m.get("name") {
+                        model["name"] = v.clone();
+                    }
+                    normalized_models.push(model);
+                }
+            }
+            if problems.len() == before {
+                cfg["connection"] = json!({"api":"openai-compatible","base_url":url,"key":key,"models":normalized_models});
+            }
+        } else {
+            problems.push(format!("{at}.connection must be a mapping"));
+        }
+    }
+    if !["claude", "codex", "cursor", "agy", "endpoint"].contains(&kind.as_str()) {
         problems.push(format!("{at}: unknown account kind"));
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
             && (v.as_str().is_none_or(|s| s.trim().is_empty())
-                || !["claude", "codex"].contains(&kind))
+                || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
                 "{at}: {key} requires a non-empty {} on a claude or codex account",
@@ -224,7 +332,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     {
         problems.push(format!("{at}: unknown usage_source"));
     }
-    if ["cursor", "agy"].contains(&kind) && usage == "quota" && source != "orca" {
+    if ["cursor", "agy"].contains(&kind.as_str()) && usage == "quota" && source != "orca" {
         problems.push(format!(
             "{at}: quota usage is not available for {kind}; use reactive"
         ));
@@ -299,91 +407,6 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     {
         problems.push(format!("{at}: cooldown must look like 30m, 6h or 2d"));
     }
-    if let Some(connection) = value.get("connection") {
-        let before = problems.len();
-        if kind != "endpoint" {
-            problems.push(format!("{at}: connection requires an endpoint account"));
-        }
-        if !valid_plugin_id(name) {
-            problems.push(format!(
-                "{at}: connection account name must contain lowercase letters, digits and hyphens"
-            ));
-        }
-        if let Some(conn) = connection.as_object() {
-            if conn.get("api") != Some(&json!("openai-compatible")) {
-                problems.push(format!("{at}.connection.api must be openai-compatible"));
-            }
-            let url = conn.get("base_url").and_then(Value::as_str).unwrap_or("");
-            let authority = url
-                .split_once("://")
-                .map(|(_, rest)| rest.split(['/', '?', '#']).next().unwrap_or(""))
-                .unwrap_or("");
-            if !(url.starts_with("http://") || url.starts_with("https://"))
-                || authority.is_empty()
-                || authority.contains('@')
-                || authority.chars().any(char::is_whitespace)
-            {
-                problems.push(format!(
-                    "{at}.connection.base_url must be an http(s) URL without credentials"
-                ));
-            }
-            let key = conn.get("key").and_then(Value::as_str).unwrap_or("");
-            if !["keychain", "file", "none"].contains(&key)
-                && !key.strip_prefix("env:").is_some_and(|s| {
-                    !s.is_empty()
-                        && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
-                        && !s.as_bytes()[0].is_ascii_digit()
-                })
-            {
-                problems.push(format!(
-                    "{at}.connection.key must be keychain, file, env:VAR or none"
-                ));
-            }
-            let models = conn.get("models").and_then(Value::as_array);
-            if models.is_none_or(Vec::is_empty) {
-                problems.push(format!("{at}.connection.models must be a non-empty list"));
-            }
-            let mut normalized_models = Vec::new();
-            let mut ids = std::collections::HashSet::new();
-            if let Some(models) = models {
-                for (i, m) in models.iter().enumerate() {
-                    let loc = format!("{at}.connection.models.{i}");
-                    if m.as_object().is_none() {
-                        problems.push(format!("{loc} must be a mapping"));
-                        continue;
-                    }
-                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
-                        problems.push(format!("{loc}.id must be non-empty"));
-                    } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
-                        problems.push(format!("{loc}.id must be unique"));
-                    }
-                    if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
-                    {
-                        problems.push(format!("{loc}.name must be non-empty"));
-                    }
-                    for key in ["context", "output"] {
-                        if !m[key].as_u64().is_some_and(|n| n > 0) {
-                            problems.push(format!("{loc}.{key} must be a positive integer"));
-                        }
-                    }
-                    if !m["tools"].is_boolean() {
-                        problems.push(format!("{loc}.tools must be a boolean"));
-                    }
-                    let mut model = json!({"id":m["id"],"context":m["context"],"output":m["output"],"tools":m["tools"]});
-                    if let Some(v) = m.get("name") {
-                        model["name"] = v.clone();
-                    }
-                    normalized_models.push(model);
-                }
-            }
-            if problems.len() == before {
-                cfg["connection"] = json!({"api":"openai-compatible","base_url":url,"key":key,"models":normalized_models});
-            }
-        } else {
-            problems.push(format!("{at}.connection must be a mapping"));
-        }
-    }
 }
 fn runner(id: &str, agent: &str, account: &str, model: &Value) -> Value {
     json!({"id":id,"name":id,"host":null,"agent":agent,"account":account,"model":model})
@@ -421,12 +444,20 @@ fn add_runner(
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
-    let explicit_agent = declaration.get("agent").and_then(Value::as_str);
-    let explicit_account = declaration.get("account").and_then(Value::as_str);
+    let explicit_agent_value = declaration.get("agent").map(string);
+    let explicit_account_value = declaration.get("account").and_then(|value| {
+        if value.is_null() || value == false || value == 0 || value == "" {
+            None
+        } else {
+            Some(string(value))
+        }
+    });
+    let explicit_agent = explicit_agent_value.as_deref();
+    let explicit_account = explicit_account_value.as_deref();
     let (local_ref, raw_host) = reference
         .split_once('@')
         .map_or((reference, None), |(a, b)| (a, Some(b)));
-    let host = raw_host.filter(|h| *h != "local");
+    let mut host = raw_host.filter(|h| *h != "local");
     let (parsed_agent, parsed_account) = local_ref
         .split_once('#')
         .map_or((local_ref, None), |(a, b)| (a, Some(b)));
@@ -441,14 +472,19 @@ fn add_runner(
         && agent_kind(parsed_agent).is_some()
         && parsed_account.is_none_or(valid_part)
         && raw_host.is_none_or(valid_part);
+    if (declaration.get("agent").is_some() || declaration.get("account").is_some())
+        && !valid_declared
+    {
+        host = None;
+    }
     if declaration.get("session") == Some(&json!("interactive")) && host.is_some() && valid_declared
     {
         problems.push(format!(
             "runner {reference}: interactive sessions require a local runner"
         ));
     }
-    if explicit_agent.is_none()
-        && explicit_account.is_none()
+    if declaration.get("agent").is_none()
+        && declaration.get("account").is_none()
         && !valid_declared
         && !accounts
             .get(reference)
@@ -460,6 +496,9 @@ fn add_runner(
         return;
     }
     let agent = explicit_agent.unwrap_or_else(|| {
+        if declaration.get("account").is_some() {
+            return "";
+        }
         if accounts
             .get(reference)
             .is_some_and(|a| a["kind"] == "endpoint")
@@ -498,13 +537,14 @@ fn add_runner(
     let default = accounts
         .iter()
         .filter(|(_, a)| {
-            a["kind"] == agent_kind(agent).unwrap_or("")
+            agent != "opencode"
+                && a["kind"] == agent_kind(agent).unwrap_or("")
                 && a["home"].is_null()
                 && a["orcaAccount"].is_null()
         })
         .map(|(id, _)| id.as_str())
         .collect::<Vec<_>>();
-    if (explicit_agent.is_some() || explicit_account.is_some())
+    if (declaration.get("agent").is_some() || declaration.get("account").is_some())
         && agent_kind(parsed_agent).is_some()
         && (explicit_agent != Some(parsed_agent)
             || explicit_account
@@ -520,24 +560,39 @@ fn add_runner(
             "runner {reference}: declaration conflicts with runner id identity"
         ));
     }
-    let account = explicit_account.or(parsed_account).or_else(|| {
-        if accounts
-            .get(reference)
-            .is_some_and(|a| a["kind"] == "endpoint")
-        {
-            Some(reference)
-        } else if default.len() == 1 {
-            Some(default[0])
-        } else {
+    let account = explicit_account
+        .or(if declaration.get("agent").is_some() {
             None
-        }
-    });
+        } else {
+            parsed_account
+        })
+        .or_else(|| {
+            if declaration.get("agent").is_some() || declaration.get("account").is_some() {
+                return (default.len() == 1).then(|| default[0]);
+            }
+            if accounts
+                .get(reference)
+                .is_some_and(|a| a["kind"] == "endpoint")
+            {
+                Some(reference)
+            } else if default.len() == 1 {
+                Some(default[0])
+            } else {
+                None
+            }
+        });
     let Some(account) = account else {
         problems.push(format!(
             "runner {reference}: no default account for {agent}"
         ));
         return;
     };
+    if account.is_empty() && explicit_account_value.is_none() {
+        problems.push(format!(
+            "runner {reference}: no default account for {agent}"
+        ));
+        return;
+    }
     let Some(cfg) = accounts.get(account) else {
         problems.push(format!("runner {reference}: unknown account \"{account}\""));
         return;
@@ -545,7 +600,7 @@ fn add_runner(
     if cfg["kind"] != agent_kind(agent).unwrap_or("") {
         problems.push(format!(
             "runner {reference}: {agent} cannot use {} account \"{account}\"",
-            cfg["kind"].as_str().unwrap_or("")
+            string(&cfg["kind"])
         ));
     }
     let id = if agent == "opencode" || default.first().copied() != Some(account) {
@@ -614,11 +669,6 @@ fn add_runner(
         problems.push(format!(
             "runner {reference}: model must start with \"{}/\"",
             cfg["provider"].as_str().unwrap_or("")
-        ));
-    }
-    if agent == "opencode" && model.as_str().is_none_or(|m| !m.contains('/')) {
-        problems.push(format!(
-            "runner {id}: model must look like \"<provider>/<model>\""
         ));
     }
     if declaration.as_object().is_some_and(|c| !c.is_empty()) {
@@ -885,8 +935,13 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     .next()
     .unwrap_or("");
     if legacy && !["claude-code", "codex", "cursor", "opencode"].contains(&planner_agent) {
+        let raw_planner = raw
+            .get("planner")
+            .filter(|value| !value.is_null())
+            .map(string)
+            .unwrap_or_default();
         p.push(format!(
-            "planner must be one of claude-code, codex, cursor, opencode (got \"{planner_agent}\")"
+            "planner must be one of claude-code, codex, cursor, opencode (got \"{raw_planner}\")"
         ));
     }
     let mut accounts = Map::new();
@@ -929,7 +984,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
                 id.as_str()
             };
             let kind = agent_kind(agent).unwrap_or("endpoint");
-            let cfg = account(id, &c, kind);
+            let cfg = account(id, &c, kind, false);
             let usage = cfg["usage"].as_str().unwrap_or("");
             if !["quota", "metered", "reactive", "unmetered"].contains(&usage) {
                 p.push(format!(
@@ -967,7 +1022,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
         }
         if planner_agent != "opencode" && !accounts.contains_key(planner_agent) {
             let kind = agent_kind(planner_agent).unwrap_or("endpoint");
-            let cfg = account(planner_agent, &json!({}), kind);
+            let cfg = account(planner_agent, &json!({}), kind, false);
             accounts.insert(planner_agent.into(), cfg.clone());
             runners.insert(
                 planner_agent.into(),
@@ -985,7 +1040,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
                 continue;
             };
             let kind = c.get("kind").and_then(Value::as_str).unwrap_or("");
-            let mut cfg = account(id, value, kind);
+            let mut cfg = account(id, value, kind, true);
             validate_account(id, value, &mut cfg, &mut p);
             accounts.insert(id.clone(), cfg);
         }
@@ -1024,15 +1079,17 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
             .unwrap_or(planner_agent);
         let planner_id = if planner_ref.is_string() {
             planner_ref.as_str().unwrap_or("").to_owned()
+        } else if !planner_ref.is_object() || planner_agent.is_empty() {
+            "undefined".to_owned()
         } else if planner_default.as_slice() == [planner_account] {
             planner_agent.to_owned()
         } else {
             format!("{planner_agent}#{planner_account}")
         };
-        let planner_declaration = if planner_ref.is_string() {
-            json!({})
-        } else {
+        let planner_declaration = if planner_ref.is_object() {
             planner_ref.clone()
+        } else {
+            json!({})
         };
         add_runner(
             &planner_id,
@@ -1043,10 +1100,11 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
             (&mut aliases, &mut declarations),
             &mut p,
         );
-        if planner_id
-            .split_once('@')
-            .is_some_and(|(_, host)| host != "local")
-        {
+        if runners.values().any(|runner| {
+            runner["host"] != Value::Null
+                && runner["agent"] == planner_agent
+                && runner["account"] == planner_account
+        }) {
             p.push("the planner can't run on a host".into());
         }
         if runners.contains_key(&planner_id)
@@ -1111,6 +1169,19 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
             })
             .unwrap_or(planner_agent)
     };
+    if !legacy {
+        for (id, runner) in &runners {
+            if runner["agent"] == "opencode"
+                && runner["model"]
+                    .as_str()
+                    .is_none_or(|model| !model.contains('/'))
+            {
+                p.push(format!(
+                    "runner {id}: model must look like \"<provider>/<model>\""
+                ));
+            }
+        }
+    }
     for (id, r) in &runners {
         if let Some(a) = accounts.get(r["account"].as_str().unwrap_or("")) {
             let usage = &a["usage"];

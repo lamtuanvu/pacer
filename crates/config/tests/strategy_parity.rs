@@ -9,6 +9,7 @@ fn normalized_strategies_and_errors_match_typescript_goldens() {
     for case in [
         include_str!("../../../test/fixtures/strategy-read/cases.json"),
         include_str!("../../../test/fixtures/strategy-read/refinements.json"),
+        include_str!("../../../test/fixtures/strategy-read/boundaries.json"),
     ]
     .into_iter()
     .flat_map(|fixture| {

@@ -421,9 +421,26 @@ pub(crate) fn hosts(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
             if let Some(m) = value.as_object() {
                 for (key, path) in m {
                     let parts = key.split('/').collect::<Vec<_>>();
+                    let host_ok = |s: &str| {
+                        s.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                            || s.as_bytes().first().is_some_and(u8::is_ascii_digit)
+                    };
+                    let host_tail = |s: &str| {
+                        s.bytes().all(|c| {
+                            c.is_ascii_lowercase() || c.is_ascii_digit() || b".-".contains(&c)
+                        })
+                    };
+                    let segment_ok = |s: &str| {
+                        !s.is_empty()
+                            && s.bytes().all(|c| {
+                                c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c)
+                            })
+                    };
                     if parts.len() != 3
-                        || !parts[0].contains('.')
-                        || parts.iter().any(|x| x.is_empty())
+                        || !host_ok(parts[0])
+                        || !host_tail(parts[0])
+                        || !segment_ok(parts[1])
+                        || !segment_ok(parts[2])
                         || key.ends_with(".git")
                     {
                         problems.push(format!(
