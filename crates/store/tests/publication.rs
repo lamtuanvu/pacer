@@ -433,6 +433,85 @@ if(report.errors.length || report.seq!==2) throw Error(JSON.stringify(report));
 }
 
 #[test]
+fn maximum_safe_sequence_two_events_and_recovery_match_bun() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    for home in [rust.path(), ts.path()] {
+        let link = home.join(".pacer/link");
+        fs::create_dir_all(&link).unwrap();
+        fs::write(
+            link.join("latest.json"),
+            r#"{"v":1,"seq":9007199254740991,"at":0}"#,
+        )
+        .unwrap();
+    }
+    let c = ctx(rust.path());
+    let event = json!({"type":"config","data":{"area":"boundary","at":1760000000}});
+    let events = vec![event.clone(), event.clone()];
+    let first = publish(&c, &events);
+    assert!(first.errors.is_empty(), "{:?}", first.errors);
+    assert_eq!(first.seq, 9_007_199_254_740_992);
+    bun(
+        ts.path(),
+        r#"
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+const event={type:'config',data:{area:'boundary',at:c.now}};
+const first=await publish(c,[event,event]);
+if(first.errors.length || first.seq!==9007199254740992) throw Error(JSON.stringify(first));
+"#,
+    );
+    for file in ["link/latest.json", "link/outbox.jsonl"] {
+        assert_eq!(
+            fs::read(c.pacer_home.join(file)).unwrap(),
+            fs::read(ts.path().join(".pacer").join(file)).unwrap(),
+            "{file}"
+        );
+    }
+    // The persisted unsafe sequence is rejected by both readers; its outbox tail
+    // then causes the same gap error until recovery clears that tail.
+    let next = publish(&c, &[event]);
+    assert_eq!(
+        next.errors,
+        ["outbox: outbox sequence gap; latest snapshot requires recovery"]
+    );
+    bun(
+        ts.path(),
+        r#"
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+const next=await publish(c,[{type:'config',data:{area:'boundary',at:c.now}}]);
+if(next.errors[0]!=='outbox: outbox sequence gap; latest snapshot requires recovery') throw Error(JSON.stringify(next));
+"#,
+    );
+    for home in [rust.path(), ts.path()] {
+        fs::remove_file(home.join(".pacer/link/outbox.jsonl")).unwrap();
+    }
+    let recovered = publish(
+        &c,
+        &[json!({"type":"config","data":{"area":"boundary","at":1760000000}})],
+    );
+    assert!(recovered.errors.is_empty(), "{:?}", recovered.errors);
+    assert_eq!(recovered.seq, 1);
+    bun(
+        ts.path(),
+        r#"
+import {publish} from './src/link/publish.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+const report=await publish(c,[{type:'config',data:{area:'boundary',at:c.now}}]);
+if(report.errors.length || report.seq!==1) throw Error(JSON.stringify(report));
+"#,
+    );
+    for file in ["link/latest.json", "link/outbox.jsonl"] {
+        assert_eq!(
+            fs::read(c.pacer_home.join(file)).unwrap(),
+            fs::read(ts.path().join(".pacer").join(file)).unwrap(),
+            "recovery {file}"
+        );
+    }
+}
+
+#[test]
 fn activity_torn_lines_pagination_and_rotation() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -830,6 +909,7 @@ fn snapshot_parser_matches_bun_normalization() {
         {"v":1,"seq":0,"at":0,"strategies":["😀".repeat(65),format!("{}😀", "x".repeat(127))]},
         {"v":1,"seq":-1,"at":1},
         {"v":1,"seq":0.5,"at":1},
+        {"v":1,"seq":9007199254740991_u64,"at":1},
         {"v":1,"seq":9007199254740992_u64,"at":1},
         {"v":1,"seq":1.0,"at":1},
         {"v":1,"seq":-0.0,"at":1},
@@ -922,7 +1002,8 @@ process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(pars
             .collect(),
     );
     assert_eq!(actual, expected);
-    for index in 3..6 {
+    assert!(!actual[5].is_null(), "maximum safe sequence is accepted");
+    for index in [3, 4, 6] {
         assert!(actual[index].is_null(), "invalid sequence case {index}");
     }
 }

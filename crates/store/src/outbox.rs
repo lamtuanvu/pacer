@@ -513,7 +513,9 @@ pub fn parse_snapshot(raw: &Value) -> Option<Value> {
 /// Applies a durable event to the compatibility snapshot without changing console/Orca fields.
 pub fn reduce(snapshot: &Value, event: &Value, at: f64) -> Value {
     let mut next = snapshot.clone();
-    let seq = snapshot["seq"].as_u64().unwrap_or(0) + 1;
+    // JS reduces with Number addition. Round at the same binary64 boundary,
+    // including after MAX_SAFE_INTEGER, before storing the JSON integer.
+    let seq = (snapshot["seq"].as_f64().unwrap_or(0.0) + 1.0) as u64;
     next["seq"] = json!(seq);
     next["at"] = js_number(at);
     match event["type"].as_str().unwrap_or("") {
