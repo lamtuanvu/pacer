@@ -24,8 +24,7 @@ fn field(value: &Value, key: &str) -> Value {
 }
 
 fn hour_bin(ts: f64, zone: Tz) -> usize {
-    let hour_start = ((ts / 3600.0).floor() as i64) * 3600;
-    let Some(local) = zone.timestamp_opt(hour_start, 0).single() else {
+    let Some(local) = zone.timestamp_opt(ts.floor() as i64, 0).single() else {
         return 0;
     };
     (local.weekday().num_days_from_sunday() * 24 + local.hour()) as usize

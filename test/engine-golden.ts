@@ -33,26 +33,47 @@ const status = (id: string, usedPct: number | null, verdict: ProviderStatus["ver
 
 export function engineGoldens() {
   const originalZone = process.env.TZ;
-  const zones = ["UTC", "Asia/Ho_Chi_Minh", "America/New_York", "Europe/Berlin"];
+  const zones = [
+    "UTC", "America/Los_Angeles", "Europe/London", "Asia/Kolkata",
+    "Asia/Kathmandu", "Australia/Lord_Howe", "Pacific/Chatham",
+    "America/St_Johns", "Australia/Sydney", "Pacific/Kiritimati",
+  ];
   const pace = zones.flatMap(zone => {
     process.env.TZ = zone;
     const profile = { builtAt: now, days: 10, bins: Array(168).fill(0), active: Array.from({ length: 168 }, (_, i) => i % 24 >= 9 && i % 24 < 18) };
-    const cases = (zone === "America/New_York" || zone === "Europe/Berlin" ? [] : [
+    const cases = ([
       { name: "active", profile, usage: window(33) },
       { name: "missing", profile: null, usage: window(null) },
       { name: "stale", profile, usage: window(80, true) },
       { name: "limited", profile, usage: window(98) },
       { name: "rolled", profile, usage: window(40, false, now - 1) },
-    ]) as { name: string; profile: typeof profile | null; usage: ReturnType<typeof window> }[];
-    if (zone === "America/New_York" || zone === "Europe/Berlin") {
-      const day = zone === "America/New_York" ? 8 : 29;
-      const dstStart = new Date(2026, 2, day - 1, 0).getTime() / 1000;
-      const dstEnd = new Date(2026, 2, day + 1, 0).getTime() / 1000;
-      const dstProfile = { ...profile, active: Array.from({ length: 168 }, (_, i) => i % 24 === 9) };
-      cases.push({ name: "dst-transition", profile: dstProfile, usage: { ...window(40, false, dstEnd), lengthS: dstEnd - dstStart } });
+    ]) as { name: string; profile: typeof profile | null; usage: ReturnType<typeof window>; caseNow?: number }[];
+    const hourProfile = { ...profile, active: Array.from({ length: 168 }, (_, i) => i % 24 === 9) };
+    const addWindow = (name: string, start: number, end: number, caseNow: number, selected = hourProfile) => {
+      cases.push({ name, profile: selected, usage: { ...window(40, false, end), lengthS: end - start }, caseNow });
+    };
+    const local = (month: number, day: number, hour: number, minute = 0) => new Date(2026, month, day, hour, minute).getTime() / 1000;
+    const localNine = local(0, 1, 9);
+    addWindow("fractional-offset", localNine, localNine + 3600, localNine + 1800);
+    const dayStart = local(0, 1, 23, 30);
+    const dayProfile = { ...profile, active: Array.from({ length: 168 }, (_, i) => i === 4 * 24 + 23 || i === 5 * 24) };
+    addWindow("day-boundary", dayStart, dayStart + 7200, dayStart + 3600, dayProfile);
+    const weekStart = local(0, 4, 23, 30);
+    const weekProfile = { ...profile, active: Array.from({ length: 168 }, (_, i) => i === 23 || i === 24) };
+    addWindow("week-boundary", weekStart, weekStart + 7200, weekStart + 3600, weekProfile);
+    const windowStart = local(0, 2, 8, 45);
+    addWindow("window-boundary", windowStart, windowStart + 5400, windowStart + 2700);
+    let previousOffset = new Date(Date.UTC(2026, 0, 1)).getTimezoneOffset();
+    let transitionCount = 0;
+    for (let t = Date.UTC(2026, 0, 1) + 3600_000; t < Date.UTC(2027, 0, 1); t += 3600_000) {
+      const offset = new Date(t).getTimezoneOffset();
+      if (offset !== previousOffset) {
+        const center = t / 1000;
+        addWindow(`dst-transition-${++transitionCount}`, center - 86400, center + 86400, center + 9 * 3600, profile);
+      }
+      previousOffset = offset;
     }
-    return cases.map(({ name, profile, usage }) => {
-      const caseNow = name === "dst-transition" ? new Date(2026, 2, zone === "America/New_York" ? 8 : 29, 9, 30).getTime() / 1000 : now;
+    return cases.map(({ name, profile, usage, caseNow = now }) => {
       const start = usage.resetsAt === null ? caseNow - 86_400 : usage.resetsAt - usage.lengthS;
       const output = { pacePct: pacePct(start, usage.resetsAt ?? caseNow, caseNow, profile), activeHoursLeft: activeHoursLeft(caseNow, usage.resetsAt ?? caseNow, profile), window: evaluateWindow(usage, caseNow, profile, { ahead: 10, behind: -10, paceScale: 1 }) };
       return { zone, name, input: { now: caseNow, profile, usage, thresholds: { ahead: 10, behind: -10, paceScale: 1 } }, output };
