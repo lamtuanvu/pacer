@@ -134,6 +134,8 @@ pub fn host_range_accepts(range: &str, host: &str) -> bool {
     }
 }
 
+// Zod v4's string min/max checks count Unicode code points (even though
+// JavaScript's ordinary string.length counts UTF-16 code units).
 fn valid_ui(ui: &Value) -> bool {
     let Some(points) = ui.as_object() else {
         return false;
@@ -192,7 +194,7 @@ fn valid_ui(ui: &Value) -> bool {
             let Some(title) = item.get("title").and_then(Value::as_str) else {
                 return false;
             };
-            if title.is_empty() || title.encode_utf16().count() > 40 {
+            if title.is_empty() || title.chars().count() > 40 {
                 return false;
             }
             if kind == "settings" {
@@ -203,7 +205,7 @@ fn valid_ui(ui: &Value) -> bool {
                 let Some(view) = item.get("view").and_then(Value::as_str) else {
                     return false;
                 };
-                if view.is_empty() || view.encode_utf16().count() > 64 {
+                if view.is_empty() || view.chars().count() > 64 {
                     return false;
                 }
             }
@@ -306,12 +308,12 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         let Some(title) = field.get("title").and_then(Value::as_str) else {
             return false;
         };
-        if title.is_empty() || title.encode_utf16().count() > 80 {
+        if title.is_empty() || title.chars().count() > 80 {
             return false;
         }
         if field
             .get("description")
-            .is_some_and(|value| value.as_str().is_none_or(|text| text.len() > 200))
+            .is_some_and(|value| value.as_str().is_none_or(|text| text.chars().count() > 200))
         {
             return false;
         }
@@ -355,7 +357,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
             if field.get("default").is_some_and(|value| {
                 value
                     .as_str()
-                    .is_none_or(|text| text.encode_utf16().count() > 2000)
+                    .is_none_or(|text| text.chars().count() > 2000)
             }) {
                 return false;
             }
@@ -371,9 +373,8 @@ fn valid_settings(schema: Option<&Value>) -> bool {
                     items.is_empty()
                         || items.len() > 20
                         || items.iter().any(|item| {
-                            item.as_str().is_none_or(|text| {
-                                text.is_empty() || text.encode_utf16().count() > 80
-                            })
+                            item.as_str()
+                                .is_none_or(|text| text.is_empty() || text.chars().count() > 80)
                         })
                 })
             }) {
