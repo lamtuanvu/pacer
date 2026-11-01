@@ -111,7 +111,7 @@ fn write_json(home: &Path, id: &str, record: &Value) -> Result<f64> {
     Ok(mtime.as_secs() as f64 * 1_000.0 + f64::from(mtime.subsec_nanos()) / 1_000_000.0)
 }
 
-fn increment(home: &Path, id: &str) -> Result<Value> {
+fn increment(home: &Path, id: &str, marked: bool) -> Result<Value> {
     if !id.starts_with("t-") || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err("invalid task id".into());
     }
@@ -121,11 +121,17 @@ fn increment(home: &Path, id: &str) -> Result<Value> {
         Default::default(),
         0.0,
     );
+    if marked {
+        fs::write(home.join(".sqlite-proof-ready"), b"ready\n")?;
+    }
     with_lock(
         &ctx,
         &format!("task-{id}"),
         LockOptions::default(),
         || -> Result<Value> {
+            if marked {
+                fs::write(home.join(".sqlite-proof-acquired"), b"acquired\n")?;
+            }
             let mut db = open(home)?;
             let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let text: String = tx
@@ -157,7 +163,11 @@ fn run() -> Result<()> {
     }
     let output = match command.as_str() {
         "snapshot" => snapshot(&open(&home)?)?,
-        "increment" => increment(&home, &args.next().ok_or("task id required")?)?,
+        "increment" | "increment-marked" => increment(
+            &home,
+            &args.next().ok_or("task id required")?,
+            command == "increment-marked",
+        )?,
         _ => return Err("unknown command".into()),
     };
     println!("{}", serde_json::to_string(&output)?);

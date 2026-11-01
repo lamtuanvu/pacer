@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { createTask, readTask, taskDatabase, updateTask, withTaskPreparation } from "../src/tasks/store";
@@ -8,8 +8,18 @@ import { dispatchDatabase } from "../src/dispatch/store";
 import { messagesDatabase } from "../src/messaging/store";
 
 const binary = process.env.PACER_SQLITE_PROOF_BIN;
+if (process.env.CI === "true" && (!binary || !existsSync(binary))) {
+  throw Error("CI must build and supply PACER_SQLITE_PROOF_BIN");
+}
 const input = (repo: string) => ({ brief: { goal: "proof", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
 const markProofHome = (home: string) => writeFileSync(join(home, ".sqlite-proof-home"), "disposable\n");
+const waitForMarker = async (path: string) => {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw Error(`timed out waiting for ${path}`);
+    await Bun.sleep(10);
+  }
+};
 const rust = (command: string, home: string, id?: string) => {
   if (!binary) throw Error("PACER_SQLITE_PROOF_BIN is required");
   const result = Bun.spawnSync([binary, command, home, ...(id ? [id] : [])]);
@@ -91,12 +101,21 @@ test.skipIf(!binary)("Rust waits for Bun preparation while a local conflicting w
   const preparing = withTaskPreparation(ctx, task.id, async () => { enter(); await gate; },
     () => updateTask(ctx, task.id, t => { t.title = "0"; }));
   await entered;
-  const child = Bun.spawn([binary!, "increment", ctx.pacerHome, task.id], { stdout: "pipe", stderr: "pipe" });
-  expect(() => updateTask(ctx, task.id, t => { t.kind = "conflict"; })).toThrow();
-  expect(readTask(ctx, task.id)?.rev).toBe(1);
-  release();
-  await preparing;
+  const child = Bun.spawn([binary!, "increment-marked", ctx.pacerHome, task.id], { stdout: "pipe", stderr: "pipe" });
+  const ready = join(ctx.pacerHome, ".sqlite-proof-ready");
+  const acquired = join(ctx.pacerHome, ".sqlite-proof-acquired");
+  try {
+    await waitForMarker(ready);
+    await Bun.sleep(250);
+    expect(existsSync(acquired)).toBe(false);
+    expect(() => updateTask(ctx, task.id, t => { t.kind = "conflict"; })).toThrow();
+    expect(readTask(ctx, task.id)?.rev).toBe(1);
+  } finally {
+    release();
+    await preparing;
+  }
   expect(await child.exited).toBe(0);
+  expect(existsSync(acquired)).toBe(true);
   expect(readTask(ctx, task.id)).toMatchObject({ rev: 3, title: "1", kind: null });
 });
 

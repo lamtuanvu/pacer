@@ -135,6 +135,9 @@ jobs:
       - name: Build the Rust fixture plugin
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Build the SQLite cross-runtime proof
+        if: ${{ needs.changes.outputs.bun == 'true' }}
+        run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Install Linux test cross-build prerequisites
         if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}
         run: |
@@ -150,6 +153,8 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test
         if: ${{ needs.changes.outputs.bun == 'true' }}
+        env:
+          PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
         run: bun run test
       - name: Build
         if: ${{ needs.changes.outputs.bun == 'true' }}
