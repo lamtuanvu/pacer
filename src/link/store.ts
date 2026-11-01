@@ -3,8 +3,7 @@ import { parseOrcaOutput } from "../exec/orca/client";
 import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { isObj } from "../util";
 import { serviceInstalled } from "../service";
-import { chmodSync, readdirSync, existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
@@ -132,15 +131,8 @@ export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapsh
   return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx)};
 }
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
-  if(!entries.length)return;
-  const dir=linkDir(ctx),p=outboxPath(ctx);
-  mkdirSync(dir,{recursive:true,mode:0o700});chmodSync(dir,0o700);
-  const lines=[...(existsSync(p)?readFileSync(p,"utf8").split("\n").filter(Boolean):[]),...entries.map(e=>JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}}))];
-  const kept:string[]=[];let bytes=0;
-  for(let i=lines.length-1;i>=0&&kept.length<OUTBOX_KEEP;i--){const line=lines[i]!;const size=Buffer.byteLength(line)+1;if(size>OUTBOX_MAX_BYTES)continue;if(bytes+size>OUTBOX_MAX_BYTES)break;kept.push(line);bytes+=size;}
-  const tmp=`${p}.${process.pid}.${randomUUID()}.tmp`;
-  try{writeFileSync(tmp,`${kept.reverse().join("\n")}${kept.length?"\n":""}`,{flag:"wx",mode:0o600});renameSync(tmp,p);}
-  catch(error){rmSync(tmp,{force:true});throw error;}
+  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
+  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {

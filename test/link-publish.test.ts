@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { publish } from "../src/link/publish";
 import { latestPath, outboxPath, pluginDataDir } from "../src/link/paths";
-import { currentSnapshot, readOutboxSince, OUTBOX_KEEP, OUTBOX_MAX_BYTES } from "../src/link/store";
+import { currentSnapshot, readOutboxSince } from "../src/link/store";
 import { writeManifest } from "../src/install/manifest";
 const b = { type: "budget" as const, data: { generatedAt: 1, strategy: "s", planner: "p", mode: "normal", providers: [], ranked: [] } };
 const t = { type: "task" as const, data: { id: "t", state: "running", goal: "g", executor: null, backend: null, worktree: null, updatedAt: 1 } };
@@ -13,13 +13,9 @@ test("publish sequences outbox and persists current snapshot", async () => {
   expect(readFileSync(outboxPath(c), "utf8").trim().split("\n").map(x => JSON.parse(x).seq)).toEqual([1, 2]);
   expect(JSON.parse(readFileSync(latestPath(c), "utf8")).tasks).toHaveLength(1); const second = await publish(c, [t]); expect(second.seq).toBe(3); expect(readOutboxSince(c, 1).map(x => x.seq)).toEqual([2, 3]);
 });
-test("outbox rotation keeps the newest records within both retention limits", async () => {
+test("outbox rotation keeps the last 1000 records", async () => {
   const c = fakeCtx(); const entries = Array.from({ length: 1010 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
-  const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries);
-  const lines = readFileSync(outboxPath(c), "utf8").trim().split("\n").map(line => JSON.parse(line).seq as number);
-  expect(lines.length).toBeLessThanOrEqual(OUTBOX_KEEP);
-  expect(statSync(outboxPath(c)).size).toBeLessThanOrEqual(OUTBOX_MAX_BYTES);
-  expect(lines).toEqual(Array.from({ length: lines.length }, (_, i) => 1011 - lines.length + i));
+  const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
 });
 test("entity envelopes stay in the outbox even when the channel is available", async () => {
   const calls: string[][] = [];

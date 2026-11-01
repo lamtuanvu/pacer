@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Write JSON state atomically with private files (0600) and directories (0700) in both TypeScript and Rust, including when replacing permissive state.
+- Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
 
 ## [0.14.0] - 2026-11-01
 

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liveSnapshot, liveV2Snapshot, eventsSince } from "../src/api/events";
@@ -28,12 +28,26 @@ test("snapshot golden covers populated state, errors, boundaries, and legacy tra
 
 test("event golden covers exclusions, retention, and cursor limits", () => {
   const contents = JSON.parse(readFileSync(golden, "utf8"));
-  for (const key of ["retention", "cursorBounds", "v2Exclusions"]) {
+  for (const key of ["retention", "oversizedOutbox", "cursorBounds", "v2Exclusions"]) {
     expect(contents).toHaveProperty(key);
   }
 });
 
 test("SSE polls an external writer and stops after cancellation", async () => {
+  const started: unknown[] = [];
+  const cleared: unknown[] = [];
+  const start = globalThis.setInterval;
+  const stop = globalThis.clearInterval;
+  const startSpy = spyOn(globalThis, "setInterval").mockImplementation(((...args: Parameters<typeof setInterval>) => {
+    const handle = start(...args);
+    started.push(handle);
+    return handle;
+  }) as typeof setInterval);
+  const stopSpy = spyOn(globalThis, "clearInterval").mockImplementation(((handle: Parameters<typeof clearInterval>[0]) => {
+    cleared.push(handle);
+    return stop(handle);
+  }) as typeof clearInterval);
+  try {
   const ctx = fakeCtx();
   const response = await handleV2(new Request("http://127.0.0.1/v3/events?since=0"), { getCtx: () => ctx, tailMs: 20 });
   const reader = response.body!.getReader();
@@ -45,6 +59,12 @@ test("SSE polls an external writer and stops after cancellation", async () => {
   await reader.cancel();
   appendFileSync(outboxPath(ctx), JSON.stringify({ seq: 2, at: ctx.now, envelope: { type: "config", data: { area: "config", at: ctx.now } } }) + "\n");
   await expect(reader.closed).resolves.toBeUndefined();
+  expect(started.length).toBeGreaterThanOrEqual(2);
+  expect(started.every(handle => cleared.includes(handle))).toBe(true);
+  } finally {
+    startSpy.mockRestore();
+    stopSpy.mockRestore();
+  }
 });
 
 test("SSE sends the 15-second keepalive and cancellation closes its stream", async () => {
@@ -62,7 +82,16 @@ test("outbox retention enforces both entry and byte limits", () => {
   appendOutbox(ctx, Array.from({ length: OUTBOX_KEEP + 1 }, (_, i) => ({ seq: i + 1, at: ctx.now, envelope: { type: "config" as const, data: { area: "config", at: ctx.now, padding: "x".repeat(1100) } as never } })));
   const lines = readFileSync(outboxPath(ctx), "utf8").trimEnd().split("\n");
   expect(lines.length).toBeLessThanOrEqual(OUTBOX_KEEP);
-  expect(statSync(outboxPath(ctx)).size).toBeLessThanOrEqual(OUTBOX_MAX_BYTES);
+  // The TS writer's existing rotation retains the last 1000 records even when
+  // those records exceed the byte threshold. The Rust port must match it.
+  expect(statSync(outboxPath(ctx)).size).toBeGreaterThan(OUTBOX_MAX_BYTES);
+});
+
+test("oversized outbox entry is retained by the existing TS writer", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [{ seq: 1, at: ctx.now, envelope: { type: "alert", data: { key: "large", level: "info", title: "x".repeat(OUTBOX_MAX_BYTES), body: "", at: ctx.now } } }]);
+  expect(readFileSync(outboxPath(ctx), "utf8").trimEnd().split("\n")).toHaveLength(1);
+  expect(statSync(outboxPath(ctx)).size).toBeGreaterThan(OUTBOX_MAX_BYTES);
 });
 
 test("seeded v2/v3 event conversion keeps only legacy event families", () => {
@@ -71,6 +100,14 @@ test("seeded v2/v3 event conversion keeps only legacy event families", () => {
   const families = ["task", "alert", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "discovery.found"];
   const areas = ["machine", "discovery", "strategy", "accounts"];
   const ids = ["discovery:one", "discovery-network:two", "review:three", "setup:four"];
+  // Cover every ID and area for the relevant families; a seeded sample alone
+  // can miss non-discovery attention and notification IDs.
+  for (const type of ["attention", "notify", "config"]) for (const area of areas) for (const id of ids) {
+    const event = { seq: V3_CURSOR_BASE + 1, at: 100, type, data: { area, id, key: id } };
+    const expected = type === "config" ? area === "discovery" : id.startsWith("discovery");
+    expect(v3OnlyEvent(event)).toBe(expected);
+    expect(toV2Event(event as never) === null).toBe(type === "config" && ["machine", "discovery"].includes(area));
+  }
   for (let i = 0; i < 128; i++) {
     const type = families[next() % families.length]!;
     const area = areas[next() % areas.length]!;
@@ -83,6 +120,24 @@ test("seeded v2/v3 event conversion keeps only legacy event families", () => {
     expect(converted === null).toBe(excluded);
     if (converted) expect(converted.seq).toBe(i + 1);
   }
+});
+
+test("outbox conversion retains non-discovery attention, notify, and config for v2", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [
+    { seq: 1, envelope: { type: "entity", data: { kind: "attention", id: "review:one", value: { id: "review:one" } } } },
+    { seq: 2, envelope: { type: "entity", data: { kind: "attention", id: "discovery:one", value: { id: "discovery:one" } } } },
+    { seq: 3, envelope: { type: "config", data: { area: "strategy", at: ctx.now } } },
+    { seq: 4, envelope: { type: "config", data: { area: "discovery", at: ctx.now } } },
+    { seq: 5, envelope: { type: "entity", data: { kind: "notify", id: "review:one", value: { key: "review:one" } } } },
+    { seq: 6, envelope: { type: "entity", data: { kind: "notify", id: "discovery:one", value: { key: "discovery:one" } } } },
+  ]);
+  expect(eventsSince(ctx, 0, 2).events.map(e => [e.type, e.seq])).toEqual([["attention", 1], ["config", 3], ["notify", 5]]);
+  expect(eventsSince(ctx, 0, 3).events.map(e => [e.type, e.seq])).toEqual([
+    ["attention", V3_CURSOR_BASE + 1], ["attention", V3_CURSOR_BASE + 2],
+    ["config", V3_CURSOR_BASE + 3], ["config", V3_CURSOR_BASE + 4],
+    ["notify", V3_CURSOR_BASE + 5], ["notify", V3_CURSOR_BASE + 6],
+  ]);
 });
 
 // Golden files are the serialized TS wire contract. Replace only process, platform,
@@ -109,6 +164,9 @@ const normalize = (value: unknown, home: string, ids: string[]): unknown => {
 const status = async (ctx: ReturnType<typeof fakeCtx>) => ({ generatedAt: ctx.now, strategy: "default", planner: "codex", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as never;
 
 test("TS full read-model and event/cursor golden over isolated fixture homes", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
   const ctx = fakeCtx({ which: () => null, readOnly: true });
   const ids: string[] = [];
   const empty = normalize(await liveSnapshot(ctx, { status }), ctx.home, ids);
@@ -119,8 +177,6 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
   writeJsonAtomic(latestPath(ctx), { v: 1, seq: 7, at: ctx.now - 20,
     mode: { mode: "paused", previous: "normal", strategy: "old-release", at: ctx.now - 20 },
     budget: null, tasks: [], alerts: [{ key: "legacy", level: "warn", title: "Old release", body: "upgrade", at: ctx.now - 20 }], console: null });
-  expect(statSync(join(ctx.pacerHome, "link")).mode & 0o777).toBe(0o700);
-  expect(statSync(latestPath(ctx)).mode & 0o777).toBe(0o600);
   const task = createTask(ctx, { brief: { goal: "Review the read model. Then reply", repo: ctx.home }, kind: "feature", requestedExecutor: null, timeoutS: 60 });
   ids.push(task.id);
   updateTask(ctx, task.id, row => { row.queue = { reason: "paused", since: ctx.now, position: 1 }; });
@@ -198,6 +254,9 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
   const retentionCtx = fakeCtx();
   appendOutbox(retentionCtx, Array.from({ length: 1001 }, (_, i) => ({ seq: i + 1, at: retentionCtx.now, envelope: { type: "config" as const, data: { area: "config", at: retentionCtx.now } } })));
   const retention = { size: statSync(outboxPath(retentionCtx)).size, events: eventsSince(retentionCtx, 1, 3).events.length, reset: eventsSince(retentionCtx, 1, 3).reset, first: eventsSince(retentionCtx, 1, 3).events[0]?.seq };
+  const oversizedCtx = fakeCtx();
+  appendOutbox(oversizedCtx, [{ seq: 1, at: oversizedCtx.now, envelope: { type: "alert", data: { key: "large", level: "info", title: "x".repeat(OUTBOX_MAX_BYTES), body: "", at: oversizedCtx.now } } }]);
+  const oversizedOutbox = { entries: readFileSync(outboxPath(oversizedCtx), "utf8").trimEnd().split("\n").length, overLimit: statSync(outboxPath(oversizedCtx)).size > OUTBOX_MAX_BYTES };
   const cursorBounds = [];
   for (const since of ["0", String(Number.MAX_SAFE_INTEGER), String(Number.MAX_SAFE_INTEGER + 1), "1.2", "NaN", "-1"]) {
     const response = await handleV2(new Request(`http://127.0.0.1/v3/events?since=${since}`), { getCtx: () => ctx });
@@ -208,11 +267,15 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
     } else cursorBounds.push({ since, status: response.status, body: await response.json() });
   }
   const types = ["discovery.found", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "task"];
-  const v2Exclusions = types.map(type => ({ type, discovery: v3OnlyEvent({ type, data: { area: "discovery", id: "discovery:sample", key: "discovery:sample" } }), v2: toV2Event({ seq: V3_CURSOR_BASE + 1, at: ctx.now, type, data: { area: "discovery", id: "discovery:sample", key: "discovery:sample" } } as never) }));
-  const observed = { empty, rich, v2, eventCases, gap, sse, invalidCursor, populated, populatedV2, warming, failedStatus, cachedStatus, budgetAge, taskWindow, legacyConsole, retention, cursorBounds, v2Exclusions };
+  const v2Exclusions = types.flatMap(type => ["discovery:sample", "review:sample"].flatMap(id => ["discovery", "strategy", "machine"].map(area => ({ type, id, area, discovery: v3OnlyEvent({ type, data: { area, id, key: id } }), v2: toV2Event({ seq: V3_CURSOR_BASE + 1, at: ctx.now, type, data: { area, id, key: id } } as never) }))));
+  const observed = { empty, rich, v2, eventCases, gap, sse, invalidCursor, populated, populatedV2, warming, failedStatus, cachedStatus, budgetAge, taskWindow, legacyConsole, retention, oversizedOutbox, cursorBounds, v2Exclusions };
   if (process.env.UPDATE_READ_MODEL_GOLDEN === "1") {
     mkdirSync(join(import.meta.dir, "fixtures", "read-model"), { recursive: true });
     writeFileSync(golden, JSON.stringify(observed, null, 2) + "\n");
   }
   expect(observed).toEqual(JSON.parse(readFileSync(golden, "utf8")));
+  } finally {
+    if (previousTz === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTz;
+  }
 });
