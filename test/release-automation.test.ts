@@ -9,6 +9,25 @@ interface Workflow { on: Record<string, any>; permissions: Record<string, string
 const load = (file: string) => Bun.YAML.parse(readFileSync(resolve(".github/workflows", file), "utf8")) as Workflow;
 const prepare = load("release-prepare.yml"), tag = load("release-tag.yml");
 
+test("CI keeps production and test-enabled front doors separate for native dispatch", () => {
+  const steps = load("ci.yml").jobs.test!.steps;
+  const build = steps.find(step => step.name === "Build production and native dispatch test front doors");
+  expect(build).toBeDefined();
+  expect(build!.if).toBe("${{ needs.changes.outputs.bun == 'true' }}");
+  expect(steps.indexOf(build!)).toBeLessThan(steps.findIndex(step => step.name === "Test"));
+  const lines = build!.run!.trim().split("\n").map(line => line.trim());
+  expect(lines.filter(line => line.startsWith("cargo build --locked -p pacer"))).toEqual([
+    "cargo build --locked -p pacer",
+    "cargo build --locked -p pacer --features test-ops",
+  ]);
+  expect(lines.indexOf('cp target/debug/pacer "$RUNNER_TEMP/pacer-production"')).toBe(lines.indexOf("cargo build --locked -p pacer") + 1);
+  expect(lines.indexOf('cp target/debug/pacer "$RUNNER_TEMP/pacer-native-test"')).toBe(lines.indexOf("cargo build --locked -p pacer --features test-ops") + 1);
+  expect(lines).toContain('echo "PACER_TEST_FRONT_DOOR=$RUNNER_TEMP/pacer-production" >> "$GITHUB_ENV"');
+  expect(lines).toContain('echo "PACER_TEST_NATIVE_FRONT_DOOR=$RUNNER_TEMP/pacer-native-test" >> "$GITHUB_ENV"');
+  expect(lines.some(line => line.includes('outfile: join(process.env.RUNNER_TEMP!, "pacer-core")'))).toBe(true);
+  expect(lines).toContain('echo "PACER_TEST_REFERENCE_CORE=$RUNNER_TEMP/pacer-core" >> "$GITHUB_ENV"');
+});
+
 test("Prepare release is a manual, main-only, token-gated button with one release at a time", () => {
   expect(Object.keys(prepare.on)).toEqual(["workflow_dispatch"]);
   expect(prepare.on.workflow_dispatch.inputs.bump).toMatchObject({ type: "choice", options: ["auto", "patch", "minor", "major"], default: "auto" });
