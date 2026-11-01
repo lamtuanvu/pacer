@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { Ctx } from "../types";
+import { sliceText } from "../util";
 
 export interface EndpointState { state: "ready" | "not_tested" | "not_working" | "key_missing"; detail?: string; checked_at?: string }
 function states(ctx: Ctx): Record<string, EndpointState> {
@@ -45,7 +46,7 @@ function redactSecrets(text: string, secrets: string[]): string {
  * cannot leak fragments.
  */
 export function redactEndpointError(text: string, secrets: string[] = []): string {
-  return redactSecrets(text, secrets).split(/\r?\n/)[0].slice(0, 500);
+  return sliceText(redactSecrets(text, secrets).split(/\r?\n/)[0], 500);
 }
 
 /**

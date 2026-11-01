@@ -1,6 +1,6 @@
 import { repoFor } from "../src/core/repos";
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, readActivity, rotateActivity } from "../src/activity/log";
 import * as tasks from "../src/core/tasks";
@@ -15,6 +15,12 @@ import type { Status } from "../src/engine/status";
 import { fakeCtx } from "./helpers";
 
 const file = (ctx: ReturnType<typeof fakeCtx>) => join(ctx.pacerHome, "state", "activity.jsonl");
+test("activity truncation keeps whole astral characters", () => {
+  const ctx = fakeCtx();
+  const entry = appendActivity(ctx, { kind: "message", level: "info", text: "x".repeat(499) + "😀" });
+  expect(entry.text).toBe("x".repeat(499));
+  expect(readFileSync(file(ctx), "utf8")).not.toContain("\\ud83d");
+});
 async function configured() {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -213,6 +219,31 @@ test("rotation removes entries older than 30 days even below the line cap", () =
   appendActivity(ctx, { kind: "config", level: "info", text: "today" });
   rotateActivity(ctx);
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["today", "boundary"]);
+});
+
+test("rotation ignores a stale PID temp file and preserves it", () => {
+  const ctx = fakeCtx();
+  const stale = `${file(ctx)}.${process.pid}.tmp`;
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  writeFileSync(stale, "stale", { mode: 0o600 });
+  appendActivity(ctx, { kind: "config", level: "info", text: "keep" });
+  rotateActivity(ctx);
+  expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["keep"]);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
+});
+
+test("activity publication tightens existing modes and rotation stays private", () => {
+  const ctx = fakeCtx(), dir = join(ctx.pacerHome, "state"), path = file(ctx);
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o777);
+  writeFileSync(path, "", { mode: 0o666 });
+  chmodSync(path, 0o666);
+  appendActivity(ctx, { kind: "message", level: "info", text: "private" });
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  rotateActivity(ctx);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(statSync(join(dir, "activity-rotation.json")).mode & 0o777).toBe(0o600);
 });
 
 test("activity text redacts credential patterns and account emails before persistence and callback", () => {
