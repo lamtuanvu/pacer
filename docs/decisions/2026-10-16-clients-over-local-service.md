@@ -125,6 +125,23 @@ bridge, channel sends, command lines, console and unversioned read routes are
 removed. `/v2` is served through the compatibility adapter for one more pacer
 minor release, then removed along with `hello.previous` and its reference doc.
 
+## Amendment: desktop UI delivery (proposed 2026-11-01, constitution 0.19.0)
+
+Proposed; adopted only by the maintainer merging its PR. Source: [persistent workbench design](../specs/2026-10-31-persistent-workbench-design.md) sections 5 and 9, [issue #527](https://github.com/lamtuanvu/pacer/issues/527).
+
+D4 currently says the desktop app "loads the same bundle the service serves at `/app/`". Loading the UI over loopback HTTP makes every launch wait for the service and every service restart reload the window, which is the main reason the app feels like a web page. The goal of D4, one UI codebase, does not require that delivery.
+
+**D4 (amended).** The desktop app is a native client built from the same `app/` source as the web app. It ships that source as a bundled build loaded from the app's own origin, and reaches the service only through its Rust service client. The Rust client exchanges the owner token once for an app session and then forwards public, versioned API operations (an exact allow-list from the service's hello), events and terminal streams with the app's authentication, client identity, conflict and typed-error semantics. It forwards nothing else: no generic HTTP, shell, file or URL proxy. The browser keeps loading `/app/` from `pacer serve`.
+
+D1, D2, D3, D5, D6 and D7 are unchanged. The service stays the only owner of work; the bundled UI holds a revision-aware copy of received state, never a second task store.
+
+Consequences of the amendment:
+
+- The bundled UI and the service can differ in version. The Rust hello check and the existing service version gate decide compatibility; the UI shows actionable mismatch states and gates features on the hello `ops` and `events` lists.
+- The desktop updater now also updates the UI.
+- SEC-8 changes as recorded in `.project/rules/security.md` (amendment 0.19.0).
+- A v3 task log follow route lands before the desktop client depends on it.
+
 ## Revisit when
 
 - A surface needs behaviour that cannot be expressed as an API operation or
