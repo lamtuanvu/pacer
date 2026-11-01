@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { fakeCtx } from "./install-plugin-fixtures";
 import { installLegacyPlugin } from "./helpers";
 import { parseJsonc, setMember, removeMember } from "../src/install/jsonc";
@@ -97,6 +98,25 @@ test("strategy writer accepts an existing file through a symlinked parent", () =
   symlinkSync(real, link);
   atomicStrategyWrite(join(link, "strategy.yaml"), "new\n");
   expect(readFileSync(join(real, "strategy.yaml"), "utf8")).toBe("new\n");
+});
+
+test("strategy writer relative paths and trailing slash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pacer-strategy-path-"));
+  const originalCwd = process.cwd();
+  try {
+    process.chdir(dir);
+    for (const path of ["strategy.yaml", "./strategy.yaml"]) {
+      writeFileSync("strategy.yaml", "old\n");
+      atomicStrategyWrite(path, "new\n");
+      expect(readFileSync("strategy.yaml", "utf8")).toBe("new\n");
+    }
+    writeFileSync("strategy.yaml", "old\n");
+    expect(() => atomicStrategyWrite("strategy.yaml/", "new\n")).toThrow();
+    expect(readFileSync("strategy.yaml", "utf8")).toBe("old\n");
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("setup and install writes preserve bytes in an isolated home", async () => {

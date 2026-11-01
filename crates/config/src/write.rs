@@ -13,7 +13,10 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 /// Strategy state is private even when the previous file or parent was permissive.
 pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
     fs::metadata(path)?;
-    let parent = path.parent().unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     #[cfg(unix)]
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
@@ -47,6 +50,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    use std::path::Path;
     #[cfg(unix)]
     use std::process::Command;
 
@@ -79,6 +83,52 @@ mod tests {
         );
         assert!(!path.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn relative_strategy_paths_match_typescript() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strategy.yaml");
+        for relative in ["strategy.yaml", "./strategy.yaml"] {
+            fs::write(&path, "old\n").unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("write::tests::write_relative_strategy_child")
+                .current_dir(dir.path())
+                .env("PACER_CONFIG_RELATIVE_PATH", relative)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{relative}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+            #[cfg(unix)]
+            {
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+                assert_eq!(
+                    fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+                    0o700
+                );
+            }
+        }
+        fs::write(&path, "old\n").unwrap();
+        assert!(
+            atomic_strategy_write(Path::new(&format!("{}/", path.display())), "new\n").is_err()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
+    }
+
+    #[test]
+    fn write_relative_strategy_child() {
+        let Ok(path) = std::env::var("PACER_CONFIG_RELATIVE_PATH") else {
+            return;
+        };
+        atomic_strategy_write(Path::new(&path), "new\n").unwrap();
     }
 
     #[cfg(unix)]

@@ -4,9 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
+
 ### Fixed
 
 - Have the Rust strategy writer replace existing state atomically with restrictive file and directory permissions.
+
+- Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
+
+- Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
 
 ## [0.14.0] - 2026-11-01
 
