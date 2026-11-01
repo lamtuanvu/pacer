@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { parseOutboxEvent, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type OutboxEvent } from "../src/link/envelope";
+import { parseOutboxEvent, parseSnapshot, reduce, emptySnapshot, contentKey, summaryLine, liveConsole, type OutboxEvent } from "../src/link/envelope";
+
+test("snapshot sequence accepts only nonnegative safe integers", () => {
+  for (const seq of [-1, -0.5, 0.5, Number.MAX_SAFE_INTEGER + 1])
+    expect(parseSnapshot({ v: 1, seq, at: 1 })).toBeNull();
+  for (const seq of [0, 1, Number.MAX_SAFE_INTEGER])
+    expect(parseSnapshot({ v: 1, seq, at: 1 })?.seq).toBe(seq);
+});
 
 const budget = { generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", providers: [{ id: "claude-code", verdict: "ON_PACE", pacePct:null,usedPct: 61.4, resetsAt: null, window: null, stale: false }], ranked: [{ id: "codex", verdict: "OK" }] };
 const envs: OutboxEvent[] = [
@@ -19,6 +26,19 @@ describe("link envelope", () => {
     }
   });
   test("four envelope types round trip", () => { for (const e of envs) expect(parseOutboxEvent(JSON.parse(JSON.stringify(e)))).toEqual(e); });
+test("task goal truncation keeps whole astral characters", () => {
+  const task = { type: "task", data: { id: "t", state: "running", updatedAt: 1, goal: "" } };
+  for (const [goal, expected] of [
+    ["x".repeat(199) + "😀", "x".repeat(199)],
+    ["x".repeat(198) + "😀z", "x".repeat(198) + "😀"],
+  ]) {
+    const parsed = parseOutboxEvent({ ...task, data: { ...task.data, goal } });
+    expect(parsed?.type === "task" && parsed.data.goal).toBe(expected);
+    expect(JSON.stringify(parsed)).not.toContain("\\ud83d");
+  }
+  const optional = parseOutboxEvent({ ...task, data: { ...task.data, executor: "x".repeat(63) + "😀" } });
+  expect(optional?.type === "task" && optional.data.executor).toBe("x".repeat(63));
+});
   test("rejects invalid version, type, missing data and malformed budget", () => {
     for (const x of [{ v: 2, type: "mode", data: {} }, { type: "what", data: {} }, { type: "mode" }, { type: "budget", data: { generatedAt: 1, strategy: "x", mode: "normal" } }]) expect(parseOutboxEvent(x)).toBeNull();
   });

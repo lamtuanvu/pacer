@@ -8,21 +8,35 @@ import {healthy, liveRoot, record, validId, type Session} from './core';
 export function settingsFixtureRoot(session: Session, base = liveRoot): string {
   const expected = join(base, validId(session.id));
   if (session.root !== expected || session.seed !== 'ui' || session.stopped) throw Error('Settings fixture requires an active seeded sandbox');
-  for (const path of [base, expected, join(expected, 'evidence')]) {
+  for (const path of [base, expected, join(expected, 'evidence'), join(expected, 'home')]) {
     const stat = lstatSync(path);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== path || stat.uid !== process.getuid?.() || (stat.mode & 0o022)) throw Error('Settings fixture requires canonical owned directories');
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== path || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw Error('Settings fixture requires canonical owned directories');
   }
   const log = join(expected, 'evidence/log.jsonl');
   if (existsSync(log)) {
     const stat = lstatSync(log);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o022)) throw Error('Settings fixture requires private evidence');
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw Error('Settings fixture requires private evidence');
   }
   return join(expected, 'settings-fixture');
 }
 
+/** The caller has already checked the active session; verify the immediate parent again before creating its child. */
+export function createFixtureHome(home: string): void {
+  const parent = join(home, '..');
+  const parentStat = lstatSync(parent);
+  if (!parentStat.isDirectory() || parentStat.isSymbolicLink() || realpathSync(parent) !== parent ||
+    parentStat.uid !== process.getuid?.() || (parentStat.mode & 0o077))
+    throw Error('Fixture requires a canonical owned private home');
+  mkdirSync(home, {mode: 0o700});
+  const child = lstatSync(home);
+  if (!child.isDirectory() || child.isSymbolicLink() || realpathSync(home) !== home ||
+    child.uid !== process.getuid?.() || (child.mode & 0o077))
+    throw Error('Fixture requires an exclusive private child');
+}
+
 /** Exclusive creation: no existing home, account state or caller-selected settings are accepted. */
 export async function exerciseSettingsHome(home: string) {
-  mkdirSync(home, {mode: 0o700});
+  createFixtureHome(home);
   writeFileSync(join(home, 'strategy.yaml'), JSON.stringify({planner: 'codex', pacing: {policy: 'priority'}, accounts: {codex: {kind: 'codex', usage: 'quota'}}, runners: {codex: {}}, routing: [{default: ['codex']}]}) + '\n', {mode: 0o600, flag: 'wx'});
   const ctx = {home, pacerHome: home, now: Date.now()/1000, env: {HOME: home, PACER_HOME: home}, which: () => null,
     run: async () => {throw Error('Settings fixture cannot run subprocesses');}};
