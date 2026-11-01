@@ -170,6 +170,55 @@ impl CapabilityEffect for Echo {
         Ok(params)
     }
 }
+
+#[tokio::test]
+async fn list_requires_issued_directory_and_rejects_adversarial_globs() {
+    let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
+        "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();
+    let resources: CallResources = serde_json::from_value(json!({"reads":[
+        {"path":"/tmp/logs","kind":"codex-logs"}]}))
+    .unwrap();
+    let authority = CallAuthority::new(
+        resources,
+        ["fs.read".into()],
+        Instant::now() + Duration::from_secs(2),
+    );
+    let mut broker = CapabilityBroker::new(manifest, authority, vec![]);
+    let mut effect = Echo { calls: 0 };
+    for (dir, pattern, limit) in [
+        ("/tmp/logs/../logs", "rollout-*.jsonl", json!(100)),
+        ("/tmp/other", "rollout-*.jsonl", json!(100)),
+        ("/tmp/logs", "../secret", json!(100)),
+        ("/tmp/logs", "sub/./file", json!(100)),
+        ("/tmp/logs", "/etc/passwd", json!(100)),
+        ("/tmp/logs", "rollout-*.jsonl", json!(0)),
+        ("/tmp/logs", "rollout-*.jsonl", json!(1001)),
+    ] {
+        assert!(
+            broker
+                .handle(
+                    "capability.fs.list",
+                    json!({"dir":dir,"glob":pattern,"limit":limit}),
+                    &mut effect
+                )
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(effect.calls, 0);
+    assert!(
+        broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs",
+        "glob":"rollout-*.jsonl","limit":100}),
+                &mut effect
+            )
+            .await
+            .is_ok()
+    );
+    assert_eq!(effect.calls, 1);
+}
 fn broker(ms: u64) -> CapabilityBroker {
     let manifest = parse_manifest(
         json!({"id":"fx-broker","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
@@ -315,7 +364,7 @@ async fn file_transfer_rejects_cross_handle_and_incomplete_commit() {
     let h = b
         .handle(
             "capability.fs.beginWrite",
-            json!({"path":"/tmp/issued","bytes":3}),
+            json!({"path":"/tmp/issued","bytes":3,"mode":384}),
             &mut e,
         )
         .await
@@ -348,16 +397,46 @@ async fn file_transfer_rejects_cross_handle_and_incomplete_commit() {
         .await
         .is_ok()
     );
-    assert!(
-        b.handle(
+    let committed = b
+        .handle(
             "capability.fs.commitWrite",
             json!({"handle":handle}),
-            &mut e
+            &mut e,
         )
         .await
-        .is_ok()
+        .unwrap();
+    assert_eq!(
+        committed,
+        json!({"path":"/tmp/issued","text":"abc","mode":384})
     );
     assert_eq!(e.calls, 1);
+}
+
+#[tokio::test]
+async fn write_modes_are_0600_only_before_effect() {
+    let mut b = broker(1000);
+    let mut e = Echo { calls: 0 };
+    for mode in [json!(0), json!(420), json!("384"), json!(-1)] {
+        assert!(
+            b.handle(
+                "capability.fs.write",
+                json!({"path":"/tmp/issued","text":"x","mode":mode}),
+                &mut e
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            b.handle(
+                "capability.fs.beginWrite",
+                json!({"path":"/tmp/issued","bytes":1,"mode":mode}),
+                &mut e
+            )
+            .await
+            .is_err()
+        );
+    }
+    assert_eq!(e.calls, 0);
 }
 #[tokio::test]
 async fn http_upload_is_owner_local_and_requires_captured_host() {

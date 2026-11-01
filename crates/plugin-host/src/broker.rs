@@ -45,7 +45,7 @@ pub struct CapabilityBroker {
     manifest: ParsedManifest,
     authority: CallAuthority,
     transfers: Transfers,
-    file_write: Option<(String, String)>,
+    file_write: Option<(String, String, Option<u64>)>,
     features: Vec<String>,
     hosts: Option<HostLeaseBroker>,
     scope_roots: ScopeRoots,
@@ -141,6 +141,31 @@ impl CapabilityBroker {
         };
         let mut forwarded = params.clone();
         match method {
+            "capability.fs.list" => {
+                let dir = field("dir")?;
+                self.authority.read_directory(dir)?;
+                if !self.scope_roots.declares_directory(&scopes, dir)? {
+                    return Err(AuthorityError::Denied("undeclared read directory".into()).into());
+                }
+                let pattern = field("glob")?;
+                if pattern.is_empty()
+                    || pattern.len() > 4096
+                    || pattern.starts_with('/')
+                    || pattern.contains('\0')
+                    || pattern
+                        .split(['/', '\\'])
+                        .any(|part| part == "." || part == "..")
+                {
+                    return Err(BrokerError::Invalid("read glob"));
+                }
+                if p.get("limit").is_some_and(|value| {
+                    value
+                        .as_u64()
+                        .is_none_or(|limit| !(1..=1000).contains(&limit))
+                }) {
+                    return Err(BrokerError::Invalid("list limit"));
+                }
+            }
             "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => {
                 let path = field("path")?;
                 self.authority.read(path)?;
@@ -155,6 +180,12 @@ impl CapabilityBroker {
                 if !self.scope_roots.declares_path(&scopes, path)? {
                     return Err(AuthorityError::Denied("undeclared write scope".into()).into());
                 }
+                if method == "capability.fs.write"
+                    && p.get("mode")
+                        .is_some_and(|mode| mode.as_u64() != Some(0o600))
+                {
+                    return Err(BrokerError::Invalid("write mode"));
+                }
             }
             "capability.fs.beginWrite" => {
                 self.feature("fileWriteChunks")?;
@@ -168,11 +199,15 @@ impl CapabilityBroker {
                     .and_then(Value::as_u64)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
+                let mode = p.get("mode").map(|mode| mode.as_u64());
+                if mode.is_some_and(|mode| mode != Some(0o600)) {
+                    return Err(BrokerError::Invalid("write mode"));
+                }
                 let handle = self
                     .transfers
                     .begin(TransferKind::FileWrite, size)
                     .map_err(|_| BrokerError::Invalid("transfer bounds"))?;
-                self.file_write = Some((handle.clone(), path));
+                self.file_write = Some((handle.clone(), path, mode.flatten()));
                 return Ok(json!({"handle":handle}));
             }
             "capability.fs.writeChunk" => {
@@ -196,11 +231,11 @@ impl CapabilityBroker {
             "capability.fs.commitWrite" => {
                 self.feature("fileWriteChunks")?;
                 let handle = field("handle")?;
-                let path = self
+                let (path, mode) = self
                     .file_write
                     .as_ref()
-                    .filter(|(h, _)| h == handle)
-                    .map(|(_, p)| p.clone())
+                    .filter(|(h, _, _)| h == handle)
+                    .map(|(_, p, mode)| (p.clone(), *mode))
                     .ok_or_else(|| AuthorityError::Denied("file write handle".into()))?;
                 self.authority.write(&path, "write")?;
                 let bytes = self
@@ -210,6 +245,9 @@ impl CapabilityBroker {
                 let text =
                     String::from_utf8(bytes).map_err(|_| BrokerError::Invalid("UTF-8 file"))?;
                 forwarded = json!({"path":path,"text":text});
+                if let Some(mode) = mode {
+                    forwarded["mode"] = json!(mode);
+                }
                 self.file_write = None;
             }
             "capability.fs.releaseWrite" => {
@@ -601,7 +639,10 @@ impl CapabilityBroker {
             "capability.identity.sign" => 15_000,
             "capability.net.http" => 125_000,
             "capability.hosts.run" => 120_000,
-            "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => 5_000,
+            "capability.fs.read"
+            | "capability.fs.list"
+            | "capability.fs.stat"
+            | "capability.fs.readRange" => 5_000,
             "capability.fs.write"
             | "capability.fs.mkdir"
             | "capability.fs.remove"

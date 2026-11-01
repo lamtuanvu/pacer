@@ -137,6 +137,15 @@ impl CallAuthority {
             .find(|r| r.path == path && r.kind == "file")
             .ok_or_else(|| AuthorityError::Denied("read path was not issued".into()))
     }
+    pub fn read_directory(&self, path: &str) -> Result<&ReadResource, AuthorityError> {
+        self.granted("fs.read")?;
+        valid_path(path)?;
+        self.resources
+            .reads
+            .iter()
+            .find(|r| r.path == path && r.kind == "codex-logs")
+            .ok_or_else(|| AuthorityError::Denied("read directory was not issued".into()))
+    }
     pub fn write(&self, path: &str, operation: &str) -> Result<&WriteResource, AuthorityError> {
         self.granted("fs.write")?;
         valid_path(path)?;
@@ -335,33 +344,55 @@ pub struct ScopeRoots {
 }
 
 impl ScopeRoots {
+    pub fn declares_directory(
+        &self,
+        scopes: &[String],
+        directory: &str,
+    ) -> Result<bool, AuthorityError> {
+        valid_path(directory)?;
+        if self.declares_path(scopes, directory)? {
+            return Ok(true);
+        }
+        let prefix = format!("{}/", directory.trim_end_matches('/'));
+        for scope in scopes {
+            let expanded = self.expand(scope)?;
+            if expanded.is_some_and(|value| value.starts_with(&prefix)) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn expand(&self, scope: &str) -> Result<Option<String>, AuthorityError> {
+        let mut value = scope.to_string();
+        for (name, root) in [
+            ("HOME", &self.home),
+            ("PACER_HOME", &self.pacer_home),
+            ("ACCOUNT_HOME", &self.account_home),
+        ] {
+            for marker in [format!("${{{name}}}"), format!("${name}")] {
+                if value.contains(&marker) {
+                    let Some(root) = root else {
+                        return Ok(None);
+                    };
+                    valid_path(root)?;
+                    value = value.replace(&marker, root);
+                }
+            }
+        }
+        if value.contains('$') {
+            return Err(AuthorityError::Denied("unknown scope variable".into()));
+        }
+        valid_path(&value)?;
+        Ok(Some(value))
+    }
+
     pub fn declares_path(&self, scopes: &[String], path: &str) -> Result<bool, AuthorityError> {
         valid_path(path)?;
         for scope in scopes {
-            let mut value = scope.clone();
-            for (name, root) in [
-                ("HOME", &self.home),
-                ("PACER_HOME", &self.pacer_home),
-                ("ACCOUNT_HOME", &self.account_home),
-            ] {
-                for marker in [format!("${{{name}}}"), format!("${name}")] {
-                    if value.contains(&marker) {
-                        let Some(root) = root else {
-                            value.clear();
-                            break;
-                        };
-                        valid_path(root)?;
-                        value = value.replace(&marker, root);
-                    }
-                }
-            }
-            if value.is_empty() {
+            let Some(value) = self.expand(scope)? else {
                 continue;
-            }
-            if value.contains('$') {
-                return Err(AuthorityError::Denied("unknown scope variable".into()));
-            }
-            valid_path(&value)?;
+            };
             let pattern = glob::Pattern::new(&value)
                 .map_err(|_| AuthorityError::Denied("invalid declared scope".into()))?;
             if pattern.matches_with(
