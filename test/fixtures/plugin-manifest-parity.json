@@ -1,0 +1,209 @@
+[
+  {
+    "name": "baseline",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1"
+    }
+  },
+  {
+    "name": "ui-old-host",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1",
+      "contributes": {
+        "ui": {}
+      }
+    }
+  },
+  {
+    "name": "ui-current-host",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {}
+      }
+    }
+  },
+  {
+    "name": "sign-bad-scope",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "BAD!"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "sign-good-scope",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.4",
+      "capabilities": [
+        {
+          "name": "identity.sign",
+          "scopes": [
+            "sign-purpose"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "ui-settings-without-config-get",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-settings-with-config-get",
+    "accepted": true,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-duplicate-ids",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "status": [
+            {
+              "id": "same",
+              "title": "One",
+              "view": "one"
+            },
+            {
+              "id": "same",
+              "title": "Two",
+              "view": "two"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-unknown-key",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "unrecognized": []
+        }
+      }
+    }
+  },
+  {
+    "name": "ui-settings-plain-secret",
+    "accepted": false,
+    "manifest": {
+      "id": "fx-good",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "host": "^1.2",
+      "capabilities": [
+        {
+          "name": "config.get"
+        }
+      ],
+      "contributes": {
+        "ui": {
+          "settings": [
+            {
+              "id": "page",
+              "title": "Settings",
+              "schema": {
+                "fields": {
+                  "apiToken": {
+                    "type": "string",
+                    "title": "API Token"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

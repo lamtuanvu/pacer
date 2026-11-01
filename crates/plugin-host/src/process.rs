@@ -1,10 +1,10 @@
 use serde_json::{Value, json};
-use std::{collections::HashMap, path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::HashMap, future::Future, path::PathBuf, process::Stdio, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::{Child, ChildStdin, Command},
-    time::timeout,
+    time::{Instant, timeout, timeout_at},
 };
 
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -192,17 +192,49 @@ impl PluginProcess {
         deadline: Duration,
         cancel: Option<&tokio::sync::watch::Receiver<bool>>,
     ) -> Result<Value, ProcessError> {
+        self.request_with_handler(
+            method,
+            params,
+            deadline,
+            cancel,
+            |method, _, _| async move {
+                let (code, message) = if known_capability(&method) {
+                    ("capability_denied", "capability is not granted")
+                } else {
+                    ("unknown_op", "unknown host method")
+                };
+                Err(rpc_error(code, format!("{message}: {method}")))
+            },
+        )
+        .await
+    }
+
+    /// The handler runs for plugin-to-host requests while the parent call is pending.
+    /// It must return a JSON-RPC error object for refused capabilities.
+    pub async fn request_with_handler<F, Fut>(
+        &mut self,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        cancel: Option<&tokio::sync::watch::Receiver<bool>>,
+        mut handler: F,
+    ) -> Result<Value, ProcessError>
+    where
+        F: FnMut(String, Value, Option<Value>) -> Fut,
+        Fut: Future<Output = Result<Value, Value>>,
+    {
         if cancel.is_some_and(|signal| *signal.borrow()) {
             return Err(ProcessError::Cancelled);
         }
         let id = self.next_id;
         self.next_id += 1;
         let request = frame(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
-        self.stdin
-            .write_all(&request)
-            .await
-            .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
-        let response = async {
+        let expires = Instant::now() + deadline;
+        let exchange = async {
+            self.stdin
+                .write_all(&request)
+                .await
+                .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
             loop {
                 let line = match read_line_bounded(&mut self.stdout).await {
                     Ok(line) => line,
@@ -226,6 +258,22 @@ impl PluginProcess {
                         return Err(ProcessError::Unavailable(error.to_string()));
                     }
                     ProcessFrame::Notification { .. } => {}
+                    ProcessFrame::Request {
+                        id: child_id,
+                        method,
+                        params,
+                        metadata,
+                    } => {
+                        let reply = match handler(method, params, metadata).await {
+                            Ok(result) => json!({"jsonrpc":"2.0","id":child_id,"result":result}),
+                            Err(error) => json!({"jsonrpc":"2.0","id":child_id,"error":error}),
+                        };
+                        let bytes = frame(reply)?;
+                        self.stdin
+                            .write_all(&bytes)
+                            .await
+                            .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
+                    }
                     _ => {}
                 }
             }
@@ -233,20 +281,20 @@ impl PluginProcess {
         let outcome = if let Some(cancel) = cancel {
             let mut cancel = cancel.clone();
             tokio::select! {
-                result = timeout(deadline, response) => result.map_err(|_| ProcessError::Timeout)?,
+                result = timeout_at(expires, exchange) => result.unwrap_or(Err(ProcessError::Timeout)),
                 _ = cancel.changed() => Err(ProcessError::Cancelled),
             }
         } else {
-            timeout(deadline, response)
+            timeout_at(expires, exchange)
                 .await
-                .map_err(|_| ProcessError::Timeout)?
+                .unwrap_or(Err(ProcessError::Timeout))
         };
         if matches!(
             outcome,
             Err(ProcessError::Timeout | ProcessError::Cancelled)
         ) {
             let cancel = frame(json!({"jsonrpc":"2.0","method":"$/cancel","params":{"id":id}}))?;
-            let _ = self.stdin.write_all(&cancel).await;
+            let _ = timeout(Duration::from_millis(100), self.stdin.write_all(&cancel)).await;
         }
         outcome
     }
@@ -287,6 +335,37 @@ impl PluginProcess {
         }
         Ok(())
     }
+}
+
+fn rpc_error(code: &str, message: String) -> Value {
+    json!({"code": if code == "unknown_op" { -32601 } else { -32000 },
+        "message": message, "data": {"code": code}})
+}
+
+fn known_capability(method: &str) -> bool {
+    let Some(name) = method.strip_prefix("capability.") else {
+        return false;
+    };
+    [
+        "tasks.read",
+        "events.subscribe",
+        "process.spawn",
+        "fs.read",
+        "net.http",
+        "secrets.resolve",
+        "config.get",
+        "entitlement.report",
+        "log",
+        "identity.sign",
+        "net.p2p",
+        "fs.write",
+        "worktree",
+        "usage.state",
+        "hosts",
+        "orca",
+    ]
+    .iter()
+    .any(|capability| name == *capability || name.starts_with(&format!("{capability}.")))
 }
 
 #[cfg(test)]
@@ -343,6 +422,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deadline_covers_blocked_stdin_write() {
+        let script = "await new Promise(resolve => setTimeout(resolve, 10000));";
+        let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+        let result = child
+            .request(
+                "probe",
+                json!({"payload":"x".repeat(MAX_LINE_BYTES - 200)}),
+                Duration::from_millis(100),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ProcessError::Timeout)));
+        child.terminate().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn plugin_to_host_request_receives_result_and_denial() {
+        let script = r#"const reader=Bun.stdin.stream().getReader();let buf='',denied;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await reader.read();if(done)break;buf+=new TextDecoder().decode(value);while(buf.includes('\n')){let i=buf.indexOf('\n'),m=JSON.parse(buf.slice(0,i));buf=buf.slice(i+1);if(m.method==='probe')send({id:7,method:'capability.log',params:{level:'info',message:'fixture'}});else if(m.id===7){if(m.result?.ok!==true)process.exit(2);send({id:8,method:'capability.fs.write',params:{}})}else if(m.id===8){denied=m.error?.data?.code;send({id:9,method:'mystery',params:{}})}else if(m.id===9){send({id:1,result:{denied,unknown:m.error?.code}})}}}"#;
+        let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+        let result = child
+            .request_with_handler(
+                "probe",
+                json!({}),
+                Duration::from_secs(5),
+                None,
+                |method, _, _| async move {
+                    if method == "capability.log" {
+                        Ok(json!({"ok":true}))
+                    } else if method.starts_with("capability.") {
+                        Err(rpc_error(
+                            "capability_denied",
+                            format!("capability is not granted: {method}"),
+                        ))
+                    } else {
+                        Err(rpc_error(
+                            "unknown_op",
+                            format!("unknown host method: {method}"),
+                        ))
+                    }
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            json!({"denied":"capability_denied","unknown":-32601})
+        );
+        child.terminate().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn owner_cancellation_sends_cancel_notification() {
         let receipt =
             std::env::temp_dir().join(format!("pacer-plugin-cancel-{}", std::process::id()));
@@ -394,6 +524,7 @@ mod tests {
         ] {
             std::fs::copy(fixture.join(source), dir.join(destination)).unwrap();
         }
+        std::fs::write(dir.join("fixture.json"), r#"{"callCapability":"log"}"#).unwrap();
         let manifest: Value =
             serde_json::from_slice(&std::fs::read(dir.join("pacer-plugin.json")).unwrap()).unwrap();
         let mut spec = peer("");
@@ -404,7 +535,17 @@ mod tests {
         assert_eq!(hello["id"], "fx-serial");
         assert_eq!(hello["protocol"], "1.10.0");
         let ping = child
-            .request("diagnostic.ping", json!({}), Duration::from_secs(5), None)
+            .request_with_handler(
+                "diagnostic.ping",
+                json!({}),
+                Duration::from_secs(5),
+                None,
+                |method, params, _| async move {
+                    assert_eq!(method, "capability.log");
+                    assert_eq!(params["message"], "hello from fixture");
+                    Ok(json!({"ok":true}))
+                },
+            )
             .await
             .unwrap();
         assert_eq!(ping["ok"], true);

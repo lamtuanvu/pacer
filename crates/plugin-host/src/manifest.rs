@@ -73,6 +73,268 @@ pub fn host_range_accepts(range: &str, host: &str) -> bool {
     }
 }
 
+fn valid_ui(ui: &Value) -> bool {
+    let Some(points) = ui.as_object() else {
+        return false;
+    };
+    if points
+        .keys()
+        .any(|key| !["activity", "panelTabs", "settings", "status"].contains(&key.as_str()))
+    {
+        return false;
+    }
+    for (kind, limit) in [
+        ("activity", 2),
+        ("panelTabs", 3),
+        ("settings", 1),
+        ("status", 1),
+    ] {
+        let Some(items) = points.get(kind) else {
+            continue;
+        };
+        let Some(items) = items.as_array() else {
+            return false;
+        };
+        if items.len() > limit {
+            return false;
+        }
+        let mut ids = HashSet::new();
+        for item in items {
+            let Some(item) = item.as_object() else {
+                return false;
+            };
+            let allowed: &[&str] = match kind {
+                "activity" => &["id", "title", "icon", "view"],
+                "panelTabs" => &["id", "title", "icon", "view", "context"],
+                "settings" => &["id", "title", "schema"],
+                _ => &["id", "title", "view"],
+            };
+            if item.keys().any(|key| !allowed.contains(&key.as_str())) {
+                return false;
+            }
+            let Some(id) = item.get("id").and_then(Value::as_str) else {
+                return false;
+            };
+            if id.is_empty()
+                || id.len() > 32
+                || !id
+                    .bytes()
+                    .next()
+                    .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                || !ids.insert(id)
+            {
+                return false;
+            }
+            let Some(title) = item.get("title").and_then(Value::as_str) else {
+                return false;
+            };
+            if title.is_empty() || title.encode_utf16().count() > 40 {
+                return false;
+            }
+            if kind == "settings" {
+                if !valid_settings(item.get("schema")) {
+                    return false;
+                }
+            } else {
+                let Some(view) = item.get("view").and_then(Value::as_str) else {
+                    return false;
+                };
+                if view.is_empty() || view.encode_utf16().count() > 64 {
+                    return false;
+                }
+            }
+            if (kind == "activity" || kind == "panelTabs")
+                && !item
+                    .get("icon")
+                    .and_then(Value::as_str)
+                    .is_some_and(|icon| {
+                        [
+                            "check-square",
+                            "list",
+                            "bell",
+                            "chart",
+                            "clock",
+                            "cog",
+                            "file",
+                            "folder",
+                            "git-branch",
+                            "key",
+                            "link",
+                            "shield",
+                            "tag",
+                            "terminal",
+                            "users",
+                            "zap",
+                            "plugin",
+                        ]
+                        .contains(&icon)
+                    })
+            {
+                return false;
+            }
+            if kind == "panelTabs"
+                && item.get("context").is_some_and(|context| {
+                    context
+                        .as_str()
+                        .is_none_or(|value| value != "global" && value != "task")
+                })
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn valid_settings(schema: Option<&Value>) -> bool {
+    let Some(schema) = schema.and_then(Value::as_object) else {
+        return false;
+    };
+    if schema.len() != 1 {
+        return false;
+    }
+    let Some(fields) = schema.get("fields").and_then(Value::as_object) else {
+        return false;
+    };
+    if fields.len() > 30 {
+        return false;
+    }
+    for (name, field) in fields {
+        if name.is_empty()
+            || name.len() > 32
+            || !name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+            || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return false;
+        }
+        let Some(field) = field.as_object() else {
+            return false;
+        };
+        let Some(kind) = field.get("type").and_then(Value::as_str) else {
+            return false;
+        };
+        let allowed: &[&str] = match kind {
+            "boolean" => &["type", "title", "description", "default"],
+            "string" => &[
+                "type",
+                "title",
+                "description",
+                "enum",
+                "maxLength",
+                "default",
+            ],
+            "secretRef" => &["type", "title", "description"],
+            "integer" => &[
+                "type",
+                "title",
+                "description",
+                "minimum",
+                "maximum",
+                "default",
+            ],
+            "array" => &["type", "title", "description", "items", "maxItems"],
+            "repos" => &["type", "title", "description", "maxItems"],
+            _ => return false,
+        };
+        if field.keys().any(|key| !allowed.contains(&key.as_str())) {
+            return false;
+        }
+        let Some(title) = field.get("title").and_then(Value::as_str) else {
+            return false;
+        };
+        if title.is_empty() || title.encode_utf16().count() > 80 {
+            return false;
+        }
+        if field
+            .get("description")
+            .is_some_and(|value| value.as_str().is_none_or(|text| text.len() > 200))
+        {
+            return false;
+        }
+        if !["boolean", "integer", "secretRef"].contains(&kind)
+            && [name.as_str(), title].iter().any(|text| {
+                let lower = text.to_ascii_lowercase();
+                [
+                    "key", "token", "secret", "pass", "pwd", "cred", "auth", "bearer", "private",
+                    "cookie", "session",
+                ]
+                .iter()
+                .any(|term| lower.contains(term))
+            })
+        {
+            return false;
+        }
+        if kind == "integer"
+            && field
+                .get("minimum")
+                .and_then(Value::as_i64)
+                .zip(field.get("maximum").and_then(Value::as_i64))
+                .is_none_or(|(min, max)| min > max)
+        {
+            return false;
+        }
+        if kind == "integer"
+            && field
+                .get("default")
+                .is_some_and(|value| value.as_i64().is_none())
+        {
+            return false;
+        }
+        if kind == "boolean"
+            && field
+                .get("default")
+                .is_some_and(|value| value.as_bool().is_none())
+        {
+            return false;
+        }
+        if kind == "string" {
+            if field.get("default").is_some_and(|value| {
+                value
+                    .as_str()
+                    .is_none_or(|text| text.encode_utf16().count() > 2000)
+            }) {
+                return false;
+            }
+            if field.get("maxLength").is_some_and(|value| {
+                value
+                    .as_u64()
+                    .is_none_or(|length| !(1..=2000).contains(&length))
+            }) {
+                return false;
+            }
+            if field.get("enum").is_some_and(|value| {
+                value.as_array().is_none_or(|items| {
+                    items.is_empty()
+                        || items.len() > 20
+                        || items.iter().any(|item| {
+                            item.as_str().is_none_or(|text| {
+                                text.is_empty() || text.encode_utf16().count() > 80
+                            })
+                        })
+                })
+            }) {
+                return false;
+            }
+        }
+        if kind == "array" && field.get("items") != Some(&serde_json::json!({"type":"string"})) {
+            return false;
+        }
+        if (kind == "array" || kind == "repos")
+            && field.get("maxItems").is_some_and(|value| {
+                value
+                    .as_u64()
+                    .is_none_or(|count| !(1..=100).contains(&count))
+            })
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Use generated 1.10.0 wire types; preserve the TypeScript schema's defaults.
 pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
     let mut raw = raw;
@@ -164,6 +426,49 @@ pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
             "identity.sign requires host >=1.4.0".into(),
         ));
     }
+    if let Some(items) = capabilities {
+        for item in items
+            .iter()
+            .filter(|item| item.get("name").and_then(Value::as_str) == Some("identity.sign"))
+        {
+            if let Some(scopes) = item.get("scopes").and_then(Value::as_array) {
+                for scope in scopes {
+                    if let Some(scope) = scope.as_str() {
+                        let valid = (2..=64).contains(&scope.len())
+                            && scope.bytes().all(|byte| {
+                                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                            })
+                            && scope.bytes().next().is_some_and(|byte| {
+                                byte.is_ascii_lowercase() || byte.is_ascii_digit()
+                            });
+                        if !valid {
+                            return Err(ManifestError::Invalid("identity.sign scopes are signing purposes: 2-64 lowercase letters, digits and hyphens".into()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(ui) = contributes.and_then(|points| points.get("ui")) {
+        if !valid_ui(ui) {
+            return Err(ManifestError::Invalid("invalid contributes.ui".into()));
+        }
+        if !floor_at_least([1, 2, 0]) {
+            return Err(ManifestError::Invalid(
+                "contributes.ui requires host >=1.2.0".into(),
+            ));
+        }
+        if ui
+            .get("settings")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+            && !has_capability("config.get")
+        {
+            return Err(ManifestError::Invalid(
+                "a plugin with a settings page declares the config.get capability".into(),
+            ));
+        }
+    }
     if has_point("pairing") && (!has_capability("net.p2p") || !floor_at_least([1, 5, 0])) {
         return Err(ManifestError::Invalid(
             "pairing requires net.p2p and host >=1.5.0".into(),
@@ -239,5 +544,22 @@ mod tests {
             parse_manifest(serde_json::from_str(&old).unwrap()),
             Err(ManifestError::IncompatibleHost)
         ));
+    }
+
+    #[test]
+    fn shared_typescript_manifest_matrix() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../test/fixtures/plugin-manifest-parity.json"
+        ))
+        .unwrap();
+        for case in cases.as_array().unwrap() {
+            let actual = parse_manifest(case["manifest"].clone()).is_ok();
+            assert_eq!(
+                actual,
+                case["accepted"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 }
