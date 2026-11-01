@@ -14,12 +14,6 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
     fs::metadata(path)?;
     let parent = path.parent().unwrap_or(Path::new("."));
-    if fs::symlink_metadata(parent)?.file_type().is_symlink() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "unsafe strategy directory",
-        ));
-    }
     #[cfg(unix)]
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
@@ -52,6 +46,8 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    #[cfg(unix)]
     use std::process::Command;
 
     #[test]
@@ -71,6 +67,34 @@ mod tests {
             0o600
         );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn missing_strategy_is_refused_without_creating_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strategy.yaml");
+        assert_eq!(
+            atomic_strategy_write(&path, "new\n").unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_parent_matches_typescript_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        fs::write(real.join("strategy.yaml"), "old\n").unwrap();
+        let link = dir.path().join("link");
+        symlink(&real, &link).unwrap();
+        atomic_strategy_write(&link.join("strategy.yaml"), "new\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(real.join("strategy.yaml")).unwrap(),
+            "new\n"
+        );
     }
 
     #[cfg(unix)]

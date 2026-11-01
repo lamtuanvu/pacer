@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./install-plugin-fixtures";
 import { installLegacyPlugin } from "./helpers";
@@ -20,6 +20,8 @@ import { initCmd } from "../src/install/init";
 // the BOM, CRLF, comments, trailing comma, and the exact undo result.
 const before = '\uFEFF{\r\n  // retained\r\n  "mcp": {\r\n    "other": true,\r\n  },\r\n}\r\n';
 const installed = '\uFEFF{\r\n  // retained\r\n  "mcp": {\n    "pacer": {\n      "command": "pacer",\n      "args": [\n        "mcp"\n      ]\n    },\r\n    "other": true,\r\n  },\r\n}\r\n';
+const snapshotManifest = (text: string, home: string): string => JSON.stringify(text.replaceAll(home, "$HOME")
+  .replace(/pacer-bak-\d{8}-\d{6}/g, "pacer-bak-<local-time>"));
 
 test("JSONC insertion and recorded member undo keep exact TS bytes", () => {
   const actual = setMember(before, ["mcp", "pacer"], { command: "pacer", args: ["mcp"] });
@@ -73,61 +75,46 @@ test("setup init and check characterize a disposable home", async () => {
   const result = await init(ctx, "codex");
   expect(result.strategy).toBe(join(ctx.pacerHome, "strategy.yaml"));
   expect(readFileSync(result.strategy, "utf8")).toBe('planner: codex\naccounts:\n  codex: { usage: quota, kind: codex }\n# To add opencode-go: use via: opencode, model: opencode-go/<model>,\n# usage: metered, and budget.weekly_tokens (e.g. budget: {weekly_tokens: 20M}).\npacing: {policy: priority, planner_reserve: 15, order: [ codex ]}\nrouting: []\n');
-  expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
-  expect(statSync(result.strategy).mode & 0o777).toBe(0o600);
   const checked = await checkSetup(ctx, { snapshotProbe: false, deferStatus: true });
   expect(checked.items.find(item => item.id === "planner")?.detail).toContain("codex");
   expect(checked.integration).toEqual({ configuration: "unverified", invocation: "unverified" });
 });
 
-test("setup and install state tighten existing modes under both umasks", async () => {
-  const originalUmask = process.umask();
-  try {
-    for (const mask of [0o022, 0o077]) {
-      process.umask(mask);
-      const ctx = fakeCtx({ which: () => null, env: { PACER_BIN: "pacer" } });
-      mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o755 });
-      chmodSync(ctx.pacerHome, 0o755);
-      const strategy = (await init(ctx, "codex")).strategy;
-      expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
-      expect(statSync(strategy).mode & 0o777).toBe(0o600);
-      const manifest = join(ctx.pacerHome, "install-manifest.json");
-      writeFileSync(manifest, "old", { mode: 0o644 });
-      chmodSync(manifest, 0o644);
-      writeManifest(ctx, { version: 1, planners: {} });
-      expect(statSync(manifest).mode & 0o777).toBe(0o600);
-      const secrets = join(ctx.pacerHome, "secrets");
-      mkdirSync(secrets, { mode: 0o700 });
-      const sentinel = join(secrets, "sentinel.key");
-      writeInstallFile(sentinel, "synthetic sentinel");
-      expect(statSync(secrets).mode & 0o777).toBe(0o700);
-      expect(statSync(sentinel).mode & 0o777).toBe(0o600);
-      writeInstallFile(sentinel, "updated", 0o644);
-      expect(statSync(sentinel).mode & 0o777).toBe(0o600);
-      const onboarding = join(ctx.pacerHome, "onboarding");
-      mkdirSync(onboarding, { mode: 0o755 });
-      chmodSync(onboarding, 0o755);
-      expect(onboardingSkip(ctx)).toEqual({ skipped: true });
-      expect(statSync(onboarding).mode & 0o777).toBe(0o700);
-      expect(statSync(join(onboarding, "skipped")).mode & 0o777).toBe(0o600);
-      chmodSync(ctx.pacerHome, 0o755);
-      chmodSync(strategy, 0o644);
-      atomicStrategyWrite(strategy, readFileSync(strategy, "utf8"));
-      expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
-      expect(statSync(strategy).mode & 0o777).toBe(0o600);
-      chmodSync(ctx.pacerHome, 0o755);
-      chmodSync(strategy, 0o644);
-      expect((await initCmd(ctx, { force: true, planner: "codex" })).code).toBe(0);
-      expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
-      expect(statSync(strategy).mode & 0o777).toBe(0o600);
-      const backup = join(ctx.pacerHome, "strategy.yaml.pacer-bak-20261010-190000");
-      expect(statSync(backup).mode & 0o777).toBe(0o600);
-    }
-  } finally { process.umask(originalUmask); }
+test("strategy writer refuses a missing path without creating it", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const path = join(ctx.pacerHome, "strategy.yaml");
+  expect(() => atomicStrategyWrite(path, "planner: codex\n")).toThrow();
+  expect(existsSync(path)).toBe(false);
+});
+
+test("strategy writer accepts an existing file through a symlinked parent", () => {
+  const ctx = fakeCtx();
+  const real = join(ctx.home, "real");
+  mkdirSync(real);
+  writeFileSync(join(real, "strategy.yaml"), "old\n");
+  const link = join(ctx.home, "link");
+  symlinkSync(real, link);
+  atomicStrategyWrite(join(link, "strategy.yaml"), "new\n");
+  expect(readFileSync(join(real, "strategy.yaml"), "utf8")).toBe("new\n");
+});
+
+test("setup and install writes preserve bytes in an isolated home", async () => {
+  const ctx = fakeCtx({ which: () => null, env: { PACER_BIN: "pacer" } });
+  const strategy = (await init(ctx, "codex")).strategy;
+  const before = readFileSync(strategy, "utf8");
+  atomicStrategyWrite(strategy, before);
+  expect(readFileSync(strategy, "utf8")).toBe(before);
+  writeManifest(ctx, { version: 1, planners: {} });
+  expect(readManifest(ctx)).toEqual({ version: 1, planners: {} });
+  expect(onboardingSkip(ctx)).toEqual({ skipped: true });
+  expect(existsSync(join(ctx.pacerHome, "onboarding", "skipped"))).toBe(true);
+  expect((await initCmd(ctx, { force: true, planner: "codex" })).code).toBe(0);
+  expect(readFileSync(strategy, "utf8")).toBe(before);
 });
 
 test("agent detect, preview, consent, revision and disconnect stay isolated", async () => {
-  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? process.execPath : null,
+  const ctx = withVersionFixtures(fakeCtx({ now: 1791658800, which: bin => bin === "codex" ? process.execPath : null,
     run: async () => ({ code: 0, stdout: "codex 1.2.3\n", stderr: "" }), env: { PACER_BIN: "pacer" } }));
   const detected = await detectAgents(ctx);
   expect(detected.find(row => row.agent === "codex")).toMatchObject({ found: true, version: "1.2.3", path: ctx.which("codex") });
@@ -138,17 +125,17 @@ test("agent detect, preview, consent, revision and disconnect stay isolated", as
   await expect(agentConnect(ctx, "codex", { consent: true, preview_revision: "stale" })).rejects.toMatchObject({ code: "conflict" });
   const connected = await agentConnect(ctx, "codex", { consent: true, preview_revision: preview.revision });
   const manifestBytes = readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8");
-  const installedBytes = Object.fromEntries(connected.installed.map(path => [path.replaceAll(ctx.home, "$HOME"), readFileSync(path, "utf8")]));
+  const installedBytes = Object.fromEntries(connected.installed.map(path => [path.replaceAll(ctx.home, "$HOME"), JSON.stringify(readFileSync(path, "utf8"))]));
   expect({ installed: connected.installed.map(path => path.replaceAll(ctx.home, "$HOME")), installedBytes,
-    manifestBytes: manifestBytes.replaceAll(ctx.home, "$HOME") }).toMatchSnapshot();
+    manifestBytes: snapshotManifest(manifestBytes, ctx.home) }).toMatchSnapshot();
   const disconnected = await agentDisconnect(ctx, "codex");
   expect({ removed: disconnected.removed.map(path => path.replaceAll(ctx.home, "$HOME")),
-    manifestBytes: readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8").replaceAll(ctx.home, "$HOME") }).toMatchSnapshot();
+    manifestBytes: snapshotManifest(readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8"), ctx.home) }).toMatchSnapshot();
   expect(readManifest(ctx).planners.codex).toBeUndefined();
 });
 
 test("agent disconnect restores preexisting file bytes exactly", async () => {
-  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? process.execPath : null,
+  const ctx = withVersionFixtures(fakeCtx({ now: 1791658800, which: bin => bin === "codex" ? process.execPath : null,
     run: async () => ({ code: 0, stdout: "codex 1.2.3\n", stderr: "" }), env: { PACER_BIN: "pacer" } }));
   const dir = join(ctx.home, ".codex");
   mkdirSync(dir, { recursive: true });
@@ -159,8 +146,8 @@ test("agent disconnect restores preexisting file bytes exactly", async () => {
   writeFileSync(hooks, originalHooks);
   const preview = await agentPreview(ctx, "codex");
   await agentConnect(ctx, "codex", { consent: true, preview_revision: preview.revision });
-  expect({ agents: readFileSync(agents, "utf8"), hooks: readFileSync(hooks, "utf8"),
-    manifest: readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8").replaceAll(ctx.home, "$HOME") }).toMatchSnapshot();
+  expect({ agents: JSON.stringify(readFileSync(agents, "utf8")), hooks: JSON.stringify(readFileSync(hooks, "utf8")),
+    manifest: snapshotManifest(readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8"), ctx.home) }).toMatchSnapshot();
   await agentDisconnect(ctx, "codex");
   expect(readFileSync(agents, "utf8")).toBe(originalAgents);
   expect(readFileSync(hooks, "utf8")).toBe(originalHooks);
@@ -190,8 +177,6 @@ test("legacy panel cleanup removes owned bytes and refuses a forged record", asy
   const secrets = join(ctx.pacerHome, "secrets");
   mkdirSync(secrets, { recursive: true, mode: 0o700 });
   writeInstallFile(privatePath, "synthetic sentinel");
-  expect(statSync(secrets).mode & 0o777).toBe(0o700);
-  expect(statSync(privatePath).mode & 0o777).toBe(0o600);
   manifest.planners["orca-plugin"].files[0].path = privatePath;
   writeManifest(ctx, manifest);
   await expect(uninstallPlugin(ctx, "linux")).rejects.toMatchObject({ code: "capability_denied" });

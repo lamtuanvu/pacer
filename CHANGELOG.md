@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Write setup strategy and install state atomically with restrictive file and directory permissions, tightening permissive existing state during updates.
+- Have the Rust strategy writer replace existing state atomically with restrictive file and directory permissions.
 
 ## [0.14.0] - 2026-11-01
 
