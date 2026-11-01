@@ -70,6 +70,8 @@ generated = true
 layer = 1
 [crates.pacer-mdns]
 layer = 2
+[crates.pacer-config]
+layer = 3
 [crates.pacer-sqlite-proof]
 layer = 2
 [crates.pacer-server]
