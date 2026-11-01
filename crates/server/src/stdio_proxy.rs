@@ -50,6 +50,7 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
                 ctx,
                 op,
                 request.get("params").cloned().unwrap_or_else(|| json!({})),
+                request.get("id"),
             )
             .await;
             if let Some(id) = request.get("id") {

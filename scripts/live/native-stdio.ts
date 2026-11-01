@@ -12,7 +12,10 @@ export function verifyNativeStdio(stdout: string, stderr: string, exit: number):
   if ((replies[0].result as { protocol?: string } | undefined)?.protocol !== "3.0.0") throw Error("native stdio did not negotiate protocol 3");
   if (JSON.stringify(replies[1].result) !== JSON.stringify({ fixture: "native-stdio", n: 1 })) throw Error("native stdio echo result differed");
   if ((replies[2].result as { protocol?: string } | undefined)?.protocol !== "2.8.0") throw Error("native stdio did not negotiate protocol 2");
-  if ((stderr.match(/^native test\.echo$/gm) ?? []).length !== 1) throw Error("native stdio execution trace was absent or repeated");
+  const markers = stderr.split("\n").filter(line => line.startsWith("native test.echo"));
+  if (markers.length !== 1 || markers[0] !== "native test.echo 2") {
+    throw Error("native stdio execution trace was absent or repeated");
+  }
 }
 
 /** Fixed protocol exchange inside an owned sandbox; the ordinary D3 CLI guard remains in force. */
