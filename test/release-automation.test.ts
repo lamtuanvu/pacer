@@ -150,6 +150,23 @@ test("Release verify prebuilds Rust fixtures before the test timeout starts", ()
   expect(build).toBeLessThan(steps.findIndex(s => s.run === "bun run test"));
 });
 
+test("Release verify and each M1 build prebuild and supply the SQLite proof binary", () => {
+  const release = load("release.yml");
+  const proofBuild = "cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof";
+  const proofPath = "${{ github.workspace }}/target/debug/pacer-sqlite-proof";
+  for (const [jobName, invocation] of [
+    ["verify", "bun run test"],
+    ["build", "bun run gate:m1 --release-dir"],
+  ]) {
+    const steps = release.jobs[jobName]!.steps;
+    const build = steps.findIndex(s => s.run === proofBuild);
+    const testStep = steps.findIndex(s => s.run?.includes(invocation));
+    expect(build).toBeGreaterThan(-1);
+    expect(testStep).toBeGreaterThan(build);
+    expect(steps[testStep]!.env?.PACER_SQLITE_PROOF_BIN).toBe(proofPath);
+  }
+});
+
 
 test("Release tag accepts a squash commit with the tested tree", () => {
   const subject = "chore: release 0.5.0 (#220)";
