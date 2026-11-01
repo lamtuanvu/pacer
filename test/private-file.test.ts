@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { privateAppend, privateCreate, privateTouch, privateWrite } from "../src/private-file";
@@ -8,6 +8,7 @@ import { atomicStrategyWrite } from "../src/config/edit";
 import { writeEndpointState } from "../src/endpoints/state";
 import { appendActivity } from "../src/activity/log";
 import { fakeCtx } from "./helpers";
+import { writeNative } from "../src/plugins/write-native";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -92,6 +93,39 @@ test("append and touch reject symlinked leaves without modifying their targets",
   expect(statSync(target).mode & 0o777).toBe(0o644);
 });
 
+test("append and touch reject hard-linked leaves without modifying their targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-private-")); roots.push(root);
+  const outside = join(root, "outside"), file = join(root, "log");
+  writeFileSync(outside, "original"); chmodSync(outside, 0o644); linkSync(outside, file);
+  const before = statSync(outside);
+  expect(() => privateAppend(file, "X")).toThrow();
+  expect(() => privateTouch(file)).toThrow();
+  expect(readFileSync(outside, "utf8")).toBe("original");
+  expect(statSync(outside).mode & 0o777).toBe(0o644);
+  expect(statSync(outside).mtimeMs).toBe(before.mtimeMs);
+});
+
+test("parent swap during descriptor traversal is refused", () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-private-")); roots.push(root);
+  const state = join(root, "state"), outside = join(root, "outside");
+  mkdirSync(state); mkdirSync(outside, { mode: 0o777 }); chmodSync(outside, 0o777);
+  const native = writeNative(), original = native.openAt;
+  let swapped = false;
+  native.openAt = function(fd, name, flags, mode) {
+    if (!swapped && name === "state") {
+      swapped = true;
+      renameSync(state, join(root, "previous"));
+      symlinkSync(outside, state);
+    }
+    return original(fd, name, flags, mode);
+  };
+  try { expect(() => privateAppend(join(state, "log"), "X")).toThrow(); }
+  finally { native.openAt = original; }
+  expect(swapped).toBe(true);
+  expect(readdirSync(outside)).toEqual([]);
+  expect(statSync(outside).mode & 0o777).toBe(0o777);
+});
+
 test("a directory swapped for a symlink between writes is rechecked", () => {
   const root=mkdtempSync(join(tmpdir(),"pacer-private-")); roots.push(root);
   const dir=join(root,"state"), outside=join(root,"outside");
@@ -112,14 +146,18 @@ test("seeded file-state matrix preserves append and touch confinement", () => {
   for(let i=0;i<48;i++) {
     const dir=join(root,String(i)); mkdirSync(dir);
     const outside=join(dir,"outside"), file=join(dir,"file");
-    const kind=next()%3, action=next()%2;
+    const kind=next()%5, action=next()%2;
     if(kind===1) { writeFileSync(file,"old"); chmodSync(file,0o644); }
     if(kind===2) { writeFileSync(outside,"outside"); chmodSync(outside,0o644); symlinkSync(outside,file); }
+    if(kind===3) { writeFileSync(outside,"outside"); chmodSync(outside,0o644); linkSync(outside,file); }
+    if(kind===4) mkdirSync(file);
     const operation=()=>action===0 ? privateAppend(file,"X") : privateTouch(file);
-    if(kind===2) {
+    if(kind>=2) {
       expect(operation).toThrow();
-      expect(readFileSync(outside,"utf8")).toBe("outside");
-      expect(statSync(outside).mode&0o777).toBe(0o644);
+      if(kind===2||kind===3) {
+        expect(readFileSync(outside,"utf8")).toBe("outside");
+        expect(statSync(outside).mode&0o777).toBe(0o644);
+      }
     } else {
       operation();
       expect(readFileSync(file,"utf8")).toBe((kind===1?"old":"")+(action===0?"X":""));

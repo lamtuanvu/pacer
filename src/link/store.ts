@@ -3,7 +3,8 @@ import { parseOrcaOutput } from "../exec/orca/client";
 import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { isObj } from "../util";
 import { serviceInstalled } from "../service";
-import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { privateAppend, privateDir, privateWrite } from "../private-file";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
@@ -131,8 +132,8 @@ export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapsh
   return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx)};
 }
 export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
-  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
-  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
+  if(!entries.length)return; privateDir(linkDir(ctx)); const p=outboxPath(ctx); privateAppend(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
+  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); privateWrite(p,`${lines.join("\n")}\n`); }
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {

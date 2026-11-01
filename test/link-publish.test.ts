@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, chmodSync, linkSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { publish } from "../src/link/publish";
@@ -16,6 +16,21 @@ test("publish sequences outbox and persists current snapshot", async () => {
 test("outbox rotation keeps the last 1000 records", async () => {
   const c = fakeCtx(); const entries = Array.from({ length: 1010 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
   const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
+});
+test("outbox append and rotation keep private modes and refuse hard-linked leaves", async () => {
+  const c = fakeCtx();
+  const { appendOutbox } = await import("../src/link/store");
+  const entries = Array.from({ length: 1001 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x", body: "", at: i } } }));
+  appendOutbox(c, entries);
+  expect(statSync(outboxPath(c)).mode & 0o777).toBe(0o600);
+  expect(statSync(join(outboxPath(c), "..")).mode & 0o777).toBe(0o700);
+  const outside = join(c.pacerHome, "outside");
+  writeFileSync(outside, "original"); chmodSync(outside, 0o644);
+  const file = outboxPath(c);
+  const { unlinkSync } = await import("node:fs"); unlinkSync(file); linkSync(outside, file);
+  expect(() => appendOutbox(c, entries.slice(0, 1))).toThrow();
+  expect(readFileSync(outside, "utf8")).toBe("original");
+  expect(statSync(outside).mode & 0o777).toBe(0o644);
 });
 test("entity envelopes stay in the outbox even when the channel is available", async () => {
   const calls: string[][] = [];
