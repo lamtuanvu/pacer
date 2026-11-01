@@ -263,6 +263,66 @@ async fn native_listing_is_admitted_and_never_calls_the_effect() {
 }
 
 #[tokio::test]
+async fn native_listing_normalizes_issued_root_and_matches_bun_scopes() {
+    let root = std::env::temp_dir().join(format!("pacer-broker-scope-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::create_dir_all(root.join("b")).unwrap();
+    for path in ["a/rollout-a.jsonl", "b/rollout-b.jsonl", "rollout-b.jsonl"] {
+        std::fs::write(root.join(path), "{}").unwrap();
+    }
+    let issued = format!("{}//", root.display());
+    for (scope, glob, expected) in [
+        (
+            format!("{}/{{a,b}}/rollout-*.jsonl", root.display()),
+            "**/rollout-*.jsonl",
+            2,
+        ),
+        (
+            format!("{}/rollout-[^a].jsonl", root.display()),
+            "rollout-*.jsonl",
+            1,
+        ),
+    ] {
+        let manifest = parse_manifest(
+            json!({"id":"fx-scope","version":"1.0.0","publisher":"fixture",
+            "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":[scope]}]}),
+        )
+        .unwrap();
+        let resources = CallResources {
+            reads: vec![ReadResource {
+                path: issued.clone(),
+                kind: "codex-logs".into(),
+            }],
+            ..Default::default()
+        };
+        let authority = CallAuthority::new(
+            resources.clone(),
+            ["fs.read".into()],
+            Instant::now() + Duration::from_secs(5),
+        );
+        let mut broker = CapabilityBroker::new(manifest, authority, vec![])
+            .with_native_read(&resources.reads)
+            .unwrap();
+        let mut effect = Echo { calls: 0 };
+        let result = broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":root,"glob":glob}),
+                &mut effect,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result["files"].as_array().unwrap().len(),
+            expected,
+            "{scope}"
+        );
+        assert_eq!(effect.calls, 0);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn list_normalizes_valid_directory_and_rejects_unknown_fields() {
     let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture",
         "host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();

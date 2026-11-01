@@ -189,6 +189,25 @@ test("listing negated classes and brace alternatives retain scan visibility", as
   } finally { await f.authority.revoke(); }
 });
 
+test("issued log roots normalize and listing scopes use Bun brace and negated class matching", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, "a")); mkdirSync(join(f.sessions, "b"));
+  for (const path of ["a/rollout-a.jsonl", "b/rollout-b.jsonl", "rollout-b.jsonl"])
+    writeFileSync(join(f.sessions, path), "{}");
+  const issued = createCallAuthority(f.ctx, { reads: [{ path: f.sessions + "//", kind: "codex-logs" }], commands: [], stores: [] },
+    { deadlineMs: Date.now() + 10000, grants: ["fs.read"], accountHome: f.accountHome });
+  await prepareFilesystemAuthority(issued);
+  try {
+    for (const [scope, glob, expected] of [
+      [join(f.sessions, "{a,b}", "rollout-*.jsonl"), "**/rollout-*.jsonl", [join(f.sessions, "a/rollout-a.jsonl"), join(f.sessions, "b/rollout-b.jsonl")]],
+      [join(f.sessions, "rollout-[^a].jsonl"), "rollout-*.jsonl", [join(f.sessions, "rollout-b.jsonl")]],
+    ] as const) {
+      const result = await answerFilesystem(issued, [scope], "capability.fs.list", { dir: f.sessions, glob }) as { files: { path: string }[] };
+      expect(result.files.map(file => file.path).sort()).toEqual([...expected].sort());
+    }
+  } finally { await Promise.all([issued.revoke(), f.authority.revoke()]); }
+});
+
 test("large or heavily escaped reads require bounded ranges, and stale size never yields partial bytes", async () => {
   const f = await resources();
   writeFileSync(f.allowed, Buffer.alloc(200000));

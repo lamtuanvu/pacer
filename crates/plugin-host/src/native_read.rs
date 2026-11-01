@@ -60,7 +60,11 @@ impl NativeRead {
                 Err(_) => return Err(BrokerError::Invalid("read root unavailable")),
             };
             let image = Image {
-                path: resource.path.clone(),
+                path: if resource.kind == "codex-logs" {
+                    crate::authority::normalize_path(&resource.path)
+                } else {
+                    resource.path.clone()
+                },
                 logical_parent: logical_parent.to_path_buf(),
                 parent,
                 parent_identity,
@@ -112,7 +116,7 @@ impl NativeRead {
             .and_then(Value::as_str)
             .ok_or(BrokerError::Invalid("glob"))?;
         if glob.is_empty()
-            || glob.len() > 4096
+            || crate::js_semantics::utf16_len(glob) > 4096
             || glob.starts_with('/')
             || glob.contains('\0')
             || glob
@@ -123,8 +127,7 @@ impl NativeRead {
         }
         let limit = match params.get("limit") {
             None => 1000,
-            Some(value) => value
-                .as_u64()
+            Some(value) => crate::js_semantics::safe_u64(value)
                 .filter(|n| (1..=1000).contains(n))
                 .ok_or(BrokerError::Invalid("list limit"))? as usize,
         };
@@ -332,11 +335,11 @@ impl NativeRead {
         let (offset, length) = if method == "capability.fs.readRange" {
             let offset = params
                 .get("offset")
-                .and_then(Value::as_u64)
+                .and_then(crate::js_semantics::safe_u64)
                 .ok_or(BrokerError::Invalid("offset"))?;
             let length = params
                 .get("length")
-                .and_then(Value::as_u64)
+                .and_then(crate::js_semantics::safe_u64)
                 .filter(|n| *n <= CHUNK)
                 .ok_or(BrokerError::Invalid("length"))?;
             let expected = params
@@ -445,10 +448,10 @@ fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), B
     let stat = fstatat(&directory, name, AtFlags::AT_SYMLINK_NOFOLLOW)
         .map_err(|_| BrokerError::Invalid("read entry changed"))?;
     if SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT) != SFlag::S_IFREG
-        || item["inode"].as_u64() != Some(stat.st_ino)
-        || item["device"].as_u64() != Some(stat.st_dev as u64)
-        || item["size"].as_u64() != Some(stat.st_size as u64)
-        || item["mode"].as_u64() != Some(stat.st_mode as u64)
+        || crate::js_semantics::safe_u64(&item["inode"]) != Some(stat.st_ino)
+        || crate::js_semantics::safe_u64(&item["device"]) != Some(stat.st_dev as u64)
+        || crate::js_semantics::safe_u64(&item["size"]) != Some(stat.st_size as u64)
+        || crate::js_semantics::safe_u64(&item["mode"]) != Some(stat.st_mode as u64)
         || item["mtimeMs"].as_f64()
             != Some(stat.st_mtime as f64 * 1000.0 + stat.st_mtime_nsec as f64 / 1e6)
     {
@@ -463,6 +466,33 @@ struct ScanPattern {
 }
 
 fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<ScanPattern>, BrokerError> {
+    expand_braces_mode(input, deadline, true)
+}
+
+pub(crate) fn matches_bun_scope(pattern: &str, path: &str) -> Result<bool, BrokerError> {
+    let alternatives = expand_braces_mode(
+        pattern,
+        Instant::now() + std::time::Duration::from_secs(5),
+        false,
+    )?;
+    Ok(alternatives.iter().any(|alternative| {
+        glob::Pattern::new(&alternative.glob).is_ok_and(|pattern| {
+            pattern.matches_with(
+                path,
+                glob::MatchOptions {
+                    require_literal_separator: true,
+                    ..Default::default()
+                },
+            )
+        })
+    }))
+}
+
+fn expand_braces_mode(
+    input: &str,
+    deadline: Instant,
+    scan: bool,
+) -> Result<Vec<ScanPattern>, BrokerError> {
     // Keep each byte's original component visibility. A dot introduced by brace
     // expansion is not an explicit dot in Bun.Glob.scan's source pattern.
     let mut source_dot = Vec::with_capacity(input.len());
@@ -543,7 +573,7 @@ fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<ScanPattern>, Bro
         };
         // Bun.Glob.scan does not enumerate patterns whose brace expression
         // spans path components, even when another alternative has no slash.
-        if bytes[start..=end].contains(&b'/') {
+        if scan && bytes[start..=end].contains(&b'/') {
             return Ok(Vec::new());
         }
         let mut start_alt = start + 1;
@@ -681,14 +711,14 @@ fn stat_info(path: &str, stat: &FileStat) -> Value {
 }
 
 fn expected_identity(value: &Value, meta: &Metadata) -> bool {
-    value.get("size").and_then(Value::as_u64) == Some(meta.len())
-        && value.get("inode").and_then(Value::as_u64) == Some(meta.ino())
-        && value.get("device").and_then(Value::as_u64) == Some(meta.dev())
+    value.get("size").and_then(crate::js_semantics::safe_u64) == Some(meta.len())
+        && value.get("inode").and_then(crate::js_semantics::safe_u64) == Some(meta.ino())
+        && value.get("device").and_then(crate::js_semantics::safe_u64) == Some(meta.dev())
         && value.get("mtimeMs").and_then(Value::as_f64)
             == Some(meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6)
         && value
             .get("mode")
-            .is_none_or(|v| v.as_u64() == Some(meta.mode() as u64))
+            .is_none_or(|v| crate::js_semantics::safe_u64(v) == Some(meta.mode() as u64))
 }
 
 #[cfg(test)]

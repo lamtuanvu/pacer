@@ -169,7 +169,7 @@ impl CapabilityBroker {
                 forwarded["dir"] = json!(dir);
                 let pattern = field("glob")?;
                 if pattern.is_empty()
-                    || pattern.len() > 4096
+                    || crate::js_semantics::utf16_len(pattern) > 4096
                     || pattern.starts_with('/')
                     || pattern.contains('\0')
                     || pattern
@@ -179,8 +179,7 @@ impl CapabilityBroker {
                     return Err(BrokerError::Invalid("read glob"));
                 }
                 if p.get("limit").is_some_and(|value| {
-                    value
-                        .as_u64()
+                    crate::js_semantics::safe_u64(value)
                         .is_none_or(|limit| !(1..=1000).contains(&limit))
                 }) {
                     return Err(BrokerError::Invalid("list limit"));
@@ -202,7 +201,7 @@ impl CapabilityBroker {
                 }
                 if method == "capability.fs.write"
                     && p.get("mode")
-                        .is_some_and(|mode| mode.as_u64() != Some(0o600))
+                        .is_some_and(|mode| crate::js_semantics::safe_u64(mode) != Some(0o600))
                 {
                     return Err(BrokerError::Invalid("write mode"));
                 }
@@ -216,10 +215,10 @@ impl CapabilityBroker {
                 }
                 let size = p
                     .get("bytes")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
-                let mode = p.get("mode").map(|mode| mode.as_u64());
+                let mode = p.get("mode").map(crate::js_semantics::safe_u64);
                 if mode.is_some_and(|mode| mode != Some(0o600)) {
                     return Err(BrokerError::Invalid("write mode"));
                 }
@@ -239,7 +238,7 @@ impl CapabilityBroker {
                         field("handle")?,
                         usize::try_from(
                             p.get("offset")
-                                .and_then(Value::as_u64)
+                                .and_then(crate::js_semantics::safe_u64)
                                 .ok_or(BrokerError::Invalid("offset"))?,
                         )
                         .map_err(|_| BrokerError::Invalid("offset"))?,
@@ -292,7 +291,7 @@ impl CapabilityBroker {
                     .collect::<Result<Vec<_>, _>>()?;
                 let ms = p
                     .get("timeoutMs")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("timeoutMs"))?;
                 let issued = self.authority.command(
                     &argv,
@@ -327,7 +326,7 @@ impl CapabilityBroker {
                     return Err(BrokerError::Invalid("HTTP method"));
                 }
                 p.get("timeoutMs")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .filter(|ms| (1..=120_000).contains(ms))
                     .ok_or(BrokerError::Invalid("HTTP timeoutMs"))?;
                 if p.keys().any(|key| {
@@ -399,7 +398,7 @@ impl CapabilityBroker {
                     if let Some(handle) = body.get("handle").and_then(Value::as_str) {
                         if body.as_object().is_none_or(|obj| obj.len() != 1)
                             || handle.is_empty()
-                            || handle.len() > 256
+                            || crate::js_semantics::codepoint_len(handle) > 256
                         {
                             return Err(BrokerError::Invalid("HTTP upload handle"));
                         }
@@ -420,7 +419,7 @@ impl CapabilityBroker {
                 self.feature("httpBodyChunks")?;
                 let size = p
                     .get("bytes")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
                 let handle = self
@@ -433,7 +432,7 @@ impl CapabilityBroker {
                 self.feature("httpBodyChunks")?;
                 let offset = p
                     .get("offset")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("offset"))?;
                 let offset = usize::try_from(offset).map_err(|_| BrokerError::Invalid("offset"))?;
                 let bytes = self
@@ -451,11 +450,11 @@ impl CapabilityBroker {
                 self.feature("httpBodyChunks")?;
                 let offset = p
                     .get("offset")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("offset"))?;
                 let length = p
                     .get("length")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("length"))?;
                 let data = self
                     .transfers
@@ -499,7 +498,7 @@ impl CapabilityBroker {
                 let task = field("taskId")?;
                 let attempt = p
                     .get("attempt")
-                    .and_then(Value::as_u64)
+                    .and_then(crate::js_semantics::safe_u64)
                     .ok_or(BrokerError::Invalid("attempt"))?;
                 let sha = field("baseSha")?;
                 self.authority.consume_worktree(task, attempt, sha)?;
@@ -508,7 +507,7 @@ impl CapabilityBroker {
                 self.authority.worktree(
                     field("taskId")?,
                     p.get("attempt")
-                        .and_then(Value::as_u64)
+                        .and_then(crate::js_semantics::safe_u64)
                         .ok_or(BrokerError::Invalid("attempt"))?,
                 )?;
             }
@@ -552,11 +551,11 @@ impl CapabilityBroker {
                         .collect::<Result<Vec<_>, _>>()?,
                     timeout_ms: p
                         .get("timeoutMs")
-                        .and_then(Value::as_u64)
+                        .and_then(crate::js_semantics::safe_u64)
                         .ok_or(BrokerError::Invalid("timeout"))?,
                     max_bytes: p
                         .get("maxBytes")
-                        .and_then(Value::as_u64)
+                        .and_then(crate::js_semantics::safe_u64)
                         .ok_or(BrokerError::Invalid("bytes"))?,
                 };
                 hosts
@@ -625,7 +624,7 @@ impl CapabilityBroker {
         let method_deadline = self.method_deadline(method);
         let requested_deadline = if method == "capability.net.http" {
             p.get("timeoutMs")
-                .and_then(Value::as_u64)
+                .and_then(crate::js_semantics::safe_u64)
                 .map(|ms| Instant::now() + Duration::from_millis(ms))
         } else {
             None

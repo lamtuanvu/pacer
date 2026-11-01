@@ -540,6 +540,48 @@ fn structured_scan_corpus_matches_bun_listing() {
 }
 
 #[test]
+fn structured_scope_corpus_matches_bun_glob_match() {
+    let components = ["a", "b", ".hidden", "rollout-a.jsonl", "rollout-b.jsonl"];
+    let patterns = [
+        "/tmp/logs/{a,b}/rollout-*.jsonl",
+        "/tmp/logs/{a,{b,.hidden}}/rollout-[^a].jsonl",
+        "/tmp/logs/{a/b,b}/rollout-*.jsonl",
+        "/tmp/logs/**/rollout-*.jsonl",
+        "/tmp/logs/rollout-[^a].jsonl",
+    ];
+    let paths: Vec<_> = components
+        .iter()
+        .flat_map(|dir| {
+            components
+                .iter()
+                .map(move |file| format!("/tmp/logs/{dir}/{file}"))
+        })
+        .chain(components.iter().map(|file| format!("/tmp/logs/{file}")))
+        .collect();
+    let corpus = json!({"patterns":patterns,"paths":paths});
+    let script = "const {patterns,paths}=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(patterns.map(p=>paths.map(x=>new Bun.Glob(p).match(x)))));";
+    let output = Command::new("bun")
+        .args(["-e", script, &corpus.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Vec<bool>> = serde_json::from_slice(&output.stdout).unwrap();
+    for (pattern, row) in patterns.iter().zip(expected) {
+        for (path, bun_match) in paths.iter().zip(row) {
+            assert_eq!(
+                matches_bun_scope(pattern, path).unwrap(),
+                bun_match,
+                "pattern={pattern:?} path={path:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn listing_rejects_descendant_moved_outside_root() {
     let home = std::env::temp_dir().join(format!("pacer-outside-swap-{}", uuid::Uuid::new_v4()));
     let root = home.join("logs");
