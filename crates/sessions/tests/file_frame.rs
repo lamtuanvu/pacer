@@ -9,6 +9,47 @@ use pacer_sessions::{
 use serde_json::{Value, json};
 use std::fs;
 
+#[test]
+fn atomic_replacement_never_exposes_partial_file_and_cleans_failed_temp() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("session.ckpt");
+    fs::write(&target, b"complete old checkpoint").unwrap();
+    let failure = files::atomic_replace_with(&target, |temp| {
+        use std::io::Write;
+        temp.write_all(b"partial")?;
+        assert_eq!(fs::read(&target).unwrap(), b"complete old checkpoint");
+        Err(std::io::Error::other("injected write failure"))
+    });
+    assert!(failure.is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"complete old checkpoint");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+
+    files::atomic_replace_with(&target, |temp| {
+        use std::io::Write;
+        temp.write_all(b"partial")?;
+        assert_eq!(fs::read(&target).unwrap(), b"complete old checkpoint");
+        temp.write_all(b"complete new checkpoint")
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read(&target).unwrap(),
+        b"partialcomplete new checkpoint"
+    );
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
+
 fn golden() -> Value {
     serde_json::from_str(include_str!(
         "../../../test/fixtures/sessions/host-parity.json"
@@ -606,31 +647,4 @@ fn integral_decimal_persisted_shape_numbers_deserialize() {
     assert_eq!(state.viewers, 1);
     let checkpoint: files::Checkpoint = serde_json::from_str(r#"{"generation":0.0,"outputOffset":2.0,"cols":120.0,"rows":40.0,"scrollbackAnsi":"","screenAnsi":"","modes":{}}"#).unwrap();
     assert_eq!(checkpoint.output_offset, 2);
-}
-
-#[cfg(unix)]
-#[test]
-fn typescript_writer_modes_are_owner_only_under_both_umasks() {
-    use std::process::Command;
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for mask in ["022", "077"] {
-        let dir = tempfile::tempdir().unwrap();
-        let output = Command::new("bun")
-            .arg("test/fixtures/sessions/write-modes.ts")
-            .current_dir(&repo)
-            .env("PACER_TEST_DIR", dir.path())
-            .env("PACER_TEST_UMASK", mask)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let modes: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(modes["dir"], 0o700, "umask {mask}");
-        for name in ["version", "log", "checkpoint", "stdout"] {
-            assert_eq!(modes[name], 0o600, "umask {mask}, {name}");
-        }
-    }
 }

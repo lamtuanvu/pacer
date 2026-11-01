@@ -1,6 +1,5 @@
-import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { appendFileSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { decodeLog, encodeHeader, encodeRecord, type Frame } from "./framing";
 import { PlainText } from "./plain";
 import { Screen, type Checkpoint } from "./screen";
@@ -11,21 +10,21 @@ export class Recording extends Screen {
   private startedAt = Date.now()/1000;
   private cap: number;
   constructor(readonly dir:string, options: {capBytes?:number} = {}) {
-    super(); chmodSync(dir,0o700); this.cap=options.capBytes ?? 8*1024*1024; this.newLog(); this.checkpoint();
+    super(); this.cap=options.capBytes ?? 8*1024*1024; this.newLog(); this.checkpoint();
   }
   disable() { this.enabled=false; }
   /** A full disk must disable recording, never terminate the agent. */
   private disk(fn:()=>void) { if (this.enabled) try { fn(); } catch { this.enabled=false; } }
   private newLog() {
     const h=encodeHeader({cols:this.term.cols,rows:this.term.rows,startedAt:this.startedAt,generation:this.generation,outputOffset:this.outputOffset});
-    this.disk(()=>atomicWrite(join(this.dir,"session.log"),h)); this.size=h.length;
+    this.disk(()=>writeFileSync(join(this.dir,"session.log"),h,{mode:0o600})); this.size=h.length;
   }
   checkpoint() {
-    this.disk(()=>atomicWrite(join(this.dir,"session.ckpt"),JSON.stringify(this.snapshot())));
+    this.disk(()=> { const p=join(this.dir,"session.ckpt"); writeFileSync(`${p}.tmp`,JSON.stringify(this.snapshot()),{mode:0o600}); renameSync(`${p}.tmp`,p); });
   }
   private record(type:number,data:Uint8Array) {
     const frame=encodeRecord(type,(Date.now()/1000-this.startedAt)*1000,data);
-    this.disk(()=>atomicAppend(join(this.dir,"session.log"),frame)); this.size+=frame.length;
+    this.disk(()=>appendFileSync(join(this.dir,"session.log"),frame)); this.size+=frame.length;
     if(this.size >= this.cap && this.transcript.atBoundary) {
       this.checkpoint();
       this.disk(()=>renameSync(join(this.dir,"session.log"),join(this.dir,"session.log.1")));
@@ -37,7 +36,7 @@ export class Recording extends Screen {
     await super.output(data);
     const plain=this.transcript.push(data);
     this.record(1,data);
-    if(plain) this.disk(()=>atomicAppend(join(this.dir,"stdout"),plain));
+    if(plain) this.disk(()=>appendFileSync(join(this.dir,"stdout"),plain,{mode:0o600}));
   }
   /** Resume only when the complete requested suffix still exists in retained generations. */
   since(from:number): Buffer[] | null {
@@ -50,19 +49,7 @@ export class Recording extends Screen {
     this.record(2,bytes);
   }
   marker(event:string,label:string) { this.record(3,Buffer.from(JSON.stringify({event,label}))); }
-  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>atomicAppend(join(this.dir,"stdout"),tail)); this.dispose(); }
-}
-
-function atomicWrite(path:string,data:Uint8Array|string):void {
-  chmodSync(dirname(path),0o700);
-  const temp=`${path}.${randomUUID()}.tmp`;
-  try { writeFileSync(temp,data,{flag:"wx",mode:0o600}); renameSync(temp,path); }
-  finally { rmSync(temp,{force:true}); }
-}
-
-function atomicAppend(path:string,data:Uint8Array|string):void {
-  const prior=existsSync(path)?readFileSync(path):Buffer.alloc(0);
-  atomicWrite(path,Buffer.concat([prior,Buffer.from(data)]));
+  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>appendFileSync(join(this.dir,"stdout"),tail,{mode:0o600})); this.dispose(); }
 }
 /** Read a gap-free suffix shared by live resume and offline replay. */
 function recordingSince(dir:string,from:number,outputOffset:number):Buffer[]|null {

@@ -1,5 +1,35 @@
 //! Persisted `session.*` JSON shapes and retention names. ANSI remains opaque.
 use serde::{Deserialize, Serialize};
+use std::{fs, io, path::Path};
+
+/// Write a complete replacement beside `path`, then publish it in one rename.
+/// A failed writer leaves the previous destination intact and drops the temp file.
+pub fn atomic_replace_with(
+    path: &Path,
+    write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("missing parent directory"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    }
+    let mut temp = tempfile::Builder::new()
+        .prefix(".session-")
+        .suffix(".tmp")
+        .tempfile_in(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    write(temp.as_file_mut())?;
+    temp.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -12,6 +12,27 @@ const golden = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/sessions/
 const corpus = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/sessions/host-corpus.json"), "utf8"));
 const view = (frames: {type:number;data:Buffer}[]) => frames.map(f => ({type:f.type,data:f.data.toString("hex")}));
 
+test("TS recording keeps the append writer until its dedicated SEC-7 change", async () => {
+  const dir=mkdtempSync(join(tmpdir(),"pacer-session-append-"));
+  try {
+    const recording=new Recording(dir);
+    const log=join(dir,"session.log");
+    const inode=statSync(log).ino;
+    for(let n=0;n<32;n++) await recording.output(Buffer.from("frame\n"));
+    await recording.close();
+    expect(statSync(log).ino).toBe(inode);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("TS version writer leaves the existing directory mode for the dedicated SEC-7 change", () => {
+  const dir=mkdtempSync(join(tmpdir(),"pacer-session-version-"));
+  try {
+    chmodSync(dir,0o755);
+    writeSessionVersion(dir,null);
+    expect(statSync(dir).mode&0o777).toBe(0o755);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
 test("TS log and wire format match captured host bytes, including a torn tail", () => {
   const raw = Buffer.concat([encodeHeader(golden.header),encodeRecord(1,12.9,Buffer.from("hello")),encodeRecord(2,13,Buffer.from([0,80,0,24])),Buffer.from([1,0,0])]);
   expect(raw.toString("hex")).toBe(golden.logHex);
@@ -130,27 +151,4 @@ test("seeded TS JSON numbers and version strings retain reader semantics", () =>
       expect(readRecording(dir).frames.map(f=>f.data.toString("hex"))).toEqual(row.readFrames);
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
-test("session writers atomically replace owner-only state under common umasks", async () => {
-  for(const mask of [0o022,0o077]) {
-    const dir=mkdtempSync(join(tmpdir(),"pacer-session-modes-"));
-    const prior=process.umask(mask);
-    try {
-      chmodSync(dir,0o777);
-      writeFileSync(join(dir,"session.version"),"old");chmodSync(join(dir,"session.version"),0o666);
-      writeSessionVersion(dir,null);
-      expect(statSync(dir).mode&0o777).toBe(0o700);
-      expect(statSync(join(dir,"session.version")).mode&0o777).toBe(0o600);
-      const recording=new Recording(dir);
-      chmodSync(dir,0o777);
-      chmodSync(join(dir,"session.log"),0o666);
-      chmodSync(join(dir,"session.ckpt"),0o666);
-      writeFileSync(join(dir,"stdout"),"");chmodSync(join(dir,"stdout"),0o666);
-      await recording.output(Buffer.from("abc\n"));recording.checkpoint();await recording.close();
-      expect(statSync(dir).mode&0o777).toBe(0o700);
-      for(const name of ["session.log","session.ckpt","stdout"]) expect(statSync(join(dir,name)).mode&0o777).toBe(0o600);
-      expect(readdirSync(dir).filter(name=>name.endsWith(".tmp"))).toEqual([]);
-    } finally {process.umask(prior);rmSync(dir,{recursive:true,force:true});}
-  }
 });
