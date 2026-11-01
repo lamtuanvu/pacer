@@ -23,7 +23,12 @@ test("native requirements must name an operation that was exercised", async () =
 test("one native marker cannot cover two correlated calls", async () => {
   await expect(run("native-once", { native: ["write"], steps: [
     { op: "write", params: { value: "kept" } }, { op: "write", params: { value: "kept" } },
-  ] })).rejects.toThrow("expected 2 call(s)");
+  ] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("front-loaded native markers cannot cover a later call", async () => {
+  await expect(run("native-frontloaded", { native: ["write"], steps: [
+    { op: "write", params: { value: "kept" } }, { op: "write", params: { value: "kept" } },
+  ] })).rejects.toThrow("native execution evidence unavailable");
 });
 test("business timestamps and IDs are compared exactly by default", async () => { await expect(run("timestamp")).rejects.toThrow("response mismatch"); });
 test("real TypeScript stdio reference smoke", async () => {

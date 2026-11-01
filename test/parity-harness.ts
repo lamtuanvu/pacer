@@ -60,7 +60,7 @@ class Session {
       }
     })();
   }
-  nativeEvidenceCount(op: string): number { return this.stderr.split("\n").filter(line => line === `native ${op}`).length; }
+  nativeEvidenceCount(op: string, id: number): number { return this.stderr.split("\n").filter(line => line === `native ${op} ${id}`).length; }
   async ready(startup: NonNullable<ParityOptions["startup"]>) {
     await within(startup.timeoutMs, "stdio startup timed out", async () => {
       if (!this.startupReady) throw Error("missing stdio startup contract");
@@ -161,6 +161,7 @@ export async function parity(options: ParityOptions): Promise<void> {
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw Error("timeoutMs must be positive and finite");
   if (options.startup && (!options.startup.readyLine || options.startup.readyLine.includes("\n") || options.startup.readyLine.length > 8192 || !Number.isFinite(options.startup.timeoutMs) || options.startup.timeoutMs <= 0)) throw Error("invalid startup readiness contract");
   const nativeCalls = new Map<string, number>();
+  const nativeRequests: { op: string; id: number }[] = [];
   for (const op of options.native ?? []) {
     const count = options.steps.filter(step => step.op === op).length;
     if (!count) throw Error(`native requirement ${op} has no operation step`);
@@ -186,6 +187,7 @@ export async function parity(options: ParityOptions): Promise<void> {
         if (step.expect === "error" && !Object.hasOwn(reply, "error")) throw Error(`${step.op}: expected error`);
       }
       compare("response", replies[0], replies[1]);
+      if (nativeCalls.has(step.op)) nativeRequests.push({ op: step.op, id: replies[1]!.id });
     }
     if (nativeCalls.size) {
       const evidence = await sessions[1]!.request({ op: "_debug.native" }, options.timeoutMs ?? 5000);
@@ -193,9 +195,9 @@ export async function parity(options: ParityOptions): Promise<void> {
         throw Error(`native execution evidence unavailable for ${[...nativeCalls.keys()].join(", ")}; migration parity is UNVERIFIED`);
     }
     await Promise.all(sessions.map(session => session.finish(options.timeoutMs ?? 5000)));
-    for (const [op, count] of nativeCalls) {
-      if (sessions[1]!.nativeEvidenceCount(op) < count)
-        throw Error(`native execution evidence unavailable for ${op}: expected ${count} call(s); migration parity is UNVERIFIED`);
+    for (const { op, id } of nativeRequests) {
+      if (sessions[1]!.nativeEvidenceCount(op, id) < 1)
+        throw Error(`native execution evidence unavailable for ${op} request ${id}; migration parity is UNVERIFIED`);
     }
     compare("filesystem", tree(homes[0]!), tree(homes[1]!));
   } finally {

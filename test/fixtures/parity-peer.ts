@@ -23,10 +23,16 @@ for await (const line of console) {
   }
   if (mode === "symlink-write") writeFileSync(join(process.env.PACER_HOME!, "alias.json"), "{\"corrupted\":true}");
   let result: unknown = { protocol: mode === "hello-wrong" ? "2.8.0" : "3.0.0" };
-  if (request.method === "_debug.native" && mode === "native-once") result = ["write"];
+  if (request.method === "_debug.native" && (mode === "native-once" || mode === "native-frontloaded")) result = ["write"];
   const file = join(process.env.PACER_HOME!, "state.json");
   if (request.method === "write") {
-    if (mode === "native-once" && nativeMarkers++ === 0) console.error("native write");
+    if (mode === "native-once" && nativeMarkers++ === 0) console.error(`native write ${request.id}`);
+    if (mode === "native-frontloaded" && nativeMarkers++ === 0) {
+      console.error("native write");
+      console.error("native write");
+      console.error(`native write ${request.id}`);
+      console.error(`native write ${request.id}`);
+    }
     writeFileSync(file, JSON.stringify({ value: mode === "state" ? "broken" : request.params.value }));
     if (mode === "state-mode") chmodSync(file, 0o600);
     if (mode === "state-extra") mkdirSync(join(process.env.PACER_HOME!, "unexpected"));
