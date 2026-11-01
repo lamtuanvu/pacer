@@ -8,3 +8,4 @@ export const readDesktopVersion = (host?: DesktopHost) => adapter(host).readDesk
 export const readDesktopUpdateConnection = (host?: DesktopHost) => adapter(host).readDesktopUpdateConnection();
 export const openDesktopTakeover = (host?: DesktopHost) => adapter(host).openDesktopTakeover();
 export const windowControls = (host?: DesktopHost) => adapter(host).windowControls;
+export const isDesktop = (host?: DesktopHost) => adapter(host).desktop;

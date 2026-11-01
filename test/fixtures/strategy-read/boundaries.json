@@ -1,0 +1,337 @@
+[
+  {
+    "name": "boundary-localhost-repo",
+    "raw": {
+      "planner": "codex",
+      "providers": {
+        "codex": {}
+      },
+      "hosts": {
+        "build": {
+          "ssh": "worker-1",
+          "repos": {
+            "localhost/owner/repo": "/tmp/repo"
+          },
+          "accounts": {
+            "work": {
+              "home": "/srv/codex"
+            }
+          }
+        }
+      }
+    },
+    "expected": {
+      "name": "boundary-localhost-repo",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {
+        "build": {
+          "alias": "build",
+          "ssh": "worker-1",
+          "repos": {
+            "localhost/owner/repo": "/tmp/repo"
+          },
+          "maxTasks": 2,
+          "accounts": {
+            "work": {
+              "home": "/srv/codex"
+            }
+          },
+          "paused": false
+        }
+      },
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "boundary-one-char-endpoint",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "e": {
+          "kind": "endpoint",
+          "usage": "metered",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "env:EDGE_KEY",
+            "models": [
+              {
+                "id": "fast",
+                "name": "Fast",
+                "context": 32000,
+                "output": 4000,
+                "tools": true,
+                "extra": "ignored"
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "edge": {
+          "agent": "opencode",
+          "account": "e"
+        }
+      }
+    },
+    "expected": {
+      "name": "boundary-one-char-endpoint",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "e": {
+          "name": "e",
+          "model": null,
+          "kind": "endpoint",
+          "source": "endpoint",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "metered",
+          "usageSource": "metered",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false,
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "https://example.com/v1",
+            "key": "env:EDGE_KEY",
+            "models": [
+              {
+                "id": "fast",
+                "name": "Fast",
+                "context": 32000,
+                "output": 4000,
+                "tools": true
+              }
+            ]
+          }
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "opencode#e": {
+          "id": "opencode#e",
+          "name": "opencode#e",
+          "host": null,
+          "agent": "opencode",
+          "account": "e",
+          "model": "pacer-e/fast"
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "edge": "opencode#e",
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "opencode#e": {
+          "id": "opencode#e",
+          "via": "opencode",
+          "model": "pacer-e/fast",
+          "usage": "metered",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex",
+          "opencode#e"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex",
+            "opencode#e"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "boundary-malformed-endpoint-url",
+    "raw": {
+      "accounts": {
+        "codex": {
+          "kind": "codex"
+        },
+        "edge": {
+          "kind": "endpoint",
+          "usage": "metered",
+          "connection": {
+            "api": "openai-compatible",
+            "base_url": "http://%",
+            "key": "env:EDGE_KEY",
+            "models": [
+              {
+                "id": "fast",
+                "name": "Fast",
+                "context": 32000,
+                "output": 4000,
+                "tools": true,
+                "extra": "ignored"
+              }
+            ]
+          }
+        }
+      },
+      "planner": "codex",
+      "runners": {
+        "edge": {
+          "agent": "opencode",
+          "account": "edge"
+        }
+      }
+    },
+    "problems": [
+      "accounts.edge.connection.base_url must be an http(s) URL without credentials",
+      "runner opencode#edge: model must look like \"<provider>/<model>\""
+    ]
+  }
+]
