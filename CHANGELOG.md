@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-01
+
 ### Added
 
 - Native operation routing in the Rust front door for authenticated v3 HTTP and accepted protocol 3 stdio sessions. The production registry starts empty; `PACER_FORWARD_OPS` can force registered operations through the TypeScript core.
