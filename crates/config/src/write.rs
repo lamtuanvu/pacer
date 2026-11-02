@@ -1,13 +1,10 @@
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fs,
     io::{self, Write},
     path::Path,
-    sync::atomic::{AtomicU64, Ordering},
 };
-
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Write next to the existing strategy, then rename so readers see complete YAML.
 /// Strategy state is private even when the previous file or parent was permissive.
@@ -24,18 +21,7 @@ pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
         .unwrap_or(Path::new("."));
     #[cfg(unix)]
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-    let suffix = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    let temp = path.with_file_name(format!(
-        "{}.{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id(),
-        suffix
-    ));
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&temp)?;
+    let (temp, mut file) = crate::temp_file::create(path)?;
     let result = (|| {
         file.write_all(text.as_bytes())?;
         file.flush()?;

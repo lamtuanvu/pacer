@@ -1,0 +1,78 @@
+{
+  "sent": {
+    "duplicate": false,
+    "delivery": "turn_started",
+    "message": {
+      "body": "also handle 😀",
+      "kind": "message",
+      "status": "pending"
+    }
+  },
+  "duplicate": {
+    "duplicate": true,
+    "delivery": "queued"
+  },
+  "mismatch": {
+    "error": {
+      "code": "conflict",
+      "message": "That request id was already used for a different message"
+    }
+  },
+  "spawns": 1,
+  "queued": {
+    "state": "queued",
+    "executor": "codex",
+    "nativeId": "native-id",
+    "pending": {
+      "executor": "codex",
+      "session": {
+        "id": "native-id",
+        "source": "header"
+      }
+    }
+  },
+  "prompt": {
+    "message": true,
+    "original": false
+  },
+  "reports": [
+    {
+      "body": "[done] second report",
+      "kind": "report",
+      "status": "pending"
+    }
+  ],
+  "promptHookOutput": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"pacer: you have 1 message(s) waiting:\\n- task:$TASK (report, $REPORT0): [done] second report\\nReply with `pacer msg send $TASK \\\"…\\\"` (or `--answer <id>`); mark read with `pacer msg read <ids>`.\"}}",
+  "blocks": [
+    "{\"decision\":\"block\",\"reason\":\"pacer: you have 1 message(s) waiting before you stop:\\n- task:$TASK (report, $REPORT0): [done] second report\\nReply with `pacer msg send $TASK \\\"…\\\"` (or `--answer <id>`); mark read with `pacer msg read <ids>`.\"}",
+    "{\"decision\":\"block\",\"reason\":\"pacer: you have 1 message(s) waiting before you stop:\\n- task:$TASK (report, $REPORT0): [done] second report\\nReply with `pacer msg send $TASK \\\"…\\\"` (or `--answer <id>`); mark read with `pacer msg read <ids>`.\"}",
+    ""
+  ],
+  "executorHook": "",
+  "inbox": {
+    "participant": "external:claude-code:s1",
+    "messages": [
+      {
+        "body": "[done] second report",
+        "kind": "report",
+        "status": "pending"
+      }
+    ]
+  },
+  "wait": {
+    "participant": "external:claude-code:s1",
+    "messages": [
+      {
+        "body": "[done] second report",
+        "kind": "report",
+        "status": "read"
+      }
+    ],
+    "timedOut": false
+  },
+  "readInbox": {
+    "participant": "external:claude-code:s1",
+    "messages": []
+  },
+  "pendingAfterEnd": null
+}

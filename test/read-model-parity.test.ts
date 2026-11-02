@@ -1,7 +1,7 @@
-import { expect, spyOn, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { liveSnapshot, liveV2Snapshot, eventsSince } from "../src/api/events";
+import { liveSnapshot as tsSnapshot, liveV2Snapshot as tsV2Snapshot, eventsSince } from "../src/api/events";
 import { handleV2 } from "../src/api/http";
 import { publish } from "../src/link/publish";
 import { appendOutbox } from "../src/link/store";
@@ -10,14 +10,18 @@ import { consolePath, outboxPath } from "../src/link/paths";
 import { createTask, updateTask } from "../src/tasks/store";
 import { insertMessage } from "../src/messaging/store";
 import { updateState } from "../src/discovery/state";
-import { fakeCtx } from "./helpers";
 import { writeJsonAtomic } from "../src/fsutil";
 import { taskData } from "../src/link/pump";
 import { toBudget } from "../src/link/budget";
 import { OUTBOX_KEEP, OUTBOX_MAX_BYTES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
+import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
+import type { Ctx } from "../src/types";
 import { toV2Event, v3OnlyEvent, V3_CURSOR_BASE } from "../src/api/v2-compat";
+
+beforeAll(buildRustProbe, 600_000);
+afterAll(closeRustProbe);
 
 test("snapshot golden covers populated state, errors, boundaries, and legacy transport", () => {
   const contents = JSON.parse(readFileSync(golden, "utf8"));
@@ -145,7 +149,8 @@ test("outbox conversion retains non-discovery attention, notify, and config for 
 const golden = join(import.meta.dir, "fixtures", "read-model", "ts-golden.json");
 const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   let json = JSON.stringify(value);
-  json = json.replaceAll(home, "$HOME");
+  const homes = [...new Set([home, realpathSync(home)])].sort((a, b) => b.length - a.length);
+  for (const path of homes) json = json.replaceAll(path, "$HOME");
   json = json.replaceAll(home.split("/").at(-1)!, "FIXTURE_HOME");
   json = json.replace(/local:[0-9a-f]{12}/g, "local:FIXTURE");
   ids.forEach((id, i) => { json = json.replaceAll(id, `TASK_${i + 1}`); });
@@ -160,6 +165,24 @@ const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   }
   return parsed;
 };
+
+async function checkedSnapshot(ctx: Ctx, options: Parameters<typeof tsSnapshot>[1] = {}, protocol: 2 | 3) {
+  const expected = await (protocol === 3 ? tsSnapshot : tsV2Snapshot)(ctx, options);
+  const actual = await rustSnapshot(ctx, expected, options, protocol);
+  expect(JSON.stringify(normalize(actual, ctx.home, []))).toBe(JSON.stringify(normalize(expected, ctx.home, [])));
+  return expected;
+}
+const liveSnapshot = (ctx: Ctx, options: Parameters<typeof tsSnapshot>[1] = {}) => checkedSnapshot(ctx, options, 3) as ReturnType<typeof tsSnapshot>;
+const liveV2Snapshot = (ctx: Ctx, options: Parameters<typeof tsSnapshot>[1] = {}) => checkedSnapshot(ctx, options, 2) as ReturnType<typeof tsV2Snapshot>;
+test("golden normalization replaces symlinked and canonical home paths", () => {
+  const ctx = fakeCtx();
+  const alias = join(ctx.home, "alias");
+  symlinkSync(ctx.home, alias);
+  expect(normalize([join(alias, "file"), join(realpathSync(alias), "file")], alias, [])).toEqual([
+    "$HOME/file", "$HOME/file",
+  ]);
+});
+
 
 const status = async (ctx: ReturnType<typeof fakeCtx>) => ({ generatedAt: ctx.now, strategy: "default", planner: "codex", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as never;
 
@@ -197,6 +220,10 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
     { type: "entity", data: { kind: "attention", id: "discovery:AAAAAAAAAAAAAAAAAAAAAAAAAA", removed: true } },
     { type: "entity", data: { kind: "counts", id: "counts", value: { attention: 1, running: 0 } } },
   ]);
+  for (const [since, protocol] of [[0,3],[0,2],[1,3],[7,2],[9_007_199_254_740_992,3]] as const) {
+    const actual = await rustRequest(ctx, { op: "events", since, protocol });
+    expect(JSON.stringify(normalize(actual, ctx.home, ids))).toBe(JSON.stringify(normalize(eventsSince(ctx, since, protocol), ctx.home, ids)));
+  }
   const replayLast = eventsSince(ctx, 0, 3).last;
   const eventCases = [
     eventsSince(ctx, 0, 3), eventsSince(ctx, 0, 2),
@@ -206,6 +233,7 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
   ].map(row => normalize(row, ctx.home, ids));
   const gapCtx = fakeCtx({ which: () => null });
   appendOutbox(gapCtx, [{ seq: 50, at: gapCtx.now, envelope: { type: "entity", data: { kind: "executor", id: "old", removed: true } } }]);
+  expect(await rustRequest(gapCtx, { op: "events", since: 3_000_000_000_010, protocol: 3 })).toEqual(eventsSince(gapCtx, 3_000_000_000_010, 3));
   const gap = normalize(eventsSince(gapCtx, 3_000_000_000_010, 3), gapCtx.home, ids);
   const stream = await handleV2(new Request("http://127.0.0.1/v3/events?since=0"), { getCtx: () => ctx, tailMs: 1000 });
   const reader = stream.body!.getReader();
@@ -245,6 +273,10 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
   const budgetAge = { stale: staleBudget.snapshot.budget?.generatedAt, refreshed: refreshedBudget.snapshot.budget?.generatedAt };
   const taskRows = [record("running", populatedCtx.now - 3 * 86400), record("done", populatedCtx.now - 86400), record("done", populatedCtx.now - 86400 - 1), record("failed", populatedCtx.now, { dismissed: true }), record("queued", populatedCtx.now)];
   const capRows = Array.from({ length: 205 }, (_, i) => record("queued", populatedCtx.now - i, { id: `cap-${String(i).padStart(3, "0")}` }));
+  for (const records of [taskRows, capRows]) {
+    const rust = await rustRequest(populatedCtx, { op: "tasks", records });
+    expect(rust).toEqual(snapshotTasks(populatedCtx, records));
+  }
   const windowRows = snapshotTasks(populatedCtx, taskRows);
   const capped = snapshotTasks(populatedCtx, capRows);
   const taskWindow = { states: windowRows.map(t => t.state), count: capped.length, first: capped[0]?.id, last: capped.at(-1)?.id };
@@ -278,4 +310,4 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
     if (previousTz === undefined) delete process.env.TZ;
     else process.env.TZ = previousTz;
   }
-});
+}, 120_000);

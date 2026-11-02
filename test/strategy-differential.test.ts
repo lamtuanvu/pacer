@@ -134,7 +134,7 @@ function minimize(binary: string, document: Json): Json {
 test("seeded TypeScript and Rust strategy validators agree", () => {
   const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
   if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
-  const binary = "target/debug/examples/strategy_diff";
+  const binary = join(process.env.CARGO_TARGET_DIR ?? "target", "debug/examples/strategy_diff");
   const requested = Number(process.env.STRATEGY_DIFF_COUNT ?? 3000);
   if (!Number.isSafeInteger(requested) || requested < 1) throw Error("STRATEGY_DIFF_COUNT must be a positive integer");
   const cases = directed();
@@ -172,7 +172,7 @@ function fieldCase(base: Json, path: (string | number)[], value: Json): Json {
 test("JavaScript trim boundaries match Rust for scoped strategy fields", () => {
   const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
   if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
-  const binary = "target/debug/examples/strategy_diff";
+  const binary = join(process.env.CARGO_TARGET_DIR ?? "target", "debug/examples/strategy_diff");
   const whitespace = ["\t", "\n", "\v", "\f", "\r", " ", "\u00a0", "\u1680",
     ...Array.from({ length: 11 }, (_, i) => String.fromCodePoint(0x2000 + i)),
     "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff"];
@@ -199,7 +199,7 @@ test("JavaScript trim boundaries match Rust for scoped strategy fields", () => {
 test("raw JSON number and Unicode length boundaries match TypeScript for every config field", () => {
   const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
   if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
-  const binary = "target/debug/examples/strategy_diff";
+  const binary = join(process.env.CARGO_TARGET_DIR ?? "target", "debug/examples/strategy_diff");
   const base = bases[0]!;
   const endpoint = bases[2]!;
   const runner = fieldCase(bases[3]!, ["runners", "codex@box", "models"], [{ id: "fast" }]);
@@ -274,7 +274,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     try { save(ctx, "review", {from: "default", description: "numeric"}, "approved"); ts = {ok: true}; }
     catch (error) { ts = {ok: false, error: (error as Error).message}; }
     if (input.accepted !== undefined && ts.ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${JSON.stringify(ts)}`);
-    const rs = JSON.parse(execFileSync("target/debug/examples/config_write_diff", [], {input: JSON.stringify({op: "strategy.save", home: rsHome, name: "review", draft: {from: "default", description: "numeric"}, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString()}) + "\n"}).toString());
+    const rs = JSON.parse(execFileSync(join(process.env.CARGO_TARGET_DIR ?? "target", "debug/examples/config_write_diff"), [], {input: JSON.stringify({op: "strategy.save", home: rsHome, name: "review", draft: {from: "default", description: "numeric"}, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString()}) + "\n"}).toString());
     if (rs.ok !== ts.ok || (!ts.ok && rs.error !== ts.error)) throw Error(`${input.label}: TS ${JSON.stringify(ts)} Rust ${JSON.stringify(rs)}`);
     if (ts.ok) {
       const tsBytes = readFileSync(join(tsHome, "strategies/review.yaml"));
@@ -315,7 +315,7 @@ test("invalid Unicode duration suffixes return validation errors", () => {
   if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
   const cases = ["1é", "1😀", "é", "1中", "1é h", "1h😀"].map(value =>
     fieldCase(bases[2]!, ["accounts", "codex", "cooldown"], value));
-  const actual = rust("target/debug/examples/strategy_diff", cases);
+  const actual = rust(join(process.env.CARGO_TARGET_DIR ?? "target", "debug/examples/strategy_diff"), cases);
   for (const [i, raw] of cases.entries()) {
     const expected = ts(raw);
     if (expected.ok || canonical(actual[i]) !== canonical(expected)) throw Error(`duration ${i}: TS ${canonical(expected)} Rust ${canonical(actual[i])}`);

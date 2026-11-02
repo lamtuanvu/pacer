@@ -94,3 +94,20 @@ fn loader_keeps_last_duplicate_value_while_the_editor_refuses_duplicate_keys() {
         "Map keys must be unique at line 2, column 1:\n\nkey: first\nkey: last\n^\n"
     );
 }
+
+#[test]
+fn yaml_numeric_keys_use_javascript_number_spelling() {
+    let value = pacer_config::doc::parse_value("1.0: a\n").unwrap();
+    assert_eq!(value["1"], "a");
+}
+
+#[test]
+fn duplicate_key_diagnostic_on_first_line_matches_yaml_editor() {
+    let error = StrategyDoc::new("root: {a: 1, a: 2}\n")
+        .get_in(&[json!("root")])
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Map keys must be unique at line 1, column 14:\n\nroot: {a: 1, a: 2}\n             ^\n"
+    );
+}

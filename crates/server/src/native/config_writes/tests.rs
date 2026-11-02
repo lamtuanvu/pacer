@@ -68,3 +68,17 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
     assert_eq!(error.code, Code::Unavailable);
     assert!(!dir.path().join("strategy.yaml").exists());
 }
+
+#[test]
+fn empty_xdg_config_home_uses_relative_orca_directory_on_linux() {
+    let ctx = Ctx::with(
+        "/fixture".into(),
+        "/fixture".into(),
+        [("XDG_CONFIG_HOME".into(), "".into())].into(),
+        0.0,
+    );
+    assert_eq!(
+        super::legacy_dir_for_platform(&ctx, false),
+        std::path::PathBuf::from("orca/plugins-data/lamtuanvu.pacer")
+    );
+}

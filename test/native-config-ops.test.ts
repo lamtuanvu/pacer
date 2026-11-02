@@ -172,3 +172,59 @@ test("native load accepts duplicate keys before the editor returns the reference
   await compare("runner.set", {id:"codex", enabled:false}, path => writeFileSync(join(path,"strategy.yaml"),
     golden.initial.replace("  codex: {} # keep runner", "  codex: {} # keep runner\n  codex: {}")));
 });
+
+test("native strategy loader matches Bun YAML numeric and mapping keys", async () => {
+  for (const initial of [
+    golden.initial.replace("  codex: {} # keep runner", "  codex: {max_tasks: 0x2} # keep runner"),
+    ...["1", "1.0", "true", "null"].map(key => golden.initial.replace("accounts:\n", `accounts:\n  ${key}: {kind: codex}\n`)),
+  ]) await compare("runner.set", {id:"codex", enabled:false}, path => writeFileSync(join(path,"strategy.yaml"), initial));
+}, 120_000);
+
+test("native strategy loader matches Bun YAML non-finite number validation", async () => {
+  for (const value of [".inf", "-.Inf", ".nan", "inf", "nan"]) {
+    await compare("runner.set", {id:"codex", enabled:false}, path => writeFileSync(join(path,"strategy.yaml"),
+      golden.initial.replace("pacing:\n", `pacing:\n  planner_reserve: ${value}\n`)));
+  }
+}, 120_000);
+
+test("native pacing fields preserve non-finite YAML values", async () => {
+  for (const key of ["planner_reserve", "planner_reserve_headroom", "fill_threshold", "ahead_threshold", "behind_threshold"]) for (const value of [".inf", "-.inf", ".nan"]) {
+    await compare("runner.set", {id:"codex", enabled:false}, path => writeFileSync(join(path,"strategy.yaml"),
+      golden.initial.replace("pacing:\n", `pacing:\n  ${key}: ${value}\n`)));
+  }
+}, 120_000);
+
+// Values stay numbers until validation and JSON serialization; user strings never
+// stand in for NaN, and exponent overflow has the same semantics as .inf.
+test("non-finite YAML values preserve TS comparisons, strings and serialization", async () => {
+  const values = [".inf", "-.inf", ".nan", "1e400", "-1e400", '"\\0pacer-yaml-nan"'];
+  const locations = [
+    (v: string) => golden.initial.replace("pacing:\n", `pacing:\n  planner_reserve: ${v}\n`),
+    (v: string) => golden.initial.replace("pacing:\n", `pacing:\n  ahead_threshold: ${v}\n`),
+    (v: string) => golden.initial.replace("pacing:\n", `pacing:\n  fill_threshold: ${v}\n`),
+    (v: string) => golden.initial + `\nexecution: {local_load_limit: ${v}}\n`,
+    (v: string) => golden.initial.replace("  codex: {} # keep runner", `  codex: {model: ${v}} # keep runner`),
+    (v: string) => golden.initial.replace("  codex: {kind: codex}", `  codex: {kind: codex, usage: metered, budget: {weekly_tokens: ${v}}}`),
+  ];
+  for (const value of values) for (const initial of locations.map(f => f(value))) {
+    const setup = (path: string) => writeFileSync(join(path, "strategy.yaml"), initial);
+    await compare("runner.set", {id:"codex", enabled:false}, setup);
+    await compare("strategy.save", {name:"review", draft:{from:"default"}, reason:"non-finite parity"}, setup);
+  }
+}, 120_000);
+
+test("duplicate YAML key diagnostics match reference context, properties and UTF-16 columns", async () => {
+  const cases = [
+    golden.initial.replace("  claude: {kind: claude}", "  claude: {kind: claude, kind: claude}"),
+    golden.initial.replace("  claude: {kind: claude}", '  claude: {"😀": 1, kind: claude, kind: claude}'),
+    golden.initial.replace("  claude: {kind: claude}", `  claude: {padding: "${"x".repeat(100)}", kind: claude, kind: claude}`),
+    golden.initial.replace("accounts:\n", `accounts: # ${"x".repeat(100)}\n`).replace("  claude: {kind: claude}", "  claude: {kind: claude}\n  claude: {kind: claude}"),
+    golden.initial.replace("  codex: {kind: codex}", "  codex: {kind: codex}\n  &k codex: {kind: codex}"),
+    golden.initial.replace("  claude: {kind: claude}", "  claude: {kind: claude}\n  &k \"claude\": {kind: claude}"),
+  ];
+  for (const initial of cases) for (const newline of ["\n", "\r\n"]) {
+    const setup = (path: string) => writeFileSync(join(path,"strategy.yaml"), initial.replaceAll("\n", newline));
+    await compare("runner.set", {id:"codex", enabled:false}, setup);
+    await compare("routing.set", {rules:[{executors:["codex"]}]}, setup);
+  }
+}, 120_000);

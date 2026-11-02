@@ -1,0 +1,24 @@
+{
+  "result": {
+    "opened": true,
+    "target": "builtin",
+    "command": "fixture SSH",
+    "terminalId": "fixture-terminal"
+  },
+  "calls": [
+    {
+      "argv": [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "--",
+        "fixture-host"
+      ],
+      "title": "SSH devbox",
+      "target": "builtin",
+      "requestId": "00000000-0000-4000-8000-000000000002"
+    }
+  ]
+}

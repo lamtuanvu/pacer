@@ -5,12 +5,24 @@ import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
-import { ApiError, type BrowserApi } from "../data/api";
+import { ApiError, readOperation, type BrowserApi } from "../data/api";
 import { queryCacheFor, type QueryState } from "../data/query";
-import { draftStorage } from "../model/draft";
+import { workspaceManager } from "../workspace/manager";
+import { useViewActive, useWorkspaceKey, useWorkspaceState } from "../workspace/state";
 import { taskHref } from "../model/tasks";
 export const TaskContext = createContext<{ state: StoreState; api: BrowserApi }>(null!);
-export const useTaskContext = () => useContext(TaskContext);
+const guardedApis = new WeakMap<BrowserApi, WeakMap<object, BrowserApi>>();
+export function useTaskContext() {
+ const context = useContext(TaskContext), runner = useActions();
+ const api = context?.api;
+ let guarded: BrowserApi | undefined = api;
+ if (api && runner?.call) {
+  const byRunner = guardedApis.get(api) ?? new WeakMap<object, BrowserApi>(); guardedApis.set(api, byRunner);
+  guarded = byRunner.get(runner);
+  if (!guarded) { guarded = { ...api, call: <T,>(op: string, params: unknown = {}) => readOperation(op) ? api.call<T>(op, params) : runner.call<T>(op, params) }; byRunner.set(runner, guarded); }
+ }
+ return context && guarded ? { ...context, api: guarded } : context;
+}
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
   return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
@@ -47,12 +59,14 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   return JSON.stringify(op.startsWith('plugin.') ? [...revisions, ['plugin', state.invalidations.plugin ?? 0]] : revisions);
 }
 export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = op === "task.get", enabled = true) {
-  const { api, state } = useTaskContext();
+  const { api, state } = useContext(TaskContext);
+  const viewActive = useViewActive();
+  enabled = enabled && viewActive;
   const [published, setResult] = useState<{ api: BrowserApi; key: string; state: QueryState<T> }>();
   const serialized = JSON.stringify(params);
   const invalidation = queryRevision(state, op, params);
   const cache = queryCacheFor(api, (op, params) => api.call(op, params));
-  const query = useMemo(() => cache.createQuery<T>((state, key) => setResult({ api, state, key }), keepPreviousData), [api, keepPreviousData]);
+  const query = useMemo(() => cache.createQuery<T>((state, key) => setResult({ api, state, key }), keepPreviousData), [api, keepPreviousData, viewActive]);
   useEffect(() => () => query.dispose(), [query]);
   const last = useRef<{ query: typeof query; key: string; connected: boolean; connectionRevision: number }>();
   useEffect(() => {
@@ -92,6 +106,8 @@ export function useAction() {
   const runner = useActions();
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [message, setMessage] = useState("");
   const pending = useRef(false);
+  const context = useTaskContext();
+  const unavailable = context && (!context.state.connected || context.state.sessionEnded) ? "Reconnecting… Service actions are available when pacer reconnects." : undefined;
   async function run<T>(op: string, params: unknown, done?: (result: T) => void) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError(undefined); setMessage("");
@@ -105,25 +121,16 @@ export function useAction() {
     catch (error) { setError(error); }
     finally { pending.current = false; setBusy(false); }
   }
-  return { busy, error, message, run };
+  return { busy, error, message, run, unavailable };
 }
 export function useDraft<T extends { [K in keyof T]: string }>(key: string, defaults: T, initialize: (saved: T) => T = saved => saved) {
-  // Resolve sessionStorage lazily too: browsers may deny access to the property.
-  const storage = draftStorage(key, defaults, {
-    getItem: name => sessionStorage.getItem(name),
-    setItem: (name, value) => sessionStorage.setItem(name, value),
-    removeItem: name => sessionStorage.removeItem(name),
-  });
-  const [draft, update] = useState<T>(() => initialize(storage.read()));
-  const current = useRef(draft);
-  const setDraft = (value: T | ((previous: T) => T)) => {
-    const next = typeof value === "function" ? value(current.current) : value;
-    current.current = next;
-    storage.write(next);
-    update(next);
-  };
-  const clearDraft = () => { current.current = defaults; storage.clear(); update(defaults); };
-  return [draft, setDraft, clearDraft] as const;
+  const scope = useWorkspaceKey(undefined, key);
+  const [draft, setDraft] = useWorkspaceState(scope, `draft:${key}`, defaults);
+  const initialized = useRef<{ scope: string; source: T; value: T }>();
+  if (!initialized.current || initialized.current.scope !== scope) initialized.current = { scope, source: draft, value: initialize(draft) };
+  const value = draft === initialized.current.source ? initialized.current.value : draft;
+  const clearDraft = () => { workspaceManager.remove(scope, `draft:${key}`); initialized.current = undefined; };
+  return [value, setDraft, clearDraft] as const;
 }
 export { Dialog } from "../ds/Dialog";
 export function TaskLink({ id, children }: { id: string; children: ComponentChildren }) { return <TextAction className="pc-text-action" href={taskHref(id)}>{children}</TextAction>; }

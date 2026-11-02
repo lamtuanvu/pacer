@@ -114,3 +114,25 @@ test("Dispatch keeps the planner mark without a figure when its main reading is 
   expect(elsewhere).toContain("Codex · team 28% historical usage");
   expect(elsewhere).toContain("pc-meter--mini");
 });
+
+test('hidden control labels pluralize and release requires a counted confirmation', async () => {
+  const {hiddenControlLabel,handBackHidden}=await import('../app/src/shell/StatusBar');
+  expect(hiddenControlLabel(1)).toBe('In control of 1 hidden session · Hand back');
+  expect(hiddenControlLabel(2)).toBe('In control of 2 hidden sessions · Hand back');
+  let releases=0,message='';const sessions=[{release:()=>releases++},{release:()=>releases++}];
+  await handBackHidden(sessions,async text=>{message=text;return false;});
+  expect(message).toContain('2 hidden sessions');expect(releases).toBe(0);
+  await handBackHidden(sessions,async()=>true);expect(releases).toBe(2);
+});
+
+test('hidden control action uses its visible text as its accessible name in a polite region',async()=>{
+  const {sessionRuntimes}=await import('../app/src/term/runtime');
+  const runtime=sessionRuntimes.get('test-statusbar','terminal:shell',{url:'ws://localhost/session',cols:80,rows:24,label:'shell',control:true});
+  runtime.intent='driving';runtime.state={...runtime.state,you:true};
+  try{const html=renderToString(<StatusBar snapshot={snapshot} registry={registry}/>);
+    const action=html.match(/<button[^>]*>[^]*?In control of 1 hidden session · Hand back<\/button>/)?.[0]??'';
+    expect(action).toContain('In control of 1 hidden session · Hand back');
+    expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).not.toContain('aria-label="Hand back control');
+  }finally{sessionRuntimes.dispose();}
+});

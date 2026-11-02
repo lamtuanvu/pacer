@@ -24,10 +24,16 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Lock(#[from] LockError),
+    #[error("task read requires the TypeScript compatibility path")]
+    CompatibilityRequired,
+    #[error("{0}")]
+    Admission(String),
     #[error("invalid task record")]
     InvalidRecord,
     #[error("unknown task {0}")]
     UnknownTask(String),
+    #[error("task was unchanged")]
+    Unchanged,
     #[error("task revision conflict")]
     Conflict,
     #[error("task id collision")]
@@ -57,6 +63,19 @@ pub fn is_task_id(id: &str) -> bool {
 }
 fn number(value: Option<&Value>) -> Option<f64> {
     value?.as_f64().filter(|v| v.is_finite())
+}
+fn import_numbers(value: &mut Value) {
+    match value {
+        Value::Number(n) => {
+            if let Some(n) = n.as_f64() {
+                // JSON.parse uses doubles; JSON.stringify writes negative zero as 0.
+                *value = if n == 0.0 { json!(0) } else { json!(n) };
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(import_numbers),
+        Value::Object(values) => values.values_mut().for_each(import_numbers),
+        _ => (),
+    }
 }
 pub(crate) fn revision(task: &Value) -> Option<i64> {
     let value = task.get("rev")?.as_f64()?;
@@ -169,11 +188,13 @@ fn parse_record(text: &str) -> Result<Value> {
     Ok(value)
 }
 fn mtime_ms(path: &Path) -> Result<f64> {
-    let d = fs::metadata(path)?
-        .modified()?
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?;
-    Ok(d.as_secs() as f64 * 1000.0 + f64::from(d.subsec_nanos()) / 1_000_000.0)
+    let time = fs::metadata(path)?.modified()?;
+    let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration, 1.0),
+        Err(error) => (error.duration(), -1.0),
+    };
+    Ok(sign
+        * (duration.as_secs() as f64 * 1000.0 + f64::from(duration.subsec_nanos()) / 1_000_000.0))
 }
 #[cfg(unix)]
 pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
@@ -265,8 +286,12 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
     Ok(format!("{year:04}-{m:02}"))
 }
 
+#[path = "task_log_reader.rs"]
+mod log_reader;
+pub use log_reader::TaskLogReader;
+
 pub struct TaskStore {
-    home: PathBuf,
+    pub(crate) home: PathBuf,
     db: Connection,
     generation: u64,
     inode: u64,
@@ -357,12 +382,19 @@ impl TaskStore {
                 Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e),
             };
-            let row: Option<(i64, Option<f64>)> = tx
-                .query_row("SELECT rev,json_mtime FROM tasks WHERE id=?", [id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
+            // Bun returns SQLite storage types without coercing text to a number.
+            // Only a numeric json_mtime can strictly equal stat().mtimeMs. The
+            // revision comparison belongs to the SQL UPSERT below, not a typed read.
+            let row: Option<SqlValue> = tx
+                .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
+                    r.get(0)
                 })
                 .optional()?;
-            if row.is_some_and(|(_, old)| old == Some(mtime)) {
+            if row.is_some_and(|old| match old {
+                SqlValue::Real(value) => value == mtime,
+                SqlValue::Integer(value) => value as f64 == mtime,
+                _ => false,
+            }) {
                 continue;
             }
             let bytes = match fs::read(&path) {
@@ -379,6 +411,7 @@ impl TaskStore {
             if !valid(&task, id) {
                 continue;
             }
+            import_numbers(&mut task);
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
@@ -479,6 +512,16 @@ impl TaskStore {
         records.into_iter().map(|s| parse_record(&s)).collect()
     }
     pub fn insert(&mut self, task: &Value, now: f64) -> Result<()> {
+        self.insert_with(task, now, |_| Ok(()))
+    }
+    /// Admit related domain rows under the task insert's IMMEDIATE transaction.
+    /// Validation runs before JSON write-through, so rejection leaves no orphan.
+    pub fn insert_with(
+        &mut self,
+        task: &Value,
+        now: f64,
+        admit: impl FnOnce(&Connection) -> Result<()>,
+    ) -> Result<()> {
         let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
         if !valid(task, id) {
             return Err(StoreError::InvalidRecord);
@@ -489,6 +532,7 @@ impl TaskStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let values = row_values(task, now)?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
+        admit(&tx)?;
         let mtime = write_json(&self.home, task)?;
         tx.execute(
             "UPDATE tasks SET json_mtime=? WHERE id=?",
@@ -517,6 +561,28 @@ impl TaskStore {
             self.update_locked(id, expected_rev, now, mutate)
         })?
     }
+    /// Update current state under the shared task lock, without a caller CAS.
+    /// Lifecycle metadata maintenance must not use revisions from a prior list.
+    pub fn update_current(
+        &mut self,
+        id: &str,
+        now: f64,
+        mutate: impl FnOnce(&mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            let current = self
+                .read(id)?
+                .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
+            let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
+            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
+        })?
+    }
     pub(crate) fn update_locked(
         &mut self,
         id: &str,
@@ -524,6 +590,40 @@ impl TaskStore {
         now: f64,
         mutate: impl FnOnce(&mut Value),
     ) -> Result<Value> {
+        self.update_admitted_locked(id, expected_rev, now, |_, task| {
+            mutate(task);
+            Ok(())
+        })
+    }
+    /// Recheck domain admission and mutate while holding the same SQLite writer
+    /// reservation. The caller holds any required cross-runtime operation lock.
+    pub fn update_admitted(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.update_admitted_locked(id, expected_rev, now, mutate)
+        })?
+    }
+    fn update_admitted_locked(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        if !is_task_id(id) {
+            return Err(StoreError::InvalidRecord);
+        }
         let home = self.home.clone();
         self.refresh()?;
         let tx = self
@@ -539,7 +639,7 @@ impl TaskStore {
             return Err(StoreError::Conflict);
         }
         let prior = field(&task, "state").unwrap_or("").to_owned();
-        mutate(&mut task);
+        mutate(&tx, &mut task)?;
         let terminal = TERMINAL.contains(&field(&task, "state").ok_or(StoreError::InvalidRecord)?);
         if terminal && !TERMINAL.contains(&prior.as_str()) {
             task["settledAt"] = json!(now);
@@ -576,6 +676,9 @@ impl TaskStore {
         }
         tx.commit()?;
         Ok(task)
+    }
+    pub fn home_path(&self) -> &Path {
+        &self.home
     }
     pub(crate) fn home(&self) -> &Path {
         &self.home

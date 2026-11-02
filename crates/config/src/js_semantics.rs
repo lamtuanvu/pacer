@@ -1,7 +1,5 @@
 use serde_json::{Number, Value};
 
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-
 /// JSON numbers are JavaScript doubles at the TypeScript validation boundary.
 pub(crate) fn number(value: &Value) -> Option<f64> {
     value.as_f64().filter(|n| n.is_finite())
@@ -9,10 +7,6 @@ pub(crate) fn number(value: &Value) -> Option<f64> {
 
 pub(crate) fn integer(value: &Value) -> Option<f64> {
     number(value).filter(|n| n.fract() == 0.0)
-}
-
-pub(crate) fn safe_integer(value: &Value) -> Option<f64> {
-    integer(value).filter(|n| n.abs() <= MAX_SAFE_INTEGER)
 }
 
 pub(crate) fn code_points(value: &str) -> usize {

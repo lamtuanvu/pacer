@@ -1,6 +1,7 @@
+import { useUniqueId as useId } from './useUniqueId';
 import { Tabs } from "./SelectionStrip";
 import type { ComponentChildren } from "preact";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { cycleDialogFocus } from "./Dialog";
 import { Icon, type IconName } from "./icons";
 import { Kbd } from "./Kbd";

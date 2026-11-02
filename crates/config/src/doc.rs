@@ -18,23 +18,27 @@ struct Node {
 
 #[derive(Clone, Debug)]
 enum Kind {
-    Scalar(Value),
+    Scalar(crate::yaml_value::Value),
     Seq(Vec<Node>, bool),
     Map(Vec<(Node, Node)>, bool),
 }
 
 impl Node {
-    fn value(&self) -> Value {
+    fn semantic_value(&self) -> crate::yaml_value::Value {
+        use crate::yaml_value::Value as Y;
         match &self.kind {
             Kind::Scalar(v) => v.clone(),
-            Kind::Seq(items, _) => Value::Array(items.iter().map(Node::value).collect()),
-            Kind::Map(items, _) => Value::Object(
+            Kind::Seq(items, _) => Y::Array(items.iter().map(Node::semantic_value).collect()),
+            Kind::Map(items, _) => Y::Object(
                 items
                     .iter()
-                    .filter_map(|(k, v)| k.value().as_str().map(|key| (key.to_owned(), v.value())))
+                    .map(|(k, v)| (k.semantic_value().string(), v.semantic_value()))
                     .collect(),
             ),
         }
+    }
+    fn value(&self) -> Value {
+        self.semantic_value().to_json()
     }
     fn child(&self, key: &Value) -> Option<&Node> {
         match &self.kind {
@@ -71,6 +75,38 @@ fn byte_index(text: &str, char_index: usize) -> usize {
         .map_or(text.len(), |(i, _)| i)
 }
 
+fn yaml_scalar(content: &str) -> crate::yaml_value::Value {
+    use crate::yaml_value::Value as Y;
+    match content {
+        "null" | "Null" | "NULL" | "~" | "" => Y::Null,
+        "true" | "True" | "TRUE" => Y::Bool(true),
+        "false" | "False" | "FALSE" => Y::Bool(false),
+        ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => Y::Number(f64::INFINITY),
+        "-.inf" | "-.Inf" | "-.INF" => Y::Number(f64::NEG_INFINITY),
+        ".nan" | ".NaN" | ".NAN" => Y::Number(f64::NAN),
+        _ => {
+            let unsigned = content.strip_prefix(['+', '-']).unwrap_or(content);
+            if unsigned.starts_with("0x") || unsigned.starts_with("0o") {
+                let radix = if unsigned.starts_with("0x") { 16 } else { 8 };
+                return u64::from_str_radix(&unsigned[2..], radix)
+                    .map(|v| Y::Number(v as f64 * if content.starts_with('-') { -1. } else { 1. }))
+                    .unwrap_or_else(|_| Y::String(content.into()));
+            }
+            // Rust also parses bare inf/NaN. YAML's numeric grammar does not.
+            if content
+                .bytes()
+                .any(|b| !matches!(b, b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E'))
+            {
+                return Y::String(content.into());
+            }
+            content
+                .parse::<f64>()
+                .map(Y::Number)
+                .unwrap_or_else(|_| Y::String(content.into()))
+        }
+    }
+}
+
 fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> Node {
     let span = if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
         let indicator_end = text[..span.start].rfind('\n').unwrap_or(span.start);
@@ -88,19 +124,9 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
         span
     };
     let value = if style == ScalarStyle::Plain {
-        match content {
-            "null" | "Null" | "NULL" | "~" | "" => Value::Null,
-            "true" | "True" | "TRUE" => Value::Bool(true),
-            "false" | "False" | "FALSE" => Value::Bool(false),
-            "-0" => Value::from(-0.0_f64),
-            _ => content
-                .parse::<i64>()
-                .map(Value::from)
-                .or_else(|_| content.parse::<f64>().map(Value::from))
-                .unwrap_or_else(|_| Value::String(content.into())),
-        }
+        yaml_scalar(content)
     } else {
-        Value::String(content.into())
+        crate::yaml_value::Value::String(content.into())
     };
     let tail = &text[span.clone()];
     let core_end = if tail.starts_with('\'') {
@@ -144,6 +170,72 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
         core_end,
         kind: Kind::Scalar(value),
     }
+}
+
+fn same_key(left: &Node, right: &Node) -> bool {
+    let left = left.semantic_value();
+    let right = right.semantic_value();
+    left == right
+        || matches!((left.as_f64(),right.as_f64()), (Some(a),Some(b)) if a.is_nan() && b.is_nan())
+}
+
+/// Match yaml's prettifyError: columns and truncation count UTF-16 code units.
+fn duplicate_key_error(text: &str, key: &Node) -> EditError {
+    let mut offset = key.span.start;
+    // Parser scalar spans include node properties; yaml reports the key itself.
+    if matches!(key.kind, Kind::Scalar(_)) {
+        while text[offset..].starts_with(['&', '!']) {
+            let Some(width) = text[offset..].find(char::is_whitespace) else {
+                break;
+            };
+            offset += width;
+            let tail = &text[offset..];
+            offset += tail.len() - tail.trim_start_matches(char::is_whitespace).len();
+        }
+    }
+    let line = text[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let line_start = text[..offset].rfind('\n').map_or(0, |at| at + 1);
+    let column = text[line_start..offset].encode_utf16().count() + 1;
+    let mut caret = column - 1;
+    let end = text[line_start..]
+        .find('\n')
+        .map_or(text.len(), |at| line_start + at + 1);
+    let mut current = text[line_start..end]
+        .trim_end_matches(['\n', '\r'])
+        .encode_utf16()
+        .collect::<Vec<_>>();
+    if caret >= 60 && current.len() > 80 {
+        let start = (caret - 39).min(current.len() - 79);
+        current = std::iter::once(0x2026)
+            .chain(current[start..].iter().copied())
+            .collect();
+        caret -= start - 1;
+    }
+    if current.len() > 80 {
+        current.truncate(79);
+        current.push(0x2026);
+    }
+    let include_previous = line > 1
+        && current[..caret.min(current.len())]
+            .iter()
+            .all(|c| *c == b' ' as u16);
+    let mut excerpt = String::new();
+    if include_previous {
+        let previous_start = text[..line_start - 1].rfind('\n').map_or(0, |at| at + 1);
+        let mut previous = text[previous_start..line_start]
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        if previous.len() > 80 {
+            previous.truncate(79);
+            previous.extend([0x2026, b'\n' as u16]);
+        }
+        excerpt.push_str(&String::from_utf16_lossy(&previous));
+    }
+    excerpt.push_str(&String::from_utf16_lossy(&current));
+    EditError(format!(
+        "Map keys must be unique at line {line}, column {column}:\n\n{excerpt}\n{}^\n",
+        " ".repeat(caret)
+    ))
 }
 
 fn parse(text: &str, unique_keys: bool) -> Result<Node> {
@@ -200,30 +292,8 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
                 if unique_keys && frame.mapping {
                     let pairs = frame.children.as_chunks::<2>().0;
                     for (index, pair) in pairs.iter().enumerate() {
-                        if pairs[..index]
-                            .iter()
-                            .any(|old| old[0].value() == pair[0].value())
-                        {
-                            let offset = pair[0].span.start;
-                            let line =
-                                text[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1;
-                            let line_start = text[..offset].rfind('\n').map_or(0, |at| at + 1);
-                            let column = text[line_start..offset].chars().count() + 1;
-                            let current = text[line_start..]
-                                .split('\n')
-                                .next()
-                                .unwrap_or("")
-                                .trim_end_matches('\r');
-                            let previous = text[..line_start]
-                                .strip_suffix('\n')
-                                .unwrap_or("")
-                                .rsplit('\n')
-                                .next()
-                                .unwrap_or("");
-                            return Err(EditError(format!(
-                                "Map keys must be unique at line {line}, column {column}:\n\n{previous}\n{current}\n{}^\n",
-                                " ".repeat(column - 1)
-                            )));
+                        if pairs[..index].iter().any(|old| same_key(&old[0], &pair[0])) {
+                            return Err(duplicate_key_error(text, &pair[0]));
                         }
                     }
                 }
@@ -276,11 +346,18 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
     root.ok_or_else(|| EditError("empty strategy document".into()))
 }
 
-/// Parse a strategy document into the same JSON-shaped value used by the
-/// validator. Source spans remain available separately through `StrategyDoc`.
+/// JSON representation for document consumers. Validation reads the lossless
+/// tree with `parse_yaml_value`; non-finite numbers become null only here.
 pub fn parse_value(text: &str) -> Result<Value> {
+    parse_yaml_value(text).map(|value| value.to_json())
+}
+pub(crate) fn parse_yaml_value(text: &str) -> Result<crate::yaml_value::Value> {
     // Bun.YAML.parse accepts duplicate keys; only the YAML document editor refuses them.
-    parse(text, false).map(|node| node.value())
+    parse(text, false).map(|node| {
+        let mut value = node.semantic_value();
+        value.normalize();
+        value
+    })
 }
 
 fn key_text(key: &Value) -> String {
@@ -1001,6 +1078,7 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             if s.is_empty()
                 || s.parse::<f64>().is_ok()
                 || matches!(s.as_str(), "true" | "false" | "null" | "~")
+                || s.parse::<f64>().is_ok()
                 || s.contains(": ")
                 || s.contains(" #")
                 || s.starts_with([
@@ -1150,6 +1228,15 @@ fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
         }
     };
     match value {
+        Value::String(s)
+            if flow && (s.contains(['{', '}', '[', ']', ',', '\n', '\r']) || s.trim() != s) =>
+        {
+            if s.contains('"') && !s.contains('\'') && !s.chars().any(char::is_control) {
+                format!("'{s}'")
+            } else {
+                serde_json::to_string(s).unwrap_or_default()
+            }
+        }
         Value::Array(items) if items.is_empty() => "[]".into(),
         Value::Object(items) if items.is_empty() => "{}".into(),
         Value::Array(items) if flow => {
@@ -1255,7 +1342,16 @@ fn inline_comment(node: &Node, source: &str) -> String {
 
 fn emit_clone(node: &Node, source: &str, flow: bool) -> String {
     match &node.kind {
-        Kind::Scalar(value) => emit_scalar(value, Some(&source[node.span.start..node.core_end])),
+        Kind::Scalar(value) => {
+            if value.as_f64().is_some_and(|n| !n.is_finite()) {
+                source[node.span.start..node.core_end].to_owned()
+            } else {
+                emit_scalar(
+                    &value.to_json(),
+                    Some(&source[node.span.start..node.core_end]),
+                )
+            }
+        }
         Kind::Seq(items, _) if flow => {
             if items.is_empty() {
                 return "[]".into();
@@ -1325,4 +1421,64 @@ fn emit_clone(node: &Node, source: &str, flow: bool) -> String {
                 .join("\n")
         }
     }
+}
+
+/// Bun emits non-finite YAML scalars, whereas JSON serialization emits null.
+/// Keep the value tree intact while recursively formatting collections.
+pub(crate) fn stringify_yaml_bun(value: &crate::yaml_value::Value) -> String {
+    use crate::yaml_value::Value as Y;
+    fn emit(value: &Y, indent: usize) -> String {
+        match value {
+            Y::Number(n) if *n == 0. && n.is_sign_negative() => "-0".into(),
+            Y::Number(n) if !n.is_finite() => {
+                if n.is_nan() {
+                    ".nan".into()
+                } else if n.is_sign_negative() {
+                    "-.inf".into()
+                } else {
+                    ".inf".into()
+                }
+            }
+            Y::Array(items) if !items.is_empty() => items
+                .iter()
+                .map(|v| {
+                    let child = emit(v, indent + 2);
+                    if v.is_array() {
+                        format!("-\n{}{child}", " ".repeat(indent + 2))
+                    } else {
+                        format!("- {child}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(&format!("\n{}", " ".repeat(indent))),
+            Y::Object(items) if !items.is_empty() => items
+                .iter()
+                .map(|(k, v)| {
+                    let key = emit_bun_scalar(&Value::String(k.clone()));
+                    let child = emit(v, indent + 2);
+                    if v.is_array() || v.is_object() {
+                        format!("{key}:\n{}{child}", " ".repeat(indent + 2))
+                    } else {
+                        format!("{key}: {child}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(&format!("\n{}", " ".repeat(indent))),
+            _ => emit_bun_scalar(&value.to_json()),
+        }
+    }
+    let mut value = value.clone();
+    value.normalize();
+    emit(&value, 0)
+        .split('\n')
+        .map(|line| {
+            if line.ends_with(':') {
+                format!("{line} ")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }

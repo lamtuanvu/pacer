@@ -4,10 +4,11 @@ import type { DesktopUpdateConnection, WindowControls } from './native';
 import type { NativeValidationSetupResult } from '../desktop/validation';
 import type { TrayIpc } from './tray';
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'incompatible';
 /** Transport construction stays here; protocol negotiation and retries stay with callers. */
 export interface Platform {
   readonly desktop: boolean;
+  subscribeDesktopConnection?(listener: (state: import('./ipc').DesktopConnection) => void): () => void;
   request(path: string, init?: RequestInit): Promise<Response>;
   subscribeEvents(path: string): EventSource;
   attachTerminal(url: string): SessionSocket;

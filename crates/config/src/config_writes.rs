@@ -1,8 +1,8 @@
 //! Pure strategy document writes. The API caller owns endpoint sync and publication.
 
 use crate::{
-    doc::{StrategyDoc, parse_value},
-    strategy::{StrategyError, load_strategy, migrate_strategy, strategy_path, validate_strategy},
+    doc::StrategyDoc,
+    strategy::{StrategyError, load_strategy, migrate_strategy, strategy_path},
     write::atomic_strategy_write,
 };
 use serde_json::{Value, json};
@@ -57,8 +57,9 @@ fn edit(
     let mut doc = StrategyDoc::new(&before);
     change(&mut doc, &strategy)?;
     let after = doc.as_str();
-    let raw = parse_value(after).map_err(|e| StrategyError::Other(e.to_string()))?;
-    validate_strategy(&raw, &path, &name)?;
+    let raw =
+        crate::doc::parse_yaml_value(after).map_err(|e| StrategyError::Other(e.to_string()))?;
+    crate::strategy::validate_yaml_strategy(&raw, &path, &name)?;
     if before == after {
         return Ok(String::new());
     }

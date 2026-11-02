@@ -519,7 +519,7 @@ test("native library writers preserve preexisting temp files with collision-safe
     await child.stdin.write(JSON.stringify({op,home:dir,...input})+"\n");await child.stdin.end();
     const output=await new Response(child.stdout).text();
     expect(await child.exited).toBe(0);
-    expect(JSON.parse(output).ok).toBe(op !== "routing.set");
+    expect(JSON.parse(output).ok).toBe(true);
     expect(readFileSync(temp,"utf8")).toBe("unowned sentinel");
   }
 });

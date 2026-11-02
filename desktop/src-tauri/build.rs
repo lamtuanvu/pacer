@@ -5,6 +5,17 @@ mod fixture_policy;
 mod trust_config;
 
 fn main() {
+    // cargo build (including direct builds outside the Tauri CLI) must bundle fresh assets.
+    let root = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    println!("cargo:rerun-if-changed=../../app/src");
+    println!("cargo:rerun-if-changed=../../app/index.html");
+    println!("cargo:rerun-if-changed=../../app/build.ts");
+    println!("cargo:rerun-if-changed=../../app/tray.html");
+    println!("cargo:rerun-if-changed=../../app/tokens-gen.ts");
+    println!("cargo:rerun-if-changed=../../app/xterm-csp.ts");
+    println!("cargo:rerun-if-changed=../ui");
+    let status = std::process::Command::new("bun").args(["app/build.ts", "--desktop-only", "--no-embed"]).current_dir(root.join("../..")).status().expect("Bun is required to build the desktop UI");
+    assert!(status.success(), "Desktop UI build failed");
     // Capture diagnostics must not raise the shell's existing macOS deployment floor.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,ScreenCaptureKit");
@@ -67,10 +78,30 @@ fn main() {
     }
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "service_call",
+            "service_hello",
+            "service_snapshot",
+            "service_events",
+            "stream_cancel",
+            "stream_ack",
+            "assistant_turn_stream",
+            "task_log_follow",
+            "attachment_upload",
+            "attachment_list",
+            "attachment_read",
+            "attachment_delete",
+            "terminal_attach",
+            "terminal_send",
+            "terminal_resize",
+            "terminal_take",
+            "terminal_release",
+            "terminal_detach",
+            "terminal_ack",
             "client_control",
             "setLaunchAtLogin",
             "setTheme",
             "notifyRoute",
+            "menu_set_enabled",
             "tray_resize",
             "tray_open",
             "tray_hide",

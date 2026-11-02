@@ -26,6 +26,19 @@ export const configSteps = [
   {op:"runner.remove",params:{id:"cursor"},fixture:blockRouting.replaceAll("\n","\r\n")},
   {op:"routing.set",params:{rules:[{kinds:["docs"],executors:["cursor"]},{executors:["codex"]}]},error:"invalid_input",fixture:blockRouting},
   {op:"routing.set",params:{rules:[{executors:["codex"]}]},error:"invalid_input",fixture:blockRouting.replaceAll("\n","\r\n")},
+  {op:"runner.set",params:{id:"codex",enabled:false},fixture:golden.initial.replace("pacing:\n", "pacing:\n  ahead_threshold: .inf\n")},
+  {op:"runner.reorder",params:{ids:["cursor","codex"]},fixture:golden.initial.replace("pacing:\n", "pacing:\n  behind_threshold: -.inf\n")},
+  {op:"routing.set",params:{rules:[{kinds:["docs"],executors:["cursor","codex"]},{executors:["codex","cursor"]}]},fixture:golden.initial.replace("pacing:\n", "pacing:\n  planner_reserve: .nan\n")},
+  {op:"runner.set",params:{id:"codex",enabled:false},error:"internal",fixture:golden.initial.replace("pacing:\n", "pacing:\n  planner_reserve: 1e400\n")},
+  {op:"runner.set",params:{id:"codex",enabled:false},error:"internal",fixture:golden.initial.replace("pacing:\n", 'pacing:\n  planner_reserve: "\\0pacer-yaml-nan"\n')},
+  {op:"strategy.save",params:{name:"review",draft:{from:"default",description:"Live config fixture"},reason:"Fixed live fixture"},fixture:golden.initial.replace("pacing:\n", "pacing:\n  planner_reserve: .nan\n  ahead_threshold: 1e400\n")},
+  {op:"strategy.use",params:{name:"review"}},
+  {op:"strategy.use",params:{name:"default"}},
+  {op:"strategy.remove",params:{name:"review"}},
+  {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  claude: {kind: claude}", '  claude: {"😀": 1, kind: claude, kind: claude}')},
+  {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  claude: {kind: claude}", `  claude: {padding: "${"x".repeat(100)}", kind: claude, kind: claude}`)},
+  {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  codex: {kind: codex}", "  codex: {kind: codex}\n  &k codex: {kind: codex}")},
+  {op:"runner.set",params:{id:"codex",enabled:true},fixture:golden.initial},
 ] as const;
 
 function normalized(value: unknown, home: string): unknown {
@@ -219,7 +232,7 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
         throw Error(`${transport} native/forwarded config parity differs`);
       }
       comparisons[transport]=results[0];
-      for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Legacy migration and alice author environment, CRLF/trailing-space rule removal, exact rejected-edit diagnostics and endpoint synchronization exercised."});
+      for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Legacy migration and alice author environment, CRLF/trailing-space rule removal, exact rejected-edit diagnostics, IEEE-754 infinity/NaN/overflow, literal marker rejection and endpoint synchronization exercised."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
     await guardedCli(session, fixture);
@@ -245,11 +258,12 @@ async function guardedCli(session: Session, fixture: string): Promise<void> {
   for (const step of configSteps) {
     if ("error" in step) continue;
     resetFixture(home,step);
+    if (step.op === "strategy.save" && "fixture" in step) atomicWrite(path, step.fixture);
     const params = JSON.parse(JSON.stringify(step.params).replaceAll('"review"', JSON.stringify(saved)).replace('"from":"default"', `"from":"${name}"`));
     const reply = await call(step.op, params);
     const savedPath = join(home, "strategies", `${saved}.yaml`);
     const state = existsSync(savedPath) ? readFileSync(savedPath, "utf8") : null;
-    if (step.op === "strategy.save" && !state?.includes("planner_reserve: 0.000001")) throw Error("Guarded CLI save number bytes differ");
+    if (step.op === "strategy.save" && !state?.includes("fixture" in step ? "planner_reserve: .nan" : "planner_reserve: 0.000001")) throw Error("Guarded CLI save number bytes differ");
     if (step.op === "strategy.remove" && state !== null) throw Error("Guarded CLI did not remove saved strategy");
     states.push({op: step.op, reply, strategy: state});
     record(session, {kind: "note", behavior: `P2-C ${step.op}`, surface: "CLI", verdict: "PASS", text: "Guarded checkout api call --json succeeded through the public proxy; fixed synthetic result and persisted strategy captured in native-config-fixture/cli-results.json."});
