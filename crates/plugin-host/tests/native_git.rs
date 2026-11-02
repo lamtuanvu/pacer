@@ -489,3 +489,116 @@ async fn signoffs_match_typescript_full_body_oracle() {
         assert_eq!(result.is_ok(), allowed, "body: {body:?}");
     }
 }
+
+#[tokio::test]
+async fn concrete_remote_stop_rounds_milliseconds_up_to_typescript_seconds() {
+    use pacer_plugin_host::{
+        AuthorityError, BrokerError, NativeSsh, RemoteHost, RemoteOperation, RemoteTransport,
+        SshConfig,
+    };
+    use serde_json::{Value, json};
+
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/remote-stop-grace.json"
+    ))
+    .unwrap();
+    let f = Fixture::new();
+    let remote_dir = format!("/remote/.pacer-remote/runs/{ID}/1");
+    // Positive rows match the TS ceil rule; zero must fail its actual issuer.
+    let reference = std::process::Command::new("bun")
+        .args([
+            "-e",
+            "import {issueConfiguredHostStop} from './src/plugins/host-stop-issuer.ts'; const [raw,id]=Bun.argv.slice(-2),c=JSON.parse(raw); console.log(JSON.stringify(c.map(x=>{const seconds=Math.ceil(x.graceMs/1000);if(x.error){try{issueConfiguredHostStop({},'box','/remote/.pacer-remote/runs/'+id+'/1','/fixture/local',seconds);return {unexpected:'accepted'};}catch(e){return {error:e.code};}}return {seconds};})));",
+            &cases.to_string(),
+            ID,
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .env("HOME", &f.root)
+        .env("PACER_HOME", &f.root)
+        .output()
+        .unwrap();
+    assert!(
+        reference.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reference.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&reference.stdout).unwrap();
+    assert_eq!(expected.len(), cases.as_array().unwrap().len());
+    let executable = f.root.join("fixture-stop-ssh");
+    fs::write(
+        &executable,
+        r##"#!/usr/bin/env python3
+import os,re,shlex,sys
+words=shlex.split(sys.argv[-1]);program=words[2];args=words[4:]
+assert sys.argv[1:5]==['-o','BatchMode=yes','-o','ConnectTimeout=10']
+assert sys.argv[-2]=='fixture-host'
+assert 'D="$1"; grace="$2"' in program
+assert args[0]==os.environ['FIXTURE_REMOTE']
+with open(os.environ['FIXTURE_GRACE'],'a') as output: output.write(args[1]+'\n')
+nonce=re.findall(r'__PACER_DONE__=([a-f0-9-]{36})',program)
+assert len(nonce)==1
+sys.stdout.write('__PACER_BEGIN__\ncode=137\nkilled=0\n\n__PACER_DONE__='+nonce[0]+'\n')
+"##,
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let captured = f.root.join("stop-seconds");
+    let ssh = NativeSsh::prepare(
+        &f.root,
+        SshConfig {
+            alias: "box".into(),
+            target: "fixture-host".into(),
+            fingerprint: "configured".into(),
+        },
+        executable.to_str().unwrap(),
+        HashMap::from([
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+            ("HOME".into(), f.root.to_str().unwrap().into()),
+            ("FIXTURE_GRACE".into(), captured.to_str().unwrap().into()),
+            ("FIXTURE_REMOTE".into(), remote_dir.clone()),
+        ]),
+    )
+    .unwrap();
+    let mut transport =
+        RemoteTransport::new(&f.root, ssh, f.native(), deadline(), || "configured".into());
+    for (case, want) in cases.as_array().unwrap().iter().zip(expected) {
+        assert_eq!(
+            want,
+            if case.get("error").is_some() {
+                json!({"error":case["error"]})
+            } else {
+                json!({"seconds":case["seconds"]})
+            }
+        );
+        let result = transport
+            .invoke(
+                RemoteOperation::Stop,
+                &json!({"taskId":ID,"intent":{"hostFingerprint":"configured","alias":"box"},
+                    "run":{"remoteDir":remote_dir},
+                    "extra":{"graceMs":case["graceMs"]}}),
+            )
+            .await;
+        if case.get("error").is_some() {
+            let error = result.unwrap_err();
+            assert!(matches!(
+                error,
+                BrokerError::Authority(AuthorityError::Denied(_))
+            ));
+            assert!(!captured.exists(), "denied zero grace must not execute SSH");
+            continue;
+        }
+        let result = result.unwrap();
+        assert_eq!(result, json!({"code":137,"killed":false}));
+        assert_eq!(
+            fs::read_to_string(&captured)
+                .unwrap()
+                .lines()
+                .last()
+                .unwrap(),
+            case["seconds"].as_u64().unwrap().to_string(),
+            "graceMs={}",
+            case["graceMs"]
+        );
+    }
+    assert_eq!(fs::read_to_string(captured).unwrap().lines().count(), 5);
+}
