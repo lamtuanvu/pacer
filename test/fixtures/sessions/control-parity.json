@@ -1,0 +1,1645 @@
+{
+  "session": [
+    {
+      "args": [
+        "end",
+        "",
+        "real-id"
+      ],
+      "result": {
+        "ok": {
+          "command": "end",
+          "attachments": [],
+          "request": "",
+          "id": "real-id",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "end",
+        ""
+      ],
+      "result": {
+        "error": "A session ID is required"
+      }
+    },
+    {
+      "args": [],
+      "result": {
+        "error": "usage: pacer session start|end|resume"
+      }
+    },
+    {
+      "args": [
+        "bad"
+      ],
+      "result": {
+        "error": "usage: pacer session start|end|resume"
+      }
+    },
+    {
+      "args": [
+        "start"
+      ],
+      "result": {
+        "error": "Put your request after --"
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--",
+        ""
+      ],
+      "result": {
+        "ok": {
+          "command": "start",
+          "attachments": [],
+          "request": "",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--",
+        "﻿"
+      ],
+      "result": {
+        "error": "Put your request after --"
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--",
+        "​"
+      ],
+      "result": {
+        "ok": {
+          "command": "start",
+          "attachments": [],
+          "request": "​",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--repo",
+        "r",
+        "--executor",
+        "codex",
+        "--base",
+        "main",
+        "--attach",
+        "a",
+        "--attach",
+        "b",
+        "--json",
+        "--",
+        " hi ",
+        "--x"
+      ],
+      "result": {
+        "ok": {
+          "command": "start",
+          "repo": "r",
+          "executor": "codex",
+          "base": "main",
+          "attachments": [
+            "a",
+            "b"
+          ],
+          "request": " hi  --x",
+          "json": true
+        }
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--checkout",
+        "x",
+        "--",
+        "go"
+      ],
+      "result": {
+        "ok": {
+          "command": "start",
+          "checkout": "x",
+          "attachments": [],
+          "request": "go",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "end",
+        "id",
+        "--json"
+      ],
+      "result": {
+        "ok": {
+          "command": "end",
+          "attachments": [],
+          "request": "",
+          "id": "id",
+          "json": true
+        }
+      }
+    },
+    {
+      "args": [
+        "resume",
+        "id"
+      ],
+      "result": {
+        "ok": {
+          "command": "resume",
+          "attachments": [],
+          "request": "",
+          "id": "id",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "resume"
+      ],
+      "result": {
+        "error": "A session ID is required"
+      }
+    },
+    {
+      "args": [
+        "end",
+        "a",
+        "b"
+      ],
+      "result": {
+        "error": "Unknown session argument: b. Put the initial prompt after --."
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--repo"
+      ],
+      "result": {
+        "error": "--repo requires a value"
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--wat"
+      ],
+      "result": {
+        "error": "Unknown session argument: --wat. Put the initial prompt after --."
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--base",
+        "m",
+        "--checkout",
+        "x",
+        "--",
+        "go"
+      ],
+      "result": {
+        "error": "--base and --checkout are mutually exclusive"
+      }
+    },
+    {
+      "args": [
+        "end",
+        "id",
+        "--",
+        "ignored"
+      ],
+      "result": {
+        "ok": {
+          "command": "end",
+          "attachments": [],
+          "request": "ignored",
+          "id": "id",
+          "json": false
+        }
+      }
+    },
+    {
+      "args": [
+        "start",
+        "--repo",
+        "a",
+        "--repo",
+        "b",
+        "--",
+        "go"
+      ],
+      "result": {
+        "ok": {
+          "command": "start",
+          "repo": "b",
+          "attachments": [],
+          "request": "go",
+          "json": false
+        }
+      }
+    }
+  ],
+  "terminal": [
+    {
+      "setting": "",
+      "result": {
+        "ok": ""
+      },
+      "split": {
+        "ok": []
+      },
+      "recipe": {
+        "ok": []
+      }
+    },
+    {
+      "setting": "auto",
+      "result": {
+        "ok": "auto"
+      },
+      "split": {
+        "ok": [
+          "auto"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "auto"
+        ]
+      }
+    },
+    {
+      "setting": "kitty",
+      "result": {
+        "ok": "kitty"
+      },
+      "split": {
+        "ok": [
+          "kitty"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "kitty",
+          "pacer",
+          "attach",
+          "task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool {cmd}",
+      "result": {
+        "ok": "tool {cmd}"
+      },
+      "split": {
+        "ok": [
+          "tool",
+          "{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "tool",
+          "pacer",
+          "attach",
+          "task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool \"x {cmd}\"",
+      "result": {
+        "ok": "tool \"x {cmd}\""
+      },
+      "split": {
+        "ok": [
+          "tool",
+          "x {cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "tool",
+          "x pacer attach task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool '' {cmd}",
+      "result": {
+        "ok": "tool '' {cmd}"
+      },
+      "split": {
+        "ok": [
+          "tool",
+          "",
+          "{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "tool",
+          "",
+          "pacer",
+          "attach",
+          "task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool \\{cmd}",
+      "result": {
+        "ok": "tool \\{cmd}"
+      },
+      "split": {
+        "ok": [
+          "tool",
+          "{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "tool",
+          "pacer",
+          "attach",
+          "task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool \"{cmd}",
+      "result": {
+        "error": "unfinished terminal quote"
+      },
+      "split": {
+        "error": "unfinished terminal quote"
+      },
+      "recipe": {
+        "error": "unfinished terminal quote"
+      }
+    },
+    {
+      "setting": "x\n{cmd}",
+      "result": {
+        "error": "invalid terminal.open"
+      },
+      "split": {
+        "ok": [
+          "x",
+          "{cmd}"
+        ]
+      },
+      "recipe": {
+        "error": "invalid terminal.open"
+      }
+    },
+    {
+      "setting": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx{cmd}",
+      "result": {
+        "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx{cmd}"
+      },
+      "split": {
+        "ok": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxpacer attach task_1"
+        ]
+      }
+    },
+    {
+      "setting": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀{cmd}",
+      "result": {
+        "error": "invalid terminal.open"
+      },
+      "split": {
+        "ok": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀{cmd}"
+        ]
+      },
+      "recipe": {
+        "error": "invalid terminal.open"
+      }
+    },
+    {
+      "setting": "x",
+      "result": {
+        "error": "terminal.open requires a preset or a template with {cmd}"
+      },
+      "split": {
+        "ok": [
+          "x"
+        ]
+      },
+      "recipe": {
+        "error": "terminal.open requires a preset or a template with {cmd}"
+      }
+    },
+    {
+      "setting": "tool{cmd}",
+      "result": {
+        "ok": "tool{cmd}"
+      },
+      "split": {
+        "ok": [
+          "tool{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "toolpacer attach task_1"
+        ]
+      }
+    },
+    {
+      "setting": "tool﻿{cmd}",
+      "result": {
+        "ok": "tool﻿{cmd}"
+      },
+      "split": {
+        "ok": [
+          "tool",
+          "{cmd}"
+        ]
+      },
+      "recipe": {
+        "ok": [
+          "tool",
+          "pacer",
+          "attach",
+          "task_1"
+        ]
+      }
+    }
+  ],
+  "recipes": [
+    {
+      "setting": "ghostty",
+      "platform": "darwin",
+      "result": [
+        "open",
+        "-na",
+        "Ghostty",
+        "--args",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "ghostty",
+      "platform": "linux",
+      "result": [
+        "ghostty",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "iterm",
+      "platform": "darwin",
+      "result": [
+        "osascript",
+        "-e",
+        "tell application \"iTerm\" to create window with default profile command \"pacer attach t-1\""
+      ]
+    },
+    {
+      "setting": "iterm",
+      "platform": "linux",
+      "result": [
+        "osascript",
+        "-e",
+        "tell application \"iTerm\" to create window with default profile command \"pacer attach t-1\""
+      ]
+    },
+    {
+      "setting": "terminal-app",
+      "platform": "darwin",
+      "result": [
+        "osascript",
+        "-e",
+        "tell application \"Terminal\" to do script \"pacer attach t-1\""
+      ]
+    },
+    {
+      "setting": "terminal-app",
+      "platform": "linux",
+      "result": [
+        "osascript",
+        "-e",
+        "tell application \"Terminal\" to do script \"pacer attach t-1\""
+      ]
+    },
+    {
+      "setting": "wezterm",
+      "platform": "darwin",
+      "result": [
+        "wezterm",
+        "start",
+        "--",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "wezterm",
+      "platform": "linux",
+      "result": [
+        "wezterm",
+        "start",
+        "--",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "kitty",
+      "platform": "darwin",
+      "result": [
+        "kitty",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "kitty",
+      "platform": "linux",
+      "result": [
+        "kitty",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "alacritty",
+      "platform": "darwin",
+      "result": [
+        "alacritty",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "alacritty",
+      "platform": "linux",
+      "result": [
+        "alacritty",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "gnome-terminal",
+      "platform": "darwin",
+      "result": [
+        "gnome-terminal",
+        "--",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "gnome-terminal",
+      "platform": "linux",
+      "result": [
+        "gnome-terminal",
+        "--",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "x-terminal-emulator",
+      "platform": "darwin",
+      "result": [
+        "x-terminal-emulator",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "x-terminal-emulator",
+      "platform": "linux",
+      "result": [
+        "x-terminal-emulator",
+        "-e",
+        "pacer",
+        "attach",
+        "t-1"
+      ]
+    },
+    {
+      "setting": "auto",
+      "platform": "darwin",
+      "result": [
+        "auto"
+      ]
+    },
+    {
+      "setting": "auto",
+      "platform": "linux",
+      "result": [
+        "auto"
+      ]
+    }
+  ],
+  "takeover": [
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        }
+      },
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "task": {
+        "state": "done",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over requires a running task."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        },
+        "executorProvider": "pacer-exec-direct"
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over is not yet extracted for provider-owned runs."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          },
+          "host": "remote"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over is not supported for remote runs."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex@remote",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over is not supported for remote runs."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex@local",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        }
+      },
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        },
+        "backend": "orca"
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over requires the direct backend."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        },
+        "result": {
+          "backend": "orca"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over requires the direct backend."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex"
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over requires an active run."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          },
+          "takeover": true
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "This task is already interactive or being taken over."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex",
+        "run": {
+          "executor": "codex",
+          "dir": "/nonexistent-pacer-fixture",
+          "agentSession": {
+            "id": "s"
+          }
+        },
+        "takeover": {
+          "state": "starting"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "This task is already interactive or being taken over."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "agy",
+        "run": {
+          "executor": "agy",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over needs the agent's session id; `agy` does not report one. Stop the task and retry it interactively instead."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "unknown",
+        "run": {
+          "executor": "unknown",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over needs the agent's session id; `unknown` does not report one. Stop the task and retry it interactively instead."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "cursor",
+        "run": {
+          "executor": "cursor",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over needs the agent's session id; `cursor` does not report one. Stop the task and retry it interactively instead."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "claude-code",
+        "run": {
+          "executor": "claude-code",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over needs the agent's session id; `claude-code` does not report one. Stop the task and retry it interactively instead."
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "opencode",
+        "run": {
+          "executor": "opencode",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "task": {
+        "state": "running",
+        "executor": "codex#work",
+        "run": {
+          "executor": "codex#work",
+          "dir": "/nonexistent-pacer-fixture"
+        }
+      },
+      "result": {
+        "available": false,
+        "reason": "Take over needs the agent's session id; `codex#work` does not report one. Stop the task and retry it interactively instead."
+      }
+    }
+  ],
+  "lookup": [
+    {
+      "text": "{\"data\":{\"data\":{\"data\":{\"data\":{\"data\":{\"data\":{\"id\":\"native\",\"title\":\"pacer t\"}}}}}}}",
+      "result": "native"
+    },
+    {
+      "text": "{\"data\":{\"data\":{\"data\":{\"data\":{\"data\":{\"data\":{\"data\":{\"id\":\"native\",\"title\":\"pacer t\"}}}}}}}}",
+      "result": null
+    },
+    {
+      "text": "{\"id\":\"parent\",\"title\":\"pacer t\",\"sessions\":[{\"id\":\"nested\",\"title\":\"pacer t\",\"updated\":100}]}",
+      "result": "parent"
+    },
+    {
+      "text": "[{\"id\":\" a \",\"title\":\"pacer t\",\"updated\":\"2026-01-01T00:00:00Z\"},{\"id\":\"new\",\"title\":\"pacer t\",\"updatedAt\":\"2026-02-01T00:00:00Z\"}]",
+      "result": "new"
+    },
+    {
+      "text": "[{\"id\":\"numeric\",\"title\":\"pacer t\",\"updated\":\"0x10\"},{\"id\":\"decimal\",\"title\":\"pacer t\",\"time\":{\"updated\":15,\"created\":1000}}]",
+      "result": "numeric"
+    },
+    {
+      "text": "[{\"id\":\"bad-time\",\"title\":\"pacer t\",\"updated\":\"garbage\"},{\"id\":\"positive\",\"title\":\"pacer t\",\"created\":1}]",
+      "result": "positive"
+    },
+    {
+      "text": "bad",
+      "result": null
+    },
+    {
+      "text": "null",
+      "result": null
+    },
+    {
+      "text": "[]",
+      "result": null
+    },
+    {
+      "text": "[{\"id\":\" a \",\"title\":\"pacer t\"},{\"id\":\"b\",\"title\":\"pacer t\",\"updated\":\"20\"},{\"id\":\"c\",\"title\":\"pacer t\",\"updated\":10}]",
+      "result": "b"
+    },
+    {
+      "text": "{\"data\":{\"sessions\":[{\"id\":\"old\",\"title\":\"pacer t\",\"updated\":1},{\"id\":\"new\",\"title\":\"pacer t\",\"time\":{\"updated\":2}}]}}",
+      "result": "new"
+    },
+    {
+      "text": "[{\"id\":\"﻿\",\"title\":\"pacer t\"},{\"id\":\"\",\"title\":\"pacer t\"}]",
+      "result": ""
+    },
+    {
+      "text": "[{\"id\":\"first\",\"title\":\"pacer t\",\"updated\":0},{\"id\":\"second\",\"title\":\"pacer t\",\"updated\":0}]",
+      "result": "first"
+    }
+  ],
+  "caller": [
+    {
+      "name": "task.session",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.session",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.attach",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.attach",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.takeover",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.takeover",
+      "executor": true,
+      "result": {
+        "error": "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly."
+      }
+    },
+    {
+      "name": "session.prepare",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.prepare",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.draft.create",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.draft.create",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.create",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.create",
+      "executor": true,
+      "result": {
+        "error": "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly."
+      }
+    },
+    {
+      "name": "session.resume",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.resume",
+      "executor": true,
+      "result": {
+        "error": "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly."
+      }
+    },
+    {
+      "name": "session.end",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.end",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.file.read",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "session.file.read",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "terminal.create",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "terminal.create",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "terminal.close",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "terminal.close",
+      "executor": true,
+      "result": {
+        "ok": null
+      }
+    }
+  ],
+  "codec": [
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"client\":\"cli\",\"from\":9}",
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app",
+              "from": 9
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"client\":\"cli\",\"from\":9}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app",
+              "from": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"client\":\"cli\",\"from\":9}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app",
+              "from": 8
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"take\",\"force\":true}",
+      "result": {
+        "ok": [
+          {
+            "type": 8,
+            "body": {
+              "force": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"take\",\"force\":true}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 8,
+            "body": {
+              "force": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"take\",\"force\":true}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 8,
+            "body": {
+              "force": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"size\",\"cols\":80,\"rows\":24}",
+      "result": {
+        "ok": [
+          {
+            "type": 11,
+            "body": {
+              "cols": 80,
+              "rows": 24
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"size\",\"cols\":80,\"rows\":24}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 11,
+            "body": {
+              "cols": 80,
+              "rows": 24
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"size\",\"cols\":80,\"rows\":24}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 11,
+            "body": {
+              "cols": 80,
+              "rows": 24
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"bogus\"}",
+      "result": {
+        "error": "unknown session frame"
+      }
+    },
+    {
+      "message": "{\"type\":\"bogus\"}",
+      "from": 0,
+      "result": {
+        "error": "unknown session frame"
+      }
+    },
+    {
+      "message": "{\"type\":\"bogus\"}",
+      "from": 8,
+      "result": {
+        "error": "unknown session frame"
+      }
+    },
+    {
+      "message": "bad",
+      "result": {
+        "error": "JSON Parse error: Unexpected identifier \"bad\""
+      }
+    },
+    {
+      "message": "bad",
+      "from": 0,
+      "result": {
+        "error": "JSON Parse error: Unexpected identifier \"bad\""
+      }
+    },
+    {
+      "message": "bad",
+      "from": 8,
+      "result": {
+        "error": "JSON Parse error: Unexpected identifier \"bad\""
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1}",
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app",
+              "from": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "client": "app",
+              "from": 8
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "render": [
+    {
+      "type": 2,
+      "body": {
+        "scrollbackAnsi": "old",
+        "screenAnsi": "screen",
+        "cols": 100,
+        "rows": 30
+      },
+      "out": [
+        "\u001b[0m\u001b[2J\u001b[Holdscreen"
+      ],
+      "err": [
+        "\nSession is 100×30; enlarge the viewer to see it all.\n"
+      ],
+      "detach": false
+    },
+    {
+      "type": 7,
+      "body": {
+        "code": 1,
+        "reason": "bad\u001b[31m\u0007"
+      },
+      "out": [],
+      "err": [
+        "bad[31m\n"
+      ],
+      "detach": true
+    },
+    {
+      "type": 5,
+      "body": {
+        "you": true
+      },
+      "out": [],
+      "err": [],
+      "detach": false
+    }
+  ],
+  "binary": [
+    {
+      "hex": "00ff1b80",
+      "out": "030000000400ff1b80",
+      "input": "0a0000000400ff1b80"
+    },
+    {
+      "hex": "",
+      "out": "0300000000",
+      "input": "0a00000000"
+    }
+  ],
+  "offsets": [
+    {
+      "value": 0,
+      "valid": true
+    },
+    {
+      "value": 1,
+      "valid": true
+    },
+    {
+      "value": 100,
+      "valid": true
+    },
+    {
+      "value": -1,
+      "valid": false
+    },
+    {
+      "value": 0.5,
+      "valid": false
+    },
+    {
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "value": null,
+      "valid": false
+    },
+    {
+      "value": "1",
+      "valid": false
+    },
+    {
+      "value": true,
+      "valid": false
+    },
+    {
+      "value": {},
+      "valid": false
+    },
+    {
+      "value": [],
+      "valid": false
+    }
+  ],
+  "labels": [
+    {
+      "label": "",
+      "units": []
+    },
+    {
+      "label": "a\u0000b",
+      "units": [
+        97,
+        98
+      ]
+    },
+    {
+      "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀",
+      "units": [
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        120,
+        55357
+      ]
+    },
+    {
+      "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "units": [
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832,
+        55357,
+        56832
+      ]
+    },
+    {
+      "label": "﻿",
+      "units": [
+        133,
+        65279
+      ]
+    }
+  ]
+}

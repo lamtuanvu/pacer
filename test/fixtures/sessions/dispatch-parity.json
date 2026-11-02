@@ -1,0 +1,296 @@
+[
+  {
+    "scenario": "takeover-no-attach",
+    "args": [
+      "takeover",
+      "task",
+      "--no-attach"
+    ],
+    "result": {
+      "code": 0,
+      "out": "pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      [
+        "takeover",
+        "task"
+      ]
+    ]
+  },
+  {
+    "scenario": "takeover-starting",
+    "args": [
+      "takeover",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      [
+        "takeover",
+        "task"
+      ]
+    ]
+  },
+  {
+    "scenario": "takeover-ended",
+    "args": [
+      "takeover",
+      "task"
+    ],
+    "result": {
+      "code": 1,
+      "out": "pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      [
+        "takeover",
+        "task"
+      ]
+    ]
+  },
+  {
+    "scenario": "takeover-driving",
+    "args": [
+      "takeover",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "takeover",
+        "task"
+      ],
+      [
+        "directory",
+        "task",
+        null
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": false,
+          "control": true,
+          "force": false
+        },
+        "pacer task"
+      ]
+    ]
+  },
+  {
+    "scenario": "takeover-executor",
+    "args": [
+      "takeover",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "takeover",
+        "task"
+      ],
+      [
+        "directory",
+        "task",
+        null
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": false,
+          "control": true,
+          "force": false
+        },
+        "pacer task"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-executor",
+    "args": [
+      "attach",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "directory",
+        "task",
+        null
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": false,
+          "control": false,
+          "force": false
+        },
+        "pacer task"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-orca",
+    "args": [
+      "attach",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Opened task session.",
+      "err": ""
+    },
+    "calls": [
+      [
+        "open",
+        "task",
+        "orca"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-orca-gone",
+    "args": [
+      "attach",
+      "task"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "This task no longer has an Orca terminal."
+    },
+    "calls": [
+      [
+        "open",
+        "task",
+        "orca"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-open",
+    "args": [
+      "attach",
+      "task",
+      "--open",
+      "terminal"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Opened task session.",
+      "err": ""
+    },
+    "calls": [
+      [
+        "open",
+        "task",
+        "terminal"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-open-failed",
+    "args": [
+      "attach",
+      "task",
+      "--open",
+      "terminal"
+    ],
+    "result": {
+      "code": 0,
+      "out": "pacer attach task",
+      "err": ""
+    },
+    "calls": [
+      [
+        "open",
+        "task",
+        "terminal"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-control",
+    "args": [
+      "attach",
+      "task",
+      "--control",
+      "--force"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "directory",
+        "task",
+        null
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": false,
+          "control": true,
+          "force": true
+        },
+        "pacer task"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-replay-attempt",
+    "args": [
+      "attach",
+      "task",
+      "--replay",
+      "--attempt",
+      "2"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "directory",
+        "task",
+        2
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": true,
+          "control": false,
+          "force": false,
+          "attempt": 2
+        },
+        "pacer task"
+      ]
+    ]
+  }
+]
