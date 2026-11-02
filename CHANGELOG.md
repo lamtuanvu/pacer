@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Recover Codex eligibility through fresh quota polling without dispatching a task: ignore nonpositive window durations, read secondary-only limits, and safely retire historical `0h` artifacts while preserving real quota constraints and manual limits.
+
 - Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
 
 - Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
