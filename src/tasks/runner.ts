@@ -36,7 +36,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo, realpathSafe } from "../core/git";
-import { worktreeUnchanged } from "../supervisor/worktree";
+import { removeTaskWorktree, taskWorktreePath, worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
 import { pidAlive } from "../link/pid";
 import { readBlocked } from "../executors/blocked";
@@ -714,13 +714,25 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           !latest.startIntent && !latest.remotePrepareIntent && !latest.baseFetchIntent &&
           error instanceof CoreError &&
           (error.code === "capability_denied" || error.code === "invalid_input")) {
+          const intent = latest.worktreeIntent;
+          if (intent) {
+            const info = await gitInfo(ctx.run, intent.workdir);
+            const branch = await ctx.run(["git", "-C", intent.path, "symbolic-ref", "--quiet", "--short", "HEAD"], 10_000);
+            if (intent.providerId !== "pacer-exec-direct" || intent.attempt !== latest.attempts.length + 1 ||
+              intent.path !== taskWorktreePath(ctx, intent.repoTop, id) || "error" in info ||
+              realpathSafe(info.top) !== realpathSafe(intent.path) || realpathSafe(info.main) !== realpathSafe(intent.repoMain) ||
+              branch.code !== 0 || branch.stdout.trim() !== intent.branch || intent.branch !== `pacer/${id}` ||
+              await worktreeUnchanged(ctx, intent.path, intent.baseSha) !== true) throw error;
+            const removed = await removeTaskWorktree(ctx, intent.repoTop, intent.path);
+            if ("error" in removed) throw new Error(removed.error);
+          }
           const message = error.message, endedAt = Date.now() / 1000;
           updateTask(ctx, id, current => {
             if (current.state !== "running" || current.startIntent || current.stopPending)
               throw new CoreError("conflict", "executor state changed before refusal settlement");
             current.attempts.push({ executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
               endedAt, exitCode: 1, timedOut: false, limitHit: false, log: "" });
-            delete current.runClaim; delete current.pendingAttempt;
+            delete current.runClaim; delete current.pendingAttempt; delete current.worktreeIntent;
           });
           releaseDispatch(ctx, id);
           return finish(ctx, id, { status: "failed", executor: pick, model: cfg.model,
