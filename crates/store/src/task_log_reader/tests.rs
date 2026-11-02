@@ -12,65 +12,107 @@ fn write(home: &Path, value: &Value) {
     fs::rename(tmp, dir.join(format!("{ID}.json"))).unwrap();
 }
 #[test]
-fn json_only_home_does_not_create_state_and_keeps_imported_records() {
+fn json_only_home_requires_shared_import_without_creating_state() {
     let home = tempfile::tempdir().unwrap();
     write(home.path(), &record(Value::Null, "running"));
     let reader = TaskLogReader::open(home.path()).unwrap();
-    assert_eq!(reader.read(ID).unwrap().unwrap()["rev"], 1);
-    write(home.path(), &record(json!(2e0), "done"));
-    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
-    write(home.path(), &record(json!(1), "running"));
-    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
-    fs::remove_file(home.path().join(format!("tasks/{ID}.json"))).unwrap();
-    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
+    assert!(matches!(
+        reader.read(ID),
+        Err(StoreError::CompatibilityRequired)
+    ));
     assert!(!home.path().join("state").exists());
 }
 #[test]
-fn compatibility_revisions_match_js_safe_integers_and_corrupt_files_are_skipped() {
-    let home = tempfile::tempdir().unwrap();
-    let reader = TaskLogReader::open(home.path()).unwrap();
-    for value in [
-        json!([]),
-        json!("bad"),
-        record(json!(0), "done"),
-        record(json!(1.5), "done"),
-        record(json!(9007199254740992u64), "done"),
-    ] {
-        write(home.path(), &value);
-        assert!(reader.read(ID).unwrap().is_none());
-    }
-    write(home.path(), &record(json!(9007199254740991u64), "done"));
-    assert_eq!(
-        reader.read(ID).unwrap().unwrap()["rev"],
-        json!(9007199254740991u64)
-    );
-}
-#[test]
-fn same_revision_uses_newer_mtime_and_database_revision_wins_over_old_json() {
+fn unchanged_sqlite_reads_avoid_writers_but_changed_json_requires_compatibility() {
     let home = tempfile::tempdir().unwrap();
     let mut store = TaskStore::open(home.path()).unwrap();
     store.insert(&record(json!(2), "running"), 1000.0).unwrap();
     let reader = TaskLogReader::open(home.path()).unwrap();
     assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "running");
-    // Explicit times keep equal-revision precedence deterministic on all filesystems.
-    write(home.path(), &record(json!(2), "done"));
-    File::open(home.path().join(format!("tasks/{ID}.json")))
-        .unwrap()
-        .set_times(
-            fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(4_000_000_000)),
-        )
-        .unwrap();
-    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
     store
         .connection()
         .unwrap()
-        .execute(
-            "UPDATE tasks SET rev=3,record=? WHERE id=?",
-            params![
-                serde_json::to_string(&record(json!(3), "failed")).unwrap(),
-                ID
-            ],
-        )
+        .execute_batch("BEGIN IMMEDIATE")
         .unwrap();
-    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "failed");
+    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "running");
+    store
+        .connection()
+        .unwrap()
+        .execute_batch("ROLLBACK")
+        .unwrap();
+    write(home.path(), &record(json!(3), "done"));
+    assert!(matches!(
+        reader.read(ID),
+        Err(StoreError::CompatibilityRequired)
+    ));
+    assert_eq!(store.read(ID).unwrap().unwrap()["state"], "done");
+    assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
+}
+#[test]
+fn linked_state_directory_and_sqlite_companions_are_refused() {
+    use std::os::unix::fs::symlink;
+    for name in [
+        "state",
+        "state/tasks.db-wal",
+        "state/tasks.db-shm",
+        "state/tasks.db-journal",
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        if name != "state" {
+            fs::create_dir(home.path().join("state")).unwrap();
+        }
+        symlink(outside.path(), home.path().join(name)).unwrap();
+        assert!(TaskLogReader::open(home.path()).is_err(), "{name}");
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn native_store_import_accepts_bun_negative_mtime_and_untyped_sqlite_mtime() {
+    let home = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(home.path()).unwrap();
+    store.insert(&record(json!(2), "done"), 1000.0).unwrap();
+    store
+        .connection()
+        .unwrap()
+        .execute_batch("UPDATE tasks SET json_mtime='legacy'")
+        .unwrap();
+    drop(store);
+    assert_eq!(
+        TaskStore::open(home.path())
+            .unwrap()
+            .read(ID)
+            .unwrap()
+            .unwrap()["rev"],
+        2
+    );
+    let path = home.path().join(format!("tasks/{ID}.json"));
+    File::open(&path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH - Duration::from_secs(1)))
+        .unwrap();
+    let code = "import {statSync} from 'node:fs'; console.log(statSync(process.argv[1]).mtimeMs)";
+    let output = std::process::Command::new("bun")
+        .args(["-e", code])
+        .arg(&path)
+        .env("HOME", home.path())
+        .env("PACER_HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let expected = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse::<f64>()
+        .unwrap();
+    assert_eq!(mtime_ms(&path).unwrap(), expected);
+    assert_eq!(
+        TaskStore::open(home.path())
+            .unwrap()
+            .read(ID)
+            .unwrap()
+            .unwrap()["rev"],
+        2
+    );
 }

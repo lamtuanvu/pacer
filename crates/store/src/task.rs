@@ -24,6 +24,8 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Lock(#[from] LockError),
+    #[error("task read requires the TypeScript compatibility path")]
+    CompatibilityRequired,
     #[error("invalid task record")]
     InvalidRecord,
     #[error("unknown task {0}")]
@@ -169,11 +171,13 @@ fn parse_record(text: &str) -> Result<Value> {
     Ok(value)
 }
 fn mtime_ms(path: &Path) -> Result<f64> {
-    let d = fs::metadata(path)?
-        .modified()?
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?;
-    Ok(d.as_secs() as f64 * 1000.0 + f64::from(d.subsec_nanos()) / 1_000_000.0)
+    let time = fs::metadata(path)?.modified()?;
+    let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration, 1.0),
+        Err(error) => (error.duration(), -1.0),
+    };
+    Ok(sign
+        * (duration.as_secs() as f64 * 1000.0 + f64::from(duration.subsec_nanos()) / 1_000_000.0))
 }
 #[cfg(unix)]
 pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
@@ -361,12 +365,19 @@ impl TaskStore {
                 Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e),
             };
-            let row: Option<(i64, Option<f64>)> = tx
-                .query_row("SELECT rev,json_mtime FROM tasks WHERE id=?", [id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
+            // Bun returns SQLite storage types without coercing text to a number.
+            // Only a numeric json_mtime can strictly equal stat().mtimeMs. The
+            // revision comparison belongs to the SQL UPSERT below, not a typed read.
+            let row: Option<SqlValue> = tx
+                .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
+                    r.get(0)
                 })
                 .optional()?;
-            if row.is_some_and(|(_, old)| old == Some(mtime)) {
+            if row.is_some_and(|old| match old {
+                SqlValue::Real(value) => value == mtime,
+                SqlValue::Integer(value) => value as f64 == mtime,
+                _ => false,
+            }) {
                 continue;
             }
             let bytes = match fs::read(&path) {

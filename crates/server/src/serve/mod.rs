@@ -113,6 +113,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     }
     if !state.scoped_work
         && !state.forward_log_follow
+        && auth != auth::AuthKind::Task
         && req.uri().path().starts_with("/v3/tasks/")
         && req.uri().path().ends_with("/log")
         && req.uri().query().is_some_and(|query| {
@@ -138,7 +139,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native http.task_log_follow");
             }
-            return log_sse::follow(ctx, id.to_owned()).await;
+            return log_sse::follow(ctx, id.to_owned(), state.core.clone()).await;
         }
     }
     let Some(target) = state.core.target().await else {

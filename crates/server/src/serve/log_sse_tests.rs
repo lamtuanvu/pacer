@@ -12,13 +12,28 @@ use std::{path::Path, time::Duration};
 const ID: &str = "t-20261102-101125-16a9";
 
 async fn listener(home: &Path, forwarded: bool) -> (u16, tokio::task::JoinHandle<()>) {
+    listener_with_core(
+        home,
+        forwarded,
+        Arc::new(core_child::CoreChild::unavailable()),
+    )
+    .await
+}
+async fn compatibility_listener(home: &Path) -> (u16, tokio::task::JoinHandle<()>) {
+    listener_with_core(home, false, test_core(home).await).await
+}
+async fn listener_with_core(
+    home: &Path,
+    forwarded: bool,
+    core: Arc<core_child::CoreChild>,
+) -> (u16, tokio::task::JoinHandle<()>) {
     let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
     let port = socket.local_addr().unwrap().port();
     let ctx = Ctx::with(home.into(), home.into(), Default::default(), 1000.0);
     let state = Arc::new(Listener {
-        core: Arc::new(core_child::CoreChild::unavailable()),
+        core,
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
         ctx,
         port,
@@ -27,11 +42,52 @@ async fn listener(home: &Path, forwarded: bool) -> (u16, tokio::task::JoinHandle
         scoped_work: false,
         forward_log_follow: forwarded,
     });
-    let app = Router::new().fallback(any(handle)).with_state(state);
+    let app = Router::new()
+        .fallback(any(handle))
+        .with_state(state.clone());
+    struct StopCore(Arc<core_child::CoreChild>);
+    impl Drop for StopCore {
+        fn drop(&mut self) {
+            let core = self.0.clone();
+            tokio::spawn(async move {
+                core.shutdown().await;
+            });
+        }
+    }
+    let guard = StopCore(state.core.clone());
     let task = tokio::spawn(async move {
+        let _guard = guard;
         axum::serve(socket, app).await.unwrap();
     });
     (port, task)
+}
+
+async fn test_core(home: &Path) -> Arc<core_child::CoreChild> {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/fixtures/task-log-core.ts");
+    let bun = std::process::Command::new("which")
+        .arg("bun")
+        .output()
+        .unwrap();
+    let core = Arc::new(core_child::CoreChild::spawn(
+        vec![
+            String::from_utf8(bun.stdout).unwrap().trim().into(),
+            fixture.to_string_lossy().into(),
+        ],
+        std::collections::HashMap::from([
+            ("HOME".into(), home.to_string_lossy().into()),
+            ("PACER_HOME".into(), home.to_string_lossy().into()),
+            ("TMPDIR".into(), home.to_string_lossy().into()),
+        ]),
+    ));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while core.target().await.is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    core
 }
 
 fn request(port: u16, path: &str, method: Method, authorized: bool) -> Request<Body> {
@@ -182,6 +238,18 @@ async fn followers_continue_reading_while_another_connection_writes() {
         .unwrap()
         .execute_batch("BEGIN IMMEDIATE")
         .unwrap();
+    // A new native follower also reads through a held writer without an import.
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        client.request(request(port, &path, Method::GET, true)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut initial = response.into_body();
+    initial.frame().await.unwrap().unwrap();
+    bodies.push(initial);
     std::fs::write(run.join("stdout"), "while locked").unwrap();
     for body in &mut bodies {
         let frame = tokio::time::timeout(Duration::from_secs(3), body.frame())
@@ -253,6 +321,10 @@ fn ts_read(home: &Path, id: &str) -> serde_json::Value {
     );
     let output = std::process::Command::new("bun")
         .args(["-e", &code])
+        .env("HOME", home)
+        .env("PACER_HOME", home)
+        .env_remove("BUN_OPTIONS")
+        .env_remove("NODE_OPTIONS")
         .output()
         .unwrap();
     assert!(
@@ -275,7 +347,7 @@ async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
             "t-20261102-101125-16aa"
         };
         legacy_json(home.path(), id, json!(2.0), "done", &run);
-        let (port, server) = listener(home.path(), false).await;
+        let (port, server) = compatibility_listener(home.path()).await;
         let response = client()
             .request(request(
                 port,
@@ -292,7 +364,7 @@ async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
             .unwrap()
             .to_bytes();
         assert!(String::from_utf8_lossy(&body).contains("event: done"));
-        // Native merging does not persist an import or acquire a writer lock.
+        // The compatibility read must durably import into the shared database.
         let code = format!(
             "import {{ Database }} from 'bun:sqlite'; const db = new Database({}, {{readonly:true}}); console.log(JSON.stringify(db.query('SELECT rev FROM tasks WHERE id=?').get({})))",
             serde_json::to_string(&home.path().join("state/tasks.db")).unwrap(),
@@ -304,14 +376,7 @@ async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
             .unwrap();
         assert!(output.status.success());
         let row: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            row,
-            if existing {
-                json!({"rev":1})
-            } else {
-                json!(null)
-            }
-        );
+        assert_eq!(row, json!({"rev":2}));
         assert_eq!(ts_read(home.path(), id)["state"], "done");
         server.abort();
     }
@@ -323,7 +388,7 @@ async fn connected_listener_observes_legacy_update_and_database_replacement() {
         let home = tempfile::tempdir().unwrap();
         let run = home.path().join("run");
         task(home.path(), &run, "running");
-        let (port, server) = listener(home.path(), false).await;
+        let (port, server) = compatibility_listener(home.path()).await;
         let response = client()
             .request(request(
                 port,
@@ -361,3 +426,6 @@ async fn connected_listener_observes_legacy_update_and_database_replacement() {
         server.abort();
     }
 }
+
+#[path = "log_sse_compat_tests.rs"]
+mod compatibility;

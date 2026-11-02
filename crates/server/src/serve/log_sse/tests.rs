@@ -99,8 +99,8 @@ fn exit_receipt_trim_matches_javascript() {
     }
 }
 
-#[test]
-fn follows_bounded_chunks_and_emits_done_after_drain() {
+#[tokio::test]
+async fn follows_bounded_chunks_and_emits_done_after_drain() {
     let home = tempfile::tempdir().unwrap();
     let run = home.path().join("run");
     std::fs::create_dir(&run).unwrap();
@@ -115,14 +115,12 @@ fn follows_bounded_chunks_and_emits_done_after_drain() {
     );
     let mut offsets = Offsets::default();
     let mut frames = VecDeque::new();
+    let reader = Arc::new(Mutex::new(TaskLogReader::open(&ctx.pacer_home).unwrap()));
+    let core = CoreChild::unavailable();
     assert!(
-        !poll(
-            &TaskLogReader::open(&ctx.pacer_home).unwrap(),
-            ID,
-            &mut offsets,
-            &mut frames
-        )
-        .unwrap()
+        !drain(&reader, &core, ID, &mut offsets, &mut frames, 4)
+            .await
+            .unwrap()
     );
     assert_eq!(
         frames.pop_front().unwrap(),
@@ -131,13 +129,9 @@ fn follows_bounded_chunks_and_emits_done_after_drain() {
     std::fs::write(run.join("stdout"), "first\nsecond\n").unwrap();
     std::fs::write(run.join("exit"), "0").unwrap();
     assert!(
-        poll(
-            &TaskLogReader::open(&ctx.pacer_home).unwrap(),
-            ID,
-            &mut offsets,
-            &mut frames
-        )
-        .unwrap()
+        drain(&reader, &core, ID, &mut offsets, &mut frames, 4)
+            .await
+            .unwrap()
     );
     assert!(frames.pop_front().unwrap().contains("second\\n"));
     assert_eq!(frames.pop_front().unwrap(), "event: done\ndata: {}\n\n");
@@ -157,7 +151,7 @@ async fn completed_log_drains_before_first_response_finishes() {
         Default::default(),
         1000.0,
     );
-    let response = follow(ctx, ID.to_owned()).await;
+    let response = follow(ctx, ID.to_owned(), Arc::new(CoreChild::unavailable())).await;
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = tokio::time::timeout(
         Duration::from_millis(500),

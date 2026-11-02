@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Preserve shared legacy task imports, older SQLite migrations, malformed run errors and UTF-8 decoding in native task-log follow streams through the TypeScript compatibility fallback.
+
 - Recover Codex eligibility through fresh quota polling without dispatching a task: ignore nonpositive window durations, read secondary-only limits, and safely retire historical `0h` artifacts while preserving real quota constraints and manual limits.
 
 - Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.

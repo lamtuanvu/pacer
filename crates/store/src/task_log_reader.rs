@@ -1,29 +1,18 @@
-//! Read-only projection of the TS compatibility import. No state writes or writer locks.
+//! Native reads never write state. Schema setup and compatibility imports remain
+//! authoritative in the TS core; callers must forward CompatibilityRequired.
 use super::*;
 use rusqlite::OpenFlags;
-use std::{cell::RefCell, collections::HashMap, os::unix::fs::MetadataExt};
+use std::{cell::RefCell, os::unix::fs::MetadataExt};
 
-struct Record {
-    task: Value,
-    rev: i64,
-    mtime: Option<f64>,
-}
-impl Record {
-    fn supersedes(&self, old: &Self) -> bool {
-        self.rev > old.rev
-            || (self.rev == old.rev && (old.mtime.is_none() || self.mtime > old.mtime))
-    }
-}
 struct Reader {
     db: Option<Connection>,
     identity: Option<(u64, u64)>,
     directory_stamp: Option<String>,
-    imported: HashMap<String, Record>,
+    current_schema: bool,
 }
 
-/// A retained, read-only database connection with an in-memory legacy JSON merge.
-/// Accepted JSON survives deletion for this reader, just as an imported TS row does.
-/// Replacing the database discards that projection and starts a fresh import.
+/// Retained read-only connection. Replacement databases reopen on the next read.
+/// Pending legacy imports are never projected into a private per-stream cache.
 pub struct TaskLogReader {
     home: PathBuf,
     reader: RefCell<Reader>,
@@ -45,8 +34,35 @@ fn identity(path: &Path) -> io::Result<Option<(u64, u64)>> {
     }
     Ok(Some((metadata.dev(), metadata.ino())))
 }
+fn check_state(home: &Path) -> io::Result<()> {
+    // Refuse redirected parents/SQLite companions before either SQLite opens or
+    // forwarding can make the core's existing state writer reachable.
+    for dir in [home.join("state"), home.join("tasks")] {
+        match fs::symlink_metadata(dir) {
+            Ok(m) if !m.is_dir() || m.uid() != rustix::process::geteuid().as_raw() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "unsafe task directory",
+                ));
+            }
+            Ok(_) => (),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e),
+        }
+    }
+    for name in [
+        "tasks.db",
+        "tasks.db-wal",
+        "tasks.db-shm",
+        "tasks.db-journal",
+    ] {
+        identity(&home.join("state").join(name))?;
+    }
+    Ok(())
+}
 impl Reader {
     fn open(home: &Path) -> Result<Self> {
+        check_state(home)?;
         let path = home.join("state/tasks.db");
         let before = identity(&path)?;
         let db = if before.is_some() {
@@ -59,63 +75,40 @@ impl Reader {
         } else {
             None
         };
+        let current_schema = if let Some(db) = &db {
+            let fields = db
+                .prepare("PRAGMA table_info(tasks)")?
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            ["record", "rev", "json_mtime", "archived"]
+                .iter()
+                .all(|field| fields.iter().any(|f| f == field))
+        } else {
+            false
+        };
         Ok(Self {
             db,
             identity: before,
             directory_stamp: None,
-            imported: HashMap::new(),
+            current_schema,
         })
     }
-    fn row(&self, id: &str) -> Result<Option<Record>> {
-        let Some(db) = &self.db else {
-            return Ok(None);
-        };
-        db.query_row(
-            "SELECT record,rev,json_mtime FROM tasks WHERE id=?",
-            [id],
-            |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, Option<f64>>(2)?,
-                ))
-            },
-        )
-        .optional()?
-        .map(|(text, rev, mtime)| {
-            Ok(Record {
-                task: parse_record(&text)?,
-                rev,
-                mtime,
-            })
-        })
-        .transpose()
-    }
-    fn merged(&self, id: &str) -> Result<Option<Record>> {
-        let row = self.row(id)?;
-        if let Some(imported) = self.imported.get(id)
-            && row.as_ref().is_none_or(|row| imported.supersedes(row))
-        {
-            return Ok(Some(Record {
-                task: imported.task.clone(),
-                rev: imported.rev,
-                mtime: imported.mtime,
-            }));
+    fn check_import(&mut self, home: &Path) -> Result<()> {
+        if !self.current_schema {
+            return Err(StoreError::CompatibilityRequired);
         }
-        Ok(row)
-    }
-    fn import(&mut self, home: &Path) -> Result<()> {
         let dir = home.join("tasks");
         let stamp = match directory_stamp(&dir) {
             Ok(stamp) => stamp,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(StoreError::CompatibilityRequired);
+            }
             Err(e) => return Err(e.into()),
         };
         if self.directory_stamp.as_ref() == Some(&stamp) {
             return Ok(());
         }
-        // Match connection()/importJson(): scan only after an atomic directory change,
-        // skip unchanged mtimes and reject older revisions, including restored JSON.
+        let db = self.db.as_ref().ok_or(StoreError::CompatibilityRequired)?;
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             let name = entry.file_name();
@@ -126,38 +119,19 @@ impl Reader {
             let mtime = match mtime_ms(&entry.path()) {
                 Ok(mtime) => mtime,
                 Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(e),
+                // Bun's stat accepts timestamps predating UNIX_EPOCH. Other
+                // metadata errors also belong to the authoritative TS import.
+                Err(_) => return Err(StoreError::CompatibilityRequired),
             };
-            let old = self.merged(id)?;
-            if old.as_ref().is_some_and(|row| row.mtime == Some(mtime)) {
-                continue;
-            }
-            // TS treats malformed, unreadable and disappearing compatibility files as
-            // corrupt records; SQL errors above must still propagate.
-            let Ok(text) = fs::read_to_string(entry.path()) else {
-                continue;
-            };
-            let Ok(mut task) = serde_json::from_str::<Value>(&text) else {
-                continue;
-            };
-            if !task.is_object() {
-                continue;
-            }
-            if task.get("rev").is_none_or(Value::is_null) {
-                task["rev"] = json!(1);
-            }
-            if !valid(&task, id) {
-                continue;
-            }
-            let rev = revision(&task).ok_or(StoreError::InvalidRecord)?;
-            task["rev"] = json!(rev);
-            let next = Record {
-                task,
-                rev,
-                mtime: Some(mtime),
-            };
-            if old.as_ref().is_none_or(|old| next.supersedes(old)) {
-                self.imported.insert(id.into(), next);
+            let old: Option<Option<f64>> = db
+                .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            if old != Some(Some(mtime)) {
+                // Do not guess whether JSON is valid, newer, or already rejected:
+                // importJson owns parsing, JS numbers and shared durable recovery.
+                return Err(StoreError::CompatibilityRequired);
             }
         }
         self.directory_stamp = Some(stamp);
@@ -174,12 +148,28 @@ impl TaskLogReader {
         if !is_task_id(id) {
             return Ok(None);
         }
+        check_state(&self.home)?;
         let mut reader = self.reader.borrow_mut();
         if identity(&self.home.join("state/tasks.db"))? != reader.identity {
             *reader = Reader::open(&self.home)?;
         }
-        reader.import(&self.home)?;
-        Ok(reader.merged(id)?.map(|row| row.task))
+        reader.check_import(&self.home)?;
+        let db = reader
+            .db
+            .as_ref()
+            .ok_or(StoreError::CompatibilityRequired)?;
+        let text: Option<String> = db
+            .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| r.get(0))
+            .optional()?;
+        text.map(|text| {
+            let value: Value =
+                serde_json::from_str(&text).map_err(|_| StoreError::CompatibilityRequired)?;
+            if !value.is_object() {
+                return Err(StoreError::CompatibilityRequired);
+            }
+            Ok(value)
+        })
+        .transpose()
     }
 }
 
