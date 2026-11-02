@@ -188,3 +188,15 @@ test("host rejects a completion after the run attempt or host owner changes", as
     } finally { cleanup(); }
   }
 });
+
+
+test("a user-owned legacy runs directory is tightened before claiming", async () => {
+  const { home, ctx, task, cleanup } = fixture();
+  try {
+    const runs = join(ctx.pacerHome, "runs");
+    mkdirSync(runs, { mode: 0o755 }); chmodSync(runs, 0o755);
+    await runOwnedExecutorAttempt(ctx, { call: async () => ({ status: "done", exitCode: 0, report: "ok" }) },
+      "fx-executor", task.id, "codex", home);
+    expect(lstatSync(runs).mode & 0o777).toBe(0o700);
+  } finally { cleanup(); }
+});
