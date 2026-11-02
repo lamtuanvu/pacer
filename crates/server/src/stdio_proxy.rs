@@ -1,14 +1,36 @@
 use crate::native::{call_native, registry};
-use pacer_foundation::{Ctx, api::Registry};
+use pacer_foundation::{
+    Ctx,
+    api::{Code, CoreError, Registry},
+};
 use serde_json::{Value, json};
-use std::{collections::HashMap, io, process::Stdio, sync::Arc};
+use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
-    sync::{Mutex, oneshot},
+    sync::Mutex,
 };
 
-type PendingHello = Arc<Mutex<Option<(Value, oneshot::Sender<Value>)>>>;
+/// Generated from the TypeScript hello bodies; the parity test catches drift.
+fn hello_body(version: u8) -> io::Result<Value> {
+    let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
+    Ok(bodies[if version == 3 { "v3" } else { "v2" }].clone())
+}
+
+fn hello_version(params: Option<&Value>) -> Result<u8, &'static str> {
+    let params = params.filter(|value| !value.is_null());
+    let protocol = match params {
+        None => None,
+        Some(Value::Object(map)) => map.get("protocol").filter(|value| !value.is_null()),
+        _ => return Err("hello params must be an object"),
+    };
+    match protocol {
+        None => Ok(2),
+        Some(Value::Number(number)) if number.as_f64() == Some(2.0) => Ok(2),
+        Some(Value::Number(number)) if number.as_f64() == Some(3.0) => Ok(3),
+        _ => Err("protocol must be 2 or 3"),
+    }
+}
 
 async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::Result<()> {
     let mut out = out.lock().await;
@@ -22,7 +44,7 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
     out: &Mutex<O>,
     ctx: &Ctx,
     registry: &Registry<'_>,
-    pending_hello: &PendingHello,
+    forward_hello: bool,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -41,6 +63,50 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
                 && r.get("id")
                     .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
         });
+        if method == Some("hello")
+            && valid
+            && let Some(request) = request.as_ref()
+        {
+            if forward_hello {
+                if let Ok(version) = hello_version(request.get("params")) {
+                    protocol = version;
+                }
+                core.write_all(&line).await?;
+                core.flush().await?;
+                continue;
+            }
+            match hello_version(request.get("params")) {
+                Ok(version) => {
+                    // The child still owns forwarded operations, so mirror only
+                    // the accepted negotiation as a notification before the next line.
+                    let notification = json!({"jsonrpc":"2.0", "method":"hello", "params":request.get("params").cloned().unwrap_or(Value::Null)});
+                    let mut bytes = serde_json::to_vec(&notification)?;
+                    bytes.push(b'\n');
+                    core.write_all(&bytes).await?;
+                    core.flush().await?;
+                    protocol = version;
+                    if let Some(id) = request.get("id") {
+                        if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                            eprintln!("native hello {id}");
+                        }
+                        let response =
+                            json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version)?});
+                        let mut bytes = serde_json::to_vec(&response)?;
+                        bytes.push(b'\n');
+                        write_line(out, &bytes).await?;
+                    }
+                }
+                Err(message) => {
+                    if let Some(id) = request.get("id") {
+                        let response = json!({"jsonrpc":"2.0", "id":id, "error":CoreError::new(Code::InvalidInput, message).rpc()});
+                        let mut bytes = serde_json::to_vec(&response)?;
+                        bytes.push(b'\n');
+                        write_line(out, &bytes).await?;
+                    }
+                }
+            }
+            continue;
+        }
         if protocol == 3
             && valid
             && let Some(op) = method.and_then(|name| registry.get(name))
@@ -64,82 +130,20 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
             }
             continue;
         }
-        // Register the pending hello before writing, so a fast core reply cannot
-        // escape the handoff. Only this one reply is retained by the proxy.
-        let hello_reply = if method == Some("hello") && valid {
-            request.as_ref().and_then(|r| r.get("id")).map(|id| {
-                let (tx, rx) = oneshot::channel();
-                (id.clone(), tx, rx)
-            })
-        } else {
-            None
-        };
-        let hello_reply = if let Some((id, tx, rx)) = hello_reply {
-            *pending_hello.lock().await = Some((id, tx));
-            Some(rx)
-        } else {
-            None
-        };
         core.write_all(&line).await?;
         core.flush().await?;
-        // The core also negotiates hello notifications. Mirror only accepted
-        // parameters: rejected notifications leave its current protocol intact.
-        if method == Some("hello")
-            && valid
-            && hello_reply.is_none()
-            && let Some(request) = request.as_ref()
-            && request.get("id").is_none()
-        {
-            let params = request.get("params").filter(|value| !value.is_null());
-            let version = match params {
-                None => Some(2),
-                Some(Value::Object(map)) => {
-                    match map.get("protocol").filter(|value| !value.is_null()) {
-                        None => Some(2),
-                        Some(value) if value == 2 => Some(2),
-                        Some(value) if value == 3 => Some(3),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            if let Some(version) = version {
-                protocol = version;
-            }
-        }
-        if let Some(rx) = hello_reply
-            && let Ok(response) = rx.await
-            && response.get("error").is_none()
-        {
-            protocol = if response["result"]["protocol"] == "3.0.0" {
-                3
-            } else {
-                2
-            };
-        }
     }
 }
 
 async fn forward_output<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     mut core: R,
     out: &Mutex<W>,
-    pending_hello: &PendingHello,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
         if core.read_until(b'\n', &mut line).await? == 0 {
             return Ok(());
-        }
-        if let Ok(response) = serde_json::from_slice::<Value>(&line) {
-            let mut pending = pending_hello.lock().await;
-            if pending
-                .as_ref()
-                .is_some_and(|(id, _)| response.get("id") == Some(id))
-                && let Some((_, sender)) = pending.take()
-            {
-                let _ = sender.send(response);
-            }
         }
         write_line(out, &line).await?;
     }
@@ -185,6 +189,11 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
     let registry = registry(if scoped_work { "*" } else { forward });
+    let forward_hello = scoped_work
+        || forward
+            .split(',')
+            .map(str::trim)
+            .any(|name| name == "*" || name == "hello");
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
@@ -207,16 +216,15 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         .ok_or_else(|| io::Error::other("missing core stdout"))?;
     let out = Mutex::new(tokio::io::stdout());
     let ctx = Ctx::from_env();
-    let pending_hello = Arc::new(Mutex::new(None));
     let incoming = forward_input(
         BufReader::new(tokio::io::stdin()),
         input,
         &out,
         &ctx,
         &registry,
-        &pending_hello,
+        forward_hello,
     );
-    let outgoing = forward_output(BufReader::new(output), &out, &pending_hello);
+    let outgoing = forward_output(BufReader::new(output), &out);
     tokio::pin!(incoming, outgoing);
     let mut input_done = false;
     let mut output_done = false;

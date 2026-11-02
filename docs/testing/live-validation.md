@@ -8,7 +8,7 @@ behavior notes without a verdict still count as UNVERIFIED.
 
 ## Native operation routing
 
-Release builds start with an empty native operation registry. In development and
+Release builds include the native operations listed in the M2 ledger. In development and
 future native-enabled builds, `PACER_FORWARD_OPS` is a comma-separated list of
 operation names, or `*`, that forces native operations back through the TypeScript
 core. It cannot enable an operation. The setting is read at startup and logged once
@@ -90,7 +90,9 @@ fixture starts the sandbox's Rust front door with the sandbox home and Keychain
 stub. The native test binary is pinned inside the sandbox at `up`, so later Cargo
 builds cannot change the exercised bytes. The fixture sends protocol-3 `hello`,
 `test.echo`, then protocol-2 `hello`, and records
-the exact replies and native execution trace. It accepts no operation, path or
+the exact replies and native execution trace. It then sends fixed v3/v2 `hello`
+requests with `PACER_FORWARD_OPS=*` and checks both replies without a native trace.
+It accepts no operation, path or
 environment override. The normal guarded `live pacer -- api --stdio` remains
 refused. Report native stdio as PASS only when this fixture passes.
 
