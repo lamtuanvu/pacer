@@ -1,0 +1,817 @@
+{
+  "cli": [
+    {
+      "args": [
+        "attach"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "a",
+        "b"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--bad"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--attempt"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "--attempt requires a positive integer"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--attempt",
+        "0"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "--attempt requires a positive integer"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--attempt",
+        "01"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "--attempt requires a positive integer"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--attempt",
+        "1.0"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "--attempt requires a positive integer"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "t",
+        "--open",
+        "bad"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer: --open requires terminal, tmux or orca"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "unknown"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer: unknown task unknown"
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "<task>",
+        "--open"
+      ],
+      "result": {
+        "code": 0,
+        "out": "pacer attach <task>",
+        "err": ""
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "<task>",
+        "--open",
+        "tmux"
+      ],
+      "result": {
+        "code": 0,
+        "out": "pacer attach <task>",
+        "err": ""
+      }
+    },
+    {
+      "args": [
+        "attach",
+        "<task>"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer: ENOENT: no such file or directory, scandir '<pacerHome>/runs/<task>'"
+      }
+    },
+    {
+      "args": [
+        "takeover"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "usage: pacer takeover <task-id> [--no-attach]"
+      }
+    },
+    {
+      "args": [
+        "takeover",
+        "a",
+        "--bad"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "usage: pacer takeover <task-id> [--no-attach]"
+      }
+    },
+    {
+      "args": [
+        "takeover",
+        "unknown",
+        "--no-attach"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer: unknown task unknown"
+      }
+    },
+    {
+      "args": [
+        "takeover",
+        "<task>",
+        "--no-attach"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer: Take over requires a running task."
+      }
+    },
+    {
+      "args": [
+        "session",
+        "start"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer session: Put your request after --"
+      }
+    },
+    {
+      "args": [
+        "session",
+        "resume",
+        "<task>"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer session: Start pacer serve before using interactive sessions."
+      }
+    },
+    {
+      "args": [
+        "session",
+        "start",
+        "--",
+        "work"
+      ],
+      "result": {
+        "code": 2,
+        "out": "",
+        "err": "pacer session: Start pacer serve before using interactive sessions."
+      }
+    }
+  ],
+  "terminal": [
+    {
+      "platform": "darwin",
+      "target": "auto",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "platform": "darwin",
+      "target": "terminal",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "open",
+          "-a",
+          "Terminal",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "platform": "darwin",
+      "target": "tmux",
+      "result": {
+        "opened": true,
+        "target": "tmux",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "tmux",
+          "new-window",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "platform": "darwin",
+      "target": "orca",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "platform": "linux",
+      "target": "auto",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "platform": "linux",
+      "target": "terminal",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "x-terminal-emulator",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "platform": "linux",
+      "target": "tmux",
+      "result": {
+        "opened": true,
+        "target": "tmux",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "tmux",
+          "new-window",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "platform": "linux",
+      "target": "orca",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "platform": "win32",
+      "target": "auto",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "platform": "win32",
+      "target": "terminal",
+      "result": {
+        "opened": false,
+        "target": "none",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": []
+    },
+    {
+      "platform": "win32",
+      "target": "tmux",
+      "result": {
+        "opened": true,
+        "target": "tmux",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "tmux",
+          "new-window",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "platform": "win32",
+      "target": "orca",
+      "result": {
+        "opened": true,
+        "target": "orca",
+        "command": "EXAMPLE='a b' codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    }
+  ],
+  "terminalBranches": [
+    {
+      "scenario": "fallback-tmux",
+      "result": {
+        "opened": true,
+        "target": "tmux",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "x-terminal-emulator",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ],
+        [
+          "tmux",
+          "new-window",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "headless",
+      "result": {
+        "opened": false,
+        "target": "none",
+        "command": "codex login"
+      },
+      "calls": []
+    },
+    {
+      "scenario": "failed-launch",
+      "result": {
+        "opened": false,
+        "target": "none",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "x-terminal-emulator",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ],
+        [
+          "tmux",
+          "new-window",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "no-orca-handle",
+      "result": {
+        "opened": false,
+        "target": "none",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "orca",
+          "worktree",
+          "show",
+          "--worktree",
+          "active",
+          "--json"
+        ],
+        [
+          "orca",
+          "terminal",
+          "create",
+          "--worktree",
+          "id:work",
+          "--title",
+          "Fixture",
+          "--command",
+          "<pacerHome>/terminal/<script>.sh",
+          "--json"
+        ]
+      ]
+    },
+    {
+      "scenario": "invalid-env",
+      "error": "invalid environment variable name",
+      "calls": []
+    },
+    {
+      "scenario": "empty-argv",
+      "error": "terminal command is empty",
+      "calls": []
+    },
+    {
+      "scenario": "custom-template",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "custom",
+          "<pacerHome>/terminal/<script>.sh",
+          "--title",
+          "a b"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-ghostty",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "ghostty",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-wezterm",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "wezterm",
+          "start",
+          "--",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-kitty",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "kitty",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-alacritty",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "alacritty",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-gnome-terminal",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "gnome-terminal",
+          "--",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    },
+    {
+      "scenario": "linux-x-terminal-emulator",
+      "result": {
+        "opened": true,
+        "target": "terminal",
+        "command": "codex login"
+      },
+      "calls": [
+        [
+          "x-terminal-emulator",
+          "-e",
+          "<pacerHome>/terminal/<script>.sh"
+        ]
+      ]
+    }
+  ],
+  "auth": [
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "none",
+      "status": 401,
+      "body": "unauthorized\n"
+    },
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "bearer",
+      "status": 404,
+      "body": "Session not found"
+    },
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "cookie-no-origin",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "cookie-origin",
+      "status": 404,
+      "body": "Session not found"
+    },
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "cookie-cross",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v2/tasks/unknown/session",
+      "mode": "grant",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "none",
+      "status": 401,
+      "body": "unauthorized\n"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "bearer",
+      "status": 404,
+      "body": "Session not found"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "cookie-no-origin",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "cookie-origin",
+      "status": 404,
+      "body": "Session not found"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "cookie-cross",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/tasks/unknown/session",
+      "mode": "grant",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "none",
+      "status": 401,
+      "body": "unauthorized\n"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "bearer",
+      "status": 404,
+      "body": "Terminal not found"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "cookie-no-origin",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "cookie-origin",
+      "status": 404,
+      "body": "Terminal not found"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "cookie-cross",
+      "status": 403,
+      "body": "forbidden\n"
+    },
+    {
+      "path": "/v3/terminals/00000000-0000-0000-0000-000000000000/session",
+      "mode": "grant",
+      "status": 403,
+      "body": "forbidden\n"
+    }
+  ]
+}

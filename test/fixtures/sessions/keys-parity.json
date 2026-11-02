@@ -1,0 +1,2380 @@
+[
+  {
+    "name": "watch",
+    "steps": [
+      [
+        "push",
+        "631b5b313b326371"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      true,
+      true
+    ]
+  },
+  {
+    "name": "refuse-confirm",
+    "steps": [
+      [
+        "take",
+        false
+      ],
+      [
+        "state",
+        {
+          "you": false,
+          "controller": "app:a\u0007b",
+          "reason": "refused"
+        }
+      ],
+      [
+        "push",
+        "1b5b313b327959"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      },
+      {
+        "type": 8,
+        "hex": "7b22666f726365223a747275657d"
+      }
+    ],
+    "prompts": [
+      "Someone is in control from app:ab. Take over? [y/N] ",
+      "\n"
+    ],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control",
+    "takeover": true,
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "61621d"
+      ],
+      [
+        "push",
+        "1d631d72"
+      ],
+      [
+        "push",
+        "1d78"
+      ],
+      [
+        "push",
+        "1d64"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "6162"
+      },
+      {
+        "type": 10,
+        "hex": "1d63"
+      },
+      {
+        "type": 9,
+        "hex": "7b7d"
+      },
+      {
+        "type": 10,
+        "hex": "1d78"
+      }
+    ],
+    "prompts": [
+      "Releasing hands the task back for review.\n"
+    ],
+    "detached": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "escapes",
+    "steps": [
+      [
+        "push",
+        "1b5d746578741b"
+      ],
+      [
+        "push",
+        "5c63"
+      ],
+      [
+        "push",
+        "03"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "cancel",
+    "steps": [
+      [
+        "take",
+        false
+      ],
+      [
+        "state",
+        {
+          "you": false,
+          "controller": "cli:x",
+          "reason": "refused"
+        }
+      ],
+      [
+        "push",
+        "6e63"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      },
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [
+      "Someone is in control from cli:x. Take over? [y/N] ",
+      "\n"
+    ],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "switch",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "state",
+        {
+          "you": false
+        }
+      ],
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "64"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "64"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b5b313b326363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "5b313b326363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-4",
+    "steps": [
+      [
+        "push",
+        "1b5b"
+      ],
+      [
+        "push",
+        "313b326363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-6",
+    "steps": [
+      [
+        "push",
+        "1b5b31"
+      ],
+      [
+        "push",
+        "3b326363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-8",
+    "steps": [
+      [
+        "push",
+        "1b5b313b"
+      ],
+      [
+        "push",
+        "326363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-10",
+    "steps": [
+      [
+        "push",
+        "1b5b313b32"
+      ],
+      [
+        "push",
+        "6363"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5b313b3263-12",
+    "steps": [
+      [
+        "push",
+        "1b5b313b3263"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b4f50-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b4f5063"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b4f50-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "4f5063"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b4f50-4",
+    "steps": [
+      [
+        "push",
+        "1b4f"
+      ],
+      [
+        "push",
+        "5063"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b4f50-6",
+    "steps": [
+      [
+        "push",
+        "1b4f50"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b5d7469746c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "5d7469746c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-4",
+    "steps": [
+      [
+        "push",
+        "1b5d"
+      ],
+      [
+        "push",
+        "7469746c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-6",
+    "steps": [
+      [
+        "push",
+        "1b5d74"
+      ],
+      [
+        "push",
+        "69746c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-8",
+    "steps": [
+      [
+        "push",
+        "1b5d7469"
+      ],
+      [
+        "push",
+        "746c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-10",
+    "steps": [
+      [
+        "push",
+        "1b5d746974"
+      ],
+      [
+        "push",
+        "6c650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-12",
+    "steps": [
+      [
+        "push",
+        "1b5d7469746c"
+      ],
+      [
+        "push",
+        "650763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-14",
+    "steps": [
+      [
+        "push",
+        "1b5d7469746c65"
+      ],
+      [
+        "push",
+        "0763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5d7469746c6507-16",
+    "steps": [
+      [
+        "push",
+        "1b5d7469746c6507"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b507374721b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "507374721b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-4",
+    "steps": [
+      [
+        "push",
+        "1b50"
+      ],
+      [
+        "push",
+        "7374721b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-6",
+    "steps": [
+      [
+        "push",
+        "1b5073"
+      ],
+      [
+        "push",
+        "74721b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-8",
+    "steps": [
+      [
+        "push",
+        "1b507374"
+      ],
+      [
+        "push",
+        "721b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-10",
+    "steps": [
+      [
+        "push",
+        "1b50737472"
+      ],
+      [
+        "push",
+        "1b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-12",
+    "steps": [
+      [
+        "push",
+        "1b507374721b"
+      ],
+      [
+        "push",
+        "5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b507374721b5c-14",
+    "steps": [
+      [
+        "push",
+        "1b507374721b5c"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b5e746578741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "5e746578741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-4",
+    "steps": [
+      [
+        "push",
+        "1b5e"
+      ],
+      [
+        "push",
+        "746578741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-6",
+    "steps": [
+      [
+        "push",
+        "1b5e74"
+      ],
+      [
+        "push",
+        "6578741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-8",
+    "steps": [
+      [
+        "push",
+        "1b5e7465"
+      ],
+      [
+        "push",
+        "78741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-10",
+    "steps": [
+      [
+        "push",
+        "1b5e746578"
+      ],
+      [
+        "push",
+        "741b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-12",
+    "steps": [
+      [
+        "push",
+        "1b5e74657874"
+      ],
+      [
+        "push",
+        "1b5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-14",
+    "steps": [
+      [
+        "push",
+        "1b5e746578741b"
+      ],
+      [
+        "push",
+        "5c63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5e746578741b5c-16",
+    "steps": [
+      [
+        "push",
+        "1b5e746578741b5c"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b5f746578740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "5f746578740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-4",
+    "steps": [
+      [
+        "push",
+        "1b5f"
+      ],
+      [
+        "push",
+        "746578740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-6",
+    "steps": [
+      [
+        "push",
+        "1b5f74"
+      ],
+      [
+        "push",
+        "6578740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-8",
+    "steps": [
+      [
+        "push",
+        "1b5f7465"
+      ],
+      [
+        "push",
+        "78740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-10",
+    "steps": [
+      [
+        "push",
+        "1b5f746578"
+      ],
+      [
+        "push",
+        "740763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-12",
+    "steps": [
+      [
+        "push",
+        "1b5f74657874"
+      ],
+      [
+        "push",
+        "0763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5f7465787407-14",
+    "steps": [
+      [
+        "push",
+        "1b5f7465787407"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b587374720763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "587374720763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-4",
+    "steps": [
+      [
+        "push",
+        "1b58"
+      ],
+      [
+        "push",
+        "7374720763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-6",
+    "steps": [
+      [
+        "push",
+        "1b5873"
+      ],
+      [
+        "push",
+        "74720763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-8",
+    "steps": [
+      [
+        "push",
+        "1b587374"
+      ],
+      [
+        "push",
+        "720763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-10",
+    "steps": [
+      [
+        "push",
+        "1b58737472"
+      ],
+      [
+        "push",
+        "0763"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b5873747207-12",
+    "steps": [
+      [
+        "push",
+        "1b5873747207"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b2041-0",
+    "steps": [
+      [
+        "push",
+        ""
+      ],
+      [
+        "push",
+        "1b204163"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b2041-2",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ],
+      [
+        "push",
+        "204163"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b2041-4",
+    "steps": [
+      [
+        "push",
+        "1b20"
+      ],
+      [
+        "push",
+        "4163"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "reply-1b2041-6",
+    "steps": [
+      [
+        "push",
+        "1b2041"
+      ],
+      [
+        "push",
+        "63"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "name": "watch-byte-0",
+    "steps": [
+      [
+        "push",
+        "00"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-0",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "00"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d00"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-3",
+    "steps": [
+      [
+        "push",
+        "03"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      true
+    ]
+  },
+  {
+    "name": "control-byte-3",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "03"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d03"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-27",
+    "steps": [
+      [
+        "push",
+        "1b"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-27",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "1b"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d1b"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-29",
+    "steps": [
+      [
+        "push",
+        "1d"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-29",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "1d"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-89",
+    "steps": [
+      [
+        "push",
+        "59"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-89",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "59"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d59"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-99",
+    "steps": [
+      [
+        "push",
+        "63"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 8,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-99",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "63"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d63"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-100",
+    "steps": [
+      [
+        "push",
+        "64"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-100",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "64"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false,
+      true
+    ]
+  },
+  {
+    "name": "watch-byte-110",
+    "steps": [
+      [
+        "push",
+        "6e"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-110",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "6e"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d6e"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-113",
+    "steps": [
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      true
+    ]
+  },
+  {
+    "name": "control-byte-113",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "71"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d71"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-114",
+    "steps": [
+      [
+        "push",
+        "72"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-114",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "72"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 9,
+        "hex": "7b7d"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-121",
+    "steps": [
+      [
+        "push",
+        "79"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-121",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "79"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1d79"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  },
+  {
+    "name": "watch-byte-255",
+    "steps": [
+      [
+        "push",
+        "ff"
+      ]
+    ],
+    "frames": [],
+    "prompts": [],
+    "detached": [
+      false
+    ]
+  },
+  {
+    "name": "control-byte-255",
+    "steps": [
+      [
+        "state",
+        {
+          "you": true
+        }
+      ],
+      [
+        "push",
+        "1d"
+      ],
+      [
+        "push",
+        "ff"
+      ]
+    ],
+    "frames": [
+      {
+        "type": 10,
+        "hex": "1dff"
+      }
+    ],
+    "prompts": [],
+    "detached": [
+      false,
+      false
+    ]
+  }
+]
