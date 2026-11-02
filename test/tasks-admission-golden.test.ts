@@ -101,3 +101,31 @@ test("queue capacity goldens preserve executor-slot isolation", () => {
     expect(queueCapacity(queueStrategy(true), row.executor, row.use) ?? null).toEqual(row.expected);
   }
 });
+
+test("pending dependency goldens match work admission", async () => {
+  const { createTask, updateTask } = await import("../src/tasks/store");
+  const { registerWork, pendingDependencies } = await import("../src/dispatch/work");
+  const { dispatchDatabase } = await import("../src/dispatch/store");
+  const rows = JSON.parse(readFileSync(new URL("./fixtures/task-admission/dependency-goldens.json", import.meta.url), "utf8")) as Array<{id:string;dependencies:string[];tasks:Record<string,{review?:{accepted:boolean}}>;waivers:string[];expected:string[]}>;
+  for (const row of rows) {
+    const ctx = fakeCtx();
+    const make = () => createTask(ctx, {brief:{goal:"work",repo:ctx.home},kind:"feature",requestedExecutor:null,timeoutS:60});
+    const root = make();
+    registerWork(ctx, root.id);
+    const ids: Record<string,string> = {};
+    for (const [name, value] of Object.entries(row.tasks)) {
+      const task = make(); ids[name] = task.id;
+      if (value.review) updateTask(ctx, task.id, t => { t.review = {accepted:value.review!.accepted} as typeof t.review; });
+    }
+    const resolve = (name:string) => ids[name] ?? name;
+    const db = dispatchDatabase(ctx);
+    db.query("UPDATE work_nodes SET dependencies=? WHERE task_id=?").run(JSON.stringify(row.dependencies.map(resolve)), root.id);
+    for (const name of row.waivers) db.query("INSERT INTO work_dependency_waivers(task_id,dependency_id,reason,at) VALUES(?,?,?,?)").run(root.id, resolve(name), "fixture", ctx.now);
+    expect(pendingDependencies(ctx, root.id)).toEqual(row.expected.map(resolve));
+  }
+});
+
+const strategyGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/strategy-goldens.json", import.meta.url), "utf8")) as Array<{id:string;strategy:unknown;input:unknown;problems:string[]}>;
+for (const row of strategyGoldens) test(`strategy validation golden: ${row.id}`, () => {
+  expect(validateInput(validateStrategy(row.strategy, "test"), row.input as Parameters<typeof validateInput>[1])).toEqual(row.problems);
+});

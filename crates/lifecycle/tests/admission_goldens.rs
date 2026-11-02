@@ -229,3 +229,112 @@ fn trim_and_numeric_goldens() {
         }
     }
 }
+
+#[test]
+fn pending_dependency_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/dependency-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        let strings = |value: &Value| -> Vec<String> {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect()
+        };
+        let dependencies = strings(&row["dependencies"]);
+        let waivers = strings(&row["waivers"]);
+        let tasks: Vec<(String, Value)> = row["tasks"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, task)| (id.clone(), task.clone()))
+            .collect();
+        assert_eq!(
+            pacer_lifecycle::pending_dependencies(&dependencies, &tasks, &waivers),
+            strings(&row["expected"]),
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn work_lineage_inherits_parent_limits_and_requirements() {
+    let task = json!({"brief":{"repo":"/repo"},"state":"running"});
+    let root = pacer_lifecycle::work_node(
+        "root",
+        &task,
+        &json!({
+            "allowDelegation":true,"maxDepth":2,"maxDescendants":3,
+            "requirements":{"minTier":"medium","context":100,"tools":true},"expiresAt":100
+        }),
+        &[],
+        0,
+    )
+    .unwrap();
+    let child = pacer_lifecycle::work_node(
+        "child",
+        &task,
+        &json!({
+            "requirements":{"minTier":"frontier","context":200},"maxDepth":10,"expiresAt":200
+        }),
+        &[(root.clone(), task.clone(), 0)],
+        0,
+    )
+    .unwrap();
+    assert_eq!(child["rootId"], "root");
+    assert_eq!(child["parentId"], "root");
+    assert_eq!(child["depth"], 1);
+    assert_eq!(child["options"]["maxDepth"], 2);
+    assert_eq!(
+        child["options"]["requirements"],
+        json!({"minTier":"frontier","context":200.0,"tools":true})
+    );
+    assert_eq!(child["options"]["expiresAt"], 100.0);
+    assert!(
+        pacer_lifecycle::work_node(
+            "child",
+            &task,
+            &json!({"requirements":{"minTier":"small"}}),
+            &[(root.clone(), task.clone(), 0)],
+            0
+        )
+        .is_err()
+    );
+    assert!(
+        pacer_lifecycle::work_node("child", &task, &json!({}), &[(root, task.clone(), 3)], 3)
+            .is_err()
+    );
+}
+
+#[test]
+fn strategy_dependent_validation_matches_typescript() {
+    // Let the authoritative TS strategy loader normalize the shared fixture,
+    // then exercise Rust's complete runner-resolution-dependent validation.
+    let script = r#"
+      import {validateStrategy} from './src/config/strategy.ts';
+      const rows=await Bun.file('./test/fixtures/task-admission/strategy-goldens.json').json();
+      console.log(JSON.stringify(rows.map(row=>({...row,strategy:validateStrategy(row.strategy,'test')}))));
+    "#;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new("bun")
+        .args(["-e", script])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for row in rows {
+        let actual =
+            pacer_lifecycle::validate_strategy_input(&row["strategy"], &row["input"], true);
+        assert_eq!(serde_json::json!(actual), row["problems"], "{}", row["id"]);
+    }
+}

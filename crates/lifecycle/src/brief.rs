@@ -10,7 +10,7 @@ fn codepoint_len(s: &str) -> usize {
 
 /// JSON.parse represents every number as binary64, including integer lexemes.
 /// Canonicalize integral values where serde_json can retain an integer exactly.
-fn js_numbers(value: &Value) -> Value {
+pub(crate) fn js_numbers(value: &Value) -> Value {
     match value {
         Value::Number(original) => {
             let Some(n) = original.as_f64().filter(|n| n.is_finite()) else {
@@ -38,7 +38,7 @@ fn js_numbers(value: &Value) -> Value {
 }
 
 /// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim.
-fn js_trim(s: &str) -> &str {
+pub(crate) fn js_trim(s: &str) -> &str {
     s.trim_matches(|c| {
         matches!(
             c,
@@ -60,6 +60,14 @@ fn js_trim(s: &str) -> &str {
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("{0}")]
 pub struct AdmissionError(pub String);
+impl AdmissionError {
+    pub fn conflict(message: impl AsRef<str>) -> Self {
+        Self(format!("conflict: {}", message.as_ref()))
+    }
+    pub fn is_conflict(&self) -> bool {
+        self.0.starts_with("conflict:")
+    }
+}
 
 fn string_field<'a>(
     raw: &'a Value,
@@ -387,7 +395,7 @@ pub fn validate_input(
     }
     if input
         .get("timeoutMin")
-        .is_some_and(|v| !v.as_f64().is_some_and(|n| (1.0..=240.0).contains(&n)))
+        .is_some_and(|v| !js_relational_number(v).is_some_and(|n| (1.0..=240.0).contains(&n)))
     {
         problems.push("timeout_min must be between 1 and 240".into());
     }
@@ -425,4 +433,66 @@ pub fn validate_input(
         );
     }
     problems
+}
+
+// JS relational comparison applies ToNumber, unlike Number.isInteger above.
+fn js_relational_number(value: &Value) -> Option<f64> {
+    match value {
+        Value::Null => Some(0.0),
+        Value::Bool(v) => Some(if *v { 1.0 } else { 0.0 }),
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => {
+            let s = js_trim(s);
+            if s.is_empty() {
+                return Some(0.0);
+            }
+            for (prefix, base) in [
+                ("0x", 16),
+                ("0X", 16),
+                ("0b", 2),
+                ("0B", 2),
+                ("0o", 8),
+                ("0O", 8),
+            ] {
+                if let Some(digits) = s.strip_prefix(prefix) {
+                    if digits.is_empty() {
+                        return None;
+                    }
+                    return digits.chars().try_fold(0.0, |n, c| {
+                        c.to_digit(base)
+                            .map(|digit| n * f64::from(base) + f64::from(digit))
+                    });
+                }
+            }
+            if matches!(s, "Infinity" | "+Infinity") {
+                return Some(f64::INFINITY);
+            }
+            if s == "-Infinity" {
+                return Some(f64::NEG_INFINITY);
+            }
+            if !s
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b))
+            {
+                return None;
+            }
+            s.parse().ok()
+        }
+        Value::Array(items) => {
+            if items.is_empty() {
+                Some(0.0)
+            } else if items.len() == 1 {
+                if items[0].is_null() {
+                    Some(0.0)
+                } else if items[0].is_array() || items[0].is_string() || items[0].is_number() {
+                    js_relational_number(&items[0])
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }

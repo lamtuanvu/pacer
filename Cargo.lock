@@ -1072,6 +1072,9 @@ dependencies = [
 name = "pacer-lifecycle"
 version = "0.1.0"
 dependencies = [
+ "pacer-foundation",
+ "pacer-store",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "thiserror",

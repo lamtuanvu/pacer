@@ -6,6 +6,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
+pacer-store = { path = "../store" }
+pacer-foundation = { path = "../foundation" }
+rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json.workspace = true
 thiserror.workspace = true
 
