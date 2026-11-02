@@ -28,7 +28,7 @@ pub struct WriteResource {
     pub kind: String,
     pub operations: Vec<String>,
 }
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResource {
     pub argv: Vec<String>,
@@ -38,7 +38,19 @@ pub struct CommandResource {
     #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub secret_env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub mode: Option<crate::SpawnMode>,
+    #[serde(default)]
+    pub input: Option<Vec<u8>>,
+    #[serde(default)]
+    pub input_sha256: Option<String>,
+    #[serde(default)]
+    pub capture: Option<crate::SpawnCapture>,
+    #[serde(default)]
+    pub suppress_output: bool,
 }
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +79,10 @@ pub struct CallResources {
     pub http: Option<HttpResource>,
     #[serde(default)]
     pub worktree: Option<WorktreeResource>,
+    #[serde(default)]
+    pub orca_attempt: Option<crate::OrcaAttemptResource>,
+    #[serde(default)]
+    pub orca_live: Option<crate::OrcaLiveResource>,
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct HttpResource {
@@ -90,6 +106,7 @@ pub struct CallAuthority {
     revoked: bool,
     used_hosts: HashSet<usize>,
     worktree_used: bool,
+    orca_live_used: bool,
 }
 
 impl CallAuthority {
@@ -105,6 +122,7 @@ impl CallAuthority {
             revoked: false,
             used_hosts: HashSet::new(),
             worktree_used: false,
+            orca_live_used: false,
         }
     }
     pub fn revoke(&mut self) {
@@ -127,6 +145,39 @@ impl CallAuthority {
     }
     pub fn deadline(&self) -> Instant {
         self.expires
+    }
+    pub fn orca(
+        &mut self,
+        plugin_id: &str,
+        task_id: &str,
+        attempt: u64,
+        action: Option<&str>,
+    ) -> Result<(), AuthorityError> {
+        self.granted("orca")?;
+        if plugin_id != crate::native_orca::ORCA_PROVIDER {
+            return Err(AuthorityError::Denied("Orca provider identity".into()));
+        }
+        if let Some(action) = action {
+            let g = self
+                .resources
+                .orca_live
+                .as_ref()
+                .filter(|g| {
+                    g.task_id == task_id
+                        && g.attempt == attempt
+                        && g.provider_id == plugin_id
+                        && g.action == action
+                        && !self.orca_live_used
+                })
+                .ok_or_else(|| AuthorityError::Denied("Orca live worker was not issued".into()))?;
+            let _ = g;
+            self.orca_live_used = true;
+        } else if !self.resources.orca_attempt.as_ref().is_some_and(|g| {
+            g.task_id == task_id && g.attempt == attempt && g.provider_id == plugin_id
+        }) {
+            return Err(AuthorityError::Denied("Orca attempt was not issued".into()));
+        }
+        Ok(())
     }
     pub fn read(&self, path: &str) -> Result<&ReadResource, AuthorityError> {
         self.granted("fs.read")?;
@@ -177,10 +228,29 @@ impl CallAuthority {
             .find(|r| {
                 r.argv == argv
                     && timeout_ms <= r.timeout_ms
-                    && r.cwd.as_deref() == cwd
+                    && (r.mode == Some(crate::SpawnMode::CodexLive) || r.cwd.as_deref() == cwd)
                     && r.stdin.as_deref() == stdin
             })
             .ok_or_else(|| AuthorityError::Denied("command was not issued".into()))
+    }
+    pub fn host_fetch(
+        &self,
+        alias: &str,
+        timeout_ms: u64,
+        max_bytes: u64,
+    ) -> Result<HostOperationResource, AuthorityError> {
+        self.granted("hosts")?;
+        self.resources
+            .hosts
+            .iter()
+            .find(|r| {
+                r.alias == alias
+                    && r.script == "BUNDLE_OUT"
+                    && r.timeout_ms == timeout_ms
+                    && r.max_bytes == max_bytes
+            })
+            .cloned()
+            .ok_or_else(|| AuthorityError::Denied("bundle fetch was not issued".into()))
     }
     pub fn consume_host(&mut self, request: &HostOperationResource) -> Result<(), AuthorityError> {
         self.granted("hosts")?;

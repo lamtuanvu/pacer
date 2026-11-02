@@ -1,0 +1,7 @@
+[
+  { "value": "\u0009\u000A\u000B\u000C\u000D x \u0009", "expected": "x" },
+  { "value": "\u0020\u00A0\u1680x\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A", "expected": "x" },
+  { "value": "\u2028\u2029\u202F\u205F\u3000\uFEFFx\uFEFF", "expected": "x" },
+  { "value": "\u0085x\u0085", "expected": "\u0085x\u0085" },
+  { "value": "\u200Bx\u200B", "expected": "\u200Bx\u200B" }
+]

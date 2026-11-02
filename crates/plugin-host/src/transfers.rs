@@ -40,10 +40,29 @@ impl Drop for Payload {
 #[derive(Default)]
 pub struct Transfers {
     pending: Vec<Payload>,
-    retired: HashSet<String>,
+    retired_http: HashSet<String>,
+    retired_file: Option<String>,
 }
 
 impl Transfers {
+    pub fn has_pending(&self, kind: TransferKind) -> bool {
+        self.pending.iter().any(|p| p.kind == kind)
+    }
+    pub fn consume_text(
+        &mut self,
+        kind: TransferKind,
+        handle: &str,
+    ) -> Result<String, TransferError> {
+        let payload = self
+            .pending
+            .iter()
+            .find(|p| p.kind == kind && p.handle == handle)
+            .ok_or(TransferError::Denied)?;
+        if payload.offset != payload.bytes.len() || std::str::from_utf8(&payload.bytes).is_err() {
+            return Err(TransferError::Invalid);
+        }
+        String::from_utf8(self.consume(kind, handle)?).map_err(|_| TransferError::Invalid)
+    }
     pub fn publish(&mut self, kind: TransferKind, bytes: &[u8]) -> Result<String, TransferError> {
         let handle = self.begin(kind, bytes.len())?;
         let payload = self
@@ -87,7 +106,7 @@ impl Transfers {
         let chunk = STANDARD
             .decode(encoded)
             .map_err(|_| TransferError::Invalid)?;
-        if encoded.is_empty()
+        if (encoded.is_empty() && kind == TransferKind::FileWrite)
             || encoded.len() > 349_528
             || chunk.len() > MAX_CHUNK
             || STANDARD.encode(&chunk) != encoded
@@ -132,11 +151,13 @@ impl Transfers {
             return Err(TransferError::Invalid);
         }
         let payload = self.pending.remove(index);
-        self.retired.insert(handle.into());
+        self.retire(kind, handle);
         Ok(payload.bytes.clone())
     }
     pub fn release(&mut self, kind: TransferKind, handle: &str) -> Result<(), TransferError> {
-        if self.retired.contains(handle) {
+        if (kind == TransferKind::FileWrite && self.retired_file.as_deref() == Some(handle))
+            || (kind != TransferKind::FileWrite && self.retired_http.contains(handle))
+        {
             return Ok(());
         }
         let index = self
@@ -145,12 +166,20 @@ impl Transfers {
             .position(|p| p.kind == kind && p.handle == handle)
             .ok_or(TransferError::Denied)?;
         self.pending.remove(index);
-        self.retired.insert(handle.into());
+        self.retire(kind, handle);
         Ok(())
+    }
+    fn retire(&mut self, kind: TransferKind, handle: &str) {
+        if kind == TransferKind::FileWrite {
+            self.retired_file = Some(handle.into());
+        } else {
+            self.retired_http.insert(handle.into());
+        }
     }
     pub fn revoke(&mut self) {
         self.pending.clear();
-        self.retired.clear();
+        self.retired_file = None;
+        self.retired_http.clear();
     }
 }
 
@@ -177,6 +206,31 @@ mod tests {
         assert_eq!(
             a.append(TransferKind::FileWrite, &h, 3, "YQ=="),
             Err(TransferError::Denied)
+        );
+    }
+    #[test]
+    fn transfer_retirement_and_empty_chunks_match_typescript() {
+        let mut transfers = Transfers::default();
+        let file = transfers.begin(TransferKind::FileWrite, 0).unwrap();
+        assert_eq!(
+            transfers.append(TransferKind::FileWrite, &file, 0, ""),
+            Err(TransferError::Invalid)
+        );
+        transfers.release(TransferKind::FileWrite, &file).unwrap();
+        assert_eq!(
+            transfers.release(TransferKind::HttpUpload, &file),
+            Err(TransferError::Denied)
+        );
+        let next = transfers.begin(TransferKind::FileWrite, 0).unwrap();
+        transfers.release(TransferKind::FileWrite, &next).unwrap();
+        assert_eq!(
+            transfers.release(TransferKind::FileWrite, &file),
+            Err(TransferError::Denied)
+        );
+        let upload = transfers.begin(TransferKind::HttpUpload, 0).unwrap();
+        assert_eq!(
+            transfers.append(TransferKind::HttpUpload, &upload, 0, ""),
+            Ok(0)
         );
     }
     #[test]

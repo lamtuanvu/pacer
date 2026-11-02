@@ -71,6 +71,7 @@ fn main() {
             "setLaunchAtLogin",
             "setTheme",
             "notifyRoute",
+            "menu_set_enabled",
             "tray_resize",
             "tray_open",
             "tray_hide",
