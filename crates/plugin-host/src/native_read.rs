@@ -650,14 +650,19 @@ fn component_matches(pattern: &str, value: &str) -> bool {
                         && matches(p, v, pi + 2, vi + 1, memo)
                 }
                 '[' => {
-                    let end = p[pi + 1..]
+                    let start = pi + 1;
+                    let negated = matches!(p.get(start), Some('!' | '^'));
+                    let members = start + usize::from(negated);
+                    let search = members
+                        + usize::from(
+                            p.get(members) == Some(&']') && p[members + 1..].contains(&']'),
+                        );
+                    let end = p[search..]
                         .iter()
                         .position(|c| *c == ']')
-                        .map(|i| pi + 1 + i);
+                        .map(|i| search + i);
                     if let Some(end) = end {
-                        let start = pi + 1;
-                        let negated = matches!(p.get(start), Some('!' | '^'));
-                        let mut i = start + usize::from(negated);
+                        let mut i = members;
                         let mut found = false;
                         while i < end {
                             if i + 2 < end && p[i + 1] == '-' {
@@ -668,9 +673,12 @@ fn component_matches(pattern: &str, value: &str) -> bool {
                                 i += 1;
                             }
                         }
-                        vi < v.len() && (found != negated) && matches(p, v, end + 1, vi + 1, memo)
+                        vi < v.len()
+                            && members < end
+                            && (found != negated)
+                            && matches(p, v, end + 1, vi + 1, memo)
                     } else {
-                        vi < v.len() && v[vi] == '[' && matches(p, v, pi + 1, vi + 1, memo)
+                        false
                     }
                 }
                 literal => vi < v.len() && literal == v[vi] && matches(p, v, pi + 1, vi + 1, memo),

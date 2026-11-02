@@ -36,6 +36,7 @@ mod trim_tests {
     fn strategy_values_use_javascript_trim_set() {
         assert_eq!(size(&json!("\u{FEFF}2 k\u{2028}")), Some(2000.0));
         assert_eq!(duration(&json!("\u{00A0}3m\u{2029}")), Some(180.0));
+        assert_eq!(duration(&json!("1m\u{0085}")), None);
         assert_eq!(size(&json!("\u{0085}2k\u{0085}")), None);
         let home = tempfile::tempdir().unwrap();
         std::fs::write(home.path().join("active"), "\u{FEFF}focus\u{2028}").unwrap();
@@ -144,6 +145,9 @@ fn duration(value: &Value) -> Option<f64> {
     }
     let text = pacer_foundation::js_semantics::js_trim(value.as_str()?);
     let unit = text.chars().last()?;
+    if !matches!(unit, 's' | 'm' | 'h' | 'd') {
+        return None;
+    }
     let n = decimal(pacer_foundation::js_semantics::js_trim(
         &text[..text.len() - 1],
     ))?;
