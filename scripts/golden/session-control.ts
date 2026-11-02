@@ -1,0 +1,325 @@
+/** Executable TS reference corpus for the dormant session view/control library. */
+import { writeFileSync } from "node:fs";
+import { parseSessionArgs } from "../../src/commands/session";
+import {
+  terminalRecipe,
+  validateTerminalOpen,
+  splitArgv,
+} from "../../src/session/targets";
+import {
+  takeoverAvailability,
+  parseOpencodeSessions,
+} from "../../src/session/takeover";
+import { assertCallerCanInvoke } from "../../src/api/caller-policy";
+import {
+  viewerMessageFrames,
+  socketFrameMessage,
+} from "../../src/serve/session-ws";
+import { WireDecoder, FrameType, wire } from "../../src/session/framing";
+import { renderSessionFrame } from "../../src/session/attach";
+import { fakeCtx } from "../../test/helpers";
+const attempt = (f: () => unknown) => {
+  try {
+    return { ok: JSON.parse(JSON.stringify(f() ?? null)) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+};
+export function recordControl() {
+  const session = [
+    ["end", "", "real-id"],
+    ["end", ""],
+    [],
+    ["bad"],
+    ["start"],
+    ["start", "--", "\u0085"],
+    ["start", "--", "\ufeff"],
+    ["start", "--", "\u200b"],
+    [
+      "start",
+      "--repo",
+      "r",
+      "--executor",
+      "codex",
+      "--base",
+      "main",
+      "--attach",
+      "a",
+      "--attach",
+      "b",
+      "--json",
+      "--",
+      " hi ",
+      "--x",
+    ],
+    ["start", "--checkout", "x", "--", "go"],
+    ["end", "id", "--json"],
+    ["resume", "id"],
+    ["resume"],
+    ["end", "a", "b"],
+    ["start", "--repo"],
+    ["start", "--wat"],
+    ["start", "--base", "m", "--checkout", "x", "--", "go"],
+    ["end", "id", "--", "ignored"],
+    ["start", "--repo", "a", "--repo", "b", "--", "go"],
+  ].map((args) => ({ args, result: attempt(() => parseSessionArgs(args)) }));
+  const templates = [
+    "",
+    "auto",
+    "kitty",
+    "tool {cmd}",
+    'tool "x {cmd}"',
+    "tool '' {cmd}",
+    "tool \\{cmd}",
+    'tool "{cmd}',
+    "x\n{cmd}",
+    "x".repeat(1994) + "{cmd}",
+    "😀".repeat(998) + "{cmd}",
+    "x",
+    "tool\u0085{cmd}",
+    "tool\ufeff{cmd}",
+  ];
+  const terminal = templates.map((setting) => ({
+    setting,
+    result: attempt(() => validateTerminalOpen(setting)),
+    split: attempt(() => splitArgv(setting)),
+    recipe: attempt(() => terminalRecipe(setting, "task_1", "linux")),
+  }));
+  const recipes = [
+    "ghostty",
+    "iterm",
+    "terminal-app",
+    "wezterm",
+    "kitty",
+    "alacritty",
+    "gnome-terminal",
+    "x-terminal-emulator",
+    "auto",
+  ].flatMap((setting) =>
+    ["darwin", "linux"].map((platform) => ({
+      setting,
+      platform,
+      result: terminalRecipe(setting, "t-1", platform as NodeJS.Platform),
+    })),
+  );
+  const base = {
+    state: "running",
+    executor: "codex",
+    run: {
+      executor: "codex",
+      dir: "/nonexistent-pacer-fixture",
+      agentSession: { id: "s" },
+    },
+  };
+  const tasks = [
+    base,
+    { ...base, state: "done" },
+    { ...base, executorProvider: "pacer-exec-direct" },
+    { ...base, run: { ...base.run, host: "remote" } },
+    { ...base, run: { ...base.run, executor: "codex@remote" } },
+    { ...base, run: { ...base.run, executor: "codex@local" } },
+    { ...base, backend: "orca" },
+    { ...base, result: { backend: "orca" } },
+    { ...base, run: undefined },
+    { ...base, run: { ...base.run, takeover: true } },
+    { ...base, takeover: { state: "starting" } },
+    ...[
+      "agy",
+      "unknown",
+      "cursor",
+      "claude-code",
+      "opencode",
+      "codex#work",
+    ].map((executor) => ({
+      ...base,
+      executor,
+      run: { executor, dir: base.run.dir },
+    })),
+  ];
+  const takeover = tasks.map((task) => ({
+    task: JSON.parse(JSON.stringify(task)),
+    result: takeoverAvailability(task as any),
+  }));
+  const row = { id: "native", title: "pacer t" };
+  const wrapped = (depth: number): unknown =>
+    depth === 0 ? row : { data: wrapped(depth - 1) };
+  const lookup = [
+    JSON.stringify(wrapped(6)),
+    JSON.stringify(wrapped(7)),
+    JSON.stringify({
+      id: "parent",
+      title: "pacer t",
+      sessions: [{ id: "nested", title: "pacer t", updated: 100 }],
+    }),
+    JSON.stringify([
+      { id: " a ", title: "pacer t", updated: "2026-01-01T00:00:00Z" },
+      { id: "new", title: "pacer t", updatedAt: "2026-02-01T00:00:00Z" },
+    ]),
+    JSON.stringify([
+      { id: "numeric", title: "pacer t", updated: "0x10" },
+      { id: "decimal", title: "pacer t", time: { updated: 15, created: 1000 } },
+    ]),
+    JSON.stringify([
+      { id: "bad-time", title: "pacer t", updated: "garbage" },
+      { id: "positive", title: "pacer t", created: 1 },
+    ]),
+    "bad",
+    "null",
+    "[]",
+    JSON.stringify([
+      { id: " a ", title: "pacer t" },
+      { id: "b", title: "pacer t", updated: "20" },
+      { id: "c", title: "pacer t", updated: 10 },
+    ]),
+    JSON.stringify({
+      data: {
+        sessions: [
+          { id: "old", title: "pacer t", updated: 1 },
+          { id: "new", title: "pacer t", time: { updated: 2 } },
+        ],
+      },
+    }),
+    JSON.stringify([
+      { id: "\ufeff", title: "pacer t" },
+      { id: "\u0085", title: "pacer t" },
+    ]),
+    JSON.stringify([
+      { id: "first", title: "pacer t", updated: 0 },
+      { id: "second", title: "pacer t", updated: 0 },
+    ]),
+  ].map((text) => ({ text, result: parseOpencodeSessions(text, "t") ?? null }));
+  const caller = [
+    "task.session",
+    "task.attach",
+    "task.takeover",
+    "session.prepare",
+    "session.draft.create",
+    "session.create",
+    "session.resume",
+    "session.end",
+    "session.file.read",
+    "terminal.create",
+    "terminal.close",
+  ].flatMap((name) =>
+    [false, true].map((executor) => ({
+      name,
+      executor,
+      result: attempt(() =>
+        assertCallerCanInvoke(
+          fakeCtx({ env: { PACER_ROLE: executor ? "executor" : "planner" } }),
+          name,
+          {},
+        ),
+      ),
+    })),
+  );
+  const codec = [
+    JSON.stringify({ type: "hello", v: 1, client: "cli", from: 9 }),
+    JSON.stringify({ type: "take", force: true }),
+    JSON.stringify({ type: "size", cols: 80, rows: 24 }),
+    JSON.stringify({ type: "bogus" }),
+    "bad",
+    JSON.stringify({ type: "hello", v: 1 }),
+  ].flatMap((message) =>
+    [undefined, 0, 8].map((from) => ({
+      message,
+      ...(from === undefined ? {} : { from }),
+      result: attempt(() =>
+        viewerMessageFrames(message, from)
+          .map((b) =>
+            new WireDecoder().push(b).map((f) => ({
+              type: f.type,
+              body: JSON.parse(f.data.toString()),
+            })),
+          )
+          .flat(),
+      ),
+    })),
+  );
+  const render = [
+    {
+      type: FrameType.snapshot,
+      body: {
+        scrollbackAnsi: "old",
+        screenAnsi: "screen",
+        cols: 100,
+        rows: 30,
+      },
+    },
+    { type: FrameType.exit, body: { code: 1, reason: "bad\u001b[31m\u0007" } },
+    { type: FrameType.control, body: { you: true } },
+  ].map(({ type, body }) => {
+    const out: string[] = [],
+      err: string[] = [];
+    const detach = renderSessionFrame(
+      type,
+      Buffer.from(JSON.stringify(body)),
+      {
+        isTTY: true,
+        columns: 80,
+        rows: 24,
+        write: (s: string) => out.push(s),
+      } as any,
+      { write: (s: string) => err.push(s) } as any,
+    );
+    return { type, body, out, err, detach };
+  });
+  const binary = [Buffer.from([0, 255, 27, 128]), Buffer.alloc(0)].map(
+    (data) => ({
+      hex: data.toString("hex"),
+      out: Buffer.from(socketFrameMessage({ type: 3, data })).toString("hex"),
+      input: viewerMessageFrames(wire(10, data))[0]!.toString("hex"),
+    }),
+  );
+  const offsets = [
+    0,
+    1.0,
+    1e2,
+    -1,
+    0.5,
+    9007199254740991,
+    9007199254740992,
+    null,
+    "1",
+    true,
+    {},
+    [],
+  ].map((value) => ({
+    value,
+    valid: Number.isSafeInteger(value) && (value as number) >= 0,
+  }));
+  const labels = [
+    "",
+    "a\u0000b\u007f",
+    "x".repeat(63) + "😀",
+    "😀".repeat(40),
+    "\u0085\ufeff",
+  ].map((label) => ({
+    label,
+    units: Array.from(
+      { length: label.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 64).length },
+      (_, i) => label.replace(/[\x00-\x1f\x7f]/g, "").charCodeAt(i),
+    ),
+  }));
+  return {
+    session,
+    terminal,
+    recipes,
+    takeover,
+    lookup,
+    caller,
+    codec,
+    render,
+    binary,
+    offsets,
+    labels,
+  };
+}
+if (import.meta.main)
+  writeFileSync(
+    new URL(
+      "../../test/fixtures/sessions/control-parity.json",
+      import.meta.url,
+    ),
+    JSON.stringify(recordControl(), null, 2) + "\n",
+  );

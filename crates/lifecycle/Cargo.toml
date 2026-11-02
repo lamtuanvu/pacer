@@ -1,0 +1,20 @@
+[package]
+name = "pacer-lifecycle"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pacer-store = { path = "../store" }
+pacer-foundation = { path = "../foundation" }
+rusqlite = { version = "0.41", features = ["bundled"] }
+ryu-js = "1"
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

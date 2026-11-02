@@ -1,0 +1,385 @@
+[
+  {
+    "mode": "start-new",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Session task started.\nRun: pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      },
+      {
+        "op": "session.draft.create",
+        "params": {}
+      },
+      {
+        "op": "session.create",
+        "params": {
+          "request_id": "<uuid>",
+          "draftId": "draft",
+          "request": "Initial prompt",
+          "repo": "fixture-repo",
+          "executor": "codex",
+          "workspace": {
+            "mode": "new",
+            "base": "main"
+          },
+          "attachments": []
+        }
+      }
+    ]
+  },
+  {
+    "mode": "start-current",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--checkout",
+      "checkout",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Session task started.\nRun: pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      },
+      {
+        "op": "session.draft.create",
+        "params": {}
+      },
+      {
+        "op": "session.create",
+        "params": {
+          "request_id": "<uuid>",
+          "draftId": "draft",
+          "request": "Initial prompt",
+          "repo": "fixture-repo",
+          "executor": "codex",
+          "workspace": {
+            "mode": "current",
+            "path": "checkout"
+          },
+          "attachments": []
+        }
+      }
+    ]
+  },
+  {
+    "mode": "start-json",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--json",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 0,
+      "out": "{\n  \"task_id\": \"task\",\n  \"state\": \"queued\"\n}",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      },
+      {
+        "op": "session.draft.create",
+        "params": {}
+      },
+      {
+        "op": "session.create",
+        "params": {
+          "request_id": "<uuid>",
+          "draftId": "draft",
+          "request": "Initial prompt",
+          "repo": "fixture-repo",
+          "executor": "codex",
+          "workspace": {
+            "mode": "new",
+            "base": "main"
+          },
+          "attachments": []
+        }
+      }
+    ]
+  },
+  {
+    "mode": "start-attachments",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--attach",
+      "<attachment>",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Session task started.\nRun: pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      },
+      {
+        "op": "session.draft.create",
+        "params": {}
+      },
+      {
+        "op": "upload",
+        "draft": "draft",
+        "filename": "fixture.txt",
+        "content": "fixture payload"
+      },
+      {
+        "op": "session.create",
+        "params": {
+          "request_id": "<uuid>",
+          "draftId": "draft",
+          "request": "Initial prompt",
+          "repo": "fixture-repo",
+          "executor": "codex",
+          "workspace": {
+            "mode": "new",
+            "base": "main"
+          },
+          "attachments": [
+            "attachment-id"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "mode": "upload-error",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--attach",
+      "<attachment>",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: Fixture upload failed"
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      },
+      {
+        "op": "session.draft.create",
+        "params": {}
+      },
+      {
+        "op": "upload",
+        "draft": "draft",
+        "filename": "fixture.txt",
+        "content": "fixture payload"
+      }
+    ]
+  },
+  {
+    "mode": "end",
+    "args": [
+      "end",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Session task ended.",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "task.get",
+        "params": {
+          "id": "task"
+        }
+      },
+      {
+        "op": "session.end",
+        "params": {
+          "id": "task",
+          "expect_rev": 7
+        }
+      }
+    ]
+  },
+  {
+    "mode": "resume",
+    "args": [
+      "resume",
+      "task"
+    ],
+    "result": {
+      "code": 0,
+      "out": "Session task started.\nRun: pacer attach task --control",
+      "err": ""
+    },
+    "calls": [
+      {
+        "op": "task.get",
+        "params": {
+          "id": "task"
+        }
+      },
+      {
+        "op": "session.resume",
+        "params": {
+          "id": "task",
+          "expect_rev": 7
+        }
+      }
+    ]
+  },
+  {
+    "mode": "unavailable",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: No interactive executor is ready"
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      }
+    ]
+  },
+  {
+    "mode": "unknown-executor",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--executor",
+      "missing",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: No interactive executor is ready"
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      }
+    ]
+  },
+  {
+    "mode": "api-error",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: Fixture conflict"
+    },
+    "calls": [
+      {
+        "op": "session.prepare",
+        "params": {
+          "repo": "fixture-repo"
+        }
+      }
+    ]
+  },
+  {
+    "mode": "executor-start",
+    "args": [
+      "start",
+      "--repo",
+      "fixture-repo",
+      "--",
+      "Initial prompt"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly."
+    },
+    "calls": []
+  },
+  {
+    "mode": "executor-resume",
+    "args": [
+      "resume",
+      "task"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly."
+    },
+    "calls": []
+  },
+  {
+    "mode": "executor-end",
+    "args": [
+      "end",
+      "task"
+    ],
+    "result": {
+      "code": 2,
+      "out": "",
+      "err": "pacer session: Executor client requires a scoped work grant"
+    },
+    "calls": []
+  }
+]

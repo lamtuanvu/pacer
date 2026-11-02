@@ -236,7 +236,7 @@ pub fn process_details(pid: u32) -> io::Result<ProcessDetails> {
                 .map_err(|_| "boot identity unavailable".to_owned())?;
             let value = String::from_utf8(output.stdout)
                 .map_err(|_| "boot identity unavailable".to_owned())?;
-            let value = value.trim();
+            let value = super::auth::js_trim(&value);
             if !output.status.success()
                 || value.len() != 36
                 || !value.bytes().enumerate().all(|(index, byte)| {

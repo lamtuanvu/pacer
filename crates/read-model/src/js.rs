@@ -28,12 +28,7 @@ pub fn number(n: f64) -> Value {
         serde_json::json!(n)
     }
 }
-pub fn whitespace(c: char) -> bool {
-    matches!(c, '\u{9}'..='\u{d}' | '\u{20}' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-}
-pub fn trim(s: &str) -> &str {
-    s.trim_matches(whitespace)
-}
+pub use pacer_foundation::js_semantics::{is_js_space as whitespace, js_trim as trim};
 /// sliceText from TS: clip by UTF-16 units without leaving a high surrogate.
 pub fn slice(s: &str, max: usize) -> String {
     let mut units = 0;
