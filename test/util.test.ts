@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isObj, parseTs, toNum } from "../src/util";
 import { readJson, writeJsonAtomic } from "../src/fsutil";
@@ -31,4 +32,14 @@ test("writeJsonAtomic creates parent dirs and readJson round-trips; readJson ret
   await Bun.write(join(dir, "bad.json"), "{nope");
   expect(readJson(join(dir, "bad.json"))).toBeNull();
   expect(readJson(join(dir, "missing.json"))).toBeNull();
+});
+test("writeJsonAtomic preserves a stale pid temp and completes", () => {
+  const dir = tmpDir();
+  const path = join(dir, "state.json");
+  const stale = `${path}.${process.pid}.tmp`;
+  writeFileSync(stale, "stale");
+  writeJsonAtomic(path, { v: 2 });
+  expect(readJson(path)).toEqual({ v: 2 });
+  expect(existsSync(stale)).toBe(true);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
 });

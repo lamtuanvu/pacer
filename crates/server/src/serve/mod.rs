@@ -100,7 +100,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(params) => params,
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        return match call_native(&ctx, op, params).await {
+        return match call_native(&ctx, op, params, None).await {
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };

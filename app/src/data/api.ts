@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 import type { Hello, ApiClient } from "../../../src/api/client-types";
 import { TerminalActionRequests } from "./terminal-action-request";
 export class ApiError extends Error {
@@ -5,8 +6,7 @@ export class ApiError extends Error {
 }
 /** Only the desktop shell exposes this bridge; browsers keep their sign-in guidance. */
 export function reportSessionEnded(): void {
-  const host = globalThis as typeof globalThis & { __TAURI__?: { core?: { invoke: (command: string) => Promise<unknown> } } };
-  void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
+  platform.reportSessionEnded();
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
 const V3_OPS = new Set(["account.usage.check","dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close", "msg.log", "msg.send", "msg.read", "msg.policy", "liveness.status"]);
@@ -24,7 +24,7 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   let version: 2 | 3 | undefined;
   let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
-    const response = await fetch(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "X-Pacer-Client-Instance": instance, "content-type": "application/json" }, body: JSON.stringify(params) }) });
+    const response = await platform.request(path, { credentials: "same-origin", method: params === undefined ? "GET" : "POST", ...(params === undefined ? {} : { headers: { "X-Pacer-Client": "app", "X-Pacer-Client-Instance": instance, "content-type": "application/json" }, body: JSON.stringify(params) }) });
     if (response.status === 401) { reportSessionEnded(); onSessionEnded(); throw new ApiError("not_allowed", "Session ended. Run `pacer open`.", undefined, 401); }
     if (!response.ok) {
       const text = await response.text();

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
-import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, messageRefusalWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
+import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
@@ -26,8 +26,9 @@ import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
 import { Page, PageTitle, Stack } from "../ds/Page";
 import { LazyWork } from "./work/LazyWork";
-import { ApiError } from "../data/api";
 import { answerDelivered, answerParams, legacyQuestionPending, messageQuestion } from "../model/task-answer";
+import type { ThreadMessage } from "../model/thread";
+import { PendingSendFeedback, usePendingSend } from "./session/pending-send";
 export { legacyQuestionPending } from "../model/task-answer";
 
 export function resultSummary(task: TaskDetail): string {
@@ -89,31 +90,32 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
 
 /** Answers a question the task sent the human with msg.send, then marks it read once the answer reaches the task. */
 export function MessageAnswer({ task, question, focus = false, onSent }: { task: TaskDetail; question: { id: string; text: string }; focus?: boolean; onSent: (message: string) => void }) {
-  const { api, state } = useTaskContext(), runner = useActions();
-  const answerId=useId();
-  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", ""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
-  const inFlight = useRef(false), input = useRef<HTMLTextAreaElement>(null), requestId = useRef("");
+  const { api, state } = useTaskContext();
+  const answerId = useId();
+  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", ""), [sentAnswer,setSentAnswer] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const pending = usePendingSend(api, (result, params) => {
+    setSentAnswer(params.body); input.current?.focus();
+    if (answerDelivered(result.delivery) && params.reply_to) void api.call("msg.read", { ids: [params.reply_to] }).catch(() => undefined);
+    onSent(result.delivery === "pending" ? "Answer recorded; delivery is not confirmed yet. The question stays open." : answerDeliveryWords(result.delivery, result.hold));
+    // Message events update the question and invalidate this task’s messages.
+  });
+  const log = useQuery<{ messages: ThreadMessage[] }>("msg.log", { task: task.id }, "", false, !!pending.item);
+  useEffect(() => { if (log.data) pending.reconcile(log.data.messages); }, [pending, log.data]);
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
-  async function send() {
-    if (!state.connected || inFlight.current || !answer.trim()) return;
-    inFlight.current = true;setPending(true);setRefused("");
-    requestId.current ||= crypto.randomUUID();
-    try {
-      const result = await api.call<{ delivery?: string; hold?: { reason?: string } }>("msg.send", answerParams(task.id, question.id, answer, requestId.current));
-      // A held or undelivered answer leaves the question unread, so it stays here to answer or confirm.
-      if (answerDelivered(result?.delivery)) await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
-      requestId.current = "";setAnswer("");
-      onSent(answerDeliveryWords(result?.delivery, result?.hold));
-      // Message events update the question and invalidate this task’s messages.
-    } catch (error) {
-      setRefused(messageRefusalWords(error instanceof ApiError ? (error.data as { reason?: unknown } | undefined)?.reason : undefined));
-      input.current?.focus();
-    } finally { inFlight.current = false;setPending(false); }
+  useEffect(() => { if (state.connected && pending.item?.status === "uncertain") void pending.check(); }, [pending, state.connected, state.connectionRevision]);
+  function send() {
+    if (!state.connected || pending.item || !answer.trim()) return;
+    const text = answer; setAnswer(""); setSentAnswer("");
+    void pending.start(answerParams(task.id, question.id, text, crypto.randomUUID()), text);
   }
   return <>
     <p>{question.text}</p>
-    {!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<Field label="Your answer" error={refused || undefined}><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
-    <Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={() => void send()}>Send answer</Button>
+    <PendingSendFeedback item={pending.item} sent={sentAnswer} offline={!state.connected} onRetry={() => { if (state.connected) void pending.retry(); }} onCheck={() => void pending.check()}
+      onDiscard={() => { const text = pending.discard(); if (text !== undefined) { setAnswer(current => current ? `${current}\n${text}` : text); input.current?.focus(); } }}/>
+    {!state.connected && <p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}
+    <Field label="Your answer"><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
+    <Button variant="primary" busy={!!pending.item} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} onClick={send}>Send answer</Button>
   </>;
 }
 

@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const front = process.env.PACER_TEST_FRONT_DOOR;
+const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
+const productionFront = process.env.PACER_TEST_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 function setup() {
   const home = mkdtempSync(join(tmpdir(), "pacer-native-dispatch-"));
@@ -14,6 +15,35 @@ function setup() {
   return { home, env, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
+
+test.skipIf(!productionFront)("release front door rejects test-only native operations", async () => {
+  const fixture = setup();
+  const child = Bun.spawn([productionFront!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "test.echo", { ok: true }), rpc(3, "_debug.native")].join("\n") + "\n");
+    await child.stdin.end();
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
+    expect(replies[0].result.protocol).toBe("3.0.0");
+    expect(replies.slice(1).map(reply => reply.error.data.code)).toEqual(["unknown_op", "unknown_op"]);
+    expect(stderr).not.toContain("native test.echo");
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 30000);
+
+test.skipIf(!front)("test binary exposes only its feature-gated native operations", async () => {
+  const fixture = setup();
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "_debug.native")].join("\n") + "\n");
+    await child.stdin.end();
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
+    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "task.log", "test.echo"]);
+    expect(stderr).toContain("native _debug.native");
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
+}, 30000);
 
 test.skipIf(!front)("stdio accepts hello before native dispatch and flips back to v2", async () => {
   const fixture = setup();
@@ -37,7 +67,9 @@ test.skipIf(!front)("stdio accepts hello before native dispatch and flips back t
     expect(byId(8).result.protocol).toBe("3.0.0");
     expect(byId(9).result).toEqual({ n: 9 });
     expect(replies.some(reply => reply.error?.code === -32700)).toBe(true);
-    expect(stderr.match(/^native test\.echo$/gm)).toHaveLength(3);
+    expect(stderr.split("\n").filter(line => line.startsWith("native test.echo"))).toEqual([
+      "native test.echo 3", "native test.echo 5", "native test.echo 9",
+    ]);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 
@@ -60,7 +92,9 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
     expect(replies.map(reply => reply.id).sort()).toEqual([1, 2, 3, 4, 5]);
     for (const id of [1, 2, 3, 5]) expect(replies.find(reply => reply.id === id).result).toEqual({ n: id });
     expect(replies.find(reply => reply.id === 4).error.data.code).toBe("unknown_op");
-    expect(stderr.match(/^native test\.echo$/gm)).toHaveLength(4);
+    expect(stderr.split("\n").filter(line => line.startsWith("native test.echo"))).toEqual([
+      "native test.echo 1", "native test.echo 2", "native test.echo 3", "native test.echo 5",
+    ]);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 

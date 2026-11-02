@@ -10,6 +10,7 @@ rust-version.workspace = true
 saphyr-parser = "0.3"
 serde_json.workspace = true
 thiserror.workspace = true
+url = "2"
 
 [dev-dependencies]
 serde.workspace = true

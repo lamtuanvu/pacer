@@ -1,0 +1,157 @@
+{
+  "files": {
+    "strategy.yaml": "# pacer starter strategy: edit me\nplanner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n",
+    "strategies/work.yaml": "# My plan\nplanner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\npacing: {order: [codex], planner_reserve: 25}\n",
+    "strategies/broken.yaml": "planner: [oops\n"
+  },
+  "active": "work\n",
+  "expected": {
+    "list": [
+      {
+        "name": "default",
+        "active": false,
+        "summary": "Codex first, Claude keeps 15%",
+        "description": ""
+      },
+      {
+        "name": "broken",
+        "active": false,
+        "summary": "Invalid or missing strategy",
+        "description": ""
+      },
+      {
+        "name": "work",
+        "active": true,
+        "summary": "Codex first, Claude keeps 25%",
+        "description": "My plan"
+      }
+    ],
+    "show": {
+      "yaml": "# My plan\nplanner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\npacing: {order: [codex], planner_reserve: 25}\n",
+      "summary": "Codex first, Claude keeps 25%",
+      "active": true
+    },
+    "load": {
+      "name": "work",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude-code"
+      },
+      "accounts": {
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "claude-code": "claude-code",
+        "codex": "codex"
+      },
+      "providers": {
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 25,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "claude-code",
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  }
+}

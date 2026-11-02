@@ -6,6 +6,30 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
+
+### Fixed
+
+- Recover Codex eligibility through fresh quota polling without dispatching a task: ignore nonpositive window durations, read secondary-only limits, and safely retire historical `0h` artifacts while preserving real quota constraints and manual limits.
+
+- Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
+
+- Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
+
+- Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.
+
+- Have the Rust strategy writer replace existing state atomically with restrictive file and directory permissions.
+
+- Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
+
+- Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
+
+- Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
+
+## [0.14.0] - 2026-11-01
+
+### Added
+
 - Native operation routing in the Rust front door for authenticated v3 HTTP and accepted protocol 3 stdio sessions. The production registry starts empty; `PACER_FORWARD_OPS` can force registered operations through the TypeScript core.
 
 ## [0.13.0] - 2026-10-31
@@ -66,6 +90,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Consolidate task destinations into the task page and add Workspace for sessions, shells, files and diffs.
 
 ### Changed
+
+- Make the app behave like a desktop app instead of a web page: interface chrome is no longer selectable and uses the arrow cursor, the window no longer rubber-bands, navigation links no longer drag, and the webview's own right-click menu appears only in text fields, code, the terminal and selected content. Settings moves from `,` to ⌘, (Ctrl+, elsewhere); ⌘[ and ⌘] go back and forward; in the desktop app ⌘1–4 open the main sections and ⌘F opens find in the visible terminal.
 
 - Policy plugins without a declared and granted `tasks.read` receive an empty delegate `goal` and an opaque `repo`; review notes are omitted. The goal, repository and note hashes are keyed per plugin, changing the meaning of those fields for existing policy plugins. Plugin protocol 1.8.0 adds the negotiated `policyRedactionMetadata` feature for redacted-field lengths and keyed hashes.
 - Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Consecutive empty polls back off from 200 ms to 2 s plus SSH round-trip latency.
