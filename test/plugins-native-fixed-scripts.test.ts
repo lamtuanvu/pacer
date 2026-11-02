@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { SCRIPTS } from "../src/remote/scripts";
-import scripts from "../crates/plugin-runtime/src/native_ssh/scripts.json";
+import scripts from "../crates/plugin-capabilities/src/native_ssh/scripts.json";
 test("Rust SSH programs remain byte-for-byte identical to the authoritative TS programs", () => {
   expect(scripts).toEqual(SCRIPTS);
 });

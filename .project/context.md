@@ -44,11 +44,12 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
-| `crates/plugin-host` | `pacer-plugin-host`: shadow registry, RPC and capability admission; TS remains authoritative until cutover. |
+| `crates/plugin-host` | `pacer-plugin-host` (layer 5): shadow registry, RPC and capability admission; TS remains authoritative until cutover. |
 | `crates/js-json` | `pacer-js-json`: JavaScript number/string semantics and lossless UTF-16 JSON for native state and wire boundaries. |
 | `crates/bun-glob` | `pacer-bun-glob`: Bun-compatible scan/scope glob semantics; filesystem-independent. |
 | `crates/plugin-wire` | `pacer-plugin-wire`: bounded byte payloads and re-exported lossless UTF-16 JSON delivery; library-only, re-exported by the runtime. |
-| `crates/plugin-runtime` | `pacer-plugin-runtime`: shadow native capability effects, pinned resources and concrete Orca/remote attempt owners; no client operations registered. |
+| `crates/plugin-capabilities` | `pacer-plugin-capabilities` (layer 3): pinned filesystem/process/byte authority, shared error/effect and lease resources; Store2 edge only for error conversion. |
+| `crates/plugin-runtime` | `pacer-plugin-runtime` (layer 4): shadow task-attempt, Orca and remote transfer owners; re-exports capability paths; no client operations registered. |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |

@@ -65,12 +65,6 @@ pub fn denied() -> BrokerError {
     AuthorityError::Denied("executor run owner or source changed".into()).into()
 }
 
-impl From<pacer_store::StoreError> for BrokerError {
-    fn from(_: pacer_store::StoreError) -> Self {
-        denied()
-    }
-}
-
 pub fn rev(t: &Value) -> Result<i64, BrokerError> {
     t.get("rev")
         .and_then(crate::js_semantics::safe_i64)

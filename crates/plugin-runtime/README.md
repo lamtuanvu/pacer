@@ -1,12 +1,13 @@
-# Native plugin capability runtime
+# Native plugin attempt runtime
 
 This is an unpublished shadow library. `pacer-plugin-host` re-exports its existing
 capability types so the registry and RPC admission API remain compatible. The
 TypeScript plugin host is authoritative; this crate registers no client operation
 and does not select executors or introduce a runtime fallback.
 
-The runtime owns pinned filesystem descriptors, executable images, byte-transfer
-handles and task-attempt journals. `OrcaPolicy`, `OrcaAttemptSpec` and `RemoteIntent` are private
+The layer-4 runtime owns task-attempt journals, run directories and Orca/direct/remote
+execution composition. It re-exports the pinned descriptors, executable images and
+byte/process resources defined by layer-3 `pacer-plugin-capabilities`. `OrcaPolicy`, `OrcaAttemptSpec` and `RemoteIntent` are private
 host composition inputs, never plugin parameters. Orca providers receive only the
 task/attempt contract. SSH programs are fixed copies of `src/remote/scripts.ts`,
 with a Bun freshness test; arguments are quoted separately and binary input stays
@@ -37,14 +38,17 @@ forwarding smoke check from native library fixtures.
 
 ## Size boundary
 
-Splitting native effects from registry/process admission keeps both crates below
-the 12,000-line hard limit without moving heavy HTTP dependencies down the graph.
-This crate exceeds the 8,000-line warning because descriptor authority, executable
-pinning and byte-stage ownership are shared by the concrete attempt owners. The
-next M2 split follows executor-attempt ownership (`native_run`, `native_worktree`,
-`orca_attempt`, `native_remote`) versus byte/process capabilities. Perform that
-split before further growth would reach the hard limit. No heavy dependency was
-added; the before/after build timing evidence belongs with the change report.
+Candidate B separates pinned byte/process capabilities (4,213 LOC, layer 3),
+task attempts (this crate: 7,781 LOC, layer 4), and registry/RPC admission
+(plugin-host: 4,970 LOC, layer 5). All public runtime/host module and type paths
+remain re-exports of the same definitions. BrokerError and CapabilityEffect live
+below; the Store2 error conversion retains its exact existing denial and creates
+no lower TaskStore access. No private attempt/session/journal field is widened.
+
+The runtime is below the 8,000 warning and 12,000 hard limit, while above the
+5,000 target. If growth requires another split, use Orca attempt/session ownership
+versus direct/remote run and transfer ownership. Four actual matched build timings
+accompany this graph change; they do not establish a shared-host speedup.
 
 ## Native composition and delivery
 

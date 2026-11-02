@@ -1389,6 +1389,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-capabilities"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "nix",
+ "pacer-bun-glob",
+ "pacer-plugin-wire",
+ "pacer-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-plugin-decision-protocol"
 version = "0.2.0"
 dependencies = [
@@ -1487,9 +1507,8 @@ dependencies = [
  "base64 0.22.1",
  "libc",
  "nix",
- "pacer-bun-glob",
  "pacer-foundation",
- "pacer-plugin-wire",
+ "pacer-plugin-capabilities",
  "pacer-store",
  "regex",
  "rusqlite",
@@ -1497,7 +1516,6 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
- "thiserror",
  "tokio",
  "unicode-normalization",
  "url",

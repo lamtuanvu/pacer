@@ -69,14 +69,18 @@ in this slice, so native-operation CT-11 evidence belongs to the later cutover.
 ## P4b shadow capability effects
 
 `pacer-plugin-host` retains registry/RPC admission and re-exports the capability
-runtime from `pacer-plugin-runtime`. The runtime includes concrete Orca attempt
+runtime from `pacer-plugin-runtime` (layer 4). Pinned byte/process resources and
+shared error/effect contracts live in `pacer-plugin-capabilities` (layer 3); host
+registry/RPC admission remains layer 5. Store2 is used below only for the existing
+error conversion, with no TaskStore access. Facade imports retain type identity.
+The runtime includes concrete Orca attempt
 execution, fixed SSH transport, Git bundle inspection and task-owned transfer
 publication. Its inputs come from the host; plugins still send bounded
 task/attempt requests. This is a library-only slice: it adds no native operation,
 changes no TypeScript runtime handler, and leaves the operation routes above
 unchanged.
 
-Run `cargo test -p pacer-plugin-host -p pacer-plugin-runtime -p pacer-plugin-wire -p pacer-js-json -p pacer-bun-glob -p pacer-store --locked` for native
+Run `cargo test -p pacer-plugin-capabilities -p pacer-plugin-host -p pacer-plugin-runtime -p pacer-plugin-wire -p pacer-js-json -p pacer-bun-glob -p pacer-store --locked` for native
 effects and adversarial fixtures. The script freshness check is
 `bun run test test/plugins-native-fixed-scripts.test.ts`. A live front-door status
 and plugin-list smoke check exercises the authoritative TypeScript path; it does

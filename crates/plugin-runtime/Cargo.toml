@@ -7,11 +7,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-pacer-bun-glob = { path = "../bun-glob" }
-pacer-plugin-wire = { path = "../plugin-wire" }
+pacer-plugin-capabilities = { path = "../plugin-capabilities" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
-thiserror.workspace = true
 tokio.workspace = true
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
@@ -19,7 +17,6 @@ nix = { version = "0.31", features = ["dir", "fs", "signal", "process", "user"] 
 libc = "0.2"
 url = "2"
 regex = "1"
-rusqlite = { version = "0.41", features = ["bundled"] }
 sha2 = "0.10"
 sha1 = "0.10"
 unicode-normalization = "0.1"
@@ -28,3 +25,6 @@ pacer-foundation = { path = "../foundation" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rusqlite = { version = "0.41", features = ["bundled"] }

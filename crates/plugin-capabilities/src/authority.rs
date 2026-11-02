@@ -1,11 +1,34 @@
 //! Host-issued, call-local authority. Plugin parameters never create resources.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::{Component, Path},
     time::Instant,
 };
 use thiserror::Error;
+
+pub const ORCA_PROVIDER: &str = "pacer-exec-orca";
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcaAttemptResource {
+    pub task_id: String,
+    pub attempt: u64,
+    pub provider_id: String,
+    pub executor: String,
+    pub session: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcaLiveResource {
+    pub task_id: String,
+    pub attempt: u64,
+    pub provider_id: String,
+    pub worker: String,
+    pub terminal: String,
+    pub incarnation: Option<String>,
+    pub action: String,
+    pub why: Option<String>,
+}
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum AuthorityError {
@@ -154,7 +177,7 @@ impl CallAuthority {
         action: Option<&str>,
     ) -> Result<(), AuthorityError> {
         self.granted("orca")?;
-        if plugin_id != crate::native_orca::ORCA_PROVIDER {
+        if plugin_id != ORCA_PROVIDER {
             return Err(AuthorityError::Denied("Orca provider identity".into()));
         }
         if let Some(action) = action {

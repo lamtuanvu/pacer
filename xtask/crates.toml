@@ -82,10 +82,12 @@ layer = 0
 layer = 1
 [crates.pacer-plugin-wire]
 layer = 1
-[crates.pacer-plugin-runtime]
+[crates.pacer-plugin-capabilities]
 layer = 3
-[crates.pacer-plugin-host]
+[crates.pacer-plugin-runtime]
 layer = 4
+[crates.pacer-plugin-host]
+layer = 5
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
