@@ -1,0 +1,87 @@
+{
+  "references": [
+    "file.ts",
+    "file.ts:1",
+    "file.ts:0002:03",
+    "file.ts:9007199254740991",
+    "file.ts:9007199254740992",
+    "file.ts:00000000000000000000000000001",
+    "file.ts:0",
+    "file.ts:1:0",
+    "file.ts:-1",
+    "file.ts:1.5",
+    "file.ts:1:2:3",
+    ":1",
+    "file.ts:\uff11",
+    "file.ts\u0000",
+    "file.ts\n",
+    "file.ts\u007f",
+    "file.ts\u0085",
+    "\ud83d\ude00.md:2:1",
+    "",
+    "file.ts:999999999999999999999999999999999999999999999999999999999999999999999999"
+  ],
+  "summaries": [
+    {
+      "text": "  hello\nworld\t "
+    },
+    {
+      "text": "\u0000\b\u000b\u001b\u007f\u0085\u009f A\nB\tC\rD"
+    },
+    {
+      "text": "\ufeff\u00a0\u2028hello\u2029\u3000"
+    },
+    {
+      "text": "\u0085"
+    },
+    {
+      "text": "\u200b"
+    },
+    {
+      "text": "\u180e"
+    },
+    {
+      "text": "\u001b"
+    },
+    {
+      "text": "\t\n\r "
+    },
+    {
+      "text": "\ud83d\ude00",
+      "repeat": 8000
+    },
+    {
+      "text": "\ud83d\ude00",
+      "repeat": 8001
+    },
+    {
+      "text": "a",
+      "repeat": 16000
+    },
+    {
+      "text": "a",
+      "repeat": 16001
+    },
+    {
+      "text": "\u001b",
+      "repeat": 16001
+    },
+    {
+      "units": [
+        55296,
+        32,
+        56320
+      ]
+    },
+    {
+      "units": [
+        65279,
+        55296,
+        65279
+      ]
+    },
+    {
+      "text": "\u0000\t\n\r\u001f\u007f\u009f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+    }
+  ]
+}

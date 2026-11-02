@@ -3,5 +3,6 @@ pub mod files;
 pub mod framing;
 mod json_number;
 pub mod masking;
+pub mod operations;
 pub mod recording;
 pub mod version;
