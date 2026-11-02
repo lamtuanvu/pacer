@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support/exact_task.rs"]
+mod exact_task;
 use pacer_plugin_host::{BundleSpec, BundleTicket, NativeBundle, NativeGit, remote_preflight};
 use std::{
     collections::HashMap,
@@ -329,7 +331,7 @@ elif 'ancestor=0' in program:
  record=json.load(open(root+'/tasks/'+task+'.json'))
  assert record['remoteTransferIntent']['branch']==branch
  output='ancestor=1\ndirty=0\ndirty_files=\ncommits=1\nemails=fixture@invalid.test\nsignoffs=fixture@invalid.test\nhead='+head+'\n'
-elif 'file="$1/.pacer-question"' in program: output=''
+elif 'file="$1/.pacer-question"' in program: output='question 😀'
 else: raise Exception(program)
 nonce=re.findall(r'__PACER_DONE__=([a-f0-9-]{36})',program)
 sys.stdout.write('__PACER_BEGIN__\n'+output+ ('\n__PACER_DONE__='+nonce[0]+'\n' if nonce else ''))
@@ -376,6 +378,7 @@ sys.stdout.write('__PACER_BEGIN__\n'+output+ ('\n__PACER_DONE__='+nonce[0]+'\n' 
         base: "HEAD".into(),
     };
     pacer_store::TaskStore::open(&f.root).unwrap().insert(&json!({"id":ID,"rev":1,"createdAt":1,"state":"running","executorProvider":"pacer-exec-direct","executor":"codex@box","attempts":[],"brief":{"repo":f.repo}}),1.0).unwrap();
+    exact_task::seed(&f.root, ID);
     let mut remote = NativeRemote::issue(
         &f.root,
         ID,
@@ -412,6 +415,15 @@ sys.stdout.write('__PACER_BEGIN__\n'+output+ ('\n__PACER_DONE__='+nonce[0]+'\n' 
     let work = Path::new(transferred["reviewWorktree"].as_str().unwrap());
     assert_eq!(text(work, &["rev-parse", "HEAD"]), f.head);
     assert_eq!(fs::read(work.join("change")).unwrap(), b"change");
+    exact_task::assert_preserved(&f.root, ID);
+    assert_eq!(
+        pacer_store::TaskStore::open(&f.root)
+            .unwrap()
+            .read(ID)
+            .unwrap()
+            .unwrap()["question"]["text"],
+        "question 😀"
+    );
 }
 
 #[tokio::test]
@@ -787,4 +799,58 @@ async fn large_valid_bundle_matches_typescript_blob_header_reads_and_full_verifi
         .unwrap();
     assert!(!local.status.success());
     ticket.dispose().unwrap();
+}
+
+#[tokio::test]
+async fn transfer_intents_copy_exact_run_fields_with_and_without_prior_admission() {
+    use pacer_plugin_host::WireReply;
+    use pacer_store::TaskStore;
+    use serde_json::json;
+    for admit_first in [false, true] {
+        let f = Fixture::new();
+        let native = f.native();
+        let mut ticket = f.ticket(&f.bytes()).await;
+        let verified = native
+            .verify(&mut ticket, &f.base, &f.branch, deadline())
+            .await
+            .unwrap();
+        let mut store = TaskStore::open(&f.root).unwrap();
+        store.insert(&json!({"id":ID,"rev":1,"createdAt":1,"state":"running","executorProvider":"pacer-exec-direct","executor":"tool@host","attempts":[],"brief":{"repo":f.repo}}), 1.0).unwrap();
+        let run = WireReply::parse(&format!(r#"{{"attempt":1,"dir":"\ud800","startedAt":{{"array":["\udc01","�"]}},"baseSha":"{}"}}"#, f.base)).unwrap();
+        let receipt = WireReply::parse(r#"{"attempt":1,"providerId":"pacer-exec-direct","dir":"\ud800","startedAt":{"array":["\udc01","�"]}}"#).unwrap();
+        store
+            .edit(ID, 1, 2.0, |t| {
+                t.put("/run", run.clone())?;
+                t.put("/startIntent", receipt.clone())?;
+                t.put("/executorExitReceipt", receipt.clone())
+            })
+            .unwrap();
+        exact_task::seed(&f.root, ID);
+        if admit_first {
+            native
+                .admit_destination(&f.root, ID, run.preview(), deadline())
+                .await
+                .unwrap();
+        }
+        native
+            .publish(&f.root, ID, run.preview(), verified, deadline())
+            .await
+            .unwrap();
+        let task = store.read_wire(ID).unwrap().unwrap();
+        for field in ["dir", "startedAt"] {
+            assert_eq!(
+                task.subtree(&format!("/remoteTransferIntent/{field}"))
+                    .unwrap()
+                    .to_json()
+                    .unwrap(),
+                run.subtree(&format!("/{field}"))
+                    .unwrap()
+                    .to_json()
+                    .unwrap()
+            );
+        }
+        assert_eq!(task.preview()["run"]["transferredHead"], f.head);
+        exact_task::assert_preserved(&f.root, ID);
+        ticket.dispose().unwrap();
+    }
 }

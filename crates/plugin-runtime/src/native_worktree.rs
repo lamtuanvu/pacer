@@ -1,4 +1,5 @@
 //! Native, journaled Git placement for the one running provider-owned task.
+use crate::WireReply;
 use crate::{
     AuthorityError, BrokerError, CommandResource, NativeProcess, NativeWrite, WriteResource,
 };
@@ -373,11 +374,11 @@ impl NativeWorktree {
         if task.get("worktreeIntent").is_none() {
             let intent = self.intent();
             self.store
-                .update(
+                .edit(
                     &self.task_id,
                     self.rev as i64,
                     pacer_foundation::ctx::unix_now(),
-                    |task| task["worktreeIntent"] = intent,
+                    |task| task.put("/worktreeIntent", WireReply::new(intent)),
                 )
                 .map_err(store_error)?;
         }

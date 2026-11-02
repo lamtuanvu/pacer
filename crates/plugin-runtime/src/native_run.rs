@@ -9,6 +9,7 @@ use directory::RunDirectory;
 
 use pacer_store::TaskStore;
 
+use crate::WireReply;
 use serde_json::{Value, json};
 
 use std::{
@@ -660,8 +661,13 @@ impl NativeRun {
         "attempt":self.attempt,"providerId":self.provider,"dir":current["run"]["dir"],"startedAt":current["run"]["startedAt"],"status":report["status"],"summary":report["summary"],"at":report["at"],"exitCode":stopped["code"]}
         );
 
-        self.store.update(&self.id, rev(&current)?, now(), |t| {
-            t["executorReportReceipt"] = receipt
+        self.store.edit(&self.id, rev(&current)?, now(), |t| {
+            t.put("/executorReportReceipt", WireReply::new(receipt))?;
+            t.copy("/run/dir", "/executorReportReceipt/dir")?;
+            if t.preview()["run"].get("startedAt").is_some() {
+                t.copy("/run/startedAt", "/executorReportReceipt/startedAt")?;
+            }
+            Ok(())
         })?;
 
         Ok(json!({
@@ -730,7 +736,12 @@ impl ClaimContext<'_> {
                 if path.symlink_metadata().is_ok() {
                     return Err(denied());
                 }
-                t = locked.update(rev(&t)?, now(), |t| t["runClaim"] = expected.clone())?;
+                t = locked
+                    .edit(rev(&t)?, now(), |t| {
+                        t.put("/runClaim", WireReply::new(expected.clone()))
+                    })?
+                    .preview()
+                    .clone();
             }
 
             let dir = RunDirectory::claim(home, id, self.attempt, recover)?;
@@ -745,13 +756,19 @@ impl ClaimContext<'_> {
                 run["session"] = json!(session);
             }
 
-            t = locked.update(rev(&t)?, now(), |t| {
-                t["run"] = run;
-                t.as_object_mut().map(|o| o.remove("runClaim"));
-                if isolated {
-                    t["worktree"] = json!(self.launch.cwd);
-                }
-            })?;
+            t = locked
+                .edit(rev(&t)?, now(), |t| {
+                    t.put("/run", WireReply::new(run))?;
+                    if t.preview().get("runClaim").is_some() {
+                        t.remove("/runClaim")?;
+                    }
+                    if isolated {
+                        t.put("/worktree", WireReply::new(json!(self.launch.cwd)))?;
+                    }
+                    Ok(())
+                })?
+                .preview()
+                .clone();
             *self.dir = Some(dir);
         }
 
@@ -856,9 +873,12 @@ impl StartContext<'_> {
             ));
         }
 
-        locked.update(rev(&t)?, now(), |t| {
-            t["startIntent"] = json!({
-            "attempt":attempt,"providerId":provider,"dir":dir.path}
+        locked.edit(rev(&t)?, now(), |t| {
+            t.put(
+                "/startIntent",
+                WireReply::new(json!({
+                    "attempt":attempt,"providerId":provider,"dir":dir.path
+                })),
             )
         })?;
 
@@ -963,7 +983,9 @@ impl StartContext<'_> {
             }
         }
         let current = locked.read()?;
-        locked.update(rev(&current)?, now(), |t| t["childPid"] = json!(pid))?;
+        locked.edit(rev(&current)?, now(), |t| {
+            t.put("/childPid", WireReply::new(json!(pid)))
+        })?;
         Ok(child)
     }
 }

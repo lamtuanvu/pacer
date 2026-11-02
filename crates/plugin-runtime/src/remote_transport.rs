@@ -1,4 +1,5 @@
 //! Concrete fixed-script owner for NativeRemote; binary artifacts never cross RPC.
+use crate::WireReply;
 use crate::{
     BrokerError, BundleSpec, NativeBundle, NativeGit, NativeSsh, RemoteHost, RemoteOperation,
     native_command::denied,
@@ -152,11 +153,16 @@ impl RemoteTransport {
                     return Err(denied());
                 }
             } else {
-                store.update(
+                store.edit(
                     id,
                     crate::native_run::rev(&current)?,
                     crate::native_run::now(),
-                    |t| t["question"] = json!({"text":question,"at":crate::native_run::now()}),
+                    |t| {
+                        t.put(
+                            "/question",
+                            WireReply::new(json!({"text":question,"at":crate::native_run::now()})),
+                        )
+                    },
                 )?;
             }
         }

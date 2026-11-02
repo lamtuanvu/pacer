@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support/exact_task.rs"]
+mod exact_task;
 use pacer_plugin_host::{NativeRun, RunLaunch};
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
@@ -78,6 +80,7 @@ const ID: &str = "t-20261102-155709-d07a";
 #[tokio::test]
 async fn claim_start_poll_output_and_replay_are_owned_and_durable() {
     let f = Fixture::new();
+    exact_task::seed(&f.home, ID);
     let mut run = f.owner();
     let p = json!({"taskId":ID,"attempt":1.0});
     let claim = run.answer("capability.process.claimRun", &p).await.unwrap();
@@ -132,7 +135,9 @@ async fn claim_start_poll_output_and_replay_are_owned_and_durable() {
     }
     assert_eq!(f.task()["startIntent"]["attempt"], 1);
     assert!(!f.repo.join("forbidden").exists());
+    exact_task::assert_preserved(&f.home, ID);
 }
+
 #[tokio::test]
 async fn changed_owner_and_nonempty_crash_claim_never_authorize_launch() {
     let f = Fixture::new();
@@ -402,6 +407,7 @@ fn fixed_native_wrapper_matches_the_authoritative_typescript_bytes() {
 #[tokio::test]
 async fn interactive_terminal_report_is_verified_and_receipt_is_one_use() {
     let f = Fixture::new();
+    exact_task::seed(&f.home, ID);
     let session = f.root.join("session");
     fs::write(&session,"#!/usr/bin/env python3\nimport sys,os,json\nos.umask(0o077)\nd=sys.argv[-1]\nopen(d+'/started','w').write('1')\nopen(d+'/child','w').write(str(os.getpid()))\nopen(d+'/report.json','w').write(json.dumps({'status':'done','summary':'\\x1bCompleted','at':1}))\nopen(d+'/exit','w').write('0')\n").unwrap();
     fs::set_permissions(&session, fs::Permissions::from_mode(0o700)).unwrap();
@@ -439,8 +445,11 @@ async fn interactive_terminal_report_is_verified_and_receipt_is_one_use() {
     let mut store = TaskStore::open(&f.home).unwrap();
     let task = store.read(ID).unwrap().unwrap();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
-            t["startIntent"]["attempt"] = json!(2)
+        .edit(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
+            t.put(
+                "/startIntent/attempt",
+                pacer_plugin_host::WireReply::new(json!(2)),
+            )
         })
         .unwrap();
     assert!(
@@ -450,8 +459,11 @@ async fn interactive_terminal_report_is_verified_and_receipt_is_one_use() {
     );
     let task = store.read(ID).unwrap().unwrap();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
-            t["startIntent"]["attempt"] = json!(1)
+        .edit(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
+            t.put(
+                "/startIntent/attempt",
+                pacer_plugin_host::WireReply::new(json!(1)),
+            )
         })
         .unwrap();
     let completed = run
@@ -466,7 +478,9 @@ async fn interactive_terminal_report_is_verified_and_receipt_is_one_use() {
             .await
             .is_err()
     );
+    exact_task::assert_preserved(&f.home, ID);
 }
+
 #[tokio::test]
 async fn persisted_inspection_does_not_require_the_old_executable_to_still_exist() {
     let f = Fixture::new();
@@ -496,4 +510,58 @@ async fn persisted_inspection_does_not_require_the_old_executable_to_still_exist
             .unwrap()["state"],
         "uncertain"
     );
+}
+
+#[tokio::test]
+async fn completed_receipt_keeps_exact_or_absent_started_at_without_launching() {
+    use pacer_plugin_host::{WireReply, native_run::directory::RunDirectory};
+    for started in [None, Some("null"), Some(r#"{"array":["\ud800","�"]}"#)] {
+        let f = Fixture::new();
+        let dir = RunDirectory::claim(&f.home, ID, 1, false).unwrap();
+        dir.write("exit", b"0").unwrap();
+        dir.write("interactive.json", b"{}").unwrap();
+        dir.write(
+            "report.json",
+            br#"{"status":"done","summary":"complete","at":1}"#,
+        )
+        .unwrap();
+        let mut store = TaskStore::open(&f.home).unwrap();
+        store.edit(ID, 1, 2.0, |t| {
+            t.put("/run", WireReply::new(json!({"dir":dir.path,"attempt":1,"executor":"tool","workdir":f.repo,"session":"interactive"})))?;
+            if let Some(text) = started { t.put("/run/startedAt", WireReply::parse(text).unwrap())?; }
+            t.put("/startIntent", WireReply::new(json!({"providerId":"fx-executor","attempt":1,"dir":dir.path})))
+        }).unwrap();
+        exact_task::seed(&f.home, ID);
+        let mut run = NativeRun::resume(
+            &f.home,
+            ID,
+            "fx-executor",
+            "tool",
+            1,
+            f.launch(),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        run.answer(
+            "capability.process.completeReportedRun",
+            &json!({"taskId":ID,"attempt":1}),
+        )
+        .await
+        .unwrap();
+        let task = store.read_wire(ID).unwrap().unwrap();
+        assert_eq!(
+            task.subtree("/executorReportReceipt/startedAt")
+                .unwrap()
+                .to_json()
+                .unwrap(),
+            WireReply::parse(started.unwrap_or("null"))
+                .unwrap()
+                .to_json()
+                .unwrap()
+        );
+        if started.is_none() {
+            assert!(task.preview()["run"].get("startedAt").is_none());
+        }
+        exact_task::assert_preserved(&f.home, ID);
+    }
 }

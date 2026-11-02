@@ -1,4 +1,5 @@
 //! Verify remote bundles in a disposable object database before publishing a local ref.
+use crate::WireReply;
 use crate::{
     BrokerError, BundleTicket,
     native_command::{self, denied},
@@ -193,8 +194,14 @@ impl NativeGit {
         if latest["rev"] != task["rev"] {
             return Err(denied());
         }
-        store.update(id,crate::native_run::rev(&latest)?,crate::native_run::now(),|t| {
-            t["remoteTransferIntent"] = json!({"attempt":run["attempt"],"providerId":"pacer-exec-direct","dir":run["dir"],"startedAt":run["startedAt"],"branch":branch,"oldHead":current});
+        store.edit(id,crate::native_run::rev(&latest)?,crate::native_run::now(),|t| {
+            t.put("/remoteTransferIntent", WireReply::new(json!({"attempt":run["attempt"],"providerId":"pacer-exec-direct","dir":null,"startedAt":null,"branch":branch,"oldHead":current})))?;
+            for field in ["dir", "startedAt"] {
+                if t.preview()["run"].get(field).is_some() {
+                    t.copy(&format!("/run/{field}"), &format!("/remoteTransferIntent/{field}"))?;
+                }
+            }
+            Ok(())
         })?;
         Ok(())
     }
@@ -568,12 +575,26 @@ impl NativeGit {
                 return Err(denied());
             }
         } else {
-            task = store.update(
-                id,
-                crate::native_run::rev(&task)?,
-                crate::native_run::now(),
-                |t| t["remoteTransferIntent"] = destination,
-            )?;
+            task = store
+                .edit(
+                    id,
+                    crate::native_run::rev(&task)?,
+                    crate::native_run::now(),
+                    |t| {
+                        t.put("/remoteTransferIntent", WireReply::new(destination))?;
+                        for field in ["dir", "startedAt"] {
+                            if t.preview()["run"].get(field).is_some() {
+                                t.copy(
+                                    &format!("/run/{field}"),
+                                    &format!("/remoteTransferIntent/{field}"),
+                                )?;
+                            }
+                        }
+                        Ok(())
+                    },
+                )?
+                .preview()
+                .clone();
         }
         let rev = task["rev"].clone();
         let imported = self
@@ -656,11 +677,11 @@ impl NativeGit {
             .await?;
         }
         let current = transfer_owner(&mut store, id, run)?;
-        store.update(
+        store.edit(
             id,
             crate::native_run::rev(&current)?,
             crate::native_run::now(),
-            |t| t["run"]["transferredHead"] = json!(verified.head),
+            |t| t.put("/run/transferredHead", WireReply::new(json!(verified.head))),
         )?;
         Ok(
             json!({"transferred":true,"branch":branch,"commits":verified.commits,"reviewWorktree":work}),

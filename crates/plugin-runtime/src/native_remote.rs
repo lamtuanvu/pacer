@@ -9,6 +9,7 @@ use pacer_store::TaskStore;
 
 use serde::{Deserialize, Serialize};
 
+use crate::WireReply;
 use serde_json::{Value, json};
 
 use std::{
@@ -161,8 +162,8 @@ impl<H: RemoteHost> NativeRemote<H> {
                 return Err(denied());
             }
 
-            store.update(id, rev(&task)?, now(), |t| {
-                t["remotePrepareIntent"] = expected
+            store.edit(id, rev(&task)?, now(), |t| {
+                t.put("/remotePrepareIntent", WireReply::new(expected))
             })?;
 
             RemoteOperation::Prepare
@@ -244,9 +245,19 @@ impl<H: RemoteHost> NativeRemote<H> {
     }
 
     fn task(&mut self) -> Result<Value, BrokerError> {
+        Ok(self.task_wire()?.preview().clone())
+    }
+
+    fn task_wire(&mut self) -> Result<WireReply, BrokerError> {
         self.active()?;
 
-        let task = self.store.read(&self.id)?.ok_or_else(denied)?;
+        let mut wire = self.store.read_wire(&self.id)?.ok_or_else(denied)?;
+        // Match TaskStore::read's legacy revision preview default.
+        if wire.preview().get("rev").is_none_or(Value::is_null) {
+            wire.put("/rev", WireReply::new(json!(1)))
+                .map_err(|_| denied())?;
+        }
+        let task = wire.preview();
 
         let expected = serde_json::to_value(&self.intent).map_err(|_| denied())?;
 
@@ -262,11 +273,16 @@ impl<H: RemoteHost> NativeRemote<H> {
             return Err(denied());
         }
 
-        Ok(task)
+        Ok(wire)
     }
 
     fn owner(&mut self) -> Result<Value, BrokerError> {
-        let t = self.task()?;
+        Ok(self.owner_wire()?.preview().clone())
+    }
+
+    fn owner_wire(&mut self) -> Result<WireReply, BrokerError> {
+        let wire = self.task_wire()?;
+        let t = wire.preview();
 
         let expected = self.run.as_ref().ok_or_else(denied)?;
 
@@ -299,7 +315,7 @@ impl<H: RemoteHost> NativeRemote<H> {
 
         self.dir.as_ref().ok_or_else(denied)?.check()?;
 
-        Ok(t)
+        Ok(wire)
     }
 
     async fn effect(&mut self, op: RemoteOperation, extra: Value) -> Result<Value, BrokerError> {
@@ -396,8 +412,11 @@ impl<H: RemoteHost> NativeRemote<H> {
                 return Err(denied());
             }
 
-            self.store.update(&self.id, rev(&t)?, now(), |t| {
-                t["remotePrepareIntent"]["missingBaseReceiptAt"] = json!(now())
+            self.store.edit(&self.id, rev(&t)?, now(), |t| {
+                t.put(
+                    "/remotePrepareIntent/missingBaseReceiptAt",
+                    WireReply::new(json!(now())),
+                )
             })?;
 
             self.retry_marker()?;
@@ -474,8 +493,11 @@ impl<H: RemoteHost> NativeRemote<H> {
             return Err(denied());
         }
 
-        self.store.update(&self.id, rev(&t)?, now(), |t| {
-            t["remotePrepareIntent"]["bundleRetryIssuedAt"] = json!(now())
+        self.store.edit(&self.id, rev(&t)?, now(), |t| {
+            t.put(
+                "/remotePrepareIntent/bundleRetryIssuedAt",
+                WireReply::new(json!(now())),
+            )
         })?;
 
         Ok(())
@@ -530,18 +552,19 @@ if current["rev"]!=t["rev"]{
 return Err(denied());
 }
 if !recover{
-current=locked.update(rev(&current)?,now(),|t|t["runClaim"]=expected.clone())?;
+current=locked.edit(rev(&current)?,now(),|t|t.put("/runClaim", WireReply::new(expected.clone())))?.preview().clone();
 }
 let dir=RunDirectory::claim(&home,&id,intent.attempt,recover)?;
 let run=json!({
 "dir":path,"attempt":intent.attempt,"executor":intent.executor,"startedAt":now(),"mode":"new","workdir":worktree,"logFile":path.join("stdout"),"host":intent.alias,"remoteDir":remote_dir,"remoteWorktree":worktree,"remoteBranch":branch,"baseSha":intent.base_sha}
 );
-locked.update(rev(&current)?,now(),|t|{
-t["run"]=run.clone();
-t["baseBranch"]=json!(intent.base);
-t["baseSha"]=json!(intent.base_sha);
-t["worktree"]=json!(format!("{}:{worktree}",intent.alias));
-t.as_object_mut().map(|o|o.remove("runClaim"));
+locked.edit(rev(&current)?,now(),|t|{
+t.put("/run", WireReply::new(run.clone()))?;
+t.put("/baseBranch", WireReply::new(json!(intent.base)))?;
+t.put("/baseSha", WireReply::new(json!(intent.base_sha)))?;
+t.put("/worktree", WireReply::new(json!(format!("{}:{worktree}",intent.alias))))?;
+if t.preview().get("runClaim").is_some() { t.remove("/runClaim")?; }
+Ok(())
 }
 )?;
 Ok((run,dir))}
@@ -576,8 +599,9 @@ Ok((run,dir))}
         "attempt":self.intent.attempt,"providerId":self.intent.provider_id,"dir":t["run"]["dir"]}
         );
 
-        self.store.update(&self.id, rev(&t)?, now(), |t| {
-            t["startIntent"] = intent.clone()
+        self.store.edit(&self.id, rev(&t)?, now(), |t| {
+            t.put("/startIntent", WireReply::new(intent.clone()))?;
+            t.copy("/run/dir", "/startIntent/dir")
         })?;
 
         let result = self.effect(RemoteOperation::Start, Value::Null).await?;
@@ -647,8 +671,13 @@ Ok((run,dir))}
             "attempt":self.intent.attempt,"providerId":self.intent.provider_id,"dir":current["run"]["dir"],"startedAt":current["run"]["startedAt"],"exitCode":exit}
             );
 
-            self.store.update(&self.id, rev(&current)?, now(), |t| {
-                t["executorExitReceipt"] = receipt
+            self.store.edit(&self.id, rev(&current)?, now(), |t| {
+                t.put("/executorExitReceipt", WireReply::new(receipt))?;
+                t.copy("/run/dir", "/executorExitReceipt/dir")?;
+                if t.preview()["run"].get("startedAt").is_some() {
+                    t.copy("/run/startedAt", "/executorExitReceipt/startedAt")?;
+                }
+                Ok(())
             })?;
 
             return Ok(json!({
@@ -763,8 +792,13 @@ Ok((run,dir))}
         "attempt":self.intent.attempt,"providerId":self.intent.provider_id,"dir":current["run"]["dir"],"startedAt":current["run"]["startedAt"],"exitCode":exit}
         );
 
-        self.store.update(&self.id, rev(&current)?, now(), |t| {
-            t["executorExitReceipt"] = receipt
+        self.store.edit(&self.id, rev(&current)?, now(), |t| {
+            t.put("/executorExitReceipt", WireReply::new(receipt))?;
+            t.copy("/run/dir", "/executorExitReceipt/dir")?;
+            if t.preview()["run"].get("startedAt").is_some() {
+                t.copy("/run/startedAt", "/executorExitReceipt/startedAt")?;
+            }
+            Ok(())
         })?;
 
         Ok(json!({
@@ -777,7 +811,8 @@ Ok((run,dir))}
             return Err(denied());
         }
 
-        let before = self.owner()?;
+        let before_wire = self.owner_wire()?;
+        let before = before_wire.preview();
 
         if before.get("stopPending").is_some() {
             return Err(denied());
@@ -804,14 +839,24 @@ Ok((run,dir))}
                     return Err(denied());
                 }
 
-                let mut receipt = receipt;
-
-                receipt.as_object_mut().map(|o| o.remove("exitCode"));
-
-                receipt["exitCode"] = before["executorExitReceipt"]["exitCode"].clone();
-
-                self.store.update(&self.id, rev(&current)?, now(), |t| {
-                    t["remoteTransferNoWork"] = receipt
+                // Preserve the pre-effect snapshot and the legacy native key
+                // ordering; only the key list comes from this scalar preview.
+                let mut order = receipt;
+                order.as_object_mut().map(|o| o.remove("exitCode"));
+                order["exitCode"] = before["executorExitReceipt"]["exitCode"].clone();
+                let mut exact_receipt = WireReply::new(json!({}));
+                for key in order.as_object().ok_or_else(denied)?.keys() {
+                    let path = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
+                    let source = format!("/executorExitReceipt{path}");
+                    let value = if before.pointer(&source).is_some() {
+                        before_wire.subtree(&source).map_err(|_| denied())?
+                    } else {
+                        WireReply::new(Value::Null)
+                    };
+                    exact_receipt.put(&path, value).map_err(|_| denied())?;
+                }
+                self.store.edit(&self.id, rev(&current)?, now(), |t| {
+                    t.put("/remoteTransferNoWork", exact_receipt)
                 })?;
 
                 return Ok(json!({
