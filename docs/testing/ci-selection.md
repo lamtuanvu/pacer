@@ -12,7 +12,7 @@ The selection and reason appear in the job summary.
 | Generated protocol documentation | Bun freshness/tests/typecheck/build |
 | `app/`, embedded app assets | Bun checks, browser e2e, UI policy and PR review evidence, CodeQL |
 | TUI rendering and shared view-model | Bun checks, UI policy and PR review evidence, CodeQL |
-| `src/classify/metrics.ts` modifications on PRs | Direct metrics and transitive bench tests, typecheck/build, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
+| Audited source modifications on PRs | Mapped tests, typecheck/build, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
 | Other `src/` core/service paths | Full Bun suite, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
 | Rust workspace/crates/xtask/config | Rust workspace validation plus Bun conformance/build and e2e coverage |
 | TS plugins/SDK | Bun and Rust conformance, e2e, CodeQL |
@@ -24,7 +24,7 @@ The selection and reason appear in the job summary.
 
 The `Linux service restart keeps running work` job runs in full mode when Bun checks are selected. It records UNVERIFIED instead of failing when the runner has no user service manager.
 
-Mixed changes use the union; any unmapped path, including documentation mixed with a mapped path, forces full suites. Standalone prose under `docs/`, `.project/` and `.agents/skills/`, plus the app and desktop READMEs, retains documentation-only selection; other shared or unknown Markdown selects full validation. Scheduled and manual CI runs always select full validation. The source map is intentionally limited to `src/classify/metrics.ts`: its direct test and the bench test cover the transitive metrics → bench → command path. Only modifications to mapped source files on PRs qualify; additions, deletions and both sides of renames force full suites. Main pushes remain full for source changes. Shared modules such as `src/classify/types.ts`, tests, and other source files remain full. Changes to the service-survival implementation and the CodeQL, PR-title, Scorecard and desktop workflows select full validation.
+Mixed changes use the union; any unmapped path, including documentation mixed with a mapped path, forces full suites. Standalone prose under `docs/`, `.project/` and `.agents/skills/`, plus the app and desktop READMEs, retains documentation-only selection; other shared or unknown Markdown selects full validation. Scheduled and manual CI runs always select full validation. The source map covers `src/classify/metrics.ts` (direct metrics and transitive bench tests), `src/console/cli.ts` (autoconsole-worker and console-cli tests), `src/console/console.ts` (api-cmd and console-settings tests), and `src/usage/cache.ts` (cache and plugins-usage-readers tests). The latter three have no non-test importers in the current tree; the map includes all their direct test importers. Re-audit dependencies before adding mappings or consumers. Only modifications to mapped source files on PRs qualify; additions, deletions and both sides of renames force full suites. Main pushes remain full for source changes. Shared modules such as `src/classify/types.ts`, tests, and other source files remain full. Changes to the service-survival implementation and the CodeQL, PR-title, Scorecard and desktop workflows select full validation.
 Bun builds still compile the Rust front door and build fixture plugins where
 required. Native desktop validation is not replaced by the Bun checks.
 
@@ -41,7 +41,7 @@ replacing a failed check for the same SHA with an untested success.
 
 Full-history Gitleaks remains unconditional. CodeQL retains full scheduled/manual
 scans; PR/push scans are selected by area. Tags and manual release/desktop jobs
-retain their complete validation. For mapped CI-only changes focused mode skips the full Bun suite, Rust checks and e2e. For the mapped source change only the full Bun suite and Linux service survival job are deferred; Rust and e2e still run. Both focused modes retain typecheck, UI source checks, builds and host artifact smoke tests. Rust clean/incremental build timings run on main
+retain their complete validation. For mapped CI-only changes focused mode skips the full Bun suite, Rust checks and e2e. For mapped source changes only the full Bun suite and Linux service survival job are deferred; Rust and e2e still run. Both focused modes retain typecheck, UI source checks, builds and host artifact smoke tests. Rust clean/incremental build timings run on main
 pushes affecting Rust, rather than paying for another clean build on every PR.
 No branch protection settings are changed. A classifier failure fails the existing
 Test gates; a diff that cannot be resolved falls back to full work.

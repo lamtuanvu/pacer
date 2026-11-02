@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 function select(paths: string[]) {
   const run = Bun.spawnSync(["python3", "scripts/ci/changes.py", "--paths-json", JSON.stringify(paths)]);
   expect(run.exitCode).toBe(0);
-  return JSON.parse(run.stdout.toString()) as Record<string, boolean>;
+  return JSON.parse(run.stdout.toString()) as Record<string, boolean> & { focused_tests: string[] };
 }
 
 test("docs and portable skills avoid compiler/browser jobs", () => {
@@ -51,6 +51,19 @@ test("audited source mapping includes direct and transitive tests and keeps inte
     expect(select([path, other])).toMatchObject({ full: true });
   }
   expect(select(["src/classify/types.ts"])).toMatchObject({ full: true });
+});
+
+test("audited leaf mappings select every direct test and union multiple changes", () => {
+  const mappings: Record<string, string[]> = {
+    "src/console/cli.ts": ["test/autoconsole-worker.test.ts", "test/console-cli.test.ts"],
+    "src/console/console.ts": ["test/api-cmd.test.ts", "test/console-settings.test.ts"],
+    "src/usage/cache.ts": ["test/cache.test.ts", "test/plugins-usage-readers.test.ts"],
+  };
+  for (const [path, tests] of Object.entries(mappings)) {
+    expect(select([path])).toMatchObject({ full: false, bun: true, rust: true, e2e: true, codeql: true, focused_tests: tests });
+    expect(select([path, "src/usage/plugin-readers.ts"])).toMatchObject({ full: true });
+  }
+  expect(select(Object.keys(mappings)).focused_tests).toEqual(Object.values(mappings).flat().sort());
 });
 
 test("uncovered CI implementations and workflows select full validation", () => {
@@ -146,6 +159,13 @@ test("real git ranges cover renames, deletions, metadata refresh and missing-his
     command("git", "checkout", "-q", "--detach", sourceHead);
     command("git", "rm", "src/classify/metrics.ts"); command("git", "commit", "-qm", "delete source");
     expect(sourcePr(command("git", "rev-parse", "HEAD"))).toMatchObject({ full: "true" });
+    command("git", "checkout", "-q", "--detach", sourceBase);
+    command("git", "rm", "src/classify/metrics.ts"); command("git", "commit", "-qm", "remove before addition");
+    const absentBase = command("git", "rev-parse", "HEAD");
+    command("mkdir", "-p", "src/classify");
+    writeFileSync(join(directory, "src/classify/metrics.ts"), "added");
+    command("git", "add", "src/classify/metrics.ts"); command("git", "commit", "-qm", "add mapped source");
+    expect(invoke("pull_request", { pull_request: { base: { sha: absentBase }, head: { sha: command("git", "rev-parse", "HEAD") } } })).toMatchObject({ full: "true" });
     command("git", "checkout", "-q", head);
     command("git", "rm", "runtime.xyz"); command("git", "commit", "-qm", "delete");
     expect(invoke("push", { before: head, after: command("git", "rev-parse", "HEAD") })).toMatchObject({ rust: "true" });
