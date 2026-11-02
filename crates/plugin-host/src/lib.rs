@@ -5,6 +5,7 @@ mod authority;
 mod broker;
 mod config;
 mod host_lease;
+mod js_semantics;
 mod manifest;
 mod native_read;
 mod process;

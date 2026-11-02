@@ -31,6 +31,15 @@ async function denied(operation: Promise<unknown>) {
   await expect(operation).rejects.toMatchObject({ code: "capability_denied" });
 }
 
+test("listing excludes rollout names containing JavaScript line terminators", async () => {
+  const f = await resources();
+  try {
+    for (const c of ["\n", "\r", "\u2028", "\u2029"]) writeFileSync(join(f.sessions, `rollout-a${c}b.jsonl`), "no");
+    const result = await answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes, "capability.fs.list", { dir: f.sessions, glob: "rollout-*.jsonl" }) as { files: { path: string }[] };
+    expect(result.files.map(file => file.path)).toEqual([f.allowed]);
+  } finally { await f.authority.revoke(); }
+});
+
 test("host-issued read authority permits its log but refuses absent, revoked and expired authority", async () => {
   const f = await resources();
   const call = (authority = f.authority) => answerCapability(f.ctx, provider, "capability.fs.read", { path: f.allowed }, authority);
@@ -85,6 +94,31 @@ test("range bytes preserve split UTF-8 and refuse a rotated inode before returni
   } finally { await f.authority.revoke(); }
 });
 
+test("numeric JSON spellings pass through actual list and range requests", async () => {
+  const f = await resources();
+  try {
+    const call = (method: string, params: Record<string, unknown>) =>
+      answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes, method, params);
+    const { info } = await call("capability.fs.stat", { path: f.allowed }) as { info: Record<string, number> };
+    for (const [literal, accepted] of [["1.0", true], ["1e2", true], ["1.5", false], ["9007199254740992", false]] as const) {
+      const result = call("capability.fs.list", { dir: f.sessions, glob: "rollout-*.jsonl", limit: JSON.parse(literal) });
+      if (accepted) expect((await result as { files: unknown[] }).files).toHaveLength(1);
+      else await expect(result).rejects.toMatchObject({ code: "invalid_input" });
+    }
+    for (const key of ["size", "inode", "device", "mode", "mtimeMs"] as const) {
+      const expected = { size: info.size, inode: info.inode, device: info.device, mode: info.mode, mtimeMs: info.mtimeMs };
+      expected[key] = JSON.parse(`${info[key]}e0`);
+      expect(await call("capability.fs.readRange", { path: f.allowed, offset: 1.0, length: 1e2, expected }))
+        .toHaveProperty("base64");
+    }
+    for (const [offset, length, accepted] of [["1.0", "1e2", true], ["1e2", "1.0", true], ["1.5", "1", false], ["1", "262145", false]] as const) {
+      const result = call("capability.fs.readRange", { path: f.allowed, offset: JSON.parse(offset), length: JSON.parse(length), expected: info });
+      if (accepted) expect(await result).toHaveProperty("base64");
+      else await expect(result).rejects.toMatchObject({ code: "invalid_input" });
+    }
+  } finally { await f.authority.revoke(); }
+});
+
 test("aborting a parent prevents late reads and its successor does not reactivate the old authority", async () => {
   const f = await resources(), parent = new AbortController();
   const old = createCallAuthority(f.ctx, f.grant, { deadlineMs: Date.now() + 10000, signal: parent.signal, grants: ["fs.read"], accountHome: f.accountHome });
@@ -134,6 +168,81 @@ test("bounded listing selects a late newest rollout after more than one thousand
     })).rejects.toMatchObject({ code: "invalid_input" });
   } finally { await f.authority.revoke(); }
 }, 10000);
+
+test("listing skips hidden directories and a flat glob stays at the root", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, ".hidden"));
+  mkdirSync(join(f.sessions, "nested"));
+  writeFileSync(join(f.sessions, ".hidden", "rollout-hidden.jsonl"), "hidden");
+  writeFileSync(join(f.sessions, "nested", "rollout-nested.jsonl"), "nested");
+  try {
+    const list = async (glob: string) => answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob }) as Promise<{ files: { path: string }[] }>;
+    expect((await list("**/rollout-*.jsonl")).files.map(file => file.path).sort())
+      .toEqual([f.allowed, join(f.sessions, "nested", "rollout-nested.jsonl")].sort());
+    expect((await list("rollout-*.jsonl")).files.map(file => file.path)).toEqual([f.allowed]);
+    for (const [glob, expected] of [
+      ["nested/rollout-*.jsonl", [join(f.sessions, "nested", "rollout-nested.jsonl")]],
+      ["*/rollout-*.jsonl", [join(f.sessions, "nested", "rollout-nested.jsonl")]],
+      ["missing/rollout-*.jsonl", []],
+      [".hidden/rollout-*.jsonl", [join(f.sessions, ".hidden", "rollout-hidden.jsonl")]],
+    ] as const) expect((await list(glob)).files.map(file => file.path)).toEqual([...expected]);
+  } finally { await f.authority.revoke(); }
+});
+
+test("listing expands nested brace alternatives and character classes", async () => {
+  const f = await resources();
+  for (const directory of ["a", "b", "c"]) {
+    mkdirSync(join(f.sessions, directory));
+    writeFileSync(join(f.sessions, directory, `rollout-${directory}.jsonl`), directory);
+  }
+  try {
+    const result = await answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob: "{a,{b,c}}/rollout-[abc].jsonl" }) as { files: { path: string }[] };
+    expect(result.files.map(file => file.path).sort()).toEqual(["a", "b", "c"].map(directory =>
+      join(f.sessions, directory, `rollout-${directory}.jsonl`)).sort());
+  } finally { await f.authority.revoke(); }
+});
+
+test("listing negated classes and brace alternatives retain scan visibility", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, ".hidden"));
+  mkdirSync(join(f.sessions, "x"));
+  for (const name of ["rollout-a.jsonl", "rollout-b.jsonl"]) {
+    writeFileSync(join(f.sessions, ".hidden", name), name);
+    writeFileSync(join(f.sessions, "x", name), name);
+  }
+  writeFileSync(join(f.sessions, "rollout-b.jsonl"), "b");
+  try {
+    const list = async (glob: string) => answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes,
+      "capability.fs.list", { dir: f.sessions, glob }) as Promise<{ files: { path: string }[] }>;
+    expect((await list("rollout-[^a].jsonl")).files.map(file => file.path)).toEqual([join(f.sessions, "rollout-b.jsonl")]);
+    expect((await list("{.hidden,x}/rollout-*.jsonl")).files.map(file => file.path).sort())
+      .toEqual(["a", "b"].map(name => join(f.sessions, "x", `rollout-${name}.jsonl`)).sort());
+    expect((await list("{x/nested,x}/rollout-*.jsonl")).files).toEqual([]);
+  } finally { await f.authority.revoke(); }
+});
+
+test("issued log roots normalize and listing scopes use Bun brace and negated class matching", async () => {
+  const f = await resources();
+  mkdirSync(join(f.sessions, "a")); mkdirSync(join(f.sessions, "aa")); mkdirSync(join(f.sessions, "b"));
+  for (const path of ["a/rollout-a.jsonl", "aa/rollout-a.jsonl", "a/rollout-*.jsonl", "b/rollout-b.jsonl", "rollout-b.jsonl"])
+    writeFileSync(join(f.sessions, path), "{}");
+  const issued = createCallAuthority(f.ctx, { reads: [{ path: f.sessions + "//", kind: "codex-logs" }], commands: [], stores: [] },
+    { deadlineMs: Date.now() + 10000, grants: ["fs.read"], accountHome: f.accountHome });
+  await prepareFilesystemAuthority(issued);
+  try {
+    for (const [scope, glob, expected] of [
+      [join(f.sessions, "a**", "rollout-*.jsonl"), "a**/rollout-a.jsonl", [join(f.sessions, "a/rollout-a.jsonl"), join(f.sessions, "aa/rollout-a.jsonl")]],
+      [join(f.sessions, "a", "rollout-\\*.jsonl"), "a/rollout-\\*.jsonl", [join(f.sessions, "a/rollout-*.jsonl")]],
+      [join(f.sessions, "{a,b}", "rollout-*.jsonl"), "**/rollout-*.jsonl", [join(f.sessions, "a/rollout-a.jsonl"), join(f.sessions, "a/rollout-*.jsonl"), join(f.sessions, "b/rollout-b.jsonl")]],
+      [join(f.sessions, "rollout-[^a].jsonl"), "rollout-*.jsonl", [join(f.sessions, "rollout-b.jsonl")]],
+    ] as const) {
+      const result = await answerFilesystem(issued, [scope], "capability.fs.list", { dir: f.sessions, glob }) as { files: { path: string }[] };
+      expect(result.files.map(file => file.path).sort()).toEqual([...expected].sort());
+    }
+  } finally { await Promise.all([issued.revoke(), f.authority.revoke()]); }
+});
 
 test("large or heavily escaped reads require bounded ranges, and stale size never yields partial bytes", async () => {
   const f = await resources();
