@@ -1,0 +1,72 @@
+{
+  "report": {
+    "code": 0,
+    "out": "Reported done",
+    "err": ""
+  },
+  "first": {
+    "status": "done",
+    "summary": "answer",
+    "source": "agent"
+  },
+  "working": {
+    "status": "running",
+    "summary": "Agent is working",
+    "source": null
+  },
+  "waiting": {
+    "status": "needs-input",
+    "summary": "Choose?",
+    "source": null
+  },
+  "ended": {
+    "status": "turn-ended",
+    "summary": "Agent finished its turn; attach to answer or report completion",
+    "source": null
+  },
+  "forbidden": {
+    "code": 2,
+    "out": "",
+    "err": "pacer: PACER_REPORT_TOKEN mismatch or missing for this attempt; use the executor's launch token"
+  },
+  "stale": {
+    "code": 2,
+    "out": "",
+    "err": "pacer: report attempt mismatch: PACER_RUN_DIR does not match the task's current attempt; use the current launch environment"
+  },
+  "user": {
+    "code": 0,
+    "out": "Reported done",
+    "err": ""
+  },
+  "outside": {
+    "code": 2,
+    "out": "",
+    "err": "pacer: user reports require an explicit --task from the user's own CLI; pacer report must run in the executor's launch environment for agent reports"
+  },
+  "headless": {
+    "status": "done",
+    "summary": "first",
+    "source": null
+  },
+  "identity": "native-id",
+  "transcript": "Structured answer 😀",
+  "fileModes": [
+    [
+      "agent-session-id",
+      384
+    ],
+    [
+      "transcript-report.md",
+      384
+    ],
+    [
+      "session-status.json",
+      384
+    ],
+    [
+      "events.jsonl",
+      384
+    ]
+  ]
+}
