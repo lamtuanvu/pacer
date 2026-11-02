@@ -367,7 +367,8 @@ browserTest('workspace long identity and status stay inside their context in bot
     const c=getComputedStyle(pill);
     const luminance=(color:string)=>color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i]!,0);
     const a=luminance(c.color),b=luminance(c.backgroundColor);
-    return {context:box(node.parentElement!),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
+    let parent=node.parentElement!;while(getComputedStyle(parent).display==='contents')parent=parent.parentElement!;
+    return {context:box(parent),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
    });
    expect(fit.contrast).toBeGreaterThanOrEqual(4.5);
    expect(fit.identity.left).toBeGreaterThanOrEqual(fit.context.left);
