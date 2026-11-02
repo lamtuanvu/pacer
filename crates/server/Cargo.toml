@@ -6,10 +6,14 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-ops = []
+
 [dependencies]
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }

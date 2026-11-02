@@ -6,6 +6,7 @@ import { createStore } from "../data/store";
 import { createApi } from "../data/api";
 import { createTrayIpc } from "./ipc";
 import { Tray } from "./Tray";
+import { attachContextMenuPolicy } from "../shell/context-menu";
 import { followSavedTheme } from "../theme";
 
 followSavedTheme();
@@ -19,7 +20,8 @@ function TrayApp() {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
     const stop = store.start();
     const stopControl = startClientControl(api, 'tray', async () => false);
-    return () => { stopControl(); unsubscribe(); stop(); };
+    const detachContextMenu = attachContextMenuPolicy(window);
+    return () => { stopControl(); unsubscribe(); stop(); detachContextMenu(); };
   }, []);
   return <Tray snapshot={state.snapshot} activity={state.activity} connected={state.connected} sessionEnded={state.sessionEnded || sessionEnded} api={api} ipc={ipc} />;
 }

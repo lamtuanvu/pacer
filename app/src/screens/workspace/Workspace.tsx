@@ -73,7 +73,7 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
   return () => document.removeEventListener('pointerdown', outside);
  }, [menu]);
  const shells=useQuery<TerminalRecord[]>('terminal.list',{});
- const detail=useQuery<TaskDetail>('task.get',{id:selected??''},'',false,!!selected);
+ const detail=useQuery<TaskDetail>('task.get',{id:selected??''},'',true,!!selected);
  const selectedTree=useQuery<TraceTree>('dispatch.tree',{id:selected??''},'',false,!!selected);
  const details=useRef(new Map<string,TaskDetail>());
  if(detail.data)details.current.set(detail.data.id,detail.data);
