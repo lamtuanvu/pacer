@@ -242,7 +242,7 @@ async function runStage(authority: CallAuthority, state: State, pin: Pin, timeou
           for (let i = 0; i < bytes.length; i++) {
             if (lineStart && bytes[i] === marker[0]) {
               const remaining = bytes.subarray(i);
-              if (remaining.length < marker.length && marker.subarray(0, remaining.length).equals(marker)) {
+              if (remaining.length < marker.length && marker.subarray(0, remaining.length).equals(remaining)) {
                 prefix = remaining; break;
               }
               if (remaining.subarray(0, marker.length).equals(marker)) {
