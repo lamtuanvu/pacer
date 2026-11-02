@@ -46,9 +46,13 @@ export function createIpcTransport(core: IpcCore | undefined) {
   const backlog: IpcMessage[] = [];
   let backlogBytes = 0, droppedBefore = 0, delivery = 0;
   let lastResync: IpcMessage | undefined;
+  let snapshotDelivery = 0;
   const positions = new WeakMap<IpcMessage,number>();
   function deliver(source: Source, message: IpcMessage) {
     const position=positions.get(message);
+    // A completed snapshot has already handled resets known when its read began.
+    // Keep resets arriving during that read: its response may predate them.
+    if (message.type === 'resync' && position !== undefined && position <= snapshotDelivery) return;
     if (position !== undefined) { if (position<=source.lastDelivery) return; source.lastDelivery=position; }
     if (message.type !== 'resync' && message.id !== undefined && message.id <= source.cursor) return;
     if (message.id !== undefined) source.cursor = message.id;
@@ -127,7 +131,11 @@ export function createIpcTransport(core: IpcCore | undefined) {
           Object.assign(args,{batch:url.searchParams.get('batch') ?? '',name:decodeURIComponent(headers.get('X-Pacer-Filename') ?? 'attachment'),mime:headers.get('Content-Type') ?? 'application/octet-stream',bytes:Array.from(new Uint8Array(await file.arrayBuffer()))});
         }
       } else throw Error('Unsupported desktop route');
+      const beforeRequest = delivery;
       const reply = await call(command,{...args,instance:identity}) as Reply;
+      if (command === 'service_snapshot' && reply.status >= 200 && reply.status < 300) {
+        snapshotDelivery = Math.max(snapshotDelivery, beforeRequest);
+      }
       return new Response(reply.status === 204 ? null : new Uint8Array(reply.body),{status:reply.status,headers:{'content-type':reply.contentType ?? 'application/json'}});
     },
     subscribeEvents(path: string): EventSource {

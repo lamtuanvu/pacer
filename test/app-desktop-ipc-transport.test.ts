@@ -156,3 +156,98 @@ test('connection details retain an older service warning for the shell banner', 
   channel.onmessage({type:'status',status:'connected',warning:'Older service 0.12.0 — update the service.'});
   expect(states.at(-1)).toMatchObject({status:'connected',warning:'Older service 0.12.0 — update the service.'});stop();
 });
+
+test('an unsuccessful snapshot preserves a buffered resync for the next subscriber', async () => {
+  const {adapter,calls} = bridge();
+  const stop = adapter.subscribeDesktopConnection!(() => {});
+  const channel = calls.find(call => call.command === 'service_events')!.args.channel as {onmessage(value:unknown):void};
+  channel.onmessage({type:'resync',id:2,data:'{}'});
+  // An unsuccessful read must leave the reset available for the next subscriber.
+  await adapter.request('/v3/snapshot');
+  const failed = adapter.subscribeEvents('/v3/events?since=100');
+  let resets = 0;
+  failed.addEventListener('reset', () => resets++);
+  await Promise.resolve();
+  expect(resets).toBe(1);
+  failed.close();
+  stop();
+});
+
+test('desktop store recovers from a lag-induced resync without a snapshot replay loop', async () => {
+  const {createStore} = await import('../app/src/data/store');
+  const {emptySnapshot} = await import('../src/link/envelope');
+  const hello = {protocol:'3.0.0',pacer:'1.0.0',ops:['task.list','dispatch.list','task.get'],events:['reset','attention']};
+  class Channel { onmessage: (value: any) => void = () => {}; }
+  let events: Channel | undefined, reads = 0, healthy = true;
+  const adapter = createDesktopPlatform({__TAURI__:{core:{Channel,invoke:async(command,args = {}) => {
+    if (command === 'service_events') { events = args.channel as Channel; return; }
+    if (!healthy) throw Error('Service request failed');
+    // Bound a broken implementation's replay loop so it fails an assertion.
+    if (command === 'service_snapshot' && ++reads > 4) throw Error('Repeated resync');
+    const value = command === 'service_hello' ? hello : command === 'service_snapshot'
+      ? {seq:10,snapshot:emptySnapshot()} : {result:[]};
+    return {status:200,body:Array.from(new TextEncoder().encode(JSON.stringify(value)))};
+  }}}});
+  const api = {
+    hello:async() => (await adapter.request('/v3/hello')).json(),
+    snapshot:async() => (await adapter.request('/v3/snapshot')).json(),
+    call:async<T>(op:string,params:unknown) => (await (await adapter.request(`/v3/ops/${op}`,{method:'POST',body:JSON.stringify(params)})).json()).result as T,
+  };
+  const Events = function(path:string) { return adapter.subscribeEvents(path); } as unknown as typeof EventSource;
+  const store = createStore(api,Events);
+  const stop = store.start();
+  const settle = () => new Promise(resolve => setTimeout(resolve,0));
+  try {
+    await settle();
+    events!.onmessage({type:'status',status:'connected'});
+    expect(store.getState().connected).toBe(true);
+    // Tasks reads succeed; a cached snapshot can still lag an SSE event.
+    await api.call('task.list',{all:true,limit:20});
+    await api.call('dispatch.list',{relation:'all',limit:100});
+    healthy = false;
+    await store.refresh();
+    expect(store.getState().connected).toBe(false);
+    events!.onmessage({type:'resync',id:10,data:'{}'});
+    healthy = true;
+    // Rust's stream stayed connected: successful reads and its cached status
+    // must recover the store without waiting for another status broadcast.
+    await store.refresh();
+    await settle();
+    expect(reads).toBe(2);
+    expect(store.getState().connected).toBe(true);
+    expect(store.getState().needsSnapshot).toBe(false);
+  } finally { stop(); }
+});
+
+
+test('a resync arriving during a snapshot read survives until the following successful snapshot', async () => {
+  class Channel { onmessage: (value: any) => void = () => {}; }
+  let events: Channel | undefined;
+  let finishSnapshot: ((value: unknown) => void) | undefined;
+  const adapter = createDesktopPlatform({__TAURI__:{core:{Channel,invoke:async(command,args = {}) => {
+    if (command === 'service_events') { events = args.channel as Channel; return; }
+    return new Promise(resolve => { finishSnapshot = resolve; });
+  }}}});
+  const stop = adapter.subscribeDesktopConnection!(() => {});
+  const reply = {status:200,body:Array.from(new TextEncoder().encode('{}'))};
+  try {
+    const pending = adapter.request('/v3/snapshot');
+    events!.onmessage({type:'resync',id:2,data:'{}'});
+    finishSnapshot!(reply);
+    await pending;
+    let resets = 0;
+    const first = adapter.subscribeEvents('/v3/events?since=100');
+    first.addEventListener('reset', () => resets++);
+    await Promise.resolve();
+    expect(resets).toBe(1);
+    first.close();
+    const next = adapter.request('/v3/snapshot');
+    finishSnapshot!(reply);
+    await next;
+    const second = adapter.subscribeEvents('/v3/events?since=2');
+    second.addEventListener('reset', () => resets++);
+    await Promise.resolve();
+    expect(resets).toBe(1);
+    second.close();
+  } finally { stop(); }
+});

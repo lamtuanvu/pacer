@@ -1116,7 +1116,10 @@ async fn listen(
                 let snapshot = wait_for_snapshot(app, session).await?;
                 // A reset invalidates the old sequence space; the fresh snapshot owns the cursor.
                 // Ordinary refreshes preserve the event cursor for alerts arriving during the GET.
-                seq = if reset {logic::snapshot_seq(seq,&snapshot,true)} else {reconcile_cursor(app,session,home,&snapshot).await?};
+                // Identity/rewind reconciliation belongs to connection setup.
+                // The cached snapshot may lag events on this live connection;
+                // that is not a store rewind and must not manufacture a resync.
+                seq = logic::snapshot_seq(seq, &snapshot, reset);
                 app.state::<crate::ipc_transport::Bridge>().cursor.lock().unwrap().seq = Some(seq);
                 crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
             }
