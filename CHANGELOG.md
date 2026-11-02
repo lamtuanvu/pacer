@@ -13,6 +13,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
+
 - Recover Codex eligibility through fresh quota polling without dispatching a task: ignore nonpositive window durations, read secondary-only limits, and safely retire historical `0h` artifacts while preserving real quota constraints and manual limits.
 - Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
 

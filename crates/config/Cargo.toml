@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 saphyr-parser = "0.3"
 pacer-foundation = { path = "../foundation" }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 url = "2"
 

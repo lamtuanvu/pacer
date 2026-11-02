@@ -92,6 +92,7 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
             "null" | "Null" | "NULL" | "~" | "" => Value::Null,
             "true" | "True" | "TRUE" => Value::Bool(true),
             "false" | "False" | "FALSE" => Value::Bool(false),
+            "-0" => Value::from(-0.0_f64),
             _ => content
                 .parse::<i64>()
                 .map(Value::from)

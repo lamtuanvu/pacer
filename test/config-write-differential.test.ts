@@ -80,6 +80,43 @@ test("seeded routing, runner order and notification writes match TS bytes and re
   }
 }, 30_000);
 
+test("notification settings preserve enumerable JSON properties", () => {
+  const binary = configBinary();
+  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '{"literal":"\\\\ud800","pair":"\\ud83d\\ude00"}', '42', 'null', '{broken', '{"x":01}', '{"x":1e+}', '{"other":42,"huge":1e400,"negative":-1e999,"nested":[1.0,1e2,9007199254740993,1e-324,5e-324,1e-7,1e-6,-0,1e21,1e20,1.7976931348623157e308,1.7976931348623159e308]}', '[1e400,{"x":9007199254740993}]', '{"2":"b","1":"a","x":{"10":10,"2":2,"01":1,"4294967295":3,"0":0},"01":4,"4294967294":5,"4294967295":6}']) {
+    for (const op of ["get", "set"] as const) {
+      const tsHome = home(), rsHome = home();
+      writeFileSync(join(tsHome, "settings.json"), input);
+      writeFileSync(join(rsHome, "settings.json"), input);
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      const expected = op === "get" ? notify.getLevel(ctx) : notify.setLevel(ctx, "all");
+      const actual = rust(binary, op === "get"
+        ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
+        : { op: "notifications.set", home: rsHome, level: "all" });
+      expect(actual).toEqual({ ok: true, value: expected });
+      expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    }
+  }
+}, 30_000);
+
+test("notification writes preserve lone surrogate JSON with TS byte parity", () => {
+  const binary = configBinary();
+  for (const input of ['{"other":42,"nested":{"bad":"\\ud800"}}', '{"array":["\\udfff"]}', '"\\ud800"', '"\\udfff"', '{"huge":1e400,"bad":"\\ud800"}', '{"bad":"\\udfff","huge":-1e400}']) {
+    for (const op of ["get", "set"] as const) {
+      const tsHome = home(), rsHome = home();
+      writeFileSync(join(tsHome, "settings.json"), input);
+      writeFileSync(join(rsHome, "settings.json"), input);
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      if (op === "get") notify.getLevel(ctx); else notify.setLevel(ctx, "all");
+      expect(JSON.parse(readFileSync(join(tsHome, "settings.json"), "utf8"))).toHaveProperty("notifications");
+      const actual = rust(binary, op === "get"
+        ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
+        : { op: "notifications.set", home: rsHome, level: "all" });
+      expect(actual).toEqual({ ok: true, value: { level: op === "get" ? "important" : "all" } });
+      expect(readFileSync(join(rsHome, "settings.json"))).toEqual(readFileSync(join(tsHome, "settings.json")));
+    }
+  }
+}, 30_000);
+
 test("removing a runner drops its empty routing rule without changing surviving comments", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
@@ -411,7 +448,7 @@ test("committed byte goldens cover each P2-C write family", () => {
 
 test("raw integral JSON decimals stringify with JavaScript numeric bytes", () => {
   const binary = configBinary();
-  const literals = ["1.0", "1e2", "-0.0", "9007199254740992", "9007199254740993", "9223372036854775807", "1e20", "1e21", "-1e21", "1e-7", "1.5"];
+  const literals = ["1.0", "1e2", "-0.0", "9007199254740992", "9007199254740993", "9223372036854775807", "1e20", "1e21", "-1e21", "1e-7", "1e-6", "9.999999999999997e-7", "1.0000000000000002e-6", "1.5"];
   const input = literals.map(literal => `{"op":"yaml.stringify","value":{"x":${literal}}}`).join("\n") + "\n";
   const output = execFileSync(binary, [], { input }).toString().trimEnd().split("\n");
   for (const [index, literal] of literals.entries()) {
@@ -423,7 +460,7 @@ test("raw integral JSON decimals stringify with JavaScript numeric bytes", () =>
 
 test("named strategy save normalizes raw JSON integral decimals in YAML", () => {
   const binary = configBinary();
-  for (const literal of ["1.0", "1e2"]) {
+  for (const literal of ["1.0", "1e2", "1e-6", "9.999999999999997e-7", "1.0000000000000002e-6"]) {
     const tsHome = home(), rsHome = home();
     const ctx = configCtx({ pacerHome: tsHome });
     const draft = JSON.parse(`{"from":"default","set":{"pacing.planner_reserve":${literal}}}`) as strategy.Draft;
@@ -454,3 +491,37 @@ test("native library writers preserve a preexisting temp on exclusive-create fai
     expect(readFileSync(temp,"utf8")).toBe("unowned sentinel");
   }
 });
+test("numeric draft fields preserve saved YAML bytes across runtimes", () => {
+  const binary = configBinary();
+  // Draft paths permit dispatch as a whole; its array members must be replaced together.
+  const fields: [string, (value: unknown) => Record<string, unknown>][] = [
+    ...["planner_reserve", "planner_reserve_headroom", "ahead_threshold", "behind_threshold"].map(key => [`pacing.${key}`, (value: unknown) => ({ [`pacing.${key}`]: value })] as [string, (value: unknown) => Record<string, unknown>]),
+    ...["timeoutMs", "reservePct", "comfortablePct"].map(key => [`dispatch.${key}`, (value: unknown) => ({ dispatch: { [key]: value } })] as [string, (value: unknown) => Record<string, unknown>]),
+    ...["minSamples", "maxAgeDays"].map(key => [`dispatch.learning.${key}`, (value: unknown) => ({ dispatch: { learning: { [key]: value } } })] as [string, (value: unknown) => Record<string, unknown>]),
+    ["providers.codex.budget.weekly_tokens", value => ({ "providers.codex.budget.weekly_tokens": value })],
+    ["providers.codex.cooldown", value => ({ "providers.codex.cooldown": value })],
+    ["dispatch.steps.require.context", value => ({ dispatch: { steps: [{ id: "step", require: { context: value } }] } })],
+    ...["timeout_ms", "bench.timeout_ms", "adapters.ollama.max_tokens", "adapters.jev.usd_per_mtok_in", "adapters.jev.usd_per_mtok_out", "decisions.difficulty.min_confidence", "decisions.difficulty.max_for_cheap"].map(key => [`classifier.${key}`, (value: unknown) => ({ [`classifier.${key}`]: value })] as [string, (value: unknown) => Record<string, unknown>]),
+  ];
+  const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", "-4.3167578921162367e-17", '"1"', "null"];
+  let numericSeed = 0x39abc123;
+  for (let i = 0; i < 64; i++) {
+    numericSeed ^= numericSeed << 13; numericSeed ^= numericSeed >>> 17; numericSeed ^= numericSeed << 5;
+    literals.push(String((numericSeed >>> 0) / 0x100000000 * 10 ** ((i % 31) - 20)));
+  }
+  for (const [label, makeSet] of fields) for (const literal of literals) {
+    const tsHome = home(), rsHome = home(), ctx = configCtx({ pacerHome: tsHome });
+    const set = makeSet("__NUMBER__");
+    const rawSet = JSON.stringify(set).replace('"__NUMBER__"', literal);
+    const draft = { from: "default", set: JSON.parse(rawSet) } as strategy.Draft;
+    let ts: unknown;
+    try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
+    catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const raw = `{"op":"strategy.save","home":${JSON.stringify(rsHome)},"name":"review","draft":{"from":"default","set":${rawSet}},"reason":"approved","nowIso":${JSON.stringify(new Date(ctx.now * 1000).toISOString())}}\n`;
+    const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
+    try {
+      expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+      if ((ts as {ok: boolean}).ok) expect(readFileSync(join(rsHome, "strategies/review.yaml"))).toEqual(readFileSync(join(tsHome, "strategies/review.yaml")));
+    } catch (error) { throw new Error(`${label}=${literal}: ${error}`); }
+  }
+}, 60_000);

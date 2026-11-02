@@ -548,9 +548,11 @@ Start `bun run live up --id config-writes --seed ui --front-door rust --native-t
 then run `bun run live native-config --id config-writes`. The fixed fixture exercises
 `strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
 `notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
-fresh, owned fixture services. It compares each result and persisted file state
-with `PACER_FORWARD_OPS=*`, verifies native execution traces, delayed stdio save
-timestamps, endpoint-plugin synchronization, protected/invalid requests, private
+fresh, owned fixture services. It seeds malformed UTF-8 in an unrelated notification
+setting to verify replacement decoding during migration and writes, and saves a
+`0.000001` planner reserve to check YAML number bytes. It compares each result and
+persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
+delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.
 
 Only fixed synthetic strategy/account declarations are used. Fixture homes and
@@ -559,8 +561,13 @@ credentials, installed service or service-manager action is involved. The comman
 accepts only a sandbox ID and refuses existing fixture roots, unseeded sessions,
 real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
 force. Files and logs remain under `native-config-fixture/` for inspection. Run
-`live report`, then `live down --keep`. Desktop/tray, browser rendering and
-interactive TUI behavior remain UNVERIFIED unless separately exercised.
+`live report`, then `live down --keep`. The fixture records each desktop operation
+as UNVERIFIED under the scoped desktop exception in `.project/decisions.md`.
+Separately exercise guarded CLI calls, web and browser tray controls, and TUI
+settings actions. For operations without a direct UI control (for example TUI
+strategy save/remove), verify the resulting list or detail after a guarded CLI
+write and state that distinction in the evidence. API fixture success alone does
+not verify client rendering.
 
 ## Fixed settings save fixture
 

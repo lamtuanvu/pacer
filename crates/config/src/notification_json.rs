@@ -232,7 +232,10 @@ fn json_number(value: &serde_json::Number) -> String {
     n.to_string()
 }
 fn read(path: &Path) -> Option<Json> {
-    let text = std::fs::read_to_string(path).ok()?;
+    // Node readFileSync(path, "utf8") replaces malformed sequences before JSON.parse.
+    // Rejecting the entire file here would discard unrelated settings on a write.
+    let bytes = std::fs::read(path).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
     let mut parser = Parser { text: &text, at: 0 };
     let value = parser.value()?;
     parser.ws();

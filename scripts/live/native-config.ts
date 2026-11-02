@@ -9,7 +9,7 @@ import {createFixtureHome, settingsFixtureRoot} from "./settings";
 export const configSteps = [
   {op:"notifications.get",params:{}},
   {op:"notifications.set",params:{level:"all"}},
-  {op:"strategy.save",params:{name:"review",draft:{from:"default",description:"Live config fixture"},reason:"Fixed live fixture"}},
+  {op:"strategy.save",params:{name:"review",draft:{from:"default",description:"Live config fixture",set:{"pacing.planner_reserve":0.000001}},reason:"Fixed live fixture"}},
   {op:"strategy.use",params:{name:"review"}},
   {op:"routing.set",params:{rules:[{kinds:["docs"],executors:["cursor"]},{executors:["codex","cursor"]}]}},
   {op:"runner.set",params:{id:"codex",enabled:true,model:null,max_tasks:2,rank:1}},
@@ -41,6 +41,8 @@ function fixtureEnv(session: Session, home: string, forwarded: boolean) {
 function prepare(home: string) {
   createFixtureHome(home);
   writeFileSync(join(home,"strategy.yaml"),golden.initial,{mode:0o600,flag:"wx"});
+  // Exercise Node-compatible replacement decoding during get migration and set.
+  writeFileSync(join(home,"settings.json"), Buffer.concat([Buffer.from('{"keep":"'), Buffer.from([0xff]), Buffer.from('","notifications":"invalid"}')]), {mode:0o600,flag:"wx"});
 }
 async function stdio(session: Session, home: string, forwarded: boolean) {
   const child=Bun.spawn([...pacerArgv(session),"api","--stdio"],{cwd:join(session.root,"repo"),env:fixtureEnv(session,home,forwarded),stdin:"pipe",stdout:"pipe",stderr:"pipe",timeout:120000});
@@ -197,7 +199,7 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
       for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Endpoint plugin synchronization exercised for document edits."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
-    record(session,{kind:"note",behavior:"P2-C client rendering",surface:"desktop/tray/TUI/web",verdict:"UNVERIFIED",text:"API persistence and dispatch exercised. Native desktop, browser rendering and interactive TUI were not driven by this fixed fixture."});
+    for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:"desktop",verdict:"UNVERIFIED",text:"Unsigned sandbox desktop exits before opening a window; covered by the desktop-only exception recorded 2026-11-02. API parity passes; non-desktop clients require their own evidence."});
   } catch(error) {
     record(session,{kind:"note",behavior:"P2-C native config fixture",surface:"API",verdict:"FAIL",text:(error as Error).message});throw error;
   } finally { process.umask(previousUmask); }

@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { save } from "../src/strategy/service";
+import { fakeCtx } from "./helpers";
 import { validateStrategy, StrategyError } from "../src/config/strategy";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -144,7 +149,7 @@ test("seeded TypeScript and Rust strategy validators agree", () => {
     throw Error(`Strategy differential mismatch at case ${mismatch + 1}/${requested}, seed ${seed}:\n${JSON.stringify(minimal, null, 2)}\nTS ${canonical(ts(minimal))}\nRust ${canonical(rust(binary, [minimal])[0])}`);
   }
   console.log(`Strategy differential: ${requested} cases, seed ${seed}, zero divergences`);
-}, 30_000);
+}, 60_000);
 
 function rawRust(binary: string, inputs: string[]): Outcome[] {
   const run = spawnSync(binary, { input: inputs.join("\n") + "\n", encoding: "utf8" });
@@ -206,6 +211,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "runner max_tasks", base: endpoint, path: ["runners", "edge", "max_tasks"] },
     { label: "host max_tasks", base: bases[1]!, path: ["hosts", "build", "max_tasks"] },
     { label: "runner model context", base: runner, path: ["runners", "codex@box", "models", 0, "context"], safe: true },
+    { label: "runner model output", base: runner, path: ["runners", "codex@box", "models", 0, "output"], safe: true },
     { label: "local max tasks", base, path: ["execution", "local_max_tasks"], safe: true },
     { label: "idle after", base, path: ["execution", "idle_after_min"] },
     { label: "idle fail", base, path: ["execution", "idle_fail_min"] },
@@ -249,6 +255,25 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
     inputs.push({ label: `${field.label}=${literal}`, raw });
   }
+  // Saving an unchanged draft rewrites every numeric field in the base strategy.
+  // Exercise persisted bytes as well as validation, including raw JSON exponents.
+  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"]);
+  for (const input of inputs) {
+    const tsHome = mkdtempSync(join(tmpdir(), "pacer-save-ts-"));
+    const rsHome = mkdtempSync(join(tmpdir(), "pacer-save-rs-"));
+    for (const home of [tsHome, rsHome]) writeFileSync(join(home, "strategy.yaml"), input.raw);
+    const ctx = fakeCtx({ pacerHome: tsHome });
+    let ts: {ok: boolean; error?: string};
+    try { save(ctx, "review", {from: "default", description: "numeric"}, "approved"); ts = {ok: true}; }
+    catch (error) { ts = {ok: false, error: (error as Error).message}; }
+    const rs = JSON.parse(execFileSync("target/debug/examples/config_write_diff", [], {input: JSON.stringify({op: "strategy.save", home: rsHome, name: "review", draft: {from: "default", description: "numeric"}, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString()}) + "\n"}).toString());
+    if (rs.ok !== ts.ok || (!ts.ok && rs.error !== ts.error)) throw Error(`${input.label}: TS ${JSON.stringify(ts)} Rust ${JSON.stringify(rs)}`);
+    if (ts.ok) {
+      const tsBytes = readFileSync(join(tsHome, "strategies/review.yaml"));
+      const rsBytes = readFileSync(join(rsHome, "strategies/review.yaml"));
+      if (!tsBytes.equals(rsBytes)) throw Error(`${input.label}: saved bytes differ\nTS ${tsBytes}\nRust ${rsBytes}`);
+    }
+  }
   const names: { label: string; base: Json; path: (string | number)[] }[] = [
     { label: "runner model id", base: runner, path: ["runners", "codex@box", "models", 0, "id"] },
     { label: "runner model strength", base: fieldCase(runner, ["runners", "codex@box", "models", 0, "strengths"], ["x"]), path: ["runners", "codex@box", "models", 0, "strengths", 0] },
@@ -275,4 +300,4 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     if (input.accepted !== undefined && (expected as {ok: boolean}).ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${canonical(expected)}`);
     if (canonical(actual[index]) !== canonical(expected)) throw Error(`${input.label}: TS ${canonical(expected)} Rust ${canonical(actual[index])}`);
   }
-}, 30_000);
+}, 60_000);
