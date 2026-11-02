@@ -1,9 +1,12 @@
 //! Concrete host-owned Orca attempt. Placement and launch policy are issued by the
 //! host; a provider sequences only the phase-checked task/attempt operations.
+mod account_folders;
 pub(crate) mod client;
 mod evidence;
 pub(crate) mod journal;
 mod lane;
+pub(crate) mod runner;
+pub use runner::OrcaStrategySource;
 pub mod launch;
 mod supervision;
 mod wire;
@@ -63,6 +66,7 @@ enum Phase {
 pub struct OrcaAttempt {
     pub(crate) git: Option<crate::NativeGit>,
     policy: Option<crate::orca_policy::OrcaPolicy>,
+    strategy_source: OrcaStrategySource,
     before: Option<String>,
     lease: Option<crate::WorkLease>,
     duplicate: bool,
@@ -137,6 +141,27 @@ impl OrcaAttempt {
         env: HashMap<String, String>,
         deadline: Instant,
     ) -> Result<Self, BrokerError> {
+        Self::from_policy_with_strategy_source(
+            home,
+            task_id,
+            policy,
+            OrcaStrategySource::Loaded,
+            executable,
+            env,
+            deadline,
+        )
+    }
+    /// Supply genuine missing-strategy information without treating an invalid
+    /// or empty loaded strategy as permission to use the default account.
+    pub fn from_policy_with_strategy_source(
+        home: &Path,
+        task_id: &str,
+        policy: crate::orca_policy::OrcaPolicy,
+        source: OrcaStrategySource,
+        executable: &str,
+        env: HashMap<String, String>,
+        deadline: Instant,
+    ) -> Result<Self, BrokerError> {
         let task = TaskStore::open(home)?.read(task_id)?.ok_or_else(denied)?;
         let executor = policy.provider["id"]
             .as_str()
@@ -163,6 +188,7 @@ impl OrcaAttempt {
         };
         let mut attempt = Self::issue(home, task_id, spec, executable, env, deadline)?;
         attempt.policy = Some(policy);
+        attempt.strategy_source = source;
         Ok(attempt)
     }
     pub fn issue(
@@ -191,6 +217,7 @@ impl OrcaAttempt {
         Ok(Self {
             git: evidence::selected_git(home, &spec.top, &env),
             policy: None,
+            strategy_source: OrcaStrategySource::Loaded,
             before: None,
             lease: None,
             duplicate: false,

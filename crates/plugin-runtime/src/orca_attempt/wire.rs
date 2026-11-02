@@ -70,6 +70,16 @@ impl OrcaSessionOwner for OrcaAttempt {
                 ("tail", 65536, true),
             ] {
                 if let Some(text) = source[key].as_str() {
+                    let text = if key == "reason" {
+                        let trimmed = crate::js_semantics::trim(text);
+                        if trimmed.is_empty() {
+                            "unknown"
+                        } else {
+                            trimmed
+                        }
+                    } else {
+                        text
+                    };
                     let length = crate::js_semantics::utf16_len(text);
                     let (start, end) = if tail {
                         (length.saturating_sub(limit), usize::MAX)

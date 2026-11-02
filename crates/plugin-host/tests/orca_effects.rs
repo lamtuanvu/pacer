@@ -74,7 +74,7 @@ async fn native_orca_calls_only_the_exact_host_owned_attempt_and_refuses_changed
         native
             .call(
                 "capability.orca.abandon",
-                json!({"taskId":id,"attempt":1,"reason":"😀".repeat(2049)})
+                json!({"taskId":id,"attempt":1,"reason":"😀".repeat(4097)})
             )
             .await
             .is_err()
@@ -83,7 +83,7 @@ async fn native_orca_calls_only_the_exact_host_owned_attempt_and_refuses_changed
         native
             .call(
                 "capability.orca.abandon",
-                json!({"taskId":id,"attempt":1,"reason":"😀".repeat(2048)})
+                json!({"taskId":id,"attempt":1,"reason":"😀".repeat(4096)})
             )
             .await
             .unwrap()["method"],
@@ -205,4 +205,112 @@ async fn broker_lossless_delivery_preserves_surrogates_after_the_same_ownership_
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn native_orca_parameter_boundaries_match_actual_zod_codepoints() {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let root = std::env::temp_dir().join(format!("pacer-orca-bounds-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&root).unwrap();
+    let id = "t-20261102-125719-c5fb";
+    TaskStore::open(&root).unwrap().insert(&json!({"id":id,"rev":1,"createdAt":1,"state":"running","attempts":[],"brief":{"repo":"/synthetic"}}),1.0).unwrap();
+    let grant = OrcaAttemptResource {
+        task_id: id.into(),
+        attempt: 1,
+        provider_id: "pacer-exec-orca".into(),
+        executor: "fx-executor".into(),
+        session: "host-only-session".into(),
+    };
+    let mut native =
+        NativeOrca::new(&root, "pacer-exec-orca", grant, Session { calls: 0 }).unwrap();
+    let mut cases = Vec::new();
+    for (action, key, max) in [
+        ("abandon", "reason", 4096),
+        ("finish", "summary", 65536),
+        ("finish", "tail", 65536),
+        ("finish", "launchBroken", 4096),
+    ] {
+        for unit in ["x", "😀", "x😀"] {
+            for count in [0, 1, max / 2, max, max + 1] {
+                let mut params = if action == "abandon" {
+                    json!({"taskId":id,"attempt":1})
+                } else {
+                    json!({"taskId":id,"attempt":1,"code":0,"timedOut":false,"settled":true,"summary":"","keepAlive":false})
+                };
+                params[key] = json!(unit.repeat(count));
+                cases.push(json!({"method":format!("capability.orca.{action}"),"params":params}));
+            }
+        }
+        for bad in [json!(false), json!(null), json!(7)] {
+            let mut params = json!({"taskId":id,"attempt":1,"code":0,"timedOut":false,"settled":true,"summary":"","keepAlive":false});
+            params[key] = bad;
+            cases.push(json!({"method":format!("capability.orca.{action}"),"params":params}));
+        }
+    }
+    cases.push(json!({"method":"capability.orca.abandon","params":{"taskId":id,"attempt":1,"reason":"valid","unexpected":true}}));
+    let mut child = Command::new("bun")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .arg("test/fixtures/orca-text-parity.ts")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            json!({"mode":"params","cases":cases})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let expected: Vec<bool> = serde_json::from_slice(&out.stdout).unwrap();
+    for (index, (case, want)) in cases.iter().zip(expected).enumerate() {
+        let method = case["method"].as_str().unwrap();
+        assert_eq!(
+            native
+                .call_wire(method, case["params"].clone())
+                .await
+                .is_ok(),
+            want,
+            "case{index}: {method}"
+        );
+    }
+    // This separate carrier gap is explicit: Zod accepts raw lone-surrogate
+    // strings, but the current serde Value request carrier cannot express them.
+    let raw = format!(
+        r#"{{"mode":"params","cases":[{{"method":"capability.orca.abandon","params":{{"taskId":"{id}","attempt":1,"reason":"\ud800"}}}},{{"method":"capability.orca.abandon","params":{{"taskId":"{id}","attempt":1,"reason":"\udfff"}}}}]}}"#
+    );
+    assert!(serde_json::from_str::<Value>(&raw).is_err());
+    let mut child = Command::new("bun")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .arg("test/fixtures/orca-text-parity.ts")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(raw.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+        json!([true, true])
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }

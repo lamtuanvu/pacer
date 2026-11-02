@@ -4,21 +4,49 @@ fn regex(pattern: &str, text: &str) -> bool {
     regex::Regex::new(pattern).is_ok_and(|r| r.is_match(text))
 }
 fn transient(s: &str) -> bool {
+    let s = tail(s, 8000);
     regex(
         "(?i)selected model is at capacity|(?:model|provider|server) (?:is )?(?:at capacity|overloaded|busy|temporarily unavailable)|overloaded_error|service unavailable",
-        s,
+        &s,
     )
 }
+// ECMAScript non-u /i folds these ASCII literals only; spell JS whitespace
+// explicitly so FEFF is accepted and U+0085 is not. Prompt glyphs stay Unicode.
+const JS_SPACE: &str = r"[\t\n\x0b\x0c\r \u{00a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]";
 fn working(s: &str) -> bool {
     regex(
-        "(?i)esc\\s+to\\s+interrupt|ctrl\\s*\\+\\s*c\\s+to\\s+stop",
+        &format!(
+            r"(?i-u:esc){JS_SPACE}+(?i-u:to){JS_SPACE}+(?i-u:interrupt)|(?i-u:ctrl){JS_SPACE}*\+{JS_SPACE}*(?i-u:c){JS_SPACE}+(?i-u:to){JS_SPACE}+(?i-u:stop)"
+        ),
         s,
     )
 }
 fn idle(s: &str) -> bool {
     regex(
-        "(?im)(?:^|\\n)\\s*(?:[›❯>]\\s*(?:$|Try |Implement |Summarize |Find |Write |Run |Explain )|(?:codex|claude|opencode)>|Ask (?:anything|a question)|What would you like|Type a message)",
+        &format!(
+            r"(?:^|\n){JS_SPACE}*(?:[›❯>]{JS_SPACE}*(?:\z|(?i-u:Try |Implement |Summarize |Find |Write |Run |Explain ))|(?i-u:(?:codex|claude|opencode)>|Ask (?:anything|a question)|What would you like|Type a message))"
+        ),
         s,
+    )
+}
+fn without_prompt(lines: &[&str], prompt: &str) -> String {
+    let prompt = prompt
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .map(crate::js_semantics::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    lines
+        .iter()
+        .copied()
+        .filter(|line| !prompt.iter().any(|p| line.contains(p)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+fn wait_output(lines: &[&str], prompt: &str) -> (String, String) {
+    (
+        without_prompt(lines, prompt),
+        without_prompt(&lines[lines.len().saturating_sub(15)..], prompt),
     )
 }
 pub(super) fn tail(s: &str, n: usize) -> String {
@@ -258,23 +286,13 @@ impl OrcaAttempt {
                     30000,
                 )
                 .await?;
-            let prompt = self
-                .spec
-                .prompt
-                .lines()
-                .map(crate::js_semantics::trim)
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>();
             let lines = read["result"]["terminal"]["tail"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
-                .filter(|line| !prompt.iter().any(|p| line.contains(p)))
                 .collect::<Vec<_>>();
-            let text = lines.join("\n");
-            let recent = lines[lines.len().saturating_sub(15)..].join("\n");
-            let recent = tail(&recent, 8000);
+            let (text, recent) = wait_output(&lines, &self.spec.prompt);
             if !working(&text) && transient(&recent) {
                 let at = *busy_at.get_or_insert_with(Instant::now);
                 let backoff = [60, 120, 240, 60];
@@ -338,11 +356,13 @@ impl OrcaAttempt {
                     .client
                     .call(&["terminal", "show", "--terminal", &terminal], 30000)
                     .await?;
-                if !working(
-                    shown["result"]["terminal"]["preview"]
-                        .as_str()
-                        .unwrap_or(""),
-                ) {
+                let preview = shown["result"]["terminal"]["preview"]
+                    .as_str()
+                    .unwrap_or("")
+                    .split('\n')
+                    .map(|line| line.strip_suffix('\r').unwrap_or(line))
+                    .collect::<Vec<_>>();
+                if !working(&without_prompt(&preview, &self.spec.prompt)) {
                     break json!({"kind":"settled","state":"failed","error":"provider usage limit","tail":recent,"needsStop":true});
                 }
             }
