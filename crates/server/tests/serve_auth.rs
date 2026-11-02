@@ -3,11 +3,130 @@
 use axum::{body::to_bytes, http::Request};
 use pacer_foundation::Ctx;
 use pacer_server::serve::{
+    app_assets,
     auth::{self, AuthKind, Decision},
     sessions,
 };
+
+#[tokio::test]
+async fn embedded_app_route_parity() {
+    let rows: Vec<Value> =
+        serde_json::from_str(include_str!("../../../test/fixtures/app-route-parity.json")).unwrap();
+    let assets: Vec<Value> =
+        serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
+    for row in rows {
+        let path = row["path"].as_str().unwrap();
+        let method = row["method"].as_str().unwrap();
+        let file = assets.iter().find(|asset| asset["path"] == row["asset"]);
+        let tag = file
+            .filter(|file| file["path"] != "index.html")
+            .map(|file| {
+                format!(
+                    "\"{}\"",
+                    &hex::encode(Sha256::digest(file["text"].as_str().unwrap().as_bytes()))[..32]
+                )
+            });
+        let mut builder = Request::builder().method(method).uri(path);
+        if row["conditional"] == true {
+            builder = builder.header("if-none-match", tag.as_ref().unwrap());
+        }
+        if row["repeatedConditional"] == true {
+            builder = builder
+                .header("if-none-match", tag.as_ref().unwrap())
+                .header("if-none-match", "\"other\"");
+        }
+        let req = builder.body(()).unwrap();
+        let response = app_assets::route(&req);
+        if row["forward"] == true {
+            assert!(response.is_none(), "{method} {path}");
+            continue;
+        }
+        let response = response.unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if row["conditional"] == true { 304 } else { 200 },
+            "{path}"
+        );
+        let file = file.unwrap();
+        for (header, expected) in [
+            ("content-type", file["type"].as_str().unwrap()),
+            ("cache-control", row["cache"].as_str().unwrap()),
+            ("x-content-type-options", "nosniff"),
+            ("referrer-policy", "no-referrer"),
+        ] {
+            assert_eq!(
+                response.headers().get(header).unwrap(),
+                expected,
+                "{path}: {header}"
+            );
+        }
+        assert_eq!(
+            response.headers().get("etag").map(|v| v.to_str().unwrap()),
+            tag.as_deref(),
+            "{path}"
+        );
+        let csp = response
+            .headers()
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(csp.contains("default-src 'self'"), "{path}");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        if method == "HEAD" || row["conditional"] == true {
+            assert!(body.is_empty(), "{path}");
+        } else if file["path"] == "index.html" {
+            let nonce = csp
+                .split("'nonce-")
+                .nth(1)
+                .unwrap()
+                .split('\'')
+                .next()
+                .unwrap();
+            assert_eq!(
+                body.as_ref(),
+                file["text"]
+                    .as_str()
+                    .unwrap()
+                    .replace(
+                        "</head>",
+                        &format!("<meta name=\"pacer-style-nonce\" content=\"{nonce}\"></head>")
+                    )
+                    .as_bytes(),
+                "{path}"
+            );
+        } else {
+            assert_eq!(
+                body.as_ref(),
+                file["text"].as_str().unwrap().as_bytes(),
+                "{path}"
+            );
+        }
+    }
+}
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+#[test]
+fn embedded_assets_match_typescript_bundle() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new("bun")
+        .args(["-e", "import { APP_FILES } from './src/app/assets.generated.ts'; process.stdout.write(JSON.stringify(APP_FILES));"])
+        .current_dir(root).output().unwrap();
+    assert!(
+        output.status.success(),
+        "asset import failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let typescript: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let embedded: Value =
+        serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
+    assert_eq!(
+        typescript, embedded,
+        "embedded assets differ from TypeScript"
+    );
+}
 
 fn fixture() -> (tempfile::TempDir, Ctx) {
     let dir = tempfile::tempdir().unwrap();
@@ -192,6 +311,103 @@ fn token_reuse_and_safe_comparison() {
 }
 
 #[test]
+fn concurrent_token_initialization_publishes_one_token() {
+    for empty in [false, true] {
+        let (_dir, ctx) = fixture();
+        std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+        if empty {
+            std::fs::write(ctx.pacer_home.join("token"), "").unwrap();
+        }
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let tokens = std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..16)
+                .map(|_| {
+                    let barrier = barrier.clone();
+                    let ctx = &ctx;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        auth::ensure_token(ctx).unwrap()
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(tokens.iter().all(|token| token == &tokens[0]));
+        assert_eq!(
+            std::fs::read_to_string(ctx.pacer_home.join("token"))
+                .unwrap()
+                .trim(),
+            tokens[0]
+        );
+    }
+}
+
+#[test]
+fn token_and_cookie_trim_match_javascript() {
+    let rows: Vec<Value> =
+        serde_json::from_str(include_str!("../../../test/fixtures/js-trim-parity.json")).unwrap();
+    for row in rows {
+        assert_eq!(
+            auth::js_trim(row["value"].as_str().unwrap()),
+            row["expected"].as_str().unwrap()
+        );
+    }
+    let (_dir, ctx) = fixture();
+    std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+    std::fs::write(
+        ctx.pacer_home.join("token"),
+        "\u{FEFF}existing-token\u{2028}",
+    )
+    .unwrap();
+    assert_eq!(auth::ensure_token(&ctx).unwrap(), "existing-token");
+}
+
+#[test]
+fn token_replacement_is_atomic_and_private() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let (_dir, ctx) = fixture();
+    std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+    let path = ctx.pacer_home.join("token");
+    std::fs::write(&path, "").unwrap();
+    let original_inode = std::fs::metadata(&path).unwrap().ino();
+    let token = auth::ensure_token(&ctx).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        format!("{token}\n")
+    );
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), original_inode);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&ctx.pacer_home)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    let mut names: Vec<_> = std::fs::read_dir(&ctx.pacer_home)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names, [".token.lock", "token"]);
+    assert_eq!(
+        std::fs::metadata(ctx.pacer_home.join(".token.lock"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
+
+#[test]
 fn invalid_session_records_and_io_errors() {
     let (_dir, ctx) = fixture();
     assert!(!sessions::check(&ctx, "missing").unwrap());
@@ -347,6 +563,74 @@ fn status_of(decision: Decision) -> u16 {
         Decision::Reject(response) => response.status().as_u16(),
         Decision::Forward { .. } => 200,
         Decision::Health | Decision::AppAuth => 0,
+    }
+}
+
+#[test]
+fn repeated_auth_headers_use_fetch_combination() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
+    for (name, first, second, expected) in [
+        ("authorization", format!("Bearer {token}"), "other", 401),
+        ("cookie", cookie.clone(), "other=1", 200),
+        (
+            "origin",
+            "http://localhost:4317".into(),
+            "http://localhost:4317",
+            403,
+        ),
+        ("sec-fetch-site", "same-origin".into(), "none", 403),
+        ("x-pacer-client", "app".into(), "app", 403),
+    ] {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/example")
+            .header("host", "localhost:4317");
+        if name != "authorization" && name != "cookie" {
+            builder = builder.header("cookie", &cookie);
+        }
+        if name != "origin" {
+            builder = builder.header("origin", "http://localhost:4317");
+        }
+        if name != "x-pacer-client" {
+            builder = builder.header("x-pacer-client", "app");
+        }
+        let request = builder
+            .header(name, first)
+            .header(name, second)
+            .body(())
+            .unwrap();
+        assert_eq!(
+            status_of(auth::classify(&request, 4317, &token, &ctx)),
+            expected,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn repeated_cookie_fields_preserve_session_order() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
+    for (first, second, expected) in [
+        ("other=1", cookie.as_str(), 200),
+        (cookie.as_str(), "other=1", 200),
+        ("pacer_session=bad", cookie.as_str(), 401),
+        (cookie.as_str(), "pacer_session=bad", 200),
+    ] {
+        let req = Request::builder()
+            .uri("/app/")
+            .header("host", "localhost:4317")
+            .header("cookie", first)
+            .header("cookie", second)
+            .body(())
+            .unwrap();
+        assert_eq!(
+            status_of(auth::classify(&req, 4317, &token, &ctx)),
+            expected
+        );
     }
 }
 

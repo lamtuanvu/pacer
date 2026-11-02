@@ -43,7 +43,7 @@ pub async fn bridge(req: Request<Body>, target: (u16, String), auth: AuthKind) -
                 | "sec-websocket-version"
                 | "sec-websocket-extensions"
         ) {
-            upstream.headers_mut().insert(key.clone(), value.clone());
+            upstream.headers_mut().append(key.clone(), value.clone());
         }
     }
     if proxy::headers(upstream.headers_mut(), &target.1, auth).is_err() {

@@ -1387,6 +1387,7 @@ name = "pacer-server"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "core-foundation",
  "futures-util",
  "hex",
@@ -1402,6 +1403,7 @@ dependencies = [
  "rand",
  "ryu-js",
  "security-framework",
+ "serde",
  "serde_json",
  "sha2",
  "socket2",
