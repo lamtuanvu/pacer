@@ -21,6 +21,8 @@ export async function answerExecutorClaim(authority: CallAuthority,
       grant.launch.session, { ...(grant.agentSession ? { agentSession: { ...grant.agentSession } } : {}),
         ...(grant.turnResume ? { turnResume: grant.turnResume } : {}) }); }
     catch (error) {
+      if (error instanceof CoreError && error.code === "conflict" && error.message.startsWith("executor run directory"))
+        throw new CoreError("capability_denied", error.message);
       if (error instanceof CoreError && error.code === "conflict") return deny();
       throw error;
     }

@@ -14,6 +14,7 @@ export const executorAvailableResult = z.object({
   available: z.boolean(), reason: z.string().min(1).max(1024).optional(),
 }).strict();
 
+const MAX_OWNED_TIMEOUT_MS = 240 * 60 * 1000;
 const taskId = z.string().regex(/^t-[A-Za-z0-9_-]{1,120}$/);
 const positive = z.number().int().positive().safe();
 /** The host selects the task, revision and any exact, bounded local command. */
@@ -39,7 +40,7 @@ export const executorEffectRunResult = z.discriminatedUnion("status", [
 /** Credential-free owned attempt; every path and process effect comes from this call's host grants. */
 export const executorOwnedRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
-  owned: z.object({ placement: z.enum(["current", "new"]), timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+  owned: z.object({ placement: z.enum(["current", "new"]), timeoutMs: z.number().int().positive().max(MAX_OWNED_TIMEOUT_MS),
     session: z.literal("interactive").optional(),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
@@ -47,7 +48,7 @@ export const executorOwnedRunParams = z.object({
 }).strict();
 export const executorOwnedRemoteRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
-  remote: z.object({ timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+  remote: z.object({ timeoutMs: z.number().int().positive().max(MAX_OWNED_TIMEOUT_MS),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
   }).strict(),

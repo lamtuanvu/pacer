@@ -23,7 +23,7 @@ const ownedInput = z.object({
   attempt: z.number().int().positive(), runDir: z.literal(1),
   owned: z.object({ placement: z.enum(["current", "new"]),
     session: z.literal("interactive").optional(),
-    timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
+    timeoutMs: z.number().int().positive().max(240 * 60 * 1000),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
       worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
@@ -31,7 +31,7 @@ const ownedInput = z.object({
 const remoteInput = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
-  remote: z.object({ timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
+  remote: z.object({ timeoutMs: z.number().int().positive().max(240 * 60 * 1000),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
   }).strict(),
