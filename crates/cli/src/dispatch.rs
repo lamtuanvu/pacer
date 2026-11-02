@@ -1,5 +1,6 @@
 use crate::core_exec::{CoreMissing, child_env, exec_core, resolve_core};
 use std::collections::HashMap;
+mod guard;
 
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
@@ -18,6 +19,12 @@ pub fn main(argv: Vec<String>) -> i32 {
     }
     if args.first().is_some_and(|a| a == "status") && args.iter().any(|a| a == "--line") {
         return crate::status_line::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "guard")
+        && std::env::var("PACER_ROLE").is_ok_and(|v| v == "executor")
+        && std::env::var("PACER_ENFORCEMENT_MODE").is_ok_and(|v| v == "strict")
+    {
+        return guard::run(&args[1..]);
     }
     let exe = match std::env::current_exe().and_then(|p| p.canonicalize()) {
         Ok(exe) => exe,
