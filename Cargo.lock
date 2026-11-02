@@ -1308,13 +1308,17 @@ dependencies = [
 name = "pacer-lifecycle"
 version = "0.1.0"
 dependencies = [
+ "icu_collator",
  "pacer-foundation",
  "pacer-store",
+ "regex",
  "rusqlite",
  "ryu-js",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
+ "url",
 ]
 
 [[package]]
