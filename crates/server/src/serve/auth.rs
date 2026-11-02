@@ -38,13 +38,7 @@ pub fn safe_equal(left: &str, right: &str) -> bool {
 
 /// ECMAScript String.prototype.trim whitespace (WhiteSpace and LineTerminator).
 pub fn js_trim(value: &str) -> &str {
-    value.trim_matches(|ch: char| {
-        matches!(ch,
-            '\u{0009}'..='\u{000D}' | '\u{0020}' | '\u{00A0}' | '\u{1680}' |
-            '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' |
-            '\u{205F}' | '\u{3000}' | '\u{FEFF}'
-        )
-    })
+    super::js_trim::js_trim(value)
 }
 
 pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {

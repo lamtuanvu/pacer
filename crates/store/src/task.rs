@@ -24,6 +24,8 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Lock(#[from] LockError),
+    #[error("task read requires the TypeScript compatibility path")]
+    CompatibilityRequired,
     #[error("{0}")]
     Admission(String),
     #[error("invalid task record")]
@@ -61,6 +63,19 @@ pub fn is_task_id(id: &str) -> bool {
 }
 fn number(value: Option<&Value>) -> Option<f64> {
     value?.as_f64().filter(|v| v.is_finite())
+}
+fn import_numbers(value: &mut Value) {
+    match value {
+        Value::Number(n) => {
+            if let Some(n) = n.as_f64() {
+                // JSON.parse uses doubles; JSON.stringify writes negative zero as 0.
+                *value = if n == 0.0 { json!(0) } else { json!(n) };
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(import_numbers),
+        Value::Object(values) => values.values_mut().for_each(import_numbers),
+        _ => (),
+    }
 }
 pub(crate) fn revision(task: &Value) -> Option<i64> {
     let value = task.get("rev")?.as_f64()?;
@@ -173,11 +188,13 @@ fn parse_record(text: &str) -> Result<Value> {
     Ok(value)
 }
 fn mtime_ms(path: &Path) -> Result<f64> {
-    let d = fs::metadata(path)?
-        .modified()?
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?;
-    Ok(d.as_secs() as f64 * 1000.0 + f64::from(d.subsec_nanos()) / 1_000_000.0)
+    let time = fs::metadata(path)?.modified()?;
+    let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration, 1.0),
+        Err(error) => (error.duration(), -1.0),
+    };
+    Ok(sign
+        * (duration.as_secs() as f64 * 1000.0 + f64::from(duration.subsec_nanos()) / 1_000_000.0))
 }
 #[cfg(unix)]
 pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
@@ -268,6 +285,10 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
     }
     Ok(format!("{year:04}-{m:02}"))
 }
+
+#[path = "task_log_reader.rs"]
+mod log_reader;
+pub use log_reader::TaskLogReader;
 
 pub struct TaskStore {
     pub(crate) home: PathBuf,
@@ -361,12 +382,19 @@ impl TaskStore {
                 Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e),
             };
-            let row: Option<(i64, Option<f64>)> = tx
-                .query_row("SELECT rev,json_mtime FROM tasks WHERE id=?", [id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
+            // Bun returns SQLite storage types without coercing text to a number.
+            // Only a numeric json_mtime can strictly equal stat().mtimeMs. The
+            // revision comparison belongs to the SQL UPSERT below, not a typed read.
+            let row: Option<SqlValue> = tx
+                .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
+                    r.get(0)
                 })
                 .optional()?;
-            if row.is_some_and(|(_, old)| old == Some(mtime)) {
+            if row.is_some_and(|old| match old {
+                SqlValue::Real(value) => value == mtime,
+                SqlValue::Integer(value) => value as f64 == mtime,
+                _ => false,
+            }) {
                 continue;
             }
             let bytes = match fs::read(&path) {
@@ -383,6 +411,7 @@ impl TaskStore {
             if !valid(&task, id) {
                 continue;
             }
+            import_numbers(&mut task);
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;

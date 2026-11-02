@@ -15,6 +15,14 @@ pub struct CoreChild {
     task: Mutex<Option<JoinHandle<()>>>,
 }
 impl CoreChild {
+    #[cfg(test)]
+    pub(super) fn unavailable() -> Self {
+        Self {
+            target: Arc::new(RwLock::new(None)),
+            stop: Mutex::new(None),
+            task: Mutex::new(None),
+        }
+    }
     pub fn spawn(core: Vec<String>, env: HashMap<String, String>) -> Self {
         Self::spawn_inner(
             core,

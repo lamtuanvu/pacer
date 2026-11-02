@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
@@ -15,6 +16,50 @@ const rust = (command: string, home: string, ...args: string[]) => {
   if (result.exitCode !== 0) throw Error(new TextDecoder().decode(result.stderr));
   return JSON.parse(new TextDecoder().decode(result.stdout));
 };
+
+test.skipIf(!binary || !existsSync(binary))("Rust TaskStore and TS independently import the numeric field matrix", () => {
+  const tokens = ["1", "2.0", "2e0", "1.25", "0.99999999999999999", "1.0000000000000001", "0", "-0", "-1", "9007199254740991",
+    "9007199254740991.0", "9007199254740992", "9007199254740993", "9007199254740990.5",
+    "1e308", "1.7976931348623157e308", "1e309", "-1e309", "5e-324", "1e-324", "1e-400", "null", "true", '"2"', "[]", "{}", "MISSING"];
+  for (const field of ["rev", "createdAt", "startedAt", "endedAt"] as const) {
+    const native = fakeCtx(), reference = fakeCtx();
+    for (const ctx of [native, reference]) {
+      mkdirSync(join(ctx.pacerHome, "tasks"), { recursive: true });
+      writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+    }
+    for (const [index, token] of tokens.entries()) {
+      const label = `${field}=${token}`;
+      const id = `t-20261102-155652-${index.toString(16).padStart(4, "0")}`;
+      const task = { id, rev: 2, state: "done", createdAt: 1000, brief: { repo: "repo" }, attempts: [{ startedAt: 1, endedAt: 2 }] };
+      const target = field === "startedAt" || field === "endedAt" ? task.attempts[0]! : task;
+      if (token === "MISSING") delete (target as Record<string, unknown>)[field];
+      else (target as Record<string, unknown>)[field] = "NUMBER_TOKEN";
+      const bytes = JSON.stringify(task).replace('"NUMBER_TOKEN"', token);
+      for (const ctx of [native, reference]) {
+        const temp = join(ctx.pacerHome, "tasks", "record.tmp");
+        writeFileSync(temp, bytes);
+        renameSync(temp, join(ctx.pacerHome, "tasks", `${id}.json`));
+      }
+      // Distinct homes: TS must never import on behalf of Rust.
+      const actual = rust("read", native.pacerHome, id);
+      const expected = readTask(reference, id);
+      expect(actual, label).toEqual(expected);
+      // SQLite may need to recreate WAL/SHM after the probe closes its last handle.
+      // This raw SQL connection performs no compatibility imports.
+      const db = new Database(join(native.pacerHome, "state/tasks.db"));
+      try {
+        const row = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id=?").get(id);
+        expect(row ? JSON.parse(row.record) : null, `${label} persisted`).toEqual(expected);
+      } finally { db.close(); }
+      // Pin acceptance independently too: both implementations rejecting is not parity.
+      const value = token === "MISSING" ? undefined : JSON.parse(token);
+      const accepted = field === "rev"
+        ? value == null || (Number.isSafeInteger(value) && value >= 1)
+        : Number.isFinite(value);
+      expect(expected !== null, `${label} accepted`).toBe(accepted);
+    }
+  }
+});
 
 test.skipIf(!binary || !existsSync(binary))("Rust adapter alternates with Bun across revisions, unknown fields, and JSON mtime", () => {
   const ctx = fakeCtx();

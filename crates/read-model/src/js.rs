@@ -28,7 +28,10 @@ pub fn number(n: f64) -> Value {
         serde_json::json!(n)
     }
 }
-pub use pacer_foundation::js_semantics::{is_js_space as whitespace, js_trim as trim};
+pub use pacer_foundation::js_semantics::js_trim as trim;
+pub fn whitespace(c: char) -> bool {
+    trim(c.encode_utf8(&mut [0; 4])).is_empty()
+}
 /// sliceText from TS: clip by UTF-16 units without leaving a high surrogate.
 pub fn slice(s: &str, max: usize) -> String {
     let mut units = 0;
