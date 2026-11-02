@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use pacer_plugin_host::{
-    BrokerError, CapabilityEffect, NativeOrca, OrcaAttemptResource, OrcaSessionOwner,
+    BrokerError, CapabilityEffect, NativeOrca, OrcaAttemptResource, OrcaSessionOwner, WireReply,
 };
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
@@ -99,8 +99,11 @@ async fn native_orca_calls_only_the_exact_host_owned_attempt_and_refuses_changed
     );
     let task = store.read(id).unwrap().unwrap();
     store
-        .update(id, task["rev"].as_i64().unwrap(), 2.0, |t| {
-            t["attempts"] = json!([{"startedAt":1,"endedAt":2}])
+        .edit(id, task["rev"].as_i64().unwrap(), 2.0, |t| {
+            t.put(
+                "/attempts",
+                WireReply::new(json!([{"startedAt":1,"endedAt":2}])),
+            )
         })
         .unwrap();
     assert!(

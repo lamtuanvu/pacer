@@ -572,7 +572,7 @@ impl TaskStore {
     /// Apply explicit, lossless edits under the shared task lock and an
     /// IMMEDIATE transaction. A revision conflict skips the callback; callback
     /// errors and invalid final records publish neither SQLite nor JSON changes.
-    /// Identity/revision and settlement follow the same rules as `update`.
+    /// Identity and revision are finalized by the store, along with settlement.
     /// The returned reply retains exact strings; `preview()` is read-only metadata.
     pub fn edit(
         &mut self,
@@ -642,7 +642,7 @@ impl TaskStore {
             self.edit_transaction_locked(id, Some(expected_rev), now, mutate, &[])
         })?
     }
-    /// Exact-callback counterpart to `update_with_strings`. Overrides apply
+    /// Apply exact edits with explicit UTF-16 string overrides. Overrides apply
     /// after identity/revision/settlement finalization, require string slots,
     /// and cannot target identity, state, revision or repo. The callback may
     /// deliberately create string placeholders. Existing array text is retained.
@@ -724,187 +724,6 @@ impl TaskStore {
         apply_string_overrides(&mut wire, strings)?;
         persist_update(tx, &self.home, id, rev, now, wire)
     }
-    pub fn update(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&mut Value),
-    ) -> Result<Value> {
-        if !is_task_id(id) {
-            return Err(StoreError::InvalidRecord);
-        }
-        let ctx = Ctx::with(
-            self.home.clone(),
-            self.home.clone(),
-            Default::default(),
-            now,
-        );
-        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_locked(id, expected_rev, now, mutate)
-        })?
-    }
-    /// Atomic lossless text publication. Each listed string field is replaced
-    /// by its exact UTF-16 text, even where its lossy preview is unchanged.
-    /// Identity, state, revision and repo cannot be overlaid; they follow CAS.
-    pub fn update_with_strings(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&mut Value),
-        strings: &[(String, Utf16String)],
-    ) -> Result<Value> {
-        if !is_task_id(id) {
-            return Err(StoreError::InvalidRecord);
-        }
-        let ctx = Ctx::with(
-            self.home.clone(),
-            self.home.clone(),
-            Default::default(),
-            now,
-        );
-        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_encoded_locked(id, expected_rev, now, mutate, strings)
-        })?
-    }
-    /// Update current state under the shared task lock, without a caller CAS.
-    /// Lifecycle metadata maintenance must not use revisions from a prior list.
-    pub fn update_current(
-        &mut self,
-        id: &str,
-        now: f64,
-        mutate: impl FnOnce(&mut Value) -> Result<()>,
-    ) -> Result<Value> {
-        let ctx = Ctx::with(
-            self.home.clone(),
-            self.home.clone(),
-            Default::default(),
-            now,
-        );
-        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            let current = self
-                .read(id)?
-                .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-            let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
-            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
-        })?
-    }
-    pub(crate) fn update_locked(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&mut Value),
-    ) -> Result<Value> {
-        self.update_admitted_locked(id, expected_rev, now, |_, task| {
-            mutate(task);
-            Ok(())
-        })
-    }
-    /// Recheck domain admission and mutate while holding the same SQLite writer
-    /// reservation. The caller holds any required cross-runtime operation lock.
-    pub fn update_admitted(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
-    ) -> Result<Value> {
-        let ctx = Ctx::with(
-            self.home.clone(),
-            self.home.clone(),
-            Default::default(),
-            now,
-        );
-        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_admitted_locked(id, expected_rev, now, mutate)
-        })?
-    }
-    fn update_admitted_locked(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
-    ) -> Result<Value> {
-        self.update_encoded_admitted_locked(id, expected_rev, now, mutate, &[])
-    }
-    fn update_encoded_locked(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&mut Value),
-        strings: &[(String, Utf16String)],
-    ) -> Result<Value> {
-        self.update_encoded_admitted_locked(
-            id,
-            expected_rev,
-            now,
-            |_, task| {
-                mutate(task);
-                Ok(())
-            },
-            strings,
-        )
-    }
-    fn update_encoded_admitted_locked(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
-        strings: &[(String, Utf16String)],
-    ) -> Result<Value> {
-        if !is_task_id(id) {
-            return Err(StoreError::InvalidRecord);
-        }
-        let home = self.home.clone();
-        self.refresh()?;
-        let tx = self
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let text: String = tx
-            .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| r.get(0))
-            .optional()?
-            .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-        let original = WireReply::parse(&text)?;
-        // The Value-based mutation closure loses the identity of non-scalar
-        // strings in arrays. Refuse writes rather than persist a shifted value.
-        if original.has_array_strings() {
-            return Err(StoreError::CompatibilityRequired);
-        }
-        let mut task = original.preview().clone();
-        let rev = revision(&task).unwrap_or(1);
-        if rev != expected_rev {
-            return Err(StoreError::Conflict);
-        }
-        let prior = field(&task, "state").unwrap_or("").to_owned();
-        mutate(&tx, &mut task)?;
-        let terminal = TERMINAL.contains(&field(&task, "state").ok_or(StoreError::InvalidRecord)?);
-        if terminal && !TERMINAL.contains(&prior.as_str()) {
-            task["settledAt"] = json!(now);
-        }
-        if !terminal {
-            task.as_object_mut()
-                .ok_or(StoreError::InvalidRecord)?
-                .remove("settledAt");
-        }
-        task["id"] = json!(id);
-        task["rev"] = json!(rev + 1);
-        if !valid(&task, id) {
-            return Err(StoreError::InvalidRecord);
-        }
-        // An overlay survives when the closure leaves its lossy preview equal.
-        // A closure cannot store text equal to that preview (for example a
-        // literal U+FFFD over a lone surrogate); that requires `strings`.
-        let mut wire = original.preserving(task.clone());
-        apply_string_overrides(&mut wire, strings)?;
-        Ok(persist_update(tx, &home, id, rev, now, wire)?
-            .preview()
-            .clone())
-    }
     pub fn home_path(&self) -> &Path {
         &self.home
     }
@@ -924,7 +743,7 @@ fn apply_string_overrides(wire: &mut WireReply, strings: &[(String, Utf16String)
     }
     Ok(())
 }
-/// Both edit APIs publish the same exact encoding to the compatibility file and
+/// Task edits publish the same exact encoding to the compatibility file and
 /// SQLite record; indexed values still follow the established scalar preview.
 fn persist_update(
     tx: Transaction<'_>,

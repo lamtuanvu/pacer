@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{OrcaAttempt, OrcaAttemptSpec, OrcaPlacement, OrcaSessionOwner};
+use pacer_plugin_host::{OrcaAttempt, OrcaAttemptSpec, OrcaPlacement, OrcaSessionOwner, WireReply};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -350,14 +350,18 @@ fn policy_with_source(
     let mut store = pacer_store::TaskStore::open(root).unwrap();
     let task = store.read(ID).unwrap().unwrap();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
-            t["brief"]["goal"] = json!("Do the task");
-            t["placement"] = json!({"requested":if group{"new"}else{"current"}});
+        .edit(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
+            t.put("/brief/goal", WireReply::new(json!("Do the task")))?;
+            t.put(
+                "/placement",
+                WireReply::new(json!({"requested":if group{"new"}else{"current"}})),
+            )?;
             if group {
-                t["brief"]["worktreeBase"] = json!("head");
-                t["group"] = json!("batch");
-                t["interactionMode"] = json!("conversation");
+                t.put("/brief/worktreeBase", WireReply::new(json!("head")))?;
+                t.put("/group", WireReply::new(json!("batch")))?;
+                t.put("/interactionMode", WireReply::new(json!("conversation")))?;
             }
+            Ok(())
         })
         .unwrap();
     OrcaAttempt::from_policy_with_strategy_source(
@@ -453,8 +457,8 @@ async fn stopped_conversation_removes_only_its_unused_lane_and_empty_group() {
     let task = store.read(ID).unwrap().unwrap();
     let lane = task["worktree"].as_str().unwrap().to_owned();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
-            t["state"] = json!("stopped")
+        .edit(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
+            t.put("/state", WireReply::new(json!("stopped")))
         })
         .unwrap();
     assert_eq!(
@@ -502,8 +506,8 @@ async fn stopped_lane_with_uncommitted_work_is_preserved_for_review() {
     let lane = task["worktree"].as_str().unwrap().to_owned();
     fs::write(std::path::Path::new(&lane).join("work"), "keep").unwrap();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
-            t["state"] = json!("stopped")
+        .edit(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
+            t.put("/state", WireReply::new(json!("stopped")))
         })
         .unwrap();
     a.invoke("wait", json!({})).await.unwrap();
@@ -531,8 +535,8 @@ async fn stopping_a_live_owner_also_releases_its_proven_empty_lane() {
     let task = store.read(ID).unwrap().unwrap();
     let lane = task["worktree"].as_str().unwrap().to_owned();
     store
-        .update(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
-            t["state"] = json!("stopped")
+        .edit(ID, task["rev"].as_i64().unwrap(), 1.0, |t| {
+            t.put("/state", WireReply::new(json!("stopped")))
         })
         .unwrap();
     let mut live = OrcaLiveOwner::issue(
@@ -899,8 +903,8 @@ async fn repo_registration_stays_disabled_for_opt_out_and_linked_worktree() {
             let mut store = pacer_store::TaskStore::open(&root).unwrap();
             let task = store.read(ID).unwrap().unwrap();
             store
-                .update(ID, task["rev"].as_i64().unwrap(), 2.0, |task| {
-                    task["brief"]["repo"] = json!(root.join("linked"))
+                .edit(ID, task["rev"].as_i64().unwrap(), 2.0, |task| {
+                    task.put("/brief/repo", WireReply::new(json!(root.join("linked"))))
                 })
                 .unwrap();
         }

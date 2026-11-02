@@ -9,6 +9,8 @@ mod retention;
 mod task;
 mod task_edit;
 pub use task_edit::TaskEdit;
+// Store consumers construct exact edit values without a separate dependency.
+pub use pacer_js_json::WireReply;
 
 pub use activity::{
     ActivityOptions, ActivityPage, append_activity, read_activity, rotate_activity,
