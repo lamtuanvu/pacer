@@ -1400,6 +1400,7 @@ dependencies = [
  "pacer-mdns",
  "pacer-store",
  "rand",
+ "ryu-js",
  "security-framework",
  "serde_json",
  "sha2",
