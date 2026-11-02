@@ -400,12 +400,12 @@ fn archive_restore_round_trip_collision_and_private_modes() {
     fs::remove_file(&note).unwrap();
     fs::write(archive.join("unrelated"), b"keep").unwrap();
     let restored = store.restore(ID, 100_002.0).unwrap();
-    assert_eq!(restored["rev"], 3);
-    assert!(restored.get("archived").is_none());
+    assert_eq!(restored.preview()["rev"], 3);
+    assert!(restored.preview().get("archived").is_none());
     assert_eq!(fs::read(&log).unwrap(), b"log text\nlog text\n");
     assert_eq!(fs::read(&note).unwrap(), b"notes");
     assert_eq!(fs::read(archive.join("unrelated")).unwrap(), b"keep");
-    assert_eq!(store.restore(ID, 100_003.0).unwrap()["rev"], 3);
+    assert_eq!(store.restore(ID, 100_003.0).unwrap().preview()["rev"], 3);
 }
 
 #[test]

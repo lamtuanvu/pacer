@@ -601,6 +601,93 @@ impl TaskStore {
         now: f64,
         mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
     ) -> Result<WireReply> {
+        self.edit_transaction_locked(id, Some(expected_rev), now, |_, edit| mutate(edit), &[])
+    }
+    /// Edit the latest task under the shared task lock and writer transaction,
+    /// without a revision captured by an earlier list/read. Errors such as
+    /// `Unchanged` abort the edit without publishing a revision.
+    pub fn edit_current(
+        &mut self,
+        id: &str,
+        now: f64,
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.edit_transaction_locked(id, None, now, |_, edit| mutate(edit), &[])
+        })?
+    }
+    /// Recheck domain admission and edit exact task values in the same
+    /// IMMEDIATE transaction. CAS precedes the callback, and its database
+    /// changes roll back if admission, edits or final validation fail.
+    pub fn edit_admitted(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.edit_transaction_locked(id, Some(expected_rev), now, mutate, &[])
+        })?
+    }
+    /// Exact-callback counterpart to `update_with_strings`. Overrides apply
+    /// after identity/revision/settlement finalization, require string slots,
+    /// and cannot target identity, state, revision or repo. The callback may
+    /// deliberately create string placeholders. Existing array text is retained.
+    pub fn edit_with_strings(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+        strings: &[(String, Utf16String)],
+    ) -> Result<WireReply> {
+        if !is_task_id(id) {
+            return Err(StoreError::InvalidRecord);
+        }
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.edit_transaction_locked(
+                id,
+                Some(expected_rev),
+                now,
+                |_, edit| mutate(edit),
+                strings,
+            )
+        })?
+    }
+    fn edit_transaction_locked(
+        &mut self,
+        id: &str,
+        expected_rev: Option<i64>,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut TaskEdit) -> Result<()>,
+        strings: &[(String, Utf16String)],
+    ) -> Result<WireReply> {
+        if !is_task_id(id) {
+            return Err(if expected_rev.is_some() {
+                StoreError::InvalidRecord
+            } else {
+                StoreError::UnknownTask(id.into())
+            });
+        }
         self.refresh()?;
         let tx = self
             .db
@@ -610,12 +697,16 @@ impl TaskStore {
             .optional()?
             .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
         let mut edit = TaskEdit::new(WireReply::parse(&text)?);
-        let rev = revision(edit.preview()).unwrap_or(1);
-        if rev != expected_rev {
+        let rev = match expected_rev {
+            Some(_) => revision(edit.preview()).unwrap_or(1),
+            None if edit.preview().get("rev").is_none_or(Value::is_null) => 1,
+            None => revision(edit.preview()).ok_or(StoreError::InvalidRecord)?,
+        };
+        if expected_rev.is_some_and(|expected| rev != expected) {
             return Err(StoreError::Conflict);
         }
         let prior = field(edit.preview(), "state").unwrap_or("").to_owned();
-        mutate(&mut edit)?;
+        mutate(&tx, &mut edit)?;
         let terminal =
             TERMINAL.contains(&field(edit.preview(), "state").ok_or(StoreError::InvalidRecord)?);
         if terminal && !TERMINAL.contains(&prior.as_str()) {
@@ -629,7 +720,9 @@ impl TaskStore {
         if !valid(edit.preview(), id) {
             return Err(StoreError::InvalidRecord);
         }
-        persist_update(tx, &self.home, id, rev, now, edit.into_wire())
+        let mut wire = edit.into_wire();
+        apply_string_overrides(&mut wire, strings)?;
+        persist_update(tx, &self.home, id, rev, now, wire)
     }
     pub fn update(
         &mut self,
@@ -807,15 +900,7 @@ impl TaskStore {
         // A closure cannot store text equal to that preview (for example a
         // literal U+FFFD over a lone surrogate); that requires `strings`.
         let mut wire = original.preserving(task.clone());
-        for (path, text) in strings {
-            if PROTECTED_TEXT.contains(&path.as_str())
-                || !task.pointer(path).is_some_and(Value::is_string)
-            {
-                return Err(StoreError::InvalidRecord);
-            }
-            wire.set_string(path, text.clone())
-                .map_err(|_| StoreError::InvalidRecord)?;
-        }
+        apply_string_overrides(&mut wire, strings)?;
         Ok(persist_update(tx, &home, id, rev, now, wire)?
             .preview()
             .clone())
@@ -826,6 +911,18 @@ impl TaskStore {
     pub(crate) fn home(&self) -> &Path {
         &self.home
     }
+}
+fn apply_string_overrides(wire: &mut WireReply, strings: &[(String, Utf16String)]) -> Result<()> {
+    for (path, text) in strings {
+        if PROTECTED_TEXT.contains(&path.as_str())
+            || !wire.preview().pointer(path).is_some_and(Value::is_string)
+        {
+            return Err(StoreError::InvalidRecord);
+        }
+        wire.set_string(path, text.clone())
+            .map_err(|_| StoreError::InvalidRecord)?;
+    }
+    Ok(())
 }
 /// Both edit APIs publish the same exact encoding to the compatibility file and
 /// SQLite record; indexed values still follow the established scalar preview.

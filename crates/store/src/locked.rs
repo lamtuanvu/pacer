@@ -12,6 +12,12 @@ pub struct LockedTask<'a> {
     id: &'a str,
 }
 impl LockedTask<'_> {
+    /// Read the exact task snapshot while this task lock is held.
+    pub fn read_wire(&mut self) -> Result<WireReply, StoreError> {
+        self.store
+            .read_wire(self.id)?
+            .ok_or_else(|| StoreError::UnknownTask(self.id.into()))
+    }
     /// Edit exact task text under this already-held task lock and the store's
     /// revision transaction. The returned reply is lossless.
     pub fn edit(
