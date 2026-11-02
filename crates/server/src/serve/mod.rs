@@ -1,4 +1,5 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
+pub mod app_assets;
 pub mod auth;
 pub mod core_child;
 pub mod discovery;
@@ -104,6 +105,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
+    }
+    if let Some(response) = app_assets::route(&req) {
+        return response;
     }
     let Some(target) = state.core.target().await else {
         return proxy::unavailable(req.uri().path().starts_with("/app/"));

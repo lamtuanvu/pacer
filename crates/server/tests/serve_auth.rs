@@ -3,9 +3,103 @@
 use axum::{body::to_bytes, http::Request};
 use pacer_foundation::Ctx;
 use pacer_server::serve::{
+    app_assets,
     auth::{self, AuthKind, Decision},
     sessions,
 };
+
+#[tokio::test]
+async fn embedded_app_route_parity() {
+    let rows: Vec<Value> =
+        serde_json::from_str(include_str!("../../../test/fixtures/app-route-parity.json")).unwrap();
+    let assets: Vec<Value> =
+        serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
+    for row in rows {
+        let path = row["path"].as_str().unwrap();
+        let method = row["method"].as_str().unwrap();
+        let file = assets.iter().find(|asset| asset["path"] == row["asset"]);
+        let tag = file
+            .filter(|file| file["path"] != "index.html")
+            .map(|file| {
+                format!(
+                    "\"{}\"",
+                    &hex::encode(Sha256::digest(file["text"].as_str().unwrap().as_bytes()))[..32]
+                )
+            });
+        let mut builder = Request::builder().method(method).uri(path);
+        if row["conditional"] == true {
+            builder = builder.header("if-none-match", tag.as_ref().unwrap());
+        }
+        let req = builder.body(()).unwrap();
+        let response = app_assets::route(&req);
+        if row["forward"] == true {
+            assert!(response.is_none(), "{method} {path}");
+            continue;
+        }
+        let response = response.unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if row["conditional"] == true { 304 } else { 200 },
+            "{path}"
+        );
+        let file = file.unwrap();
+        for (header, expected) in [
+            ("content-type", file["type"].as_str().unwrap()),
+            ("cache-control", row["cache"].as_str().unwrap()),
+            ("x-content-type-options", "nosniff"),
+            ("referrer-policy", "no-referrer"),
+        ] {
+            assert_eq!(
+                response.headers().get(header).unwrap(),
+                expected,
+                "{path}: {header}"
+            );
+        }
+        assert_eq!(
+            response.headers().get("etag").map(|v| v.to_str().unwrap()),
+            tag.as_deref(),
+            "{path}"
+        );
+        let csp = response
+            .headers()
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(csp.contains("default-src 'self'"), "{path}");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        if method == "HEAD" || row["conditional"] == true {
+            assert!(body.is_empty(), "{path}");
+        } else if file["path"] == "index.html" {
+            let nonce = csp
+                .split("'nonce-")
+                .nth(1)
+                .unwrap()
+                .split('\'')
+                .next()
+                .unwrap();
+            assert_eq!(
+                body.as_ref(),
+                file["text"]
+                    .as_str()
+                    .unwrap()
+                    .replace(
+                        "</head>",
+                        &format!("<meta name=\"pacer-style-nonce\" content=\"{nonce}\"></head>")
+                    )
+                    .as_bytes(),
+                "{path}"
+            );
+        } else {
+            assert_eq!(
+                body.as_ref(),
+                file["text"].as_str().unwrap().as_bytes(),
+                "{path}"
+            );
+        }
+    }
+}
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 

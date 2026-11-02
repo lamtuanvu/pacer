@@ -1,0 +1,16 @@
+[
+  { "method": "GET", "path": "/app/", "asset": "index.html", "cache": "no-store" },
+  { "method": "HEAD", "path": "/app/", "asset": "index.html", "cache": "no-store" },
+  { "method": "GET", "path": "/app/tasks/one", "asset": "index.html", "cache": "no-store" },
+  { "method": "GET", "path": "/app/app.js", "asset": "app.js", "cache": "no-cache" },
+  { "method": "HEAD", "path": "/app/app.css", "asset": "app.css", "cache": "no-cache" },
+  { "method": "GET", "path": "/app/tray.html", "asset": "tray.html", "cache": "no-cache" },
+  { "method": "GET", "path": "/app/tray.js", "asset": "tray.js", "cache": "no-cache" },
+  { "method": "GET", "path": "/app/tray.css", "asset": "tray.css", "cache": "no-cache" },
+  { "method": "GET", "path": "/app/app.js", "asset": "app.js", "cache": "no-cache", "conditional": true },
+  { "method": "GET", "path": "/app/auth", "forward": true },
+  { "method": "GET", "path": "/app/missing.js", "forward": true },
+  { "method": "POST", "path": "/app/app.js", "forward": true },
+  { "method": "GET", "path": "/v3/attachments", "forward": true },
+  { "method": "GET", "path": "/v3/tasks/one/session", "forward": true }
+]
