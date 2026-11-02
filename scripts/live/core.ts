@@ -4,10 +4,11 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
+import { captureOwnedProcessGroup, stopOwnedProcessGroup, validOwnedProcessGroup, type OwnedProcessGroup } from "./process-group";
 import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
 import { seedPluginRemove, seedUi, validateSeed } from "./seed";
 import { deleteSandboxKeychainItems, prepareKeychain } from "./keychain";
-import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
+import { processIdentity, signalSameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 export const checkout = resolve(import.meta.dir, "../..");
 export const liveRoot = join(checkout, ".work/live");
@@ -19,6 +20,9 @@ export interface Session {
   innerPort?: number;
   proxyPid?: number;
   serviceIdentity?: ProcessIdentity;
+  proxyIdentity?: ProcessIdentity;
+  serviceGroup?: OwnedProcessGroup;
+  proxyGroup?: OwnedProcessGroup;
   createdAt: string;
   seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
@@ -84,7 +88,12 @@ export function loadSession(id?: string, base = liveRoot): Session {
   }
   if ((session.innerPort !== undefined && (!Number.isInteger(session.innerPort) || session.innerPort < 1 || session.innerPort > 65535 || session.innerPort === 4317 || session.innerPort === session.port)) ||
       (session.proxyPid !== undefined && (!Number.isInteger(session.proxyPid) || session.proxyPid < 1))) throw Error("Invalid live proxy metadata");
-  if (session.serviceIdentity && (session.serviceIdentity.pid !== session.pid || !session.serviceIdentity.bootId || !session.serviceIdentity.birth)) throw Error("Invalid live source process identity");
+  for (const [identity, pid] of [[session.serviceIdentity, session.pid], [session.proxyIdentity, session.proxyPid]] as const) {
+    if (identity && (identity.pid !== pid || !identity.bootId || !identity.birth)) throw Error("Invalid live source process identity");
+  }
+  for (const [group, pid] of [[session.serviceGroup, session.pid], [session.proxyGroup, session.proxyPid]] as const) {
+    if (group !== undefined && (pid === undefined || !validOwnedProcessGroup(group, pid))) throw Error("Invalid live process-group identity");
+  }
   return session;
 }
 /** The checkout CLI the sandbox runs: the TypeScript core, or the Rust front door in front of it. */
@@ -253,11 +262,20 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
     session.pid = launch(session, [...pacerArgv(session), "serve", "--port", String(session.innerPort)], "serve.log");
+    saveSession(session);
     const serviceIdentity = processIdentity(session.pid);
     if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
     session.serviceIdentity = serviceIdentity;
     saveSession(session);
+    session.serviceGroup = captureOwnedProcessGroup(session.pid, serviceIdentity);
+    saveSession(session);
     session.proxyPid = launch(session, [process.execPath, join(checkout, "scripts/live/proxy.ts"), join(root, "session.json")], "proxy.log");
+    saveSession(session);
+    const proxyIdentity = processIdentity(session.proxyPid);
+    if (!proxyIdentity) throw Error("Could not prove launched sandbox proxy incarnation");
+    session.proxyIdentity = proxyIdentity;
+    saveSession(session);
+    session.proxyGroup = captureOwnedProcessGroup(session.proxyPid, proxyIdentity);
     saveSession(session);
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
@@ -269,8 +287,30 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     }
     throw Error(`Service startup timed out; inspect ${join(root, "logs/serve.log")}`);
   } catch (error) {
-    if (session.proxyPid) stopProcess(session.proxyPid);
-    if (session.pid > 1) stopProcess(session.pid);
+    const failures: unknown[] = [];
+    for (const [name, pid, identity, group] of [
+      ["proxy", session.proxyPid, session.proxyIdentity, session.proxyGroup],
+      ["service", session.pid, session.serviceIdentity, session.serviceGroup],
+    ] as const) {
+      if (!pid || pid <= 1) continue;
+      try {
+        if (group) {
+          await stopOwnedProcessGroup(group);
+          record(session, { kind: "note", text: `Startup cleanup stopped verified ${name} group` });
+        } else {
+          if (!identity || !signalSameProcess(identity, "SIGTERM")) throw Error(`Cannot verify ${name} leader for startup cleanup`);
+          record(session, { kind: "note", text: `Startup cleanup signalled verified leader only (${name}); group ownership unavailable, keeping sandbox` });
+        }
+        saveSession(session);
+      } catch (cleanupError) {
+        failures.push(cleanupError);
+        try {
+          record(session, { kind: "note", text: `${name} startup cleanup failed: ${String(cleanupError)}; keeping sandbox` });
+          saveSession(session);
+        } catch (recordError) { failures.push(recordError); }
+      }
+    }
+    if (failures.length) throw new AggregateError([error, ...failures], `Sandbox startup failed: ${String(error)}; cleanup incomplete, keeping sandbox`);
     throw error;
   }
 }
@@ -279,28 +319,21 @@ export function stopProcess(pid: number): void {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
 }
 export async function down(session: Session, keep = false): Promise<void> {
+  if (session.stopped && !existsSync(session.root)) return;
   // OTA owns its own resource ledger; never remove it through generic sandbox teardown.
   if (existsSync(join(session.root, "ota"))) {
     const { cleanupOta } = await import("./ota");
     await cleanupOta(session.id, { base: dirname(session.root) });
   }
-  // Verify each identity independently so teardown works if either process died.
-  const processes = [
-    { pid: session.proxyPid, port: session.port, proxy: true },
-    { pid: session.pid, port: session.innerPort ?? session.port, proxy: false },
-  ];
-  for (const child of processes) {
-    if (!child.pid) continue;
-    if (await identity(child.port, child.pid, child.proxy)) {
-      stopProcess(child.pid);
-      for (let n = 0; n < 30 && await identity(child.port, child.pid, child.proxy); n++) await Bun.sleep(100);
-      if (await identity(child.port, child.pid, child.proxy)) throw Error("Sandbox process did not stop; keeping sandbox for inspection");
-    } else if (!session.stopped) {
-      try {
-        process.kill(child.pid, 0);
-        throw Error("Sandbox PID is alive but its identity could not be verified; refusing to kill or remove sandbox");
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+  // A closed HTTP listener does not mean history/plugin descendants have stopped.
+  // Group ownership is persisted at launch, before a leader can disappear or be reused.
+  for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup]] as const) {
+    if (!pid) continue;
+    if (!group || !validOwnedProcessGroup(group, pid)) {
+      throw Error("Sandbox has no verified process-group identity; refusing to signal or remove sandbox");
     }
+    await stopOwnedProcessGroup(group);
+    saveSession(session);
   }
   if (Bun.which("tmux")) {
     const target = `pacer-live-${session.id}`;
