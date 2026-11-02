@@ -1624,6 +1624,387 @@
         }
       },
       {
+        "name": "strategy_show",
+        "args": {
+          "name": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"unknown strategy \\\"missing\\\"\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "unknown strategy \"missing\""
+          }
+        }
+      },
+      {
+        "name": "strategy_preview",
+        "args": {
+          "draft": {
+            "from": "missing"
+          }
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"ok\": false,\n \"errors\": [\n  \"unknown strategy \\\"missing\\\"\"\n ],\n \"yaml\": \"\",\n \"summary\": \"\",\n \"ranking\": {\n  \"current\": [],\n  \"draft\": []\n },\n \"routing\": {\n  \"current\": [\n   {\n    \"kinds\": null,\n    \"executors\": [\n     \"claude-code\",\n     \"codex\",\n     \"cursor\"\n    ]\n   }\n  ],\n  \"draft\": []\n }\n}"
+            }
+          ],
+          "structuredContent": {
+            "ok": false,
+            "errors": [
+              "unknown strategy \"missing\""
+            ],
+            "yaml": "",
+            "summary": "",
+            "ranking": {
+              "current": [],
+              "draft": []
+            },
+            "routing": {
+              "current": [
+                {
+                  "kinds": null,
+                  "executors": [
+                    "claude-code",
+                    "codex",
+                    "cursor"
+                  ]
+                }
+              ],
+              "draft": []
+            }
+          }
+        }
+      },
+      {
+        "name": "strategy_use",
+        "args": {
+          "name": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"unknown strategy \\\"missing\\\"\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "unknown strategy \"missing\""
+          }
+        }
+      },
+      {
+        "name": "report_limit",
+        "args": {
+          "provider": "cursor",
+          "until": 1900000000
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"provider\": \"cursor\",\n \"exhausted_until\": 1900000000\n}"
+            }
+          ],
+          "structuredContent": {
+            "provider": "cursor",
+            "exhausted_until": 1900000000
+          }
+        }
+      },
+      {
+        "name": "msg_read",
+        "args": {
+          "ids": [
+            "missing"
+          ]
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"read\": 0\n}"
+            }
+          ],
+          "structuredContent": {
+            "read": 0
+          }
+        }
+      },
+      {
+        "name": "msg_policy",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"config\": {\n  \"defaults\": true,\n  \"rules\": [],\n  \"message\": {\n   \"max_bytes\": 65536\n  },\n  \"tree\": {\n   \"max_turns\": 50\n  },\n  \"liveness\": {\n   \"interval_s\": 60,\n   \"backoff_max_s\": 900,\n   \"max_nudges\": 3,\n   \"nudge_in_modes\": [\n    \"relaxed\",\n    \"normal\"\n   ],\n   \"escalate_after_s\": 900,\n   \"retry_delivery\": true\n  },\n  \"hooks\": {\n   \"stop\": \"block\",\n   \"stop_release_after\": 2\n  },\n  \"grants\": {\n   \"user_started_tasks\": \"on\"\n  },\n  \"keep_worktree_days\": 7\n },\n \"rules\": [\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"to_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"top\",\n   \"relation\": [\n    \"child\",\n    \"top_peer\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"parent\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"sibling\",\n    \"child\"\n   ],\n   \"grant\": \"required\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"external\",\n   \"relation\": [\n    \"child\"\n   ],\n   \"layer\": \"default\"\n  }\n ]\n}"
+            }
+          ],
+          "structuredContent": {
+            "config": {
+              "defaults": true,
+              "rules": [],
+              "message": {
+                "max_bytes": 65536
+              },
+              "tree": {
+                "max_turns": 50
+              },
+              "liveness": {
+                "interval_s": 60,
+                "backoff_max_s": 900,
+                "max_nudges": 3,
+                "nudge_in_modes": [
+                  "relaxed",
+                  "normal"
+                ],
+                "escalate_after_s": 900,
+                "retry_delivery": true
+              },
+              "hooks": {
+                "stop": "block",
+                "stop_release_after": 2
+              },
+              "grants": {
+                "user_started_tasks": "on"
+              },
+              "keep_worktree_days": 7
+            },
+            "rules": [
+              {
+                "effect": "allow",
+                "from_kind": "human",
+                "layer": "default"
+              },
+              {
+                "effect": "allow",
+                "to_kind": "human",
+                "layer": "default"
+              },
+              {
+                "effect": "allow",
+                "from_position": "top",
+                "relation": [
+                  "child",
+                  "top_peer"
+                ],
+                "layer": "default"
+              },
+              {
+                "effect": "allow",
+                "from_position": "child",
+                "relation": [
+                  "parent"
+                ],
+                "layer": "default"
+              },
+              {
+                "effect": "allow",
+                "from_position": "child",
+                "relation": [
+                  "sibling",
+                  "child"
+                ],
+                "grant": "required",
+                "layer": "default"
+              },
+              {
+                "effect": "allow",
+                "from_kind": "external",
+                "relation": [
+                  "child"
+                ],
+                "layer": "default"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "task_status",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "args": {
+          "task_id": "missing",
+          "text": "hello"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "args": {
+          "task_id": "missing",
+          "text": "hello"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "args": {
+          "task_id": "missing",
+          "note": "review"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "args": {
+          "task_id": "missing",
+          "verdict": "accept"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown task missing"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "args": {
+          "task_id": "missing",
+          "expect_rev": 1,
+          "requestId": "retry"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "Unknown managed work"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "args": {
+          "to": "missing",
+          "body": "hello"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "to: Invalid string: must match pattern /^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$/"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_log",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_close",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+            }
+          ]
+        }
+      },
+      {
+        "name": "tree_status",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+            }
+          ]
+        }
+      },
+      {
         "name": "delegate",
         "args": {
           "goal": "g",
@@ -1688,6 +2069,2082 @@
             {
               "type": "text",
               "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid string: must match pattern /^[a-z0-9][a-z0-9-]{0,39}$/ at name"
+            }
+          ]
+        }
+      }
+    ],
+    "schemaFailures": [
+      {
+        "name": "delegate",
+        "field": "title",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "title": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at title"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "request_id",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "request_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at request_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "base",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "base": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at base"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "source",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "source": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"planner\"|\"ui\"|\"cli\" at source"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "goal",
+        "args": {
+          "goal": 42,
+          "repo": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "repo",
+        "args": {
+          "goal": "fixture",
+          "repo": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at repo"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "scope",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "scope": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at scope"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "acceptance": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at acceptance"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_pipefail",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "acceptance_pipefail": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected boolean, received string at acceptance_pipefail"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "acceptance_timeout_min": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received string at acceptance_timeout_min"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "constraints",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "constraints": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at constraints"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "context",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "context": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at context"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "kind",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"boilerplate\"|\"tests\"|\"docs\"|\"rename\"|\"migration\"|\"feature\"|\"debug\"|\"refactor\"|\"performance\"|\"unfamiliar-code\"|\"research\" at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "executor",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "executor": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at executor"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "worktree_base",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "worktree_base": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"default\"|\"head\" at worktree_base"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "worktree",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "worktree": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"current\"|\"new\"|\"auto\" at worktree"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "worktree_reason",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "worktree_reason": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at worktree_reason"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "timeout_min": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received string at timeout_min"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "interactive",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "interactive": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected boolean, received string at interactive"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "group",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "group": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at group"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "messaging": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected object, received boolean at messaging"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "grant",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "grant": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected boolean, received string at grant"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "repo",
+        "args": {
+          "repo": 42,
+          "goal": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received number at repo"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "goal",
+        "args": {
+          "repo": "fixture",
+          "goal": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received number at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "kind",
+        "args": {
+          "repo": "fixture",
+          "goal": "fixture",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received number at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "args": {
+          "repo": "fixture",
+          "goal": "fixture",
+          "requirements": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected object, received boolean at requirements"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "preferences",
+        "args": {
+          "repo": "fixture",
+          "goal": "fixture",
+          "preferences": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected object, received boolean at preferences"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "model",
+        "args": {
+          "repo": "fixture",
+          "goal": "fixture",
+          "model": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received number at model"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "delegationEnforcement",
+        "args": {
+          "repo": "fixture",
+          "goal": "fixture",
+          "delegationEnforcement": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid option: expected one of \"strict\"|\"cooperative\" at delegationEnforcement"
+            }
+          ]
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "field": "event_id",
+        "args": {
+          "event_id": 42,
+          "correct": true
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool guard_feedback: Invalid input: expected string, received number at event_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "field": "correct",
+        "args": {
+          "event_id": "fixture",
+          "correct": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool guard_feedback: Invalid input: expected boolean, received string at correct"
+            }
+          ]
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "field": "note",
+        "args": {
+          "event_id": "fixture",
+          "correct": true,
+          "note": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool guard_feedback: Invalid input: expected string, received number at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_close",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_close: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_log",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_log: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_policy",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_policy: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_policy",
+        "field": "check",
+        "args": {
+          "check": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_policy: Invalid input: expected object, received boolean at check"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "args": {
+          "ids": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Invalid input: expected array, received boolean at ids"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "to",
+        "args": {
+          "to": 42,
+          "body": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "args": {
+          "to": "fixture",
+          "body": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at body"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "kind",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid option: expected one of \"message\"|\"question\"|\"answer\" at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "reply_to",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "reply_to": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at reply_to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "request_id",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "request_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at request_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "reply_to",
+        "args": {
+          "reply_to": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Invalid input: expected string, received number at reply_to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "args": {
+          "timeout_s": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Invalid input: expected number, received string at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "provider",
+        "args": {
+          "provider": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool report_limit: Invalid input: expected string, received number at provider"
+            }
+          ]
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "args": {
+          "provider": "fixture",
+          "until": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool report_limit: Invalid input: expected number, received string at until"
+            }
+          ]
+        }
+      },
+      {
+        "name": "route",
+        "field": "kind",
+        "args": {
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool route: Invalid option: expected one of \"boilerplate\"|\"tests\"|\"docs\"|\"rename\"|\"migration\"|\"feature\"|\"debug\"|\"refactor\"|\"performance\"|\"unfamiliar-code\"|\"research\" at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_preview",
+        "field": "draft",
+        "args": {
+          "draft": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_preview: Invalid input: expected object, received boolean at draft"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "name",
+        "args": {
+          "name": 42,
+          "draft": {},
+          "reason": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received number at name\nInvalid input: expected string, received undefined at draft.from"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "draft",
+        "args": {
+          "name": "fixture",
+          "draft": false,
+          "reason": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected object, received boolean at draft"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "reason",
+        "args": {
+          "name": "fixture",
+          "draft": {},
+          "reason": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at draft.from\nInvalid input: expected string, received number at reason"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "overwrite",
+        "args": {
+          "name": "fixture",
+          "draft": {},
+          "reason": "fixture",
+          "overwrite": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at draft.from\nInvalid input: expected boolean, received string at overwrite"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "activeOk",
+        "args": {
+          "name": "fixture",
+          "draft": {},
+          "reason": "fixture",
+          "activeOk": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at draft.from\nInvalid input: expected boolean, received string at activeOk"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "who",
+        "args": {
+          "name": "fixture",
+          "draft": {},
+          "reason": "fixture",
+          "who": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at draft.from\nInvalid input: expected string, received number at who"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_show",
+        "field": "name",
+        "args": {
+          "name": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_show: Invalid input: expected string, received number at name"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_use",
+        "field": "name",
+        "args": {
+          "name": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_use: Invalid input: expected string, received number at name"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "text": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected string, received number at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "text": "fixture",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "note": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "args": {
+          "task_id": "fixture",
+          "note": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected string, received number at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "note": "fixture",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "verdict": "accept"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "verdict",
+        "args": {
+          "task_id": "fixture",
+          "verdict": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid option: expected one of \"accept\"|\"reject\"|\"send_back\"|\"retry\" at verdict"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "executor",
+        "args": {
+          "task_id": "fixture",
+          "verdict": "accept",
+          "executor": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received number at executor"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "kind",
+        "args": {
+          "task_id": "fixture",
+          "verdict": "accept",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid option: expected one of \"boilerplate\"|\"tests\"|\"docs\"|\"rename\"|\"migration\"|\"feature\"|\"debug\"|\"refactor\"|\"performance\"|\"unfamiliar-code\"|\"research\" at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "note",
+        "args": {
+          "task_id": "fixture",
+          "verdict": "accept",
+          "note": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received number at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "verdict": "accept",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "text": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected string, received number at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "force",
+        "args": {
+          "task_id": "fixture",
+          "text": "fixture",
+          "force": "not a boolean"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected boolean, received string at force"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "text": "fixture",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_status",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_status: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "args": {
+          "task_id": "fixture",
+          "timeout_s": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected number, received string at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "tree_status",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool tree_status: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": "not a number",
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": 42,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": "not a number",
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "feedback": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at feedback"
+            }
+          ]
+        }
+      }
+    ],
+    "missingRequired": [
+      {
+        "name": "delegate",
+        "field": "goal",
+        "args": {
+          "repo": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received undefined at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "repo",
+        "args": {
+          "goal": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received undefined at repo"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "repo",
+        "args": {
+          "goal": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received undefined at repo"
+            }
+          ]
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "goal",
+        "args": {
+          "repo": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected string, received undefined at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "field": "event_id",
+        "args": {
+          "correct": true
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool guard_feedback: Invalid input: expected string, received undefined at event_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "field": "correct",
+        "args": {
+          "event_id": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool guard_feedback: Invalid input: expected boolean, received undefined at correct"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_close",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_close: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_log",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_log: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Invalid input: expected array, received undefined at ids"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "to",
+        "args": {
+          "body": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received undefined at to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "args": {
+          "to": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received undefined at body"
+            }
+          ]
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "provider",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool report_limit: Invalid input: expected string, received undefined at provider"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_preview",
+        "field": "draft",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_preview: Invalid input: expected object, received undefined at draft"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "name",
+        "args": {
+          "draft": {},
+          "reason": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at name\nInvalid input: expected string, received undefined at draft.from"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "draft",
+        "args": {
+          "name": "fixture",
+          "reason": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected object, received undefined at draft"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "field": "reason",
+        "args": {
+          "name": "fixture",
+          "draft": {}
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid input: expected string, received undefined at draft.from\nInvalid input: expected string, received undefined at reason"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_show",
+        "field": "name",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_show: Invalid input: expected string, received undefined at name"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_use",
+        "field": "name",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_use: Invalid input: expected string, received undefined at name"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "task_id",
+        "args": {
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected string, received undefined at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "task_id",
+        "args": {
+          "note": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "args": {
+          "task_id": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected string, received undefined at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "task_id",
+        "args": {
+          "verdict": "accept"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "verdict",
+        "args": {
+          "task_id": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid option: expected one of \"accept\"|\"reject\"|\"send_back\"|\"retry\" at verdict"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "task_id",
+        "args": {
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "text",
+        "args": {
+          "task_id": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected string, received undefined at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_status",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_status: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "tree_status",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool tree_status: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "task_id",
+        "args": {
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received undefined at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "task_id",
+        "args": {
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received undefined at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received undefined at requestId"
             }
           ]
         }
@@ -4413,6 +6870,211 @@
         }
       },
       {
+        "name": "msg_read",
+        "args": {
+          "ids": [
+            "missing"
+          ]
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"read\": 0\n}"
+            }
+          ],
+          "structuredContent": {
+            "read": 0
+          }
+        }
+      },
+      {
+        "name": "task_status",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_stop",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_review",
+        "args": {
+          "task_id": "missing",
+          "accepted": true,
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_retry",
+        "args": {
+          "task_id": "missing",
+          "expect_rev": 1,
+          "requestId": "retry"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_tree",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_events",
+        "args": {
+          "task_id": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "args": {
+          "to": "missing",
+          "body": "hello"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"to: Invalid string: must match pattern /^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\\\d{8}-\\\\d{6}-[0-9a-f]{4})$/\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "to: Invalid string: must match pattern /^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$/"
+          }
+        }
+      },
+      {
+        "name": "msg_log",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"task: Invalid string: must match pattern /^t-\\\\d{8}-\\\\d{6}-[0-9a-f]{4}$/\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+          }
+        }
+      },
+      {
+        "name": "msg_close",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"task: Invalid string: must match pattern /^t-\\\\d{8}-\\\\d{6}-[0-9a-f]{4}$/\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+          }
+        }
+      },
+      {
+        "name": "tree_status",
+        "args": {
+          "task": "missing"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"error\": \"task: Invalid string: must match pattern /^t-\\\\d{8}-\\\\d{6}-[0-9a-f]{4}$/\"\n}"
+            }
+          ],
+          "structuredContent": {
+            "error": "task: Invalid string: must match pattern /^t-\\d{8}-\\d{6}-[0-9a-f]{4}$/"
+          }
+        }
+      },
+      {
         "name": "delegate",
         "args": {
           "goal": "",
@@ -4473,6 +7135,1071 @@
             {
               "type": "text",
               "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Too small: expected array to have >=1 items at ids"
+            }
+          ]
+        }
+      }
+    ],
+    "schemaFailures": [
+      {
+        "name": "delegate",
+        "field": "goal",
+        "args": {
+          "goal": 42,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "requestId",
+        "args": {
+          "goal": "fixture",
+          "requestId": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "title": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at title"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "kind",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "acceptance": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at acceptance"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "acceptance_timeout_min": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received string at acceptance_timeout_min"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "context",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "context": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at context"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "constraints",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "constraints": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at constraints"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "executor",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "executor": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at executor"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_close",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_close: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_log",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_log: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "args": {
+          "ids": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Invalid input: expected array, received boolean at ids"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "to",
+        "args": {
+          "to": 42,
+          "body": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "args": {
+          "to": "fixture",
+          "body": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at body"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "kind",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "kind": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid option: expected one of \"message\"|\"question\"|\"answer\"|\"report\" at kind"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "reply_to",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "reply_to": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at reply_to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "request_id",
+        "args": {
+          "to": "fixture",
+          "body": "fixture",
+          "request_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received number at request_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "reply_to",
+        "args": {
+          "reply_to": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Invalid input: expected string, received number at reply_to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "args": {
+          "timeout_s": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Invalid input: expected number, received string at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "accepted": true,
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "accepted",
+        "args": {
+          "task_id": "fixture",
+          "accepted": "not a boolean",
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected boolean, received string at accepted"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "accepted": true,
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "note",
+        "args": {
+          "task_id": "fixture",
+          "accepted": true,
+          "expect_rev": 1,
+          "note": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received number at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_status",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_status: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "args": {
+          "task_id": "fixture",
+          "timeout_s": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected number, received string at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "tree_status",
+        "field": "task",
+        "args": {
+          "task": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool tree_status: Invalid input: expected string, received number at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": "not a number",
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": 42,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received number at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "args": {
+          "task_id": "fixture",
+          "after": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Invalid input: expected number, received string at after"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "task_id",
+        "args": {
+          "task_id": 42,
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": "not a number",
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "feedback": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received number at feedback"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_tree",
+        "field": "task_id",
+        "args": {
+          "task_id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_tree: Invalid input: expected string, received number at task_id"
+            }
+          ]
+        }
+      }
+    ],
+    "missingRequired": [
+      {
+        "name": "delegate",
+        "field": "goal",
+        "args": {
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received undefined at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "requestId",
+        "args": {
+          "goal": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received undefined at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_close",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_close: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_log",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_log: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Invalid input: expected array, received undefined at ids"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "to",
+        "args": {
+          "body": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received undefined at to"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "args": {
+          "to": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received undefined at body"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "task_id",
+        "args": {
+          "accepted": true,
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "accepted",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected boolean, received undefined at accepted"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "accepted": true
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected number, received undefined at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_status",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_status: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "tree_status",
+        "field": "task",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool tree_status: Invalid input: expected string, received undefined at task"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "task_id",
+        "args": {
+          "expect_rev": 1,
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "requestId": "fixture",
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received undefined at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "text": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected string, received undefined at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "task_id",
+        "args": {
+          "expect_rev": 1,
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received undefined at task_id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "args": {
+          "task_id": "fixture",
+          "requestId": "fixture"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received undefined at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "requestId",
+        "args": {
+          "task_id": "fixture",
+          "expect_rev": 1
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected string, received undefined at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_tree",
+        "field": "task_id",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_tree: Invalid input: expected string, received undefined at task_id"
             }
           ]
         }

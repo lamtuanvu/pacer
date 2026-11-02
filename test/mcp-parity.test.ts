@@ -169,8 +169,41 @@ async function rawValidation(env: Record<string, string>, cases: readonly (typeo
       if (validationError === row.accepted) throw new Error(`Unexpected validation for ${row.name}.${row.field}: ${raw}; ${message}`);
       if (row.accepted) {
         expect(validationError).toBe(false);
-        if (result?.isError) expect(message).toMatch(/unknown task|Unknown managed work|Scoped request failed|forbidden|repo must|not available|not found|Message body is empty|Invalid participant|cannot|[Aa]nswer must contain|Feedback must contain|review request needs|Invalid task|not_allowed|Unknown task|Invalid message|no strategy found|unknown provider|unknown kind|Cannot resolve the parent worktree commit|outside the delegated subtree|requestId: Too big/);
-        else expect(result?.structuredContent).toBeDefined();
+        const scoped = Boolean(env.PACER_WORK_GRANT);
+        const expectedErrors: Record<string, readonly string[]> = scoped ? {
+          delegate: ["Cannot resolve the parent worktree commit for isolated child work", "requestId: Too big: expected string to have <=128 characters"],
+          task_wait: ["Operation is outside the delegated subtree"], task_review: ["Operation is outside the delegated subtree"],
+          task_stop: ["Operation is outside the delegated subtree"], work_answer: ["Operation is outside the delegated subtree"],
+          work_retry: ["Operation is outside the delegated subtree"], work_events: ["Operation is outside the delegated subtree"],
+          msg_send: ["Message body is empty"],
+        } : {
+          delegate: ["repo must be an absolute path or a registered repo key"], task_wait: ["unknown task missing"],
+          task_review: ["unknown task missing"], task_send: ["unknown task missing"],
+          work_answer: ["Unknown managed work", "Answer must contain 1–2000 characters"],
+          work_retry: ["Unknown managed work", "Feedback must contain at most 2000 characters"],
+          task_answer: ["unknown task missing", "answer must contain 1–2000 characters"],
+          task_request_review: ["unknown task missing", "review request needs a note of 1–2000 characters"],
+          msg_send: ["Message body is empty"], report_limit: ['unknown provider "missing"'],
+          dispatch_preview: ["repo must be an absolute path or a registered repo key"],
+        };
+        if (expectedErrors[row.name]) {
+          expect(result?.isError).toBe(true);
+          const detail = (result?.structuredContent as { error?: unknown } | undefined)?.error ?? message;
+          let expected = expectedErrors[row.name][0];
+          if (scoped && row.name === "delegate" && row.field === "requestId") expected = expectedErrors.delegate[1];
+          if (!scoped && "value" in row && typeof row.value === "string") {
+            if (row.name === "work_answer" && row.value.length > 2000) expected = expectedErrors.work_answer[1];
+            if (row.name === "work_retry" && row.value.length > 2000) expected = expectedErrors.work_retry[1];
+            if (row.name === "task_answer" && row.value.length > 2000) expected = expectedErrors.task_answer[1];
+            if (row.name === "task_request_review" && row.value.length > 2000) expected = expectedErrors.task_request_review[1];
+          }
+          expect(detail).toBe(expected);
+        } else {
+          expect(result?.isError ?? false).toBe(false);
+          if (row.name === "msg_read") expect(result?.structuredContent).toEqual({ read: 0 });
+          else if (row.name === "msg_wait") expect(result?.structuredContent).toMatchObject({ messages: [], timedOut: true });
+          else throw new Error(`No expected accepted outcome for ${row.name}`);
+        }
       } else {
         expect(validationError).toBe(true);
         expect(reply.error?.code === -32602 || message.includes("Input validation error")).toBe(true);
@@ -235,6 +268,23 @@ async function capture(mode: "planner" | "grant") {
       { name: "route", args: {} },
       { name: "msg_inbox", args: {} },
       { name: "strategy_list", args: {} },
+      { name: "strategy_show", args: { name: "missing" } },
+      { name: "strategy_preview", args: { draft: { from: "missing" } } },
+      { name: "strategy_use", args: { name: "missing" } },
+      { name: "report_limit", args: { provider: "cursor", until: 1900000000 } },
+      { name: "msg_read", args: { ids: ["missing"] } },
+      { name: "msg_policy", args: {} },
+      { name: "task_status", args: { task_id: "missing" } },
+      { name: "task_stop", args: { task_id: "missing" } },
+      { name: "task_send", args: { task_id: "missing", text: "hello" } },
+      { name: "task_answer", args: { task_id: "missing", text: "hello" } },
+      { name: "task_request_review", args: { task_id: "missing", note: "review" } },
+      { name: "task_review", args: { task_id: "missing", verdict: "accept" } },
+      { name: "work_retry", args: { task_id: "missing", expect_rev: 1, requestId: "retry" } },
+      { name: "msg_send", args: { to: "missing", body: "hello" } },
+      { name: "msg_log", args: { task: "missing" } },
+      { name: "msg_close", args: { task: "missing" } },
+      { name: "tree_status", args: { task: "missing" } },
       { name: "delegate", args: { goal: "g", repo: "relative" } },
       { name: "task_wait", args: { task_id: "task-1", timeout_s: 0 } },
       { name: "work_answer", args: { task_id: "task-1", expect_rev: 1, requestId: "r", text: "" } },
@@ -244,6 +294,17 @@ async function capture(mode: "planner" | "grant") {
       { name: "work_tree", args: { task_id: task.id } },
       { name: "work_events", args: { task_id: task.id } },
       { name: "msg_inbox", args: {} },
+      { name: "msg_read", args: { ids: ["missing"] } },
+      { name: "task_status", args: { task_id: "missing" } },
+      { name: "task_stop", args: { task_id: "missing" } },
+      { name: "task_review", args: { task_id: "missing", accepted: true, expect_rev: 1 } },
+      { name: "work_retry", args: { task_id: "missing", expect_rev: 1, requestId: "retry" } },
+      { name: "work_tree", args: { task_id: "missing" } },
+      { name: "work_events", args: { task_id: "missing" } },
+      { name: "msg_send", args: { to: "missing", body: "hello" } },
+      { name: "msg_log", args: { task: "missing" } },
+      { name: "msg_close", args: { task: "missing" } },
+      { name: "tree_status", args: { task: "missing" } },
       { name: "delegate", args: { goal: "", requestId: "r" } },
       { name: "task_wait", args: { task_id: "task-1", timeout_s: 3001 } },
       { name: "work_answer", args: { task_id: "task-1", expect_rev: 1, requestId: "r", text: "" } },
@@ -257,6 +318,55 @@ async function capture(mode: "planner" | "grant") {
         content: result.content,
         ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
       } });
+    }
+    // Exercise the SDK's argument-validation error envelope for every tool with
+    // an input field, including optional fields. Pick a value of the wrong JSON
+    // type so this remains independent of each field's downstream semantics.
+    const schemaFailures = [];
+    const missingRequired = [];
+    for (const tool of tools) {
+      const properties = (tool.inputSchema as { properties?: Record<string, any> }).properties ?? {};
+      const required = (tool.inputSchema as { required?: string[] }).required ?? [];
+      for (const omitted of required) {
+        const args = Object.fromEntries(required.filter(key => key !== omitted).map(key => {
+          const prop = properties[key];
+          const type = prop.type ?? prop.anyOf?.find((item: any) => item.type !== "null")?.type;
+          return [key, type === "string" ? (prop.enum?.[0] ?? "fixture") : type === "boolean" ? true
+            : type === "integer" || type === "number" ? Math.max(prop.minimum ?? 1, 1)
+            : type === "array" ? ["fixture"] : {}];
+        }));
+        const result = await client.callTool({ name: tool.name, arguments: args }) as ToolResult;
+        expect(result.isError).toBe(true);
+        expect((result.content as Array<{ type: string; text?: string }>).some(part =>
+          part.type === "text" && part.text?.includes("Input validation error") && part.text.includes(omitted))).toBe(true);
+        missingRequired.push({ name: tool.name, field: omitted, args, result: { isError: result.isError, content: result.content } });
+      }
+      for (const [field, schema] of Object.entries(properties)) {
+        const type = schema.type ?? schema.anyOf?.find((item: any) => item.type !== "null")?.type;
+        const invalid = type === "string" ? 42 : type === "number" || type === "integer" ? "not a number"
+          : type === "boolean" ? "not a boolean" : type === "array" ? false : type === "object" ? false : undefined;
+        // delegate.dispatch accepts arbitrary JSON, so it has no wrong JSON type.
+        if (invalid === undefined) {
+          expect(`${tool.name}.${field}`).toBe("delegate.dispatch");
+          continue;
+        }
+        // A missing required field could mask the field under test; start from a
+        // valid exemplar where available, then replace precisely one field.
+        const args = Object.fromEntries(Object.entries(properties).filter(([key]) =>
+          ((tool.inputSchema as { required?: string[] }).required ?? []).includes(key)).map(([key, prop]) => {
+          const t = prop.type ?? prop.anyOf?.find((item: any) => item.type !== "null")?.type;
+          return [key, t === "string" ? (prop.enum?.[0] ?? "fixture") : t === "boolean" ? true
+            : t === "integer" || t === "number" ? Math.max(prop.minimum ?? 1, 1)
+            : t === "array" ? ["fixture"] : {}];
+        }));
+        args[field] = invalid;
+        const result = await client.callTool({ name: tool.name, arguments: args }) as ToolResult;
+        expect(result.isError).toBe(true);
+        const content = result.content as Array<{ type: string; text?: string }>;
+        expect(content.some(part => part.type === "text" && part.text?.includes("Input validation error")
+          && part.text.includes(field))).toBe(true);
+        schemaFailures.push({ name: tool.name, field, args, result: { isError: result.isError, content: result.content } });
+      }
     }
     const validation = await rawValidation(env, validationCases.filter(row =>
       mode === "planner" ? !("grantOnly" in row) && ["task_send", "task_answer", "task_request_review", "task_review", "task_wait", "work_answer", "work_retry", "msg_wait", "report_limit", "msg_send", "msg_read", "delegate", "dispatch_preview"].includes(row.name) && row.field !== "requestId"
@@ -285,7 +395,7 @@ async function capture(mode: "planner" | "grant") {
       return value;
     };
     const normalizedResults = results.map(row => normalize(row));
-    return { tools, results: normalizedResults, validation: normalize(validation) };
+    return { tools, results: normalizedResults, schemaFailures: normalize(schemaFailures), missingRequired: normalize(missingRequired), validation: normalize(validation) };
   } finally {
     await client.close();
     await transport.close();
@@ -300,4 +410,4 @@ test("TypeScript planner and grant MCP stdio tool contracts and results match ca
     writeFileSync(goldenPath, JSON.stringify(observed, null, 2) + "\n");
   }
   expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
-}, 30_000);
+}, 90_000);
