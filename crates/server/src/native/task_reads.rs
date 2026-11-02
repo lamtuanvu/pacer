@@ -300,8 +300,18 @@ fn read_from(file: Option<&Path>, offset: u64) -> Result<(String, u64), CoreErro
         }
         Err(error) => return Err(CoreError::new(Code::Internal, error.to_string())),
     };
-    file.seek(SeekFrom::Start(offset))
-        .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+    if let Err(error) = file.seek(SeekFrom::Start(offset)) {
+        // Some filesystems reject seeks beyond their maximum file size.
+        // A regular file already shorter than the offset has no bytes there.
+        if error.kind() == std::io::ErrorKind::InvalidInput
+            && file
+                .metadata()
+                .is_ok_and(|m| m.is_file() && offset >= m.len())
+        {
+            return Ok((String::new(), offset));
+        }
+        return Err(CoreError::new(Code::Internal, error.to_string()));
+    }
     let mut bytes = vec![0; 256 * 1024];
     let n = file
         .read(&mut bytes)

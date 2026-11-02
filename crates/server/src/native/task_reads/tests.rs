@@ -180,6 +180,29 @@ async fn task_log_reads_byte_offsets_caps_and_reports_source() {
 }
 
 #[tokio::test]
+async fn task_log_preserves_offsets_at_and_beyond_end_of_both_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir);
+    let id = "t-20261101-184223-ea3b";
+    let run = dir.path().join("runs/test");
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("stdout"), "out").unwrap();
+    fs::write(run.join("stderr"), "err").unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    store.insert(&json!({"id":id,"rev":1,"state":"running","createdAt":1000,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}}), 1000.0).unwrap();
+
+    for offset in [3_u64, 4, 9_007_199_254_740_991] {
+        let result = task_log(&c, json!({"id":id,"stdout":offset,"stderr":offset}))
+            .await
+            .unwrap();
+        assert_eq!(result["stdout"], "");
+        assert_eq!(result["stderr"], "");
+        assert_eq!(result["next"]["stdout"], offset);
+        assert_eq!(result["next"]["stderr"], offset);
+    }
+}
+
+#[tokio::test]
 async fn task_log_accepts_integral_json_offsets() {
     let dir = tempfile::tempdir().unwrap();
     let c = ctx(&dir);

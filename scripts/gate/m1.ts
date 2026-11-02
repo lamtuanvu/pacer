@@ -22,11 +22,22 @@ export function validateM1Artifacts(dir: string): { version: string; front: stri
 }
 
 export function validateNativeRegistry(source: string): void {
-  const testOps = /#\[cfg\(feature = "test-ops"\)\]\s*static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/.exec(source);
-  const productionOps = /#\[cfg\(not\(feature = "test-ops"\)\)\]\s*static OPS: &\[NativeOp\] = &\[\];/.test(source);
-  if (!testOps || !productionOps) throw Error("Cannot verify feature-gated native registry");
-  const names = [...testOps[1].matchAll(/name:\s*"([^"]+)"/g)].map(match => match[1]);
-  if (names.length !== 2 || !names.includes("test.echo") || !names.includes("_debug.native")) {
+  const registries = [...source.matchAll(/static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/g)];
+  if (registries.length !== 1) throw Error("Cannot verify feature-gated native registry");
+  const body = registries[0][1];
+  const entry = /\s*(#\[cfg\(feature = "test-ops"\)\]\s*)?NativeOp\s*\{\s*name:\s*"([^"]+)"\s*,\s*call:\s*[\w:]+\s*,\s*\}\s*,/gy;
+  const testNames: string[] = [];
+  let offset = 0;
+  while (offset < body.length && body.slice(offset).trim()) {
+    entry.lastIndex = offset;
+    const match = entry.exec(body);
+    if (!match) throw Error("Cannot verify feature-gated native registry");
+    const [, feature, name] = match;
+    if (feature) testNames.push(name);
+    else if (name === "test.echo" || name === "_debug.native") throw Error("Cannot verify feature-gated native registry");
+    offset = entry.lastIndex;
+  }
+  if (testNames.length !== 2 || !testNames.includes("test.echo") || !testNames.includes("_debug.native")) {
     throw Error("Native test operation coverage changed");
   }
 }

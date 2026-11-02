@@ -8,8 +8,14 @@ import { validateM1Artifacts, validateNativeRegistry } from "../scripts/gate/m1"
 test("M1 gate requires test operations to remain feature-gated", () => {
   const source = readFileSync(join(import.meta.dir, "../crates/server/src/native.rs"), "utf8");
   expect(() => validateNativeRegistry(source)).not.toThrow();
-  expect(() => validateNativeRegistry(source.replace('#[cfg(not(feature = "test-ops"))]', '#[cfg(feature = "test-ops")]'))).toThrow("feature-gated native registry");
+  for (const name of ["test.echo", "_debug.native"]) {
+    const entry = `#[cfg(feature = "test-ops")]\n    NativeOp {\n        name: "${name}"`;
+    expect(source).toContain(entry);
+    expect(() => validateNativeRegistry(source.replace(entry, entry.replace('#[cfg(feature = "test-ops")]\n    ', "")))).toThrow("feature-gated native registry");
+  }
   expect(() => validateNativeRegistry(source.replace('name: "test.echo"', 'name: "different.echo"'))).toThrow("coverage changed");
+  expect(() => validateNativeRegistry(source.replace('name: "activity.list"', 'name: "test.echo"'))).toThrow("feature-gated native registry");
+  expect(() => validateNativeRegistry(source.replace('static OPS: &[NativeOp] = &[', 'static OPS: &[NativeOp] = &[\n    unknown_entry(),'))).toThrow("feature-gated native registry");
 });
 
 test("M1 gate requires the exact paired host release bytes", () => {

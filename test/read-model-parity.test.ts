@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liveSnapshot, liveV2Snapshot, eventsSince } from "../src/api/events";
 import { handleV2 } from "../src/api/http";
@@ -145,7 +145,8 @@ test("outbox conversion retains non-discovery attention, notify, and config for 
 const golden = join(import.meta.dir, "fixtures", "read-model", "ts-golden.json");
 const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   let json = JSON.stringify(value);
-  json = json.replaceAll(home, "$HOME");
+  const homes = [...new Set([home, realpathSync(home)])].sort((a, b) => b.length - a.length);
+  for (const path of homes) json = json.replaceAll(path, "$HOME");
   json = json.replaceAll(home.split("/").at(-1)!, "FIXTURE_HOME");
   json = json.replace(/local:[0-9a-f]{12}/g, "local:FIXTURE");
   ids.forEach((id, i) => { json = json.replaceAll(id, `TASK_${i + 1}`); });
@@ -160,6 +161,15 @@ const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   }
   return parsed;
 };
+
+test("golden normalization replaces symlinked and canonical home paths", () => {
+  const ctx = fakeCtx();
+  const alias = join(ctx.home, "alias");
+  symlinkSync(ctx.home, alias);
+  expect(normalize([join(alias, "file"), join(realpathSync(alias), "file")], alias, [])).toEqual([
+    "$HOME/file", "$HOME/file",
+  ]);
+});
 
 const status = async (ctx: ReturnType<typeof fakeCtx>) => ({ generatedAt: ctx.now, strategy: "default", planner: "codex", mode: "normal", disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as never;
 
