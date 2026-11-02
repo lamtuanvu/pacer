@@ -1,0 +1,26 @@
+{
+  "numbers": [
+    { "json": "1.0", "health": true, "cache": true },
+    { "json": "1e2", "health": true, "cache": true },
+    { "json": "1.5", "health": false, "cache": true },
+    { "json": "0", "health": false, "cache": true },
+    { "json": "-1", "health": false, "cache": true },
+    { "json": "9007199254740993", "health": true, "cache": true },
+    { "json": "1.0000000000000001", "health": true, "cache": true },
+    { "json": "1.7976931348623157e308", "health": true, "cache": true },
+    { "json": "1e309", "health": false, "cache": false },
+    { "json": "-1e309", "health": false, "cache": false },
+    { "json": "1e-400", "health": false, "cache": true },
+    { "json": "\"1\"", "health": false, "cache": false },
+    { "json": "null", "health": false, "cache": false },
+    { "json": "true", "health": false, "cache": false },
+    { "json": "[]", "health": false, "cache": false },
+    { "json": "{}", "health": false, "cache": false }
+  ],
+  "plist": [
+    { "character": "a", "units": 262144, "accepted": true },
+    { "character": "a", "units": 262145, "accepted": false },
+    { "character": "😀", "units": 262144, "accepted": true },
+    { "character": "😀", "units": 262145, "accepted": false }
+  ]
+}
