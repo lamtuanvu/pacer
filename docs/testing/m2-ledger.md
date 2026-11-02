@@ -120,17 +120,18 @@ unchanged.
 
 Run `cargo test -p pacer-plugin-capabilities -p pacer-plugin-host -p pacer-plugin-runtime -p pacer-plugin-wire -p pacer-js-json -p pacer-bun-glob -p pacer-store --locked` for native
 effects and adversarial fixtures. The script freshness check is
-`bun run test test/plugins-native-fixed-scripts.test.ts`. A live front-door status
-and plugin-list smoke check exercises the authoritative TypeScript path; it does
-not establish native executor or desktop integration. Report those unavailable
+`bun run test test/plugins-native-fixed-scripts.test.ts`. The earlier pre-P4c
+front-door status and plugin-list smoke check exercised the authoritative
+TypeScript path; it did not establish native executor or desktop integration.
+The current plugin-list HTTP route is the native P4c read listed above. Report those unavailable
 native surfaces as UNVERIFIED until cutover. See the runtime README for the
 coverage seams and crate-size split boundary.
 
 P4b slice 5 also composes native Orca preparation/account/MCP/launch policy and
 stopped-lane/group cleanup. The lower-layer `pacer-plugin-wire` keeps bounded
 payload staging and lossless UTF-16 JSON delivery below runtime ownership; use
-the lossless broker path when connecting Orca RPC. Native registration remains
-absent, and the TS host remains authoritative. See
+the lossless broker path when connecting Orca RPC. Native registration of these
+shadow effects remains absent, and the TS host remains authoritative. See
 [ADR 0019](../decisions/0019-native-plugin-runtime-ownership.md).
 
 Lossless task JSON is shared with the existing store rather than a second native

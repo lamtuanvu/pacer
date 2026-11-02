@@ -1,11 +1,12 @@
 # ADR 0020 — Native plugin operations crate
 
-Status: proposed with PR #618.
+Status: accepted via PR #618.
 
 The native plugin HTTP read slice adds settings reads and JSON
 compatibility to a process host that has also grown on main.
-Keeping the read domain separate avoids further growth in the process host,
-which is already above CRATE-1's 8,000-line warning threshold.
+Keeping the read domain separate avoids further growth in the process host.
+At the time of this read-operation split, that host was already above CRATE-1's
+8,000-line warning threshold.
 
 `pacer-plugin-ops` owns four read operations (`plugin.list`, `plugin.doctor`,
 `plugin.ui.list`, `plugin.settings.get`), settings reads
@@ -19,9 +20,12 @@ continues to own process lifecycle, capabilities, manifest types and grants; it
 never depends on the operations crate. No transport, wire schema or process
 ownership changes are introduced by this split.
 
-The remaining host is above the 8,000-line warning threshold, below the hard
-limit. Its native capability brokers are the next split seam as M2 ports acquire
-their callers. The server is also above the warning threshold; its native desktop
+At that point, the remaining host was above the 8,000-line warning threshold
+and below the hard limit. Its native capability brokers were the next split seam
+as M2 ports acquired their callers. The later native-ownership split separates
+pinned capabilities and task attempts while retaining registry and admission in
+the host; see [ADR 0019](0019-native-plugin-runtime-ownership.md) and that change's
+separate size and timing evidence. The server is also above the warning threshold; its native desktop
 ownership and update lifecycle modules are the next seam, separate from its
 public listener and forwarding code. Neither needs to be moved into this plugin
 slice to remain below 12,000 lines. PR evidence records exact sizes and CRATE-9
