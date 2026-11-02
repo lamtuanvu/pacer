@@ -7,6 +7,7 @@ pub mod framing;
 mod json_number;
 pub mod masking;
 pub mod offset;
+pub mod operations;
 pub mod recording;
 pub mod session_args;
 pub mod takeover;
