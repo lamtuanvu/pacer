@@ -38,5 +38,31 @@ pub(crate) fn number_text(value: &Number) -> String {
     if number.fract() == 0.0 && number.abs() < 1e21 {
         return number.to_string();
     }
-    value.to_string()
+    let text = value.to_string();
+    let Some((mantissa, exponent)) = text.split_once('e') else {
+        return text;
+    };
+    let Ok(exponent) = exponent.parse::<i32>() else {
+        return text;
+    };
+    if (-6..21).contains(&exponent) {
+        let (sign, mantissa) = mantissa
+            .strip_prefix('-')
+            .map_or(("", mantissa), |v| ("-", v));
+        let digits = mantissa.replace('.', "");
+        let point = 1 + exponent;
+        if point <= 0 {
+            return format!("{sign}0.{}{digits}", "0".repeat((-point) as usize));
+        }
+        let point = point as usize;
+        if point >= digits.len() {
+            return format!("{sign}{digits}{}", "0".repeat(point - digits.len()));
+        }
+        return format!("{sign}{}.{}", &digits[..point], &digits[point..]);
+    }
+    if exponent >= 0 {
+        format!("{mantissa}e+{exponent}")
+    } else {
+        format!("{mantissa}e{exponent}")
+    }
 }

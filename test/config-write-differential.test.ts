@@ -427,3 +427,38 @@ test("named strategy save normalizes raw JSON integral decimals in YAML", () => 
       .toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
   }
 });
+
+test("numeric draft fields preserve saved YAML bytes across runtimes", () => {
+  const binary = configBinary();
+  // Draft paths permit dispatch as a whole; its array members must be replaced together.
+  const fields: [string, (value: unknown) => Record<string, unknown>][] = [
+    ...["planner_reserve", "planner_reserve_headroom", "ahead_threshold", "behind_threshold"].map(key => [`pacing.${key}`, (value: unknown) => ({ [`pacing.${key}`]: value })] as [string, (value: unknown) => Record<string, unknown>]),
+    ...["timeoutMs", "reservePct", "comfortablePct"].map(key => [`dispatch.${key}`, (value: unknown) => ({ dispatch: { [key]: value } })] as [string, (value: unknown) => Record<string, unknown>]),
+    ...["minSamples", "maxAgeDays"].map(key => [`dispatch.learning.${key}`, (value: unknown) => ({ dispatch: { learning: { [key]: value } } })] as [string, (value: unknown) => Record<string, unknown>]),
+    ["providers.codex.budget.weekly_tokens", value => ({ "providers.codex.budget.weekly_tokens": value })],
+    ["providers.codex.cooldown", value => ({ "providers.codex.cooldown": value })],
+    ["dispatch.steps.require.context", value => ({ dispatch: { steps: [{ id: "step", require: { context: value } }] } })],
+    ...["timeout_ms", "bench.timeout_ms", "adapters.ollama.max_tokens", "adapters.jev.usd_per_mtok_in", "adapters.jev.usd_per_mtok_out", "decisions.difficulty.min_confidence", "decisions.difficulty.max_for_cheap"].map(key => [`classifier.${key}`, (value: unknown) => ({ [`classifier.${key}`]: value })] as [string, (value: unknown) => Record<string, unknown>]),
+  ];
+  const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", "-4.3167578921162367e-17", '"1"', "null"];
+  let numericSeed = 0x39abc123;
+  for (let i = 0; i < 64; i++) {
+    numericSeed ^= numericSeed << 13; numericSeed ^= numericSeed >>> 17; numericSeed ^= numericSeed << 5;
+    literals.push(String((numericSeed >>> 0) / 0x100000000 * 10 ** ((i % 31) - 20)));
+  }
+  for (const [label, makeSet] of fields) for (const literal of literals) {
+    const tsHome = home(), rsHome = home(), ctx = fakeCtx({ pacerHome: tsHome });
+    const set = makeSet("__NUMBER__");
+    const rawSet = JSON.stringify(set).replace('"__NUMBER__"', literal);
+    const draft = { from: "default", set: JSON.parse(rawSet) } as strategy.Draft;
+    let ts: unknown;
+    try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
+    catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const raw = `{"op":"strategy.save","home":${JSON.stringify(rsHome)},"name":"review","draft":{"from":"default","set":${rawSet}},"reason":"approved","nowIso":${JSON.stringify(new Date(ctx.now * 1000).toISOString())}}\n`;
+    const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
+    try {
+      expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+      if ((ts as {ok: boolean}).ok) expect(readFileSync(join(rsHome, "strategies/review.yaml"))).toEqual(readFileSync(join(tsHome, "strategies/review.yaml")));
+    } catch (error) { throw new Error(`${label}=${literal}: ${error}`); }
+  }
+}, 60_000);
