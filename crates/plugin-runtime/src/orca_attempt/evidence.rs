@@ -80,7 +80,7 @@ pub(super) fn detect_limit(
     matches(
         r"(?i-u:rate[ _-]?limit|usage limit|quota (?:exceeded|exhausted|reached)|too many requests|\b429\b|limit (?:reached|exceeded)|out of (?:credits|quota)|insufficient (?:quota|credits|balance))",
         &text,
-    ) || (provider.split('@').next() == Some("claude-code")
+    ) || (super::runner::parse_runner_id(provider).map_or(provider, |r| r.agent) == "claude-code"
         && matches(
             r"(?i-u:you've hit your [\w-]+ limit)",
             &text.replace('’', "'"),

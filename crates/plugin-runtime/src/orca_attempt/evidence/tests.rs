@@ -4,7 +4,18 @@ use std::process::Command;
 #[test]
 fn launch_and_limit_classification_match_the_ts_reference() {
     let mut cases = Vec::new();
-    for provider in ["codex", "claude-code", "claude-code@box"] {
+    for provider in [
+        "codex",
+        "claude-code",
+        "claude-code@box",
+        "claude-code#work",
+        "claude-code#work@local",
+        "claude-code#work@box",
+        "CLAUDE-code",
+        "claude-code@box@extra",
+        "claude-code\n",
+        "unknown#work",
+    ] {
         for code in [0, 1, 126, 127] {
             for timed in [true, false] {
                 for durable in [None, Some(true), Some(false)] {
@@ -28,12 +39,22 @@ fn launch_and_limit_classification_match_the_ts_reference() {
             }
         }
     }
-    let script = "const {brokenReason}=await import('./src/exec/broken.ts');const {detectLimit}=await import('./src/exec/limits.ts');console.log(JSON.stringify(JSON.parse(Bun.argv.at(-1)).map(c=>{const e={code:c.code,timedOut:c.timed,stderr:c.text,stdout:''};return [brokenReason(e,1,c.durable),detectLimit(c.provider,e)]})));";
+    let script = "const {brokenReason}=await import('./src/exec/broken.ts');const {detectLimit}=await import('./src/exec/limits.ts');console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()).map(c=>{const e={code:c.code,timedOut:c.timed,stderr:c.text,stdout:''};return [brokenReason(e,1,c.durable),detectLimit(c.provider,e)]})));";
     let result = Command::new("bun")
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .args(["-e", script, &json!(cases).to_string()])
-        .output()
+        .args(["-e", script])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
+    let mut child = result;
+    std::io::Write::write_all(
+        &mut child.stdin.take().unwrap(),
+        json!(cases).to_string().as_bytes(),
+    )
+    .unwrap();
+    let result = child.wait_with_output().unwrap();
     assert!(
         result.status.success(),
         "{}",

@@ -138,3 +138,18 @@ Lossless task JSON is shared with the existing store rather than a second native
 state format. Concrete tests cover clipped questions through settlement, SQLite
 reopening and JSON write-through. The existing native `task.log` can read those
 records; its live harness evidence is separate from unregistered shadow effects.
+
+## Current M2 runtime ownership follow-up
+
+The Orca text-parity correction keeps the runner/account resolver, wait text,
+parameter validation and exact default-folder record with their private attempt
+owner. This revision measures `pacer-plugin-runtime` at **8,043 LOC**, above the
+CRATE-1 warning. Schedule the **Orca attempt/session ownership versus direct/remote
+run and transfer ownership** split within M2; the 12,000-line hard limit is
+unchanged. Parallel direct-task edits forecast 8,136 combined lines, pending an
+actual integration measurement. See [ADR 0019](../decisions/0019-native-plugin-runtime-ownership.md).
+
+These shadow paths remain unserved. Native client validation stays UNVERIFIED
+under the scoped library exception until cutover. Scalar parameter length parity
+does not close the separate raw-surrogate request-carrier gap, and these text
+changes do not certify journal, process-liveness or recovery parity.

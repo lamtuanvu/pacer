@@ -9,7 +9,13 @@ use std::{
 };
 const ID: &str = "t-20261102-175253-93d8";
 fn fixture(scenario: &str) -> (std::path::PathBuf, OrcaAttempt) {
-    let root = std::env::temp_dir().join(format!("pacer-orca-attempt-{}", uuid::Uuid::new_v4()));
+    fixture_with_prompt(scenario, "Do the task")
+}
+fn fixture_with_prompt(scenario: &str, prompt: &str) -> (std::path::PathBuf, OrcaAttempt) {
+    let root = std::env::temp_dir().join(format!(
+        "-pacer-orca-attempt-λ space-{}",
+        uuid::Uuid::new_v4()
+    ));
     fs::create_dir(&root).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let root = fs::canonicalize(root).unwrap();
@@ -24,7 +30,8 @@ args=sys.argv[1:]
 home=os.environ['FIXTURE_HOME'];scenario=os.environ['SCENARIO']
 with open(home+'/calls.jsonl','a') as f: f.write(json.dumps(args)+'\n')
 if args[0]=='status': result={'runtime':{'state':'ready','reachable':True}}
-elif args[:2]==['repo','list']: result={'repos':[{'id':'repo','path':home+'/repo'}]}
+elif args[:2]==['repo','list']: result={'repos':[] if os.path.exists(home+'/unregistered') else [{'id':'repo','path':home+'/repo'}]}
+elif args[:2]==['repo','add']: result={'repo':{'id':'repo','path':home+'/repo'}}
 elif args[:2]==['orchestration','run-create']:
  assert '--from' in args
  result={'run':{'id':'run'}}
@@ -48,6 +55,7 @@ elif args[:2]==['terminal','list']: result={'terminals':[],'truncated':False}
 elif args[:2]==['terminal','create']: result={'terminal':{'handle':'coordinator' if 'pacer coordinator' in args else 'agent-terminal','incarnationId':'first'}}
 elif args[:2]==['terminal','wait']: result={'wait':{'satisfied':True}}
 elif args[:2]==['terminal','close']: result={'close':{'handle':'foreign' if scenario=='unclosed' else 'agent-terminal','ptyKilled':True}}
+elif args[:2]==['terminal','show'] and os.path.exists(home+'/wait-case.json'): result={'terminal':{'preview':json.load(open(home+'/wait-case.json'))['preview'],'handle':'agent-terminal','incarnationId':'first','connected':True,'writable':True,'agentIdentity':'codex'}}
 elif args[:2]==['terminal','show']: result={'terminal':{'handle':'agent-terminal','incarnationId':'first','connected':True,'writable':True,'agentIdentity':'codex'}}
 elif args[:2]==['orchestration','worker-start']:
  state=json.load(open(home+'/orca.json'))
@@ -58,11 +66,16 @@ elif args[:2]==['orchestration','worker-start']:
   print(json.dumps({'ok':False,'error':{'code':'task_not_startable','message':'refused'}}));sys.exit(0)
  result={'dispatchId':'dispatch-owned','state':'failed' if scenario=='failed-launch' else 'ready','failedStage':'agent_launch' if scenario=='failed-launch' else None,'lastError':'launch failed' if scenario=='failed-launch' else None}
 elif args[:2]==['orchestration','reply']: result={}
+elif args[:2]==['orchestration','check'] and os.path.exists(home+'/wait-case.json'): result={'messages':[]}
 elif args[:2]==['orchestration','check'] and scenario=='question-utf16': result={'messages':[{'id':'question','type':'question','subject':'question','body':'x'*999+'😀','payload':json.dumps({'dispatchId':'dispatch-owned'})}]}
 elif args[:2]==['orchestration','check']: result={'messages':[{'id':'done-1','type':'worker_done','subject':('😀'+'x'*31999) if scenario=='utf16' else 'finished','body':'verified','payload':json.dumps({'dispatchId':'dispatch-owned','outcome':'succeeded','filesModified':[]})}]}
 elif args[:2]==['orchestration','worker-list']:
+ if os.path.exists(home+'/lookup-error.json'):
+  print(json.dumps({'ok':False,'error':json.load(open(home+'/lookup-error.json'))}));sys.exit(0)
  result={'workers':[{'dispatchId':'dispatch-owned','agentTerminalHandle':'agent-terminal','workerState':'ready'}] if scenario=='lost-found' else [],'scope':{'run':'run'}}
  if scenario!='lost-incomplete': result['page']={'hasMore':False}
+elif args[:2]==['orchestration','worker-show'] and os.path.exists(home+'/wait-case.json'): result={'worker':{'state':'failed','lastError':'fixture stopped'}}
+elif args[:2]==['orchestration','worker-read'] and os.path.exists(home+'/wait-case.json'): result={'terminal':{'tail':json.load(open(home+'/wait-case.json'))['lines']}}
 elif args[:2]==['orchestration','worker-read']: result={'terminal':{'tail':['usage limit']}}
 elif args[:2]==['orchestration','worker-release']: result={'dispatchId':'dispatch-owned','state':'succeeded'}
 elif args[:2]==['orchestration','worker-stop']: result={'dispatchId':'dispatch-owned','state':'stopped'}
@@ -87,7 +100,7 @@ print(json.dumps({'ok':True,'result':result}))
             path: repo.to_str().unwrap().into(),
         },
         notes: vec![],
-        prompt: "Do the task".into(),
+        prompt: prompt.into(),
         launch: vec!["codex".into(), "--unattended".into()],
         account_env: HashMap::new(),
     };
@@ -298,6 +311,28 @@ fn git_fixture(root: &std::path::Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().into()
 }
 fn policy_fixture(root: &std::path::Path, group: bool) -> OrcaAttempt {
+    policy_with_strategy(
+        root,
+        group,
+        json!({"runners":{"codex":{"account":"main","agent":"codex"}},"accounts":{"main":{"name":"main","kind":"codex","source":"default"}}}),
+    )
+}
+fn policy_with_strategy(root: &std::path::Path, group: bool, strategy: Value) -> OrcaAttempt {
+    policy_with_source(
+        root,
+        group,
+        strategy,
+        "codex",
+        pacer_plugin_host::orca_attempt::OrcaStrategySource::Loaded,
+    )
+}
+fn policy_with_source(
+    root: &std::path::Path,
+    group: bool,
+    strategy: Value,
+    id: &str,
+    source: pacer_plugin_host::orca_attempt::OrcaStrategySource,
+) -> OrcaAttempt {
     use pacer_plugin_host::orca_policy::{LoginEnvironment, OrcaPolicy};
     git_fixture(root, &["init", "-q"]);
     git_fixture(
@@ -324,13 +359,13 @@ fn policy_fixture(root: &std::path::Path, group: bool) -> OrcaAttempt {
             }
         })
         .unwrap();
-    OrcaAttempt::from_policy(
+    OrcaAttempt::from_policy_with_strategy_source(
         root,
         ID,
         OrcaPolicy {
-            provider: json!({"id":"codex","model":"selected"}),
-            execution: json!({"worktree":"child-of-current"}),
-            strategy: json!({}),
+            provider: json!({"id":id,"model":"selected"}),
+            execution: json!({"worktree":"child-of-current","registerRepos":true}),
+            strategy,
             user_home: root.into(),
             login: LoginEnvironment {
                 env: HashMap::from([(
@@ -341,6 +376,7 @@ fn policy_fixture(root: &std::path::Path, group: bool) -> OrcaAttempt {
                 login_shell: true,
             },
         },
+        source,
         root.join("bin/orca").to_str().unwrap(),
         HashMap::from([
             ("PATH".into(), std::env::var("PATH").unwrap()),
@@ -366,6 +402,7 @@ async fn native_policy_composes_coordinator_placement_prompt_launch_and_private_
         .map(|s| serde_json::from_str(s).unwrap())
         .collect();
     assert!(calls.iter().any(|a| a[0] == "repo" && a[1] == "list"));
+    assert!(!calls.iter().any(|a| a[0] == "repo" && a[1] == "add"));
     assert!(
         calls
             .iter()
@@ -629,5 +666,259 @@ async fn unsafe_dispatch_ids_never_bind_or_adopt_a_worker() {
             assert!(!root.join("orca/inbox").exists());
             fs::remove_dir_all(root).unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn loaded_strategy_without_runner_refuses_before_agent_terminal() {
+    let (root, old) = fixture("policy");
+    drop(old);
+    let mut attempt = policy_with_strategy(&root, false, json!({}));
+    attempt.invoke("liveAnswer", json!({})).await.unwrap();
+    attempt.invoke("prepare", json!({})).await.unwrap();
+    attempt.invoke("place", json!({})).await.unwrap();
+    let result = attempt.invoke("terminal", json!({})).await;
+    assert!(
+        result.is_err(),
+        "unconfigured loaded strategy launched: {result:?}"
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("runner not configured: codex")
+    );
+    let calls = fs::read_to_string(root.join("calls.jsonl")).unwrap();
+    assert!(!calls.lines().any(|line| {
+        let a: Vec<String> = serde_json::from_str(line).unwrap();
+        a.starts_with(&["terminal".into(), "create".into()]) && a.contains(&"--command".into())
+    }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn repo_registration_uses_the_actual_path_option_vector() {
+    let (root, old) = fixture("policy");
+    drop(old);
+    fs::write(root.join("unregistered"), "").unwrap();
+    let mut attempt = policy_fixture(&root, false);
+    attempt.invoke("liveAnswer", json!({})).await.unwrap();
+    assert_eq!(
+        attempt.invoke("prepare", json!({})).await.unwrap()["ok"],
+        true
+    );
+    let calls: Vec<Value> = fs::read_to_string(root.join("calls.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    let add = calls
+        .iter()
+        .find(|a| a[0] == "repo" && a[1] == "add")
+        .unwrap();
+    assert_eq!(
+        add,
+        &json!(["repo", "add", "--path", root.join("repo"), "--json"])
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+#[tokio::test]
+async fn lookup_wire_reason_matches_actual_typescript_trim_and_utf16_slice() {
+    let cases = json!([
+        {"code":"","message":""},
+        {"code":" ","message":" \u{feff} "},
+        {"code":"x","message":"value  \u{feff}"},
+        {"code":"x","message":"value\u{0085}"},
+        {"code":"x","message":format!("{}😀  ","x".repeat(4069))}
+    ]);
+    let mut child = std::process::Command::new("bun")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .arg("test/fixtures/orca-text-parity.ts")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(
+        &mut child.stdin.take().unwrap(),
+        json!({"mode":"reason","cases":cases})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected =
+        pacer_plugin_host::WireReply::parse(std::str::from_utf8(&output.stdout).unwrap()).unwrap();
+    for (index, case) in cases.as_array().unwrap().iter().enumerate() {
+        let (root, mut attempt) = fixture("lost-found");
+        terminal(&mut attempt).await;
+        attempt.invoke("start", json!({})).await.unwrap();
+        fs::write(root.join("lookup-error.json"), case.to_string()).unwrap();
+        let actual = attempt.invoke_wire("lookup", json!({})).await.unwrap();
+        assert_eq!(
+            actual.to_json().unwrap(),
+            expected
+                .subtree(&format!("/{index}"))
+                .unwrap()
+                .to_json()
+                .unwrap(),
+            "{case}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+#[tokio::test]
+async fn default_folder_noop_preserves_dirty_record_inode_and_bytes() {
+    use std::os::unix::fs::MetadataExt;
+    let (root, old) = fixture("policy");
+    drop(old);
+    let mut attempt = policy_fixture(&root, false);
+    fs::create_dir_all(root.join("state")).unwrap();
+    let path = root.join("state/default-account-folders.json");
+    let bytes = format!(
+        "{{\n \"codex\": {}, \"foreign\": true\n}}",
+        json!(root.join("profile"))
+    );
+    fs::write(&path, &bytes).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(root.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+    let before = fs::metadata(&path).unwrap();
+    terminal(&mut attempt).await;
+    assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
+    let after = fs::metadata(&path).unwrap();
+    assert_eq!(
+        (before.ino(), before.mtime(), before.mtime_nsec()),
+        (after.ino(), after.mtime(), after.mtime_nsec())
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn explicit_missing_strategy_constructor_preserves_genuine_missing_branch() {
+    for id in ["codex", "codex#work"] {
+        let (root, old) = fixture("policy");
+        drop(old);
+        let mut attempt = policy_with_source(
+            &root,
+            false,
+            Value::Null,
+            id,
+            pacer_plugin_host::orca_attempt::OrcaStrategySource::Missing {
+                message: "original MissingStrategyError".into(),
+            },
+        );
+        for method in ["liveAnswer", "prepare", "place"] {
+            attempt.invoke(method, json!({})).await.unwrap();
+        }
+        let result = attempt.invoke("terminal", json!({})).await;
+        if id == "codex" {
+            assert_eq!(result.unwrap()["ok"], true);
+        } else {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("original MissingStrategyError")
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn actual_wait_uses_recent_raw_slots_and_filters_working_prompt_echoes() {
+    let mut cases = vec![
+        json!({"lines":["usage limit"],"prompt":"task","preview":""}),
+        json!({"lines":["usage limit","esc\u{feff}to\u{feff}interrupt"],"prompt":"task","preview":""}),
+        json!({"lines":["usage limit","eſc to interrupt"],"prompt":"task","preview":""}),
+        json!({"lines":["usage limit"],"prompt":"ctrl+c to stop","preview":"ctrl+c to stop"}),
+        json!({"lines":["task","usage limit"],"prompt":"task\r\n\n","preview":""}),
+        json!({"lines":["model is busy"],"prompt":"task","preview":""}),
+    ];
+    for old in ["usage limit", "model is busy"] {
+        let mut lines = vec![old; 25];
+        lines.extend(["prompt echo"; 15]);
+        cases.push(json!({"lines":lines,"prompt":"prompt echo","preview":""}));
+    }
+    let mut child = std::process::Command::new("bun")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .arg("test/fixtures/orca-text-parity.ts")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(
+        &mut child.stdin.take().unwrap(),
+        json!({"mode":"wait","cases":cases}).to_string().as_bytes(),
+    )
+    .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for (index, (case, want)) in cases.iter().zip(expected).enumerate() {
+        let (root, mut attempt) = fixture_with_prompt("success", case["prompt"].as_str().unwrap());
+        terminal(&mut attempt).await;
+        attempt.invoke("start", json!({})).await.unwrap();
+        fs::write(root.join("wait-case.json"), case.to_string()).unwrap();
+        let actual = attempt.invoke("wait", json!({})).await.unwrap();
+        assert_eq!(actual, want, "case{index}");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn repo_registration_stays_disabled_for_opt_out_and_linked_worktree() {
+    use pacer_plugin_host::orca_policy::{LoginEnvironment, OrcaPolicy};
+    for linked in [false, true] {
+        let (root, old) = fixture("policy");
+        drop(old);
+        drop(policy_fixture(&root, false));
+        fs::write(root.join("unregistered"), "").unwrap();
+        if linked {
+            git_fixture(
+                &root,
+                &[
+                    "worktree",
+                    "add",
+                    "--detach",
+                    root.join("linked").to_str().unwrap(),
+                    "HEAD",
+                ],
+            );
+            let mut store = pacer_store::TaskStore::open(&root).unwrap();
+            let task = store.read(ID).unwrap().unwrap();
+            store
+                .update(ID, task["rev"].as_i64().unwrap(), 2.0, |task| {
+                    task["brief"]["repo"] = json!(root.join("linked"))
+                })
+                .unwrap();
+        }
+        let mut attempt=OrcaAttempt::from_policy(&root,ID,OrcaPolicy {
+            provider:json!({"id":"codex"}),execution:json!({"worktree":"current","registerRepos":linked}),
+            strategy:json!({"runners":{"codex":{"account":"main"}},"accounts":{"main":{"name":"main","kind":"codex","source":"default"}}}),
+            user_home:root.clone(),login:LoginEnvironment::default(),
+        },root.join("bin/orca").to_str().unwrap(),HashMap::from([
+            ("PATH".into(),std::env::var("PATH").unwrap()),("SCENARIO".into(),"policy".into()),("FIXTURE_HOME".into(),root.to_str().unwrap().into()),
+        ]),Instant::now()+Duration::from_secs(15)).unwrap();
+        attempt.invoke("liveAnswer", json!({})).await.unwrap();
+        let result = attempt.invoke("prepare", json!({})).await.unwrap();
+        assert_eq!(result["ok"], false, "{result}");
+        assert_eq!(result["reason"], "repository is not an Orca project");
+        let calls = fs::read_to_string(root.join("calls.jsonl")).unwrap();
+        assert!(!calls.lines().any(|line| {
+            let a: Value = serde_json::from_str(line).unwrap();
+            a[0] == "repo" && a[1] == "add"
+        }));
+        fs::remove_dir_all(root).unwrap();
     }
 }

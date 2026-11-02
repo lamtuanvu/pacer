@@ -167,3 +167,79 @@ fn dispatch_validation_matches_the_typescript_safe_id_for_the_adversarial_corpus
         expected
     );
 }
+
+#[test]
+fn idle_and_working_match_actual_non_unicode_javascript_patterns() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/exec/orca/wait.ts"),
+    )
+    .unwrap();
+    let spaces = [
+        "", " ", "\t", "\r", "\n", "\u{b}", "\u{c}", "\u{a0}", "\u{feff}", "\u{0085}", "\u{1680}",
+        "\u{2000}", "\u{200a}", "\u{2028}", "\u{2029}", "\u{202f}", "\u{205f}", "\u{3000}",
+    ];
+    let mut texts = Vec::new();
+    for space in spaces {
+        for word in [
+            "›",
+            "❯",
+            ">",
+            "> Try ",
+            "> IMPLEMENT ",
+            "codex>",
+            "CLAUDE>",
+            "Ask anything",
+            "Aſk anything",
+            "What would you like",
+            "Type a message",
+        ] {
+            for suffix in ["", "\n", "\r", "\r\n", "\u{2028}", "\u{2029}", "\nnot idle"] {
+                texts.push(format!("{space}{word}{suffix}"));
+            }
+        }
+        for prefix in ["esc", "ESC", "eſc", "ctrl", "CTRL"] {
+            texts.push(format!("{prefix}{space}to{space}interrupt"));
+            texts.push(format!("{prefix}{space}+{space}c{space}to{space}stop"));
+        }
+    }
+    let script = r#"const {source,texts}=JSON.parse(await Bun.stdin.text());const re=name=>{const m=source.match(new RegExp('(?:export )?const '+name+' = /(.*)/([a-z]*);'));return new RegExp(m[1],m[2])};const a=re('IDLE_PROMPT'),b=re('WORKING_INDICATOR');console.log(JSON.stringify(texts.map(s=>[a.test(s),b.test(s)])));"#;
+    let mut child = std::process::Command::new("bun")
+        .args(["-e", script])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(
+        &mut child.stdin.take().unwrap(),
+        json!({"source":source,"texts":texts})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    let expected: Vec<(bool, bool)> = serde_json::from_slice(&out.stdout).unwrap();
+    for (text, expected) in texts.iter().zip(expected) {
+        assert_eq!(
+            (super::idle(text), super::working(text)),
+            expected,
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn recent_output_does_not_pull_old_limits_across_prompt_echo_slots() {
+    let mut lines = vec!["old usage limit"; 25];
+    lines.extend(["echo prompt"; 15]);
+    let (full, recent) = super::wait_output(&lines, "prompt");
+    assert!(full.contains("usage limit"));
+    assert_eq!(recent, "");
+    let (full, recent) = super::wait_output(&["old", "prompt", "provider busy"], "prompt");
+    assert_eq!(
+        (full, recent),
+        ("old\nprovider busy".into(), "old\nprovider busy".into())
+    );
+    let long = "x".repeat(9000);
+    assert_eq!(super::wait_output(&[&long], "").1.len(), 9000);
+}

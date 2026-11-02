@@ -122,22 +122,10 @@ impl OrcaAttempt {
         run: &Path,
     ) -> Result<(), BrokerError> {
         let agent = &self.spec.agent;
-        let id = policy.provider["id"].as_str().ok_or_else(denied)?;
-        let runner = policy.strategy["runners"].get(id).or_else(|| {
-            policy.strategy["runnerAliases"][id]
-                .as_str()
-                .and_then(|alias| policy.strategy["runners"].get(alias))
-        });
-        let account_name = runner.and_then(|r| r["account"].as_str()).or_else(|| {
-            id.split_once('#')
-                .map(|(_, a)| a.split('@').next().unwrap_or(a))
-        });
-        let account = account_name.and_then(|a| policy.strategy["accounts"].get(a));
-        if account_name.is_some() && account.is_none() {
-            return Err(BrokerError::Effect(format!("runner not configured: {id}")));
-        }
+        let selected =
+            super::runner::account(&policy.strategy, &policy.provider, &self.strategy_source)?;
         let default = json!({"source":"default"});
-        let account = account.unwrap_or(&default);
+        let account = selected.unwrap_or(&default);
         let root = policy
             .login
             .env
@@ -151,38 +139,34 @@ impl OrcaAttempt {
                     .get("XDG_CONFIG_HOME")
                     .map(|p| Path::new(p).join("orca").to_string_lossy().into_owned())
             });
-        self.spec.account_env = account_environment(
+        let account_env = account_environment(
             account,
             agent,
             &policy.user_home,
             root.as_deref(),
-            &policy.login,
+            &crate::orca_policy::LoginEnvironment::default(),
         )?;
         let variable = if agent == "claude" {
             "CLAUDE_CONFIG_DIR"
         } else {
             "CODEX_HOME"
         };
-        if account["source"] == "default" && policy.login.login_shell {
-            let path = self.home.join("state/default-account-folders.json");
-            let mut folders = fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .filter(Value::is_object)
-                .unwrap_or(json!({}));
-            let kind = if agent == "claude" { "claude" } else { "codex" };
-            if let Some(folder) = self.spec.account_env.get(variable) {
-                folders[kind] = json!(folder);
-            } else {
-                folders.as_object_mut().map(|o| o.remove(kind));
-            }
-            // TS treats the default-folder record as best effort. It has no
-            // authority to alter or prevent the actual account selection.
-            let _ = write_private(
-                &self.home,
-                Path::new("state/default-account-folders.json"),
-                &serde_json::to_vec(&folders).map_err(|_| denied())?,
-            );
+        // Record the provider's choice before overlaying the login profile.
+        // This is best effort and cannot alter or prevent account selection.
+        let _ = super::account_folders::record(&self.home, agent, &account_env, &policy.login);
+        self.spec.account_env = account_env;
+        if !self.spec.account_env.contains_key(variable)
+            && policy.login.login_shell
+            && policy.login.profile_keys.iter().any(|key| key == variable)
+            && let Some(folder) = policy
+                .login
+                .env
+                .get(variable)
+                .filter(|s| s.starts_with('/'))
+        {
+            self.spec
+                .account_env
+                .insert(variable.into(), folder.clone());
         }
         let top = self
             .selector

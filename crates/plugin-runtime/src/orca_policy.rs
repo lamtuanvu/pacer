@@ -306,13 +306,7 @@ pub(super) fn selected_agent(provider: &Value) -> Option<&'static str> {
         return None;
     }
     let id = provider["id"].as_str()?;
-    let re =
-        regex::Regex::new(r"^[a-z0-9][a-z0-9-]*(?:#[a-z0-9][a-z0-9-]*)?(?:@[a-z0-9][a-z0-9-]*)?$")
-            .ok()?;
-    if !re.is_match(id) {
-        return None;
-    }
-    match id.split(['#', '@']).next()? {
+    match super::orca_attempt::runner::parse_runner_id(id)?.agent {
         "codex" => Some("codex"),
         "claude-code" => Some("claude"),
         _ => None,
@@ -373,21 +367,9 @@ pub(super) async fn compose(
         })?
         .iter()
         .any(|t| {
-            if t["id"] == task["id"] {
-                return false;
-            }
-            let alive = t["runnerPid"]
-                .as_i64()
-                .and_then(|p| i32::try_from(p).ok().filter(|p| *p > 0))
-                .is_some_and(|p| {
-                    nix::sys::signal::kill(nix::unistd::Pid::from_raw(p), None).is_ok()
-                });
-            let path = t["worktree"]
-                .as_str()
-                .or(t["result"]["worktree"].as_str())
-                .or(t["brief"]["repo"].as_str())
-                .map(real);
-            alive && path.is_some_and(|p| p.starts_with(real(top)))
+            active_task_at(t, &task["id"], top, |p| {
+                nix::sys::signal::kill(nix::unistd::Pid::from_raw(p), None).is_ok()
+            })
         });
     if active && task["placement"]["requested"] == "current" {
         return Ok(
@@ -461,7 +443,10 @@ pub(super) async fn compose(
         }
         let r = attempt
             .client
-            .call(&["repo", "add", main.to_str().ok_or_else(denied)?], 30000)
+            .call(
+                &["repo", "add", "--path", main.to_str().ok_or_else(denied)?],
+                30000,
+            )
             .await?;
         if r["ok"] != true {
             return Err(reply_error("orca repo add failed", &r));
@@ -681,3 +666,27 @@ async fn ensure_group(
     drop(lock);
     Ok(selector)
 }
+
+fn active_task_at(
+    task: &Value,
+    current_id: &Value,
+    top: &str,
+    probe: impl FnOnce(i32) -> bool,
+) -> bool {
+    if task["id"] == *current_id {
+        return false;
+    }
+    let alive = runner_pid(&task["runnerPid"]).is_some_and(probe);
+    let path = task["worktree"]
+        .as_str()
+        .or(task["result"]["worktree"].as_str())
+        .or(task["brief"]["repo"].as_str())
+        .map(real);
+    alive && path.is_some_and(|p| p.starts_with(real(top)))
+}
+fn runner_pid(value: &Value) -> Option<i32> {
+    crate::js_semantics::safe_i64(value).and_then(|p| i32::try_from(p).ok().filter(|p| *p > 0))
+}
+#[cfg(test)]
+#[path = "orca_policy/tests.rs"]
+mod tests;
