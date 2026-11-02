@@ -898,6 +898,96 @@ appendActivity(c,{kind:'plugin_state',level:'warn',text:'Bearer secret-token use
 }
 
 #[test]
+fn ascii_word_boundaries_redact_after_non_ascii_prefix() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let input = "éBearer secret ésk_secret épk_secret éapi_key_secret étoken_secret étoken=secret";
+    append_activity(
+        &ctx(rust.path()),
+        json!({"kind":"plugin_state","level":"warn","text":input}),
+    )
+    .unwrap();
+    bun(
+        ts.path(),
+        r#"
+import {appendActivity} from './src/activity/log.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+appendActivity(c,{kind:'plugin_state',level:'warn',text:'éBearer secret ésk_secret épk_secret éapi_key_secret étoken_secret étoken=secret'});
+"#,
+    );
+    let id = Regex::new(r"1760000000-[0-9a-f]{4}").unwrap();
+    for file in ["state/activity.jsonl", "link/outbox.jsonl"] {
+        let actual = fs::read_to_string(rust.path().join(".pacer").join(file)).unwrap();
+        let expected = fs::read_to_string(ts.path().join(".pacer").join(file)).unwrap();
+        assert_eq!(
+            id.replace_all(&actual, "fixed"),
+            id.replace_all(&expected, "fixed"),
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn activity_redaction_corpus_matches_bun_persisted_records() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let mut cases = Vec::new();
+    for prefix in ["", "é", "K", "ſ", "a"] {
+        for separator in [" ", "\u{feff}", "\u{85}", "\t"] {
+            for body in [
+                format!("Bearer{separator}secret"),
+                format!("token{separator}=secret"),
+                format!("authorization{separator}: secret"),
+                format!("api_key{separator}=secret"),
+                "sk_secret".to_owned(),
+                "user@example.test".to_owned(),
+            ] {
+                cases.push(format!("{prefix}{body}"));
+            }
+        }
+    }
+    cases.extend([
+        "Bearer x\rkept".into(),
+        "plain\r".into(),
+        "Bearer x\r\nnext".into(),
+        "token=a,token=b".into(),
+    ]);
+    fs::write(
+        ts.path().join("cases.json"),
+        serde_json::to_vec(&cases).unwrap(),
+    )
+    .unwrap();
+    for text in &cases {
+        append_activity(
+            &ctx(rust.path()),
+            json!({"kind":"message","level":"info","text":text,
+            "repo":text,"taskId":text,"executor":text,"host":text}),
+        )
+        .unwrap();
+    }
+    bun(
+        ts.path(),
+        r#"
+import {appendActivity} from './src/activity/log.ts';
+import {readFileSync} from 'node:fs';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+for (const text of JSON.parse(readFileSync(process.env.TEST_HOME+'/cases.json','utf8')))
+  appendActivity(c,{kind:'message',level:'info',text,repo:text,taskId:text,executor:text,host:text});
+"#,
+    );
+    let id = Regex::new(r"1760000000-[0-9a-f]{4}").unwrap();
+    for file in ["state/activity.jsonl", "link/outbox.jsonl"] {
+        let actual = fs::read_to_string(rust.path().join(".pacer").join(file)).unwrap();
+        let expected = fs::read_to_string(ts.path().join(".pacer").join(file)).unwrap();
+        assert_eq!(
+            id.replace_all(&actual, "fixed"),
+            id.replace_all(&expected, "fixed"),
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn decimal_json_snapshot_sequence_reports_js_integer_value() {
     let root = tempfile::tempdir().unwrap();
     let c = ctx(root.path());

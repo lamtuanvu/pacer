@@ -20,15 +20,31 @@ fn valid(level: &str) -> bool {
     matches!(level, "off" | "important" | "all")
 }
 
-fn read_object(path: &Path) -> Map<String, Value> {
+fn read_object(path: &Path) -> (Map<String, Value>, Option<Vec<u16>>) {
     fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|value| value.as_object().cloned())
+        .map(|value| match value {
+            Value::Object(object) => (object, None),
+            Value::Array(array) => (
+                array
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, value)| (i.to_string(), value))
+                    .collect(),
+                None,
+            ),
+            Value::String(string) => (Map::new(), Some(string.encode_utf16().collect())),
+            _ => (Map::new(), None),
+        })
         .unwrap_or_default()
 }
 
-fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> {
+fn write_settings(
+    path: &Path,
+    settings: &Map<String, Value>,
+    units: Option<&[u16]>,
+) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("settings has no parent"))?;
@@ -47,7 +63,28 @@ fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> 
         options.mode(0o600);
         use std::io::Write;
         let mut file = options.open(&temp)?;
-        serde_json::to_writer(&mut file, settings)?;
+        if let Some(units) = units {
+            write!(file, "{{")?;
+            for (i, unit) in units.iter().enumerate() {
+                if i > 0 {
+                    write!(file, ",")?;
+                }
+                write!(file, "\"{i}\":")?;
+                if (0xd800..=0xdfff).contains(unit) {
+                    write!(file, "\"\\u{unit:04x}\"")?;
+                } else if let Some(ch) = char::from_u32(u32::from(*unit)) {
+                    serde_json::to_writer(&mut file, &ch.to_string())?;
+                }
+            }
+            if !units.is_empty() {
+                write!(file, ",")?;
+            }
+            write!(file, "\"notifications\":")?;
+            serde_json::to_writer(&mut file, &settings["notifications"])?;
+            write!(file, "}}")?;
+        } else {
+            serde_json::to_writer(&mut file, settings)?;
+        }
         file.flush()?;
         fs::rename(&temp, path)
     })();
@@ -59,7 +96,7 @@ fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> 
 /// the legacy plugin setting, or initialized to `important`, as in TypeScript.
 pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, NotificationError> {
     let path = home.join("settings.json");
-    let mut settings = read_object(&path);
+    let (mut settings, units) = read_object(&path);
     if let Some(level) = settings.get("notifications").and_then(Value::as_str)
         && valid(level)
     {
@@ -67,13 +104,14 @@ pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, Notifi
     }
     let legacy = legacy_plugin_data.join("settings.json");
     let level = read_object(&legacy)
+        .0
         .get("notifications")
         .and_then(Value::as_str)
         .filter(|value| valid(value))
         .unwrap_or("important")
         .to_owned();
     settings.insert("notifications".into(), json!(level));
-    write_settings(&path, &settings)?;
+    write_settings(&path, &settings, units.as_deref())?;
     Ok(json!({"level":level}))
 }
 
@@ -82,8 +120,8 @@ pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {
         return Err(NotificationError::InvalidLevel);
     }
     let path = home.join("settings.json");
-    let mut settings = read_object(&path);
+    let (mut settings, units) = read_object(&path);
     settings.insert("notifications".into(), json!(level));
-    write_settings(&path, &settings)?;
+    write_settings(&path, &settings, units.as_deref())?;
     Ok(json!({"level":level}))
 }

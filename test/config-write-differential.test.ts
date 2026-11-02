@@ -71,6 +71,24 @@ test("seeded routing, runner order and notification writes match TS bytes and re
   }
 }, 30_000);
 
+test("notification settings preserve enumerable JSON properties", () => {
+  const binary = configBinary();
+  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '42', 'null', '{broken']) {
+    for (const op of ["get", "set"] as const) {
+      const tsHome = home(), rsHome = home();
+      writeFileSync(join(tsHome, "settings.json"), input);
+      writeFileSync(join(rsHome, "settings.json"), input);
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      const expected = op === "get" ? notify.getLevel(ctx) : notify.setLevel(ctx, "all");
+      const actual = rust(binary, op === "get"
+        ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
+        : { op: "notifications.set", home: rsHome, level: "all" });
+      expect(actual).toEqual({ ok: true, value: expected });
+      expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    }
+  }
+}, 30_000);
+
 test("removing a runner drops its empty routing rule without changing surviving comments", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
