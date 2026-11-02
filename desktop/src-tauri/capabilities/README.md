@@ -28,3 +28,5 @@ bundled document (main bundle or tray.html); only non-loopback HTTPS links open
 externally. Other schemes and documents are blocked. Service reconnects keep the
 event cursor in Rust memory; a changed service identity or rewound snapshot
 resets it and broadcasts one resync.
+
+The main window also holds `allow-menu-set-enabled` with `core:event:allow-listen` and `core:event:allow-unlisten`, so the page can report command availability to the native macOS menu and receive its command and route events (step 7, #590). The tray window does not.

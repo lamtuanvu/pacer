@@ -33,10 +33,11 @@ pub enum RegistryError {
 
 pub struct Registry {
     mode: HostMode,
-    entries: HashMap<String, Entry>,
+    pub(crate) entries: HashMap<String, Entry>,
 }
 
 pub struct Entry {
+    pub(crate) bundled: bool,
     pub manifest: ParsedManifest,
     pub state: PluginState,
     pub served: Vec<String>,
@@ -74,6 +75,7 @@ impl Registry {
         self.entries.insert(
             manifest.id.to_string(),
             Entry {
+                bundled: false,
                 manifest,
                 state,
                 served: Vec::new(),
@@ -87,6 +89,50 @@ impl Registry {
 
     pub fn get(&self, id: &str) -> Option<&Entry> {
         self.entries.get(id)
+    }
+
+    /// Missing legacy grants have no policy marker: closed mode cannot prove them safe.
+    pub fn policy_unavailable(&self, config: &crate::PluginsConfig) -> Vec<(String, String)> {
+        let mut unavailable = vec![];
+        for (id, grant) in &config.installed {
+            if config.is_disabled(id) || self.entries.get(id).is_some_and(|e| e.bundled) {
+                continue;
+            }
+            match self.entries.get(id) {
+                None if grant.policy != Some(false) => {
+                    unavailable.push((id.clone(), "plugin folder is missing".into()))
+                }
+                Some(entry) => {
+                    let policy = serde_json::to_value(&entry.manifest.contributes)
+                        .ok()
+                        .is_some_and(|v| v.get("policy").is_some());
+                    let covered = config.grant_covers(&entry.manifest);
+                    let healthy = policy
+                        && covered
+                        && matches!(
+                            entry.state,
+                            PluginState::Idle
+                                | PluginState::Starting
+                                | PluginState::Ready
+                                | PluginState::Failing
+                        );
+                    if !healthy && (policy || grant.policy == Some(true)) {
+                        let reason = if !covered {
+                            "needs_grant".to_owned()
+                        } else {
+                            match entry.state {
+                                PluginState::NeedsGrant => "needs_grant".into(),
+                                state => format!("{state:?}").to_lowercase(),
+                            }
+                        };
+                        unavailable.push((id.clone(), reason));
+                    }
+                }
+                _ => {}
+            }
+        }
+        unavailable.sort_by(|a, b| a.0.cmp(&b.0));
+        unavailable
     }
 
     pub fn start(&mut self, id: &str, now_ms: u64) -> Result<Duration, RegistryError> {

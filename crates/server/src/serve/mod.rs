@@ -1,4 +1,5 @@
 //! Public listener authentication. Listener and core forwarding are wired separately.
+pub mod app_assets;
 pub mod auth;
 pub mod core_child;
 pub mod discovery;
@@ -6,6 +7,14 @@ pub mod discovery;
 #[path = "discovery_tests.rs"]
 mod discovery_tests;
 pub mod heartbeat;
+mod js_trim;
+#[cfg(test)]
+#[path = "listener_tests.rs"]
+mod listener_tests;
+mod log_sse;
+#[cfg(test)]
+#[path = "log_sse_tests.rs"]
+mod log_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -39,6 +48,26 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
+// Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
+// other repeated fields with comma-space, in arrival order.
+fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+    let values = headers.get_all(name);
+    let mut iter = values.iter().peekable();
+    iter.peek()?;
+    let mut combined = Vec::new();
+    for (index, value) in iter.enumerate() {
+        if index > 0 {
+            combined.extend_from_slice(if name.eq_ignore_ascii_case("cookie") {
+                b"; "
+            } else {
+                b", "
+            });
+        }
+        combined.extend_from_slice(value.as_bytes());
+    }
+    String::from_utf8(combined).ok()
+}
+
 struct Listener {
     core: Arc<core_child::CoreChild>,
     heartbeat: Arc<heartbeat::Heartbeat>,
@@ -47,6 +76,7 @@ struct Listener {
     token: String,
     registry: Registry<'static>,
     scoped_work: bool,
+    forward_log_follow: bool,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
@@ -83,10 +113,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         && let Some(op) = state.registry.get(name)
     {
         let max = 256 * 1024;
-        if req
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
+        if header_value(req.headers(), "content-length")
             .and_then(|v| v.parse::<usize>().ok())
             .is_some_and(|n| n > max)
         {
@@ -105,16 +132,48 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(error) => native_error(error),
         };
     }
+    if !state.scoped_work
+        && !state.forward_log_follow
+        && auth != auth::AuthKind::Task
+        && req.uri().path().starts_with("/v3/tasks/")
+        && req.uri().path().ends_with("/log")
+        && req.uri().query().is_some_and(|query| {
+            form_urlencoded::parse(query.as_bytes())
+                .find(|(key, _)| key == "follow")
+                .is_some_and(|(_, value)| value == "1")
+        })
+    {
+        if req.method() != axum::http::Method::GET {
+            return native_json(
+                StatusCode::METHOD_NOT_ALLOWED,
+                CoreError::new(Code::InvalidInput, "method not allowed").body(),
+            );
+        }
+        if let Some(id) = req
+            .uri()
+            .path()
+            .strip_prefix("/v3/tasks/")
+            .and_then(|p| p.strip_suffix("/log"))
+            && !id.contains('/')
+            && !id.is_empty()
+        {
+            if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                eprintln!("native http.task_log_follow");
+            }
+            return log_sse::follow(ctx, id.to_owned(), state.core.clone()).await;
+        }
+    }
+    if let Some(response) = app_assets::route(&req) {
+        return response;
+    }
     let Some(target) = state.core.target().await else {
         return proxy::unavailable(req.uri().path().starts_with("/app/"));
     };
     let path = req.uri().path();
     if (path.starts_with("/v2/tasks/") || path.starts_with("/v3/tasks/"))
         && path.ends_with("/session")
-        && req
-            .headers()
-            .get("upgrade")
-            .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
+        && header_value(req.headers(), "upgrade")
+            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
     {
         return ws::bridge(req, target, auth).await;
     }
@@ -161,6 +220,9 @@ pub async fn run_serve(
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
     let registry = registry(if scoped_work { "*" } else { forward });
+    let forward_log_follow = forward.split(',').any(|name| {
+        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
+    });
     let token = auth::ensure_token(&ctx)?;
     // Requests clone the context; the listener needs only the pacer home.
     ctx.env.clear();
@@ -201,6 +263,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
+        forward_log_follow,
     });
     let app = Router::new()
         .fallback(any(handle))

@@ -37,6 +37,9 @@
     "allow-windowToggleMaximize",
     "allow-windowClose",
     "core:window:allow-start-dragging",
-    "core:window:allow-internal-toggle-maximize"
+    "core:window:allow-internal-toggle-maximize",
+    "allow-menu-set-enabled",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
   ]
 }
