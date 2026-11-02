@@ -179,7 +179,7 @@ fn mutate(
             cur["values"] = values;
         }
         all[id] = cur.clone();
-        crate::private::write(
+        crate::private::write_shared(
             &ctx.pacer_home.join("plugin-settings.json"),
             js_json(&all).as_bytes(),
         )?;
@@ -202,7 +202,7 @@ pub fn forget(ctx: &Ctx, id: &str) -> Result<(), CoreError> {
     crate::private::locked(ctx, "plugin-settings", |ctx| {
         let mut all = store(ctx)?;
         if all.as_object_mut().is_some_and(|o| o.remove(id).is_some()) {
-            crate::private::write(
+            crate::private::write_shared(
                 &ctx.pacer_home.join("plugin-settings.json"),
                 js_json(&all).as_bytes(),
             )?;

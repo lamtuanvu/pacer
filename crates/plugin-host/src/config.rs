@@ -94,13 +94,7 @@ pub fn edit_config(
         let cfg = read_config(ctx)?;
         let (path, _) = pacer_config::strategy::strategy_path(&ctx.pacer_home)
             .map_err(crate::private::error)?;
-        crate::private::parents(
-            path.parent()
-                .ok_or_else(|| crate::private::error("missing strategy parent"))?,
-        )?;
-        let bytes = crate::private::read(&path, u64::MAX - 1, false)?
-            .ok_or_else(|| crate::private::error("strategy disappeared before edit"))?;
-        let before = String::from_utf8(bytes).map_err(crate::private::error)?;
+        let before = std::fs::read_to_string(&path).map_err(crate::private::error)?;
         let mut doc = pacer_config::doc::StrategyDoc::new(&before);
         if let Some(disabled) = disabled {
             let mut next = cfg["disabled"].as_array().cloned().unwrap_or_default();
@@ -132,10 +126,10 @@ pub fn edit_config(
             if std::fs::read_to_string(&path).map_err(crate::private::error)? != before {
                 return Err(pacer_foundation::api::CoreError::new(
                     pacer_foundation::api::Code::Conflict,
-                    "strategy changed during edit",
+                    "strategy changed during edit; retry",
                 ));
             }
-            crate::private::write(&path, doc.as_str().as_bytes())?;
+            crate::private::write_shared(&path, doc.as_str().as_bytes())?;
         }
         Ok(())
     })

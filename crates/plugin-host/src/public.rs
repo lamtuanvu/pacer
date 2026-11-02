@@ -384,7 +384,18 @@ impl PublicOperations {
             return Err(CoreError::new(Code::NotAllowed,"pacer no longer ships an Orca plugin").hint("Use the pacer desktop app or pacer open. Remove an earlier install with: pacer plugin uninstall"));
         }
         let mut entries = runtime.refresh(ctx)?;
-        entries.sort_by(|a, b| a.id.cmp(&b.id));
+        for entry in &mut entries {
+            if let Some(ui) = entry
+                .manifest
+                .as_mut()
+                .and_then(|m| m.get_mut("contributes"))
+                .and_then(|c| c.get_mut("ui"))
+            {
+                crate::manifest::normalize_ui(ui);
+            }
+        }
+        let collator = icu_collator::CollatorBorrowed::new_root(Default::default());
+        entries.sort_by(|a, b| collator.compare(&a.id, &b.id));
         if op == "plugin.list" {
             let cfg = read_config(ctx)?;
             return Ok(

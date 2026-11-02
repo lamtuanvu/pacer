@@ -121,8 +121,24 @@ pub(crate) fn read(path: &Path, max: u64, private: bool) -> Result<Option<Vec<u8
     Ok(Some(bytes))
 }
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+    write_inner(path, bytes, true)
+}
+pub(crate) fn write_shared(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+    write_inner(path, bytes, false)
+}
+fn write_inner(path: &Path, bytes: &[u8], private: bool) -> Result<(), CoreError> {
     let parent = path.parent().ok_or_else(|| error("missing store parent"))?;
-    root(parent, true)?;
+    if private {
+        root(parent, true)?;
+    } else {
+        fs::create_dir_all(parent).map_err(error)?;
+    }
+    let resolved = fs::canonicalize(parent).map_err(error)?;
+    let parent = resolved.as_path();
+    let path = parent.join(
+        path.file_name()
+            .ok_or_else(|| error("missing store name"))?,
+    );
     let before = fs::symlink_metadata(parent).map_err(error)?;
     let tmp = parent.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
@@ -133,17 +149,20 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(&tmp)
             .map_err(error)?;
-        if f.metadata().map_err(error)?.uid() != before.uid() {
+        if private && f.metadata().map_err(error)?.uid() != before.uid() {
             return Err(error("store parent is not owned"));
         }
         f.write_all(bytes).map_err(error)?;
         f.sync_all().map_err(error)?;
         parents(parent)?;
         let after = fs::symlink_metadata(parent).map_err(error)?;
-        if after.dev() != before.dev() || after.ino() != before.ino() || after.mode() & 0o022 != 0 {
+        if after.dev() != before.dev()
+            || after.ino() != before.ino()
+            || (private && after.mode() & 0o022 != 0)
+        {
             return Err(error("publisher directory changed before publication"));
         }
-        fs::rename(&tmp, path).map_err(error)?;
+        fs::rename(&tmp, &path).map_err(error)?;
         std::fs::File::open(parent)
             .and_then(|f| f.sync_all())
             .map_err(error)
@@ -161,7 +180,6 @@ fn resolved_root(path: &Path) -> Result<std::path::PathBuf, CoreError> {
         .create(path)
         .map_err(error)?;
     let resolved = fs::canonicalize(path).map_err(error)?;
-    root(&resolved, true)?;
     Ok(resolved)
 }
 

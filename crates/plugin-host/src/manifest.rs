@@ -50,7 +50,7 @@ fn clean_field(object: &mut serde_json::Map<String, Value>, key: &str) {
     }
 }
 
-fn normalize_ui(ui: &mut Value) {
+pub(crate) fn normalize_ui(ui: &mut Value) {
     let Some(points) = ui.as_object_mut() else {
         return;
     };

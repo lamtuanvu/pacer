@@ -1540,7 +1540,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        fs::read_to_string(active)?.trim().to_owned()
+        js_trim(&fs::read_to_string(active)?).to_owned()
     } else {
         String::new()
     };

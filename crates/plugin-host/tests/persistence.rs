@@ -174,6 +174,10 @@ fn settings_resolve_configured_home_and_lock_directory_aliases() {
                 real.clone()
             }
         };
+        let lock_mode = fs::metadata(path.join("orca"))
+            .ok()
+            .map(|m| m.mode() & 0o777)
+            .unwrap_or(0o700);
         let ctx = Ctx::with(dir.path().to_path_buf(), path, Default::default(), 0.0);
         assert_eq!(
             settings::save(&ctx, "fx-ui", json!({"ok":true}), 0.0).unwrap()["rev"],
@@ -202,14 +206,14 @@ fn settings_resolve_configured_home_and_lock_directory_aliases() {
         );
         assert_eq!(
             fs::metadata(ctx.pacer_home.join("orca")).unwrap().mode() & 0o777,
-            0o700,
+            lock_mode,
             "{kind}"
         );
     }
 }
 
 #[test]
-fn resolved_home_still_refuses_unsafe_owned_root() {
+fn group_writable_home_and_lock_directory_are_preserved() {
     let (_dir, ctx) = fixture();
     let real = ctx.pacer_home.join("real");
     fs::create_dir(&real).unwrap();
@@ -220,7 +224,15 @@ fn resolved_home_still_refuses_unsafe_owned_root() {
         pacer_home: linked,
         ..ctx
     };
-    assert!(settings::save(&ctx, "fx-ui", json!({}), 0.0).is_err());
-    assert!(!real.join("plugin-settings.json").exists());
-    assert_eq!(fs::metadata(real).unwrap().mode() & 0o777, 0o777);
+    fs::create_dir(real.join("orca")).unwrap();
+    fs::set_permissions(real.join("orca"), fs::Permissions::from_mode(0o775)).unwrap();
+    assert_eq!(
+        settings::save(&ctx, "fx-ui", json!({}), 0.0).unwrap()["rev"],
+        1
+    );
+    assert_eq!(fs::metadata(&real).unwrap().mode() & 0o777, 0o777);
+    assert_eq!(
+        fs::metadata(real.join("orca")).unwrap().mode() & 0o777,
+        0o775
+    );
 }

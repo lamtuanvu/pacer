@@ -1431,6 +1431,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "hex",
+ "icu_collator",
  "libc",
  "nix",
  "pacer-config",

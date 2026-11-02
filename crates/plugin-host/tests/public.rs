@@ -531,3 +531,72 @@ async fn shared_operation_number_matrix() {
         }
     }
 }
+
+#[tokio::test]
+async fn snapshot_ui_text_is_normalized_before_client_output_and_validation() {
+    let (_dir, ctx, mut host, ops) = fixture();
+    host.entries[0].bundled = true;
+    host.entries[0].manifest.as_mut().unwrap()["contributes"]["ui"]["activity"][0]["title"] =
+        json!("Pay\u{202e}lp\u{7} Cafe\u{301}");
+    host.entries[0].manifest.as_mut().unwrap()["contributes"]["ui"]["settings"][0]["schema"]["fields"]
+        ["choice"] = json!({"type":"string","title":"Choice","enum":["a\u{200b}b"]});
+    let list = ops
+        .call(&ctx, &mut host, "plugin.ui.list", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["surfaces"][0]["title"], "Paylp Café");
+    let page = ops
+        .call(
+            &ctx,
+            &mut host,
+            "plugin.settings.get",
+            json!({"plugin":"fx-ui"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page["schema"]["fields"]["choice"]["enum"][0], "ab");
+}
+
+#[tokio::test]
+async fn plugin_disable_accepts_linked_valid_strategy() {
+    use std::os::unix::fs::symlink;
+    let (_dir, ctx, mut host, ops) = fixture();
+    host.entries[0].bundled = true;
+    let strategy = ctx.pacer_home.join("strategy.yaml");
+    let target = ctx.pacer_home.join("linked.yaml");
+    fs::rename(&strategy, &target).unwrap();
+    symlink(&target, &strategy).unwrap();
+    ops.call(&ctx, &mut host, "plugin.disable", json!({"id":"fx-ui"}))
+        .await
+        .unwrap();
+    assert!(
+        !fs::symlink_metadata(strategy)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(!fs::read_to_string(target).unwrap().contains("disabled"));
+}
+
+#[tokio::test]
+async fn plugin_list_uses_javascript_locale_order() {
+    let (_dir, ctx, mut host, ops) = fixture();
+    for id in ["Zeta", "alpha", "a_b", "a-b"] {
+        let mut entry = host.entries[0].clone();
+        entry.id = id.into();
+        entry.bundled = true;
+        host.entries.push(entry);
+    }
+    host.entries[0].bundled = true;
+    let result = ops
+        .call(&ctx, &mut host, "plugin.list", json!({}))
+        .await
+        .unwrap();
+    let ids: Vec<_> = result["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["a_b", "a-b", "alpha", "fx-ui", "Zeta"]);
+}
