@@ -653,23 +653,41 @@ fn component_matches(pattern: &str, value: &str) -> bool {
                     let start = pi + 1;
                     let negated = matches!(p.get(start), Some('!' | '^'));
                     let members = start + usize::from(negated);
-                    let search = members
-                        + usize::from(
-                            p.get(members) == Some(&']') && p[members + 1..].contains(&']'),
-                        );
-                    let end = p[search..]
-                        .iter()
-                        .position(|c| *c == ']')
-                        .map(|i| search + i);
-                    if let Some(end) = end {
+                    let mut end = members;
+                    // An initial ] is a member if another unescaped ] closes the class.
+                    if p.get(end) == Some(&']') {
+                        end += 1;
+                    }
+                    while end < p.len() && p[end] != ']' {
+                        end += if p[end] == '\\' && end + 1 < p.len() {
+                            2
+                        } else {
+                            1
+                        };
+                    }
+                    if end == p.len() && p.get(members) == Some(&']') {
+                        end = members;
+                    }
+                    if end < p.len() {
+                        let mut items = Vec::new();
                         let mut i = members;
-                        let mut found = false;
                         while i < end {
-                            if i + 2 < end && p[i + 1] == '-' {
-                                found |= vi < v.len() && p[i] <= v[vi] && v[vi] <= p[i + 2];
+                            let escaped = p[i] == '\\' && i + 1 < end;
+                            if escaped {
+                                i += 1;
+                            }
+                            items.push((p[i], escaped));
+                            i += 1;
+                        }
+                        let mut i = 0;
+                        let mut found = false;
+                        while i < items.len() {
+                            if i + 2 < items.len() && items[i + 1] == ('-', false) {
+                                found |=
+                                    vi < v.len() && items[i].0 <= v[vi] && v[vi] <= items[i + 2].0;
                                 i += 3;
                             } else {
-                                found |= vi < v.len() && p[i] == v[vi];
+                                found |= vi < v.len() && items[i].0 == v[vi];
                                 i += 1;
                             }
                         }

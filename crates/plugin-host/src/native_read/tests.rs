@@ -577,6 +577,7 @@ fn structured_scan_corpus_matches_bun_listing() {
     fs::write(root.join("aa/rollout-a.jsonl"), "a").unwrap();
     fs::write(root.join("a/rollout-*.jsonl"), "star").unwrap();
     fs::write(root.join("rollout-].jsonl"), "bracket").unwrap();
+    fs::write(root.join("rollout--.jsonl"), "dash").unwrap();
     for name in ["rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"] {
         fs::write(root.join(name), name).unwrap();
     }
@@ -604,6 +605,9 @@ fn structured_scan_corpus_matches_bun_listing() {
         "rollout-[^ab].jsonl",
         "rollout-[!].jsonl",
         "rollout-[]a].jsonl",
+        r"rollout-[\]].jsonl",
+        r"rollout-[a\-c].jsonl",
+        r"rollout-[a-\c].jsonl",
         "rollout-[!]].jsonl",
     ];
     let mut patterns: Vec<_> = directory_patterns
@@ -683,6 +687,8 @@ fn structured_scope_corpus_matches_bun_glob_match() {
         "rollout-a.jsonl",
         "rollout-b.jsonl",
         "]",
+        "-",
+        "c",
     ];
     let patterns = [
         "/tmp/logs/a**/rollout-*.jsonl",
@@ -697,6 +703,9 @@ fn structured_scope_corpus_matches_bun_glob_match() {
         "/tmp/logs/[]a]",
         "/tmp/logs/[!]]",
         "/tmp/logs/[]",
+        r"/tmp/logs/[\]]",
+        r"/tmp/logs/[a\-c]",
+        r"/tmp/logs/[a-\c]",
     ];
     let paths: Vec<_> = components
         .iter()

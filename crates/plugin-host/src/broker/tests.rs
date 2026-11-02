@@ -1312,3 +1312,105 @@ async fn http_transfer_numeric_effects_match_typescript() {
     }
     assert_eq!(actual, expected);
 }
+
+#[tokio::test]
+async fn worktree_attempts_match_typescript_effects_with_issued_grants() {
+    use std::process::Command;
+    let methods = [
+        "capability.worktree.inspect",
+        "capability.worktree.resolveBase",
+        "capability.worktree.createOrReuse",
+    ];
+    let values = [
+        ("1.0", true),
+        ("1e2", true),
+        ("0", false),
+        ("1.5", false),
+        ("9007199254740991", false),
+        ("9007199254740992", false),
+    ];
+    let cases: Vec<_> = methods
+        .iter()
+        .flat_map(|method| {
+            values
+                .iter()
+                .map(move |(spelling, accepted)| (*method, *spelling, *accepted))
+        })
+        .collect();
+    let wire: Vec<_> = cases
+        .iter()
+        .map(|(method, spelling, _)| json!({"method":method,"spelling":spelling}))
+        .collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args([
+            "run",
+            "test/fixtures/worktree-numeric.ts",
+            &json!(wire).to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ts: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    let sha = "a".repeat(40);
+    for ((method, spelling, accepted), ts_ok) in cases.into_iter().zip(ts) {
+        let value: Value = serde_json::from_str(spelling).unwrap();
+        let issued = if accepted {
+            json!(crate::js_semantics::safe_u64(&value).unwrap())
+        } else {
+            json!(1)
+        };
+        let resources: CallResources = serde_json::from_value(
+            json!({"worktree":{"taskId":"t-fixture","attempt":issued,"baseSha":sha}}),
+        )
+        .unwrap();
+        let manifest = parse_manifest(json!({"id":"fx-worktree","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"worktree","scopes":[]}]})).unwrap();
+        let mut broker = CapabilityBroker::new(
+            manifest,
+            CallAuthority::new(
+                resources,
+                ["worktree".into()],
+                Instant::now() + Duration::from_secs(10),
+            ),
+            vec![],
+        );
+        let mut effect = Echo { calls: 0 };
+        let mut params = json!({"taskId":"t-fixture","attempt":value});
+        if method.ends_with("createOrReuse") {
+            params["baseSha"] = json!(sha);
+        }
+        let result = broker.handle(method, params, &mut effect).await;
+        assert_eq!(
+            ts_ok,
+            if accepted {
+                "ok"
+            } else if spelling == "9007199254740991" {
+                "capability_denied"
+            } else {
+                "invalid_input"
+            },
+            "TS {method} {spelling}"
+        );
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "Rust {method} {spelling}: {result:?}"
+        );
+        if spelling == "9007199254740991" {
+            assert!(
+                matches!(result, Err(BrokerError::Authority(_))),
+                "safe boundary must reach authority: {result:?}"
+            );
+        }
+        assert_eq!(
+            effect.calls,
+            usize::from(accepted),
+            "effect {method} {spelling}"
+        );
+    }
+}
