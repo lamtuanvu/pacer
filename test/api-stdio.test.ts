@@ -80,14 +80,41 @@ test("EOF drains pending requests and stops subscription polling", async () => {
   expect(out).toHaveLength(count);
 });
 
-test("private config sync refuses missing, incorrect and work-scoped credentials", async () => {
+test("private native edit hook refuses missing, incorrect and work-scoped credentials", async () => {
   for (const env of [{}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key"}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key",PACER_WORK_GRANT:"fixture-grant"}]) {
     const ctx=fakeCtx({env});
     const params={key:env.PACER_WORK_GRANT?"fixture-private-key":"incorrect"};
-    async function* input(){yield JSON.stringify({jsonrpc:"2.0",id:1,method:"_internal.config.sync",params});}
+    async function* input(){yield JSON.stringify({jsonrpc:"2.0",id:1,method:"_internal.native-config.finish",params:{...params,op:"runner.set"}});}
     const out: unknown[]=[];
-    await runStdio(ctx,input(),line=>out.push(JSON.parse(line)));
+    await runStdio(ctx,input(),line=>out.push(JSON.parse(line)),{nativeConfigKey:env.PACER_NATIVE_CONFIG_SYNC_KEY});
     expect(out).toMatchObject([{id:1,error:{code:-32601,data:{code:"unknown_op"}}}]);
     expect(JSON.stringify(out)).not.toContain("fixture-private-key");
   }
+});
+
+test("private native edit hook rejects generic synchronization and unsupported operations", async () => {
+  const ctx = fakeCtx({env: {PACER_NATIVE_CONFIG_SYNC_KEY: "fixture-private-key"}});
+  const requests = [
+    {method: "_internal.config.sync", params: {key: "fixture-private-key"}},
+    ...[undefined, "notifications.set", "strategy.use", "plugin.doctor", "nope"].map(op => ({
+      method: "_internal.native-config.finish", params: {key: "fixture-private-key", op},
+    })),
+  ];
+  async function* input() {
+    for (const [id, request] of requests.entries()) yield JSON.stringify({jsonrpc: "2.0", id, ...request});
+  }
+  const out: unknown[] = [];
+  await runStdio(ctx, input(), line => out.push(JSON.parse(line)), {nativeConfigKey: "fixture-private-key"});
+  expect(out).toHaveLength(requests.length);
+  for (const reply of out) expect(reply).toMatchObject({error: {code: -32601, data: {code: "unknown_op"}}});
+});
+
+test("ordinary stdio has no native hook even if context contains a bridge key", async () => {
+  const ctx = fakeCtx({env: {PACER_NATIVE_CONFIG_SYNC_KEY: "fixture-private-key"}});
+  async function* input() {
+    yield JSON.stringify({jsonrpc: "2.0", id: 1, method: "_internal.native-config.finish", params: {key: "fixture-private-key", op: "runner.set"}});
+  }
+  const out: unknown[] = [];
+  await runStdio(ctx, input(), line => out.push(JSON.parse(line)));
+  expect(out).toMatchObject([{error: {code: -32601, data: {code: "unknown_op"}}}]);
 });

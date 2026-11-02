@@ -124,7 +124,7 @@ async fn forward_input<
                 request.get("params").cloned().unwrap_or_else(|| json!({})),
                 request.get("id"),
                 Some(Box::pin(crate::native::config_sync::stdio(
-                    &mut core, sync.0, sync.1, sync.2,
+                    &mut core, sync.0, sync.1, op.name, sync.2,
                 ))),
             )
             .await;

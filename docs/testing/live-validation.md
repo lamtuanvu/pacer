@@ -554,6 +554,9 @@ setting to verify replacement decoding during migration and writes, and saves a
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.
+It then exercises every native operation with the ordinary guarded CLI through
+the sandbox's public proxy, recording results and persisted strategy state in
+`native-config-fixture/cli-results.json`.
 
 Only fixed synthetic strategy/account declarations are used. Fixture homes and
 agent configuration locations are private and disposable; no agent runs, native
@@ -563,7 +566,7 @@ real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
 force. Files and logs remain under `native-config-fixture/` for inspection. Run
 `live report`, then `live down --keep`. The fixture records each desktop operation
 as UNVERIFIED under the scoped desktop exception in `.project/decisions.md`.
-Separately exercise guarded CLI calls, web and browser tray controls, and TUI
+Separately exercise web and browser tray controls, and TUI
 settings actions. For operations without a direct UI control (for example TUI
 strategy save/remove), verify the resulting list or detail after a guarded CLI
 write and state that distinction in the evidence. API fixture success alone does

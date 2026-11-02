@@ -9,7 +9,7 @@ import { helloBody, rpcError } from "./protocol";
 /** Concurrent, line-delimited JSON-RPC; EOF stops events and drains requests. */
 export async function runStdio(
   ctx: Ctx | (() => Ctx), input: AsyncIterable<string>, write: (line: string) => void,
-  o: { opDeps?: OpDeps; pollMs?: number } = {},
+  o: { opDeps?: OpDeps; pollMs?: number; nativeConfigKey?: string } = {},
 ): Promise<void> {
   const getCtx = typeof ctx === "function" ? ctx : () => ctx;
   const send = (message: unknown) => write(`${JSON.stringify(message)}\n`);
@@ -43,13 +43,13 @@ export async function runStdio(
     try {
       let result: unknown;
       switch (r.method) {
-        case "_internal.config.sync": {
-          const key = getCtx().env.PACER_NATIVE_CONFIG_SYNC_KEY;
+        case "_internal.native-config.finish": {
+          const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as {key?: unknown}).key !== key || getCtx().env.PACER_WORK_GRANT) {
             throw new CoreError("unknown_op", "unknown operation");
           }
-          const {syncEndpointConfig} = await import("../core/accounts");
-          await syncEndpointConfig(getCtx());
+          const {finishNativeConfigEdit} = await import("../core/accounts");
+          await finishNativeConfigEdit(getCtx(), (r.params as {op?: unknown}).op);
           result = null;
           break;
         }

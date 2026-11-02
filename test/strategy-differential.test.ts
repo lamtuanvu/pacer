@@ -211,7 +211,6 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "runner max_tasks", base: endpoint, path: ["runners", "edge", "max_tasks"] },
     { label: "host max_tasks", base: bases[1]!, path: ["hosts", "build", "max_tasks"] },
     { label: "runner model context", base: runner, path: ["runners", "codex@box", "models", 0, "context"], safe: true },
-    { label: "runner model output", base: runner, path: ["runners", "codex@box", "models", 0, "output"], safe: true },
     { label: "local max tasks", base, path: ["execution", "local_max_tasks"], safe: true },
     { label: "idle after", base, path: ["execution", "idle_after_min"] },
     { label: "idle fail", base, path: ["execution", "idle_fail_min"] },
@@ -234,6 +233,9 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "messaging rule max bytes", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "max_bytes"], safe: true },
   ];
   const inputs: { label: string; raw: string; accepted?: boolean }[] = [];
+  // Runner models have no output field; this checks strict unknown-key rejection,
+  // separately from the supported endpoint model output numeric field above.
+  inputs.push({label: "runner model unknown output key", raw: JSON.stringify(fieldCase(runner, ["runners", "codex@box", "models", 0, "output"], 1)), accepted: false});
   for (const field of numberFields) {
     const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null"];
     for (const literal of literals) {
@@ -253,7 +255,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
   ];
   for (const field of finiteFields) for (const literal of ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null", field.accepted, field.rejected]) {
     const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
-    inputs.push({ label: `${field.label}=${literal}`, raw });
+    inputs.push({ label: `${field.label}=${literal}`, raw, accepted: literal === field.accepted ? true : literal === field.rejected ? false : undefined });
   }
   // Saving an unchanged draft rewrites every numeric field in the base strategy.
   // Exercise persisted bytes as well as validation, including raw JSON exponents.
@@ -266,6 +268,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     let ts: {ok: boolean; error?: string};
     try { save(ctx, "review", {from: "default", description: "numeric"}, "approved"); ts = {ok: true}; }
     catch (error) { ts = {ok: false, error: (error as Error).message}; }
+    if (input.accepted !== undefined && ts.ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${JSON.stringify(ts)}`);
     const rs = JSON.parse(execFileSync("target/debug/examples/config_write_diff", [], {input: JSON.stringify({op: "strategy.save", home: rsHome, name: "review", draft: {from: "default", description: "numeric"}, reason: "approved", nowIso: new Date(ctx.now * 1000).toISOString()}) + "\n"}).toString());
     if (rs.ok !== ts.ok || (!ts.ok && rs.error !== ts.error)) throw Error(`${input.label}: TS ${JSON.stringify(ts)} Rust ${JSON.stringify(rs)}`);
     if (ts.ok) {

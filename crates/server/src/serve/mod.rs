@@ -101,7 +101,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
         let endpoint_sync = state.core.target().await.map(|target| {
-            Box::pin(crate::native::config_sync::http(Some(target)))
+            Box::pin(crate::native::config_sync::http(Some(target), op.name))
                 as pacer_foundation::api::OpFuture<'_>
         });
         return match call_native(&ctx, op, params, None, endpoint_sync).await {

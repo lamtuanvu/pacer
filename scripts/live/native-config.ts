@@ -3,7 +3,7 @@ import {existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writ
 import {join} from "node:path";
 import {isDeepStrictEqual} from "node:util";
 import golden from "../../test/fixtures/config-writes-goldens.json";
-import {freePort, healthy, pacerArgv, record, sandboxEnv, type Session} from "./core";
+import {freePort, healthy, pacerArgv, record, run, sandboxEnv, type Session} from "./core";
 import {createFixtureHome, settingsFixtureRoot} from "./settings";
 
 export const configSteps = [
@@ -160,8 +160,10 @@ async function http(session: Session, home: string, forwarded: boolean, log: str
       }
     } finally {await reader.cancel();}
     if (!frames.includes("strategy-switch")) throw Error("Strategy alert missing from public SSE replay");
-    const privateRoute=await fetch(`http://127.0.0.1:${port}/_internal/config-sync`,{method:"POST",headers:{authorization:`Bearer ${token}`}});
-    if (privateRoute.status!==404) throw Error("Private sync route exposed publicly");
+    for (const path of ["/_internal/config-sync", "/_internal/native-config-finish"]) {
+      const privateRoute=await fetch(`http://127.0.0.1:${port}${path}`,{method:"POST",headers:{authorization:`Bearer ${token}`}});
+      if (privateRoute.status!==404) throw Error("Private native hook exposed publicly");
+    }
     return normalized(states,home);
   } finally {
     if (child.exitCode===null) child.kill();
@@ -199,8 +201,37 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
       for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Endpoint plugin synchronization exercised for document edits."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
+    await guardedCli(session, fixture);
     for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:"desktop",verdict:"UNVERIFIED",text:"Unsigned sandbox desktop exits before opening a window; covered by the desktop-only exception recorded 2026-11-02. API parity passes; non-desktop clients require their own evidence."});
   } catch(error) {
     record(session,{kind:"note",behavior:"P2-C native config fixture",surface:"API",verdict:"FAIL",text:(error as Error).message});throw error;
   } finally { process.umask(previousUmask); }
+}
+
+/** The ordinary D3 wrapper and D8 public proxy remain in the CLI path. */
+async function guardedCli(session: Session, fixture: string): Promise<void> {
+  const home = join(session.root, "home"), name = "native-cli", saved = "native-cli-saved";
+  mkdirSync(join(home, "strategies"), {mode: 0o700, recursive: true});
+  const path = join(home, "strategies", `${name}.yaml`);
+  writeFileSync(path, golden.initial, {mode: 0o600, flag: "wx"});
+  const call = async (op: string, params: unknown) => {
+    const result = await run([sandboxEnv(session).PACER_BIN!, "api", "call", op, "--params", JSON.stringify(params), "--json"], session);
+    if (result.code) throw Error(`Guarded CLI ${op} failed: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  await call("strategy.use", {name});
+  const states = [];
+  for (const step of configSteps) {
+    if ("error" in step) continue;
+    const params = JSON.parse(JSON.stringify(step.params).replaceAll('"review"', JSON.stringify(saved)).replace('"from":"default"', `"from":"${name}"`));
+    const reply = await call(step.op, params);
+    const savedPath = join(home, "strategies", `${saved}.yaml`);
+    const state = existsSync(savedPath) ? readFileSync(savedPath, "utf8") : null;
+    if (step.op === "strategy.save" && !state?.includes("planner_reserve: 0.000001")) throw Error("Guarded CLI save number bytes differ");
+    if (step.op === "strategy.remove" && state !== null) throw Error("Guarded CLI did not remove saved strategy");
+    states.push({op: step.op, reply, strategy: state});
+    record(session, {kind: "note", behavior: `P2-C ${step.op}`, surface: "CLI", verdict: "PASS", text: "Guarded checkout api call --json succeeded through the public proxy; fixed synthetic result and persisted strategy captured in native-config-fixture/cli-results.json."});
+  }
+  await call("strategy.remove", {name});
+  writeFileSync(join(fixture, "cli-results.json"), JSON.stringify(states, null, 2), {mode: 0o600, flag: "wx"});
 }

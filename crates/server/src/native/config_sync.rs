@@ -28,7 +28,7 @@ pub(crate) fn error(value: &Value) -> CoreError {
     error
 }
 #[allow(clippy::result_large_err)]
-pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
+pub(crate) async fn http(target: Option<(u16, String)>, op: &str) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -40,9 +40,12 @@ pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreErr
             target.ok_or_else(|| CoreError::new(Code::Unavailable, "pacer core is restarting"))?;
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("http://127.0.0.1:{port}/_internal/config-sync"))
+            .uri(format!(
+                "http://127.0.0.1:{port}/_internal/native-config-finish"
+            ))
             .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty())
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::json!({"op":op}).to_string()))
             .map_err(|_| {
                 CoreError::new(Code::Unavailable, "endpoint synchronization unavailable")
             })?;
@@ -78,11 +81,12 @@ pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
+    op: &str,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 ) -> Result<Value, CoreError> {
     use tokio::io::AsyncWriteExt;
     let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
-    let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_internal.config.sync","params":{"key":key}});
+    let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_internal.native-config.finish","params":{"key":key,"op":op}});
     let mut bytes = serde_json::to_vec(&request)
         .map_err(|_| CoreError::new(Code::Internal, "config sync encoding failed"))?;
     bytes.push(b'\n');
