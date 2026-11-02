@@ -33,7 +33,9 @@ fn read_object(path: &Path) -> io::Result<SettingsObject> {
         Ok(bytes) => bytes,
         Err(_) => return Ok(Default::default()),
     };
-    let normalized = normalize_numbers(&bytes);
+    // Node's readFileSync(path, "utf8") replaces malformed UTF-8 before JSON.parse.
+    let decoded = String::from_utf8_lossy(&bytes);
+    let normalized = normalize_numbers(decoded.as_bytes());
     // Bound stack use without ever treating an unsupported deep document as empty.
     // Count delimiters outside strings; false positives for invalid JSON are safe.
     let mut depth = 0usize;

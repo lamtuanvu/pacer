@@ -108,6 +108,35 @@ test("notification writes refuse unsupported surrogate JSON without losing data"
   }
 }, 30_000);
 
+test("notification writes decode malformed UTF-8 before preserving settings", () => {
+  const binary = configBinary();
+  const bytes = (prefix: string, invalid: number[], suffix: string) => Buffer.concat([Buffer.from(prefix), Buffer.from(invalid), Buffer.from(suffix)]);
+  const inputs = [
+    bytes('{"other":42,"bad":"', [0xff], '"}'),
+    bytes('{"nested":' + '['.repeat(140) + '{"bad":"', [0xe2, 0x82, 0x78], '"}' + ']'.repeat(140) + ',"other":42}'),
+    bytes('{"bad":"', [0xf0, 0x9f, 0x98], '","other":42}'),
+    bytes('{"', [0xc0, 0xaf], '":"value","other":42}'),
+  ];
+  for (const input of inputs) for (const op of ["get", "set"] as const) {
+    const tsHome = home(), rsHome = home();
+    writeFileSync(join(tsHome, "settings.json"), input);
+    writeFileSync(join(rsHome, "settings.json"), input);
+    const ctx = fakeCtx({ pacerHome: tsHome });
+    const expected = op === "get" ? notify.getLevel(ctx) : notify.setLevel(ctx, "all");
+    const actual = rust(binary, op === "get"
+      ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
+      : { op: "notifications.set", home: rsHome, level: "all" });
+    expect(actual).toEqual({ ok: true, value: expected });
+    expect(readFileSync(join(rsHome, "settings.json"))).toEqual(readFileSync(join(tsHome, "settings.json")));
+  }
+  const unsupported = bytes('{"nested":' + '['.repeat(140) + '{"bad":"', [0xff], '","surrogate":"\\ud800"}' + ']'.repeat(140) + ',"other":42}');
+  const rsHome = home();
+  const path = join(rsHome, "settings.json");
+  writeFileSync(path, unsupported);
+  expect(rust(binary, { op: "notifications.set", home: rsHome, level: "all" }).ok).toBe(false);
+  expect(readFileSync(path)).toEqual(unsupported);
+}, 30_000);
+
 test("removing a runner drops its empty routing rule without changing surviving comments", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
