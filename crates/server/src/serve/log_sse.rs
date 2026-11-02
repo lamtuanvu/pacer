@@ -132,6 +132,11 @@ fn read_chunk(store: &TaskLogReader, id: &str, offsets: &mut Offsets) -> Result<
     let err_path = run_dir.map(|dir| Path::new(dir).join("stderr"));
     let stdout = read_file(out_path.as_deref(), &mut offsets.stdout)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+    // core.tasks.log returns next.stderr = 0 when the task has no run.
+    // Keep that reset even if a later poll observes another run record.
+    if err_path.is_none() {
+        offsets.stderr = 0;
+    }
     let stderr = read_file(err_path.as_deref(), &mut offsets.stderr)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let terminal = matches!(

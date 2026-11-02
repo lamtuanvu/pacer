@@ -31,6 +31,75 @@ fn raw(id: &str) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn connected_stream_resets_stderr_when_run_disappears_and_returns() {
+    for major in [2, 3] {
+        let home = tempfile::tempdir().unwrap();
+        let run = home.path().join("run");
+        task(home.path(), &run, "running");
+        std::fs::write(run.join("stderr"), "abc").unwrap();
+        let (port, server) = compatibility_listener(home.path()).await;
+        let response = client()
+            .request(request(
+                port,
+                &format!("/v{major}/tasks/{ID}/log?follow=1"),
+                Method::GET,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut body = response.into_body();
+        async fn until(body: &mut hyper::body::Incoming, marker: &str) -> String {
+            tokio::time::timeout(Duration::from_secs(4), async {
+                let mut text = String::new();
+                while !text.contains(marker) {
+                    let frame = body.frame().await.unwrap().unwrap();
+                    if let Ok(bytes) = frame.into_data() {
+                        text.push_str(std::str::from_utf8(&bytes).unwrap());
+                    }
+                }
+                text
+            })
+            .await
+            .unwrap()
+        }
+        assert!(
+            until(&mut body, "\"stderr\":\"abc\"")
+                .await
+                .contains("event: log")
+        );
+        let fallback = home.path().join("fallback.log");
+        std::fs::write(&fallback, "between").unwrap();
+        let mut store = pacer_store::TaskStore::open(home.path()).unwrap();
+        store
+            .update(ID, 1, 1001.0, |task| {
+                task.as_object_mut().unwrap().remove("run");
+                task["attempts"] = json!([{"startedAt":1,"endedAt":2,"log":fallback}]);
+            })
+            .unwrap();
+        // This marker proves a poll observed the record without a run.
+        assert!(
+            until(&mut body, "between")
+                .await
+                .contains("\"stderr\":\"\"")
+        );
+        let replacement = home.path().join("replacement-run");
+        std::fs::create_dir(&replacement).unwrap();
+        std::fs::write(replacement.join("stderr"), "xyz").unwrap();
+        store
+            .update(ID, 2, 1002.0, |task| {
+                task["run"] = json!({"dir":replacement})
+            })
+            .unwrap();
+        let restored = until(&mut body, "\"stderr\":\"xyz\"").await;
+        assert!(!restored.contains("event: done"));
+        std::fs::write(replacement.join("exit"), "0").unwrap();
+        assert!(until(&mut body, "event: done").await.contains("data: {}"));
+        server.abort();
+    }
+}
+
+#[tokio::test]
 async fn compatibility_import_survives_separate_streams_deletion_and_older_revisions() {
     for remove in [false, true] {
         let native = tempfile::tempdir().unwrap();

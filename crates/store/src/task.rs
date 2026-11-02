@@ -60,6 +60,19 @@ pub fn is_task_id(id: &str) -> bool {
 fn number(value: Option<&Value>) -> Option<f64> {
     value?.as_f64().filter(|v| v.is_finite())
 }
+fn import_numbers(value: &mut Value) {
+    match value {
+        Value::Number(n) => {
+            if let Some(n) = n.as_f64() {
+                // JSON.parse uses doubles; JSON.stringify writes negative zero as 0.
+                *value = if n == 0.0 { json!(0) } else { json!(n) };
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(import_numbers),
+        Value::Object(values) => values.values_mut().for_each(import_numbers),
+        _ => (),
+    }
+}
 pub(crate) fn revision(task: &Value) -> Option<i64> {
     let value = task.get("rev")?.as_f64()?;
     if value.is_finite() && value.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&value)
@@ -394,6 +407,7 @@ impl TaskStore {
             if !valid(&task, id) {
                 continue;
             }
+            import_numbers(&mut task);
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
