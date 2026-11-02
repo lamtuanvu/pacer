@@ -295,7 +295,13 @@ install hooks, or create an executor.
 A successful process without new complete quota telemetry fails the check and
 preserves the previous observation. No background refresh starts a paid turn.
 
-Codex reads its available provider source and newest session logs. BytePlus
+Codex reads its available provider source and newest session logs. Fresh quota
+checks can restore eligibility without dispatching a task. Codex windows with
+nonpositive durations are ignored when parsed. Previously saved `0h`
+zero-duration quota artifacts are retired only after a newer, current, non-stale
+provider or session-log measurement with a valid percentage covers the same
+account identity and scope. Real unknown, exhausted or expired windows and
+manual limits remain constraints; an omitted window alone does not prove recovery. BytePlus
 and metered sources use their existing usage readers; BytePlus authentication
 errors include Ark CLI sign-in guidance. An unchanged reading explicitly says
 **Reading unchanged**; details explain that no new usage observation was received.

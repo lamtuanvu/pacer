@@ -26,12 +26,56 @@ export function currentEvidence(fact: Evidence<unknown>, now: number, deadline =
 }
 const precedence = (source: Evidence<unknown>["source"]) => source === "configuration" ? 3 : source === "provider-cli" ? 2 : 1;
 
+/** A window with a positive, finite duration is a usable quota constraint. */
+function windowUsable(w: UsageWindow): boolean {
+  return Number.isFinite(w.lengthS) && w.lengthS > 0;
+}
+
+/** A measured quota observation from a provider polling source (not config/execution/manual). */
+function measuredQuota(f: Evidence<UsageWindow>): boolean {
+  return f.reason === "quota_observed" && (f.source === "session-log" || f.source === "provider-cli");
+}
+
+/**
+ * Narrowly identify invalid zero-duration Codex quota artifacts (historical 0h
+ * windows created before the parser guard) that a fresher, still-current,
+ * known-percentage measurement of the same account safely supersedes. Only
+ * measured session-log/provider-cli quota_observed facts named 0h with exactly zero duration
+ * are candidates; such an artifact is retired when a strictly newer,
+ * currently-valid witness shares its account/identity, covers its scope
+ * (a narrower witness cannot clear a broader artifact), and carries the same
+ * budget policy. Genuine positive-duration windows (expired, unknown or
+ * exhausted) and configuration/execution/manual or metered boundaries are never
+ * touched here; omission of a window alone never proves recovery.
+ */
+function retireInvalidZero(budget: Evidence<UsageWindow>[], now: number): Set<string> {
+  const witnesses = budget.filter(f => measuredQuota(f) && windowUsable(f.value) && !f.value.stale
+    && typeof f.value.usedPct === "number" && Number.isFinite(f.value.usedPct)
+    && f.value.usedPct >= 0 && f.value.usedPct <= 100
+    && f.observedAt !== null && currentEvidence(f, now, evidenceDeadline(f)));
+  const retired = new Set<string>();
+  for (const f of budget) {
+    if (!measuredQuota(f)) continue;      // configuration / execution / metered boundaries preserved
+    if (f.value.name !== "0h" || f.value.lengthS !== 0) continue; // only the historical artifact
+    if (f.observedAt === null) continue;  // cannot prove a fresh recovery over it
+    if (witnesses.some(w => w.observedAt! > f.observedAt! && appliesTo(w, f.scope)
+      && w.budgetPolicy === f.budgetPolicy)) retired.add(f.id);
+  }
+  return retired;
+}
+
 /** Retain the latest observation of each fact, including equal-authority conflicts. */
 export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEvidence, now: number, budgetPolicy?: string): ReconciledEvidence {
   const facts = emptyEvidence(), conflicts: string[] = [];
+  // Retire invalid zero-duration measured artifacts across BOTH previous and
+  // incoming candidates so a cached historical alternative cannot reintroduce a
+  // retired fact on the next poll.
+  const retired = retireInvalidZero([...previous.budget, ...incoming.budget], now);
+  const previousBudget = previous.budget.filter(f => !retired.has(f.id));
+  const incomingBudget = incoming.budget.filter(f => !retired.has(f.id));
   for (const kind of ["availability", "budget", "spending"] as const) {
     const groups = new Map<string, Evidence<unknown>[]>();
-    for (const fact of [...previous[kind], ...incoming[kind]]) {
+    for (const fact of [...(kind === "budget" ? previousBudget : previous[kind]), ...(kind === "budget" ? incomingBudget : incoming[kind])]) {
       const key = JSON.stringify([fact.scope.account, fact.scope.identity, fact.scope.runner, fact.scope.model, fact.scope.host,
         kind === "budget" ? [(fact.value as UsageWindow).name, fact.budgetPolicy] : kind]);
       const values = groups.get(key) ?? [];

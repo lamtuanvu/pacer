@@ -8,7 +8,7 @@ export function findRateLimits(root: unknown): Record<string, unknown> | null {
     const o = stack.pop();
     if (Array.isArray(o)) stack.push(...o);
     else if (isObj(o)) {
-      if (isObj(o.rate_limits) && o.rate_limits.primary != null) return o.rate_limits;
+      if (isObj(o.rate_limits) && (o.rate_limits.primary != null || isObj(o.rate_limits.secondary))) return o.rate_limits;
       stack.push(...Object.values(o));
     }
   }
@@ -35,7 +35,11 @@ export function windowsFromRateLimits(rl: Record<string, unknown>, observedAt: n
   for (const key of ["primary", "secondary"] as const) {
     const w = rl[key];
     if (!isObj(w)) continue;
-    const mins = toNum(w.window_minutes) ?? 10080;
+    // A non-positive duration is not a usable window; drop it
+    // instead of persisting an invalid 0-length artifact.
+    const raw = toNum(w.window_minutes);
+    const mins = raw === null ? 10080 : raw;
+    if (!Number.isFinite(mins) || mins <= 0) continue;
     let resetsAt = parseTs(w.resets_at);
     const inS = toNum(w.resets_in_seconds);
     if (resetsAt === null && inS !== null && observedAt !== null) resetsAt = observedAt + inS;

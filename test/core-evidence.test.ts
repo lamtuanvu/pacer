@@ -3,6 +3,8 @@ import { statSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { accountEvidenceScope, mergeEvidence, readEvidence } from "../src/core/evidence";
 import { emptyEvidence, evidenceFact } from "../src/engine/evidence";
+import { evaluateEligibility } from "../src/engine/eligibility";
+import type { AccountEvidence } from "../src/evidence/types";
 import { fakeCtx } from "./helpers";
 import { validateStrategy } from "../src/config/strategy";
 const account = () => validateStrategy({ planner: "claude-code", providers: { codex: {} } }, "/x").accounts.codex;
@@ -44,6 +46,35 @@ test("corrupt persisted fact values are discarded instead of becoming eligibilit
   (saved.evidence.facts.budget[0] as { value: unknown }).value = null;
   writeFileSync(join(ctx.pacerHome, "state/evidence", `${scope.identity}.json`), JSON.stringify(saved));
   expect(readEvidence(ctx, scope).revision).toBe(0);
+});
+
+test("persisted zero-duration Codex quota is recovered by a later fresh overwrite", async () => {
+  const ctx = fakeCtx({ now: 2_000_000 }), scope = accountEvidenceScope(account());
+  const stale = { ...emptyEvidence(), budget: [evidenceFact(scope, "session-log", ctx.now - 86400, null, "quota_observed",
+    { name: "0h", usedPct: null, resetsAt: null, lengthS: 0, paced: false })] };
+  await mergeEvidence(ctx, scope, stale);
+  const fresh: AccountEvidence = { ...emptyEvidence(),
+    availability: [evidenceFact(scope, "provider-cli", ctx.now, ctx.now + 604800, "usage_observed", "ready")],
+    budget: [evidenceFact(scope, "provider-cli", ctx.now, null, "quota_observed",
+      { name: "weekly", usedPct: 15, resetsAt: ctx.now + 604800, lengthS: 604800, paced: true })] };
+  const saved = await mergeEvidence(ctx, scope, fresh);
+  expect(saved.evidence.facts.budget.some(f => f.value.name === "0h")).toBe(false);
+  expect(saved.evidence.facts.budget.some(f => f.value.name === "weekly")).toBe(true);
+  const decision = evaluateEligibility({ now: ctx.now, scope, usage: "quota", allowPaid: false, evidence: saved.evidence, restrictions: [] });
+  expect(decision.state).toBe("eligible");
+});
+
+test("fresh measured evidence clears an expired execution limit without execution help", async () => {
+  const ctx = fakeCtx({ now: 3_000_000 }), scope = accountEvidenceScope(account());
+  await mergeEvidence(ctx, scope, { ...emptyEvidence(), budget: [evidenceFact(scope, "execution", ctx.now - 7200, ctx.now - 3600, "quota_failure",
+    { name: "limit", usedPct: 100, resetsAt: ctx.now - 3600, lengthS: 21600, paced: false })] });
+  const fresh: AccountEvidence = { ...emptyEvidence(),
+    availability: [evidenceFact(scope, "provider-cli", ctx.now, ctx.now + 604800, "usage_observed", "ready")],
+    budget: [evidenceFact(scope, "provider-cli", ctx.now, null, "quota_observed",
+      { name: "weekly", usedPct: 30, resetsAt: ctx.now + 604800, lengthS: 604800, paced: true })] };
+  const saved = await mergeEvidence(ctx, scope, fresh);
+  const decision = evaluateEligibility({ now: ctx.now, scope, usage: "quota", allowPaid: false, evidence: saved.evidence, restrictions: [] });
+  expect(decision.state).toBe("eligible");
 });
 
 test("removing and recreating the same account retires old observations and in-flight writes", async () => {
