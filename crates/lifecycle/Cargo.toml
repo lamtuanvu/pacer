@@ -1,0 +1,19 @@
+[package]
+name = "pacer-lifecycle"
+version = "0.2.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value", "float_roundtrip"] }
+thiserror.workspace = true
+regex = "1"
+url = "2"
+ryu-js = "1"
+icu_collator = { version = "=2.3.0", features = ["unstable"] }
+
+[lints]
+workspace = true
