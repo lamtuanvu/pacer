@@ -22,14 +22,21 @@ The selection and reason appear in the job summary.
 | Mapped CI and workflow files only | Focused CI/release tests, typecheck, UI source checks and host artifact smoke |
 | Shared inputs, other scripts or unmapped files | Full validation |
 
-The `Linux service restart keeps running work` job runs in full mode when Bun checks are selected. It records UNVERIFIED instead of failing when the runner has no user service manager.
+Pull requests run only the OS-independent logic tests on Linux. `Test (macos-latest)`
+keeps its required name but runs on Ubuntu and skips every step except the readiness
+gate on PRs, `Rust` runs only on `ubuntu-latest`, and the OS-specific `Install, sign-in
+and delegation (macOS)` and `Linux service restart keeps running work` jobs skip.
+Main pushes, scheduled and manual runs keep the full macOS and Linux matrix and the
+OS-specific jobs, using the selection above.
+
+The `Linux service restart keeps running work` job runs in full mode when Bun checks are selected outside PRs. It records UNVERIFIED instead of failing when the runner has no user service manager.
 
 Mixed changes use the union; any unmapped path, including documentation mixed with a mapped path, forces full suites. Standalone prose under `docs/`, `.project/` and `.agents/skills/`, plus the app and desktop READMEs, retains documentation-only selection; other shared or unknown Markdown selects full validation. Scheduled and manual CI runs always select full validation. The source map covers `src/classify/metrics.ts` (direct metrics and transitive bench tests), `src/console/cli.ts` (autoconsole-worker and console-cli tests), `src/console/console.ts` (api-cmd and console-settings tests), and `src/usage/cache.ts` (cache and plugins-usage-readers tests). The latter three have no non-test importers in the current tree; the map includes all their direct test importers. Re-audit dependencies before adding mappings or consumers. Only modifications to mapped source files on PRs qualify; additions, deletions and both sides of renames force full suites. Main pushes remain full for source changes. Shared modules such as `src/classify/types.ts`, tests, and other source files remain full. Changes to the service-survival implementation and the CodeQL, PR-title, Scorecard and desktop workflows select full validation.
 Bun builds still compile the Rust front door and build fixture plugins where
 required. Native desktop validation is not replaced by the Bun checks.
 
 Existing `Test (ubuntu-latest)` and `Test (macos-latest)` names remain always-running
-gates. Both use Ubuntu for documentation-only runs, avoiding macOS allocation.
+gates. Both use Ubuntu for documentation-only runs and pull requests, avoiding macOS allocation.
 Documentation changes only run their inexpensive readiness step; they do
 not set up toolchains, install dependencies or compile. That gate rejects failed
 change detection and any required failed/missing UI or release evidence. Rust/e2e
