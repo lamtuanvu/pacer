@@ -1,4 +1,3 @@
-import { privateDir, privateWrite } from "../private-file";
 import { policySummary } from "../plugins/policy";
 import { claudeHookChecks } from "../install/doctor-hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -88,8 +87,8 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);
- privateDir(ctx.pacerHome);
+ mkdirSync(ctx.pacerHome,{recursive:true});
  // The worker polls this request even after setup is complete; only it writes panel HTML.
- privateWrite(join(ctx.pacerHome,"check-setup-request.json"),JSON.stringify({at:Date.now(),pid:process.pid}));
+ writeFileSync(join(ctx.pacerHome,"check-setup-request.json"),JSON.stringify({at:Date.now(),pid:process.pid}));
  return setupText(result);
 }

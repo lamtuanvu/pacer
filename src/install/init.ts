@@ -1,8 +1,7 @@
-import { privateDir, privateWrite } from "../private-file";
 import { allowedPair, type AgentId } from "../config/accounts";
 import type { Strategy } from "../config/strategy";
 import { accountFolder } from "./role";
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
 import type { Result } from "../commands/types";
@@ -105,13 +104,13 @@ export async function initCmd(ctx: Ctx, options: { force?: boolean; planner?: st
     out = `Detected: ${BINS.filter((bin) => d.clis[bin]).join(", ") || "none"}\nMissing: ${BINS.filter((bin) => !d.clis[bin]).join(", ") || "none"}\n`;
     const text = starterStrategy(d, options.planner);
     validateStrategy(Bun.YAML.parse(text), path);
-    privateDir(ctx.pacerHome);
+    mkdirSync(ctx.pacerHome, { recursive: true });
     if (existsSync(path)) {
       const backup = backupPath(path, ctx.now);
-      privateWrite(backup, readFileSync(path));
+      copyFileSync(path, backup);
       out += `Backup: ${backup}\n`;
     }
-    privateWrite(path, text);
+    writeFileSync(path, text);
     out += `Wrote ${path}\n`;
     out += migrationLines(path, migrateStrategy(path)).join("\n") + "\n";
     return { code: 0, out, err: "" };

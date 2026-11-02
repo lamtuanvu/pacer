@@ -1,4 +1,3 @@
-import { privateDir } from "../private-file";
 import type { Stats } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { CursorStore, reusable, type Cursor } from "../usage/cursors";
@@ -167,7 +166,7 @@ export const ACTIVITY_LOCK_STALE_S = 600;
 export function tryActivityLock(ctx: Ctx): boolean {
   const path = join(ctx.pacerHome, "activity.lock");
   try {
-    privateDir(ctx.pacerHome);
+    mkdirSync(ctx.pacerHome, { recursive: true });
     if (existsSync(path)) {
       const lock = readJson<{ at?: unknown }>(path);
       const at = typeof lock?.at === "number" && Number.isFinite(lock.at)
@@ -175,7 +174,7 @@ export function tryActivityLock(ctx: Ctx): boolean {
       if (ctx.now - at <= ACTIVITY_LOCK_STALE_S) return false;
       unlinkSync(path);
     }
-    writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid, token: randomUUID() }), { flag: "wx", mode: 0o600 });
+    writeFileSync(path, JSON.stringify({ at: ctx.now, pid: process.pid, token: randomUUID() }), { flag: "wx" });
     return readJson<{ pid?: unknown }>(path)?.pid === process.pid;
   } catch {
     return false;

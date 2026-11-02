@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { policySummary } from "../plugins/policy";
 import { policyWords } from "../view-model/words";
 import { plannerPreview } from "../plugins/planner-preview";
@@ -102,7 +101,7 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
       } else print("✓ Strategy (already done)");
     } else {
       const text = starterStrategy(detection, planner);
-      validateStrategy(Bun.YAML.parse(text), path); privateWrite(path, text); print(`✓ Strategy: ${path}`);
+      validateStrategy(Bun.YAML.parse(text), path); mkdirSync(ctx.pacerHome, { recursive: true }); writeFileSync(path, text); print(`✓ Strategy: ${path}`);
     }
     const service = (deps.service ?? serviceBackend)(ctx);
     let serviceInstalled = (await service.status()).installed;
