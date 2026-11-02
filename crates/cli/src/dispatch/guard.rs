@@ -176,7 +176,8 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
     let deadline = std::time::Instant::now() + Duration::from_millis(1500);
     let mut post = true;
     let mut authorized = true;
-    for redirects in 0..=20 {
+    // Bun fetch allows 126 redirects before rejecting the 127th response.
+    for redirects in 0..=126 {
         let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
             return false;
         };
@@ -214,7 +215,7 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
             else {
                 return false;
             };
-            if redirects == 20 {
+            if redirects == 126 {
                 return false;
             }
             let Ok(next) = url.join(location) else {

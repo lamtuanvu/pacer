@@ -253,3 +253,80 @@ test.skipIf(!front)("denial reports follow fetch redirects with the same methods
     }
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root,{recursive:true,force:true}); }
 }, 30000);
+
+test.skipIf(!front)("native guard attributes authenticated denials to the scoped running attempt", async () => {
+  const { fakeCtx, tmpDir } = await import("./helpers");
+  const { createTask, updateTask } = await import("../src/tasks/store");
+  const { registerWork } = await import("../src/dispatch/work");
+  const { issueEnforcementToken } = await import("../src/dispatch/enforcement-token");
+  const { dispatchDatabase } = await import("../src/dispatch/store");
+  const { startServer } = await import("../src/serve/http");
+  const ctx = fakeCtx({now: Date.now()/1000});
+  const task = createTask(ctx,{brief:{goal:"guard attribution",repo:tmpDir()},kind:"feature",requestedExecutor:null,timeoutS:600});
+  registerWork(ctx,task.id); updateTask(ctx,task.id,t => { t.state = "running"; });
+  const token = issueEnforcementToken(ctx,task.id,1);
+  const server = startServer(() => ({...ctx,now:Date.now()/1000}),{port:0,listener:false,pumpMs:0});
+  try {
+    for (const argv of [[process.execPath,cli],[front!]]) {
+      const child = Bun.spawn([...argv,"guard","--planner","codex"],{env:{...process.env,HOME:ctx.home,PACER_HOME:ctx.pacerHome,
+        PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_PORT:String(server.port)},stdin:"pipe",stdout:"pipe",stderr:"pipe"});
+      await child.stdin.write('{"tool_name":"spawn_agent"}'); await child.stdin.end();
+      expect(await child.exited).toBe(0); expect(await new Response(child.stdout).text()).toBe(denial("codex"));
+      expect(await new Response(child.stderr).text()).toBe("");
+    }
+    const rows = dispatchDatabase(ctx).query<{task_id:string;data:string},[string]>("SELECT task_id,data FROM work_events WHERE kind=? ORDER BY seq").all("native-child.denied");
+    expect(rows.map(row => ({task:row.task_id,...JSON.parse(row.data)}))).toEqual([
+      {task:task.id,agent:"codex",attempt:1},{task:task.id,agent:"codex",attempt:1},
+    ]);
+  } finally { await server.stop(); }
+}, 15000);
+
+test.skipIf(!front)("seeded JSON.parse differential", () => {
+  const root = mkdtempSync(join(tmpdir(),"pacer-json-seed-"));
+  let seed = 0x5882026;
+  const next = () => { seed = (Math.imul(seed,1664525)+1013904223) >>> 0; return seed; };
+  const values = ['null','true','1e400','"\\ud800"','[1,{},false]','{"x":1}','"\\\\ud800"','01','[', '"\\uZZZZ"'];
+  try {
+    for (let i=0;i<40;i++) {
+      const input = `{"tool_name":${(next() >>> 16)%2 ? '"Bash"' : '"Agent"'},"other":${values[(next() >>> 16)%values.length]}}`;
+      const env = {...process.env,HOME:root,PACER_HOME:join(root,".pacer"),PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:"invalid"};
+      const run = (argv:string[]) => spawnSync(argv[0]!,[...argv.slice(1),"guard","--planner","codex"],{env,input,encoding:"utf8",timeout:5000});
+      const ts=run([process.execPath,cli]), rust=run([front!]);
+      expect([rust.status,rust.stdout,rust.stderr],`seed 0x5882026 case ${i}: ${input}`).toEqual([ts.status,ts.stdout,ts.stderr]);
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 60000);
+
+test.skipIf(!front)("seeded redirect limits and cross-origin authorization match fetch", async () => {
+  const root=mkdtempSync(join(tmpdir(),"pacer-redirect-seed-"));
+  let chain=0, cross=false; const seen:string[]=[];
+  const destination=createServer((req,res)=>{seen.push(`${req.method} ${req.headers.authorization ?? ""}`);res.end("{}");});
+  await new Promise<void>(resolve=>destination.listen(0,"127.0.0.1",resolve));
+  const dest=destination.address(); if(!dest || typeof dest === "string") throw Error("no destination port");
+  const server=createServer((req,res)=>{
+    seen.push(`${req.method} ${req.url} ${req.headers.authorization ?? ""}`);
+    const step=Number(req.url?.split("/").pop()) || 0;
+    if(step < chain) {res.writeHead(307,{location:`/hop/${step+1}`});res.end();}
+    else if(cross && !req.url?.startsWith("/hop/")) {res.writeHead(307,{location:`http://127.0.0.1:${dest.port}/end`});res.end();}
+    else if(cross) {res.writeHead(307,{location:`http://127.0.0.1:${dest.port}/end`});res.end();}
+    else res.end("{}");
+  });
+  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+  try {
+    const address=server.address(); if(!address || typeof address === "string") throw Error("no port");
+    for (const scenario of [{chain:20,cross:false},{chain:125,cross:false},{chain:126,cross:false},{chain:127,cross:false},{chain:0,cross:true},{chain:2,cross:true}]) {
+      ({chain,cross}=scenario); const results=[];
+      for(const [runtime,argv] of [["ts",[process.execPath,cli]],["rust",[front!]]] as const) {
+        const home=join(root,`${chain}-${cross}-${runtime}`);mkdirSync(home);
+        const env={...process.env,HOME:home,PACER_HOME:join(home,".pacer"),PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:`pet_${"0".repeat(64)}`,PACER_PORT:String(address.port),PACER_GUARD_FAILURE_MARKER:join(home,"failed")};
+        seen.length=0;const child=Bun.spawn([...argv,"guard","--planner","codex"],{env,stdin:"pipe",stdout:"pipe",stderr:"pipe"});
+        await child.stdin.write('{}');await child.stdin.end();
+        const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+        results.push({code,out,err,failed:existsSync(env.PACER_GUARD_FAILURE_MARKER),seen:[...seen]});
+      }
+      expect(results[1],JSON.stringify(scenario)).toEqual(results[0]);
+      expect(results[0]!.failed).toBe(chain>126);
+      if(cross) expect(results[0]!.seen.at(-1)).toBe("POST ");
+    }
+  } finally {await new Promise<void>(resolve=>server.close(()=>resolve()));await new Promise<void>(resolve=>destination.close(()=>resolve()));rmSync(root,{recursive:true,force:true});}
+}, 30000);
