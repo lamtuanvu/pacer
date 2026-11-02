@@ -50,6 +50,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/plugin-wire` | `pacer-plugin-wire`: bounded byte payloads and re-exported lossless UTF-16 JSON delivery; library-only, re-exported by the runtime. |
 | `crates/plugin-capabilities` | `pacer-plugin-capabilities` (layer 3): pinned filesystem/process/byte authority, shared error/effect and lease resources; Store2 edge only for error conversion. |
 | `crates/plugin-runtime` | `pacer-plugin-runtime` (layer 4): shadow task-attempt, Orca and remote transfer owners; re-exports capability paths; no client operations registered. |
+| `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads and JSON compatibility; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
