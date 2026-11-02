@@ -145,11 +145,13 @@ The Orca text-parity correction keeps the runner/account resolver, wait text,
 parameter validation and exact default-folder record with their private attempt
 owner. That checkpoint measured `pacer-plugin-runtime` at 8,043 LOC; integrating
 direct-task exact edits and lease validation measured 8,136. The subsequent Orca
-task-write migration on that base measures **8,231 LOC**, above the CRATE-1
-warning. Schedule the **Orca attempt/session ownership versus direct/remote
+task-write migration measured 8,231. With the journal transaction correction,
+the integrated runtime measures **8,290 LOC**, above the CRATE-1 warning.
+Schedule the **Orca attempt/session ownership versus direct/remote
 run and transfer ownership** split within M2; the 12,000-line hard limit is
-unchanged. This measurement excludes the separately reviewed filesystem read-path
-fix, which adds two host lines and no runtime lines. See [ADR 0019](../decisions/0019-native-plugin-runtime-ownership.md).
+unchanged. The integrated host count is 4,972 and capabilities count is 4,298;
+the filesystem read-path fix adds no runtime lines.
+See [ADR 0019](../decisions/0019-native-plugin-runtime-ownership.md).
 
 These shadow paths remain unserved. Native client validation stays UNVERIFIED
 under the scoped library exception until cutover. Scalar parameter length parity

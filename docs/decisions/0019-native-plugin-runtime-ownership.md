@@ -48,8 +48,10 @@ unsupported performance claim. The libraries remain unserved until cutover.
 The subsequent Orca text-parity checkpoint measured runtime at **8,043 LOC**
 (capabilities 4,218; host 4,970). Integrating direct-task exact edits and lease
 validation measured runtime at 8,136 LOC (capabilities 4,237; host 4,970).
-The Orca task-write migration on that base measures runtime at **8,231 LOC**
-(capabilities 4,237; host 4,970; JavaScript JSON carrier 598). The 7,781-line
+The Orca task-write migration on that base measured runtime at 8,231 LOC.
+After the journal transaction correction and filesystem read-path validation,
+the integrated measurement is **8,290 runtime LOC**, 4,298 capabilities,
+4,972 host and 598 JavaScript JSON carrier. The 7,781-line
 figure above remains the historical split measurement. The additional domain-local resolver and exact folder-record
 reader stay with the cohesive private Orca owner while parity is corrected.
 Under CRATE-1, the current M2 follow-up is now scheduled: **split Orca
