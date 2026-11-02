@@ -44,6 +44,8 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
     ["activity.list", '{"limit":2.0,"before":"row-99"}'],
     ["activity.list", '{"limit":0}'], ["activity.list", '{"limit":1.5}'],
     ["activity.list", '{"limit":501}'], ["activity.list", '{"limit":null}'],
+    ["activity.list", '{"limit":9007199254740992}'],
+    ["activity.list", '{"limit":-9007199254740992}'],
     ["activity.list", '{"before":"missing"}'], ["activity.list", '{"before":""}'],
     ["activity.list", '{"repo":""}'], ["activity.list", '{"kinds":["bogus"]}'],
     ["activity.list", '{"kinds":["config"],"limit":2}'],
@@ -53,6 +55,7 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
     ["task.log", `{"id":"${task.id}","stdout":1e2}`],
     ["task.log", `{"id":"${task.id}","stdout":9007199254740991}`],
     ["task.log", `{"id":"${task.id}","stdout":9007199254740992}`],
+    ["task.log", `{"id":"${task.id}","stdout":-9007199254740992}`],
     ["task.log", `{"id":"${task.id}","stdout":0.5}`],
     ["task.log", `{"id":"${task.id}","stderr":2.0}`],
     ["task.log", `{"id":"${task.id}","stderr":1e2}`],
@@ -61,6 +64,7 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
     ["task.log", '{"id":"missing"}'], ["task.log", '{}'],
     ["task.log", '{"id":""}'],
     ["task.log", JSON.stringify({ id: "😀".repeat(129) })],
+    ["task.log", JSON.stringify({ id: "😀".repeat(128) })],
   ];
   let seed = 577;
   const next = () => (seed = (seed * 1664525 + 1013904223) >>> 0);
@@ -84,7 +88,32 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
   expect(native[0]?.result?.entries).toHaveLength(2);
   expect(native[1]?.result?.entries).toHaveLength(100);
   expect(native[2]?.result?.entries).toHaveLength(2);
-  expect(native[14]?.result?.stdout).toStartWith("234");
-  expect(native[15]?.result?.stdout).toStartWith("012");
+  const offset2 = cases.findIndex(([op, params]) => op === "task.log" && params.includes('"stdout":2.0'));
+  const offset100 = cases.findIndex(([op, params]) => op === "task.log" && params.includes('"stdout":1e2'));
+  expect(native[offset2]?.result?.stdout).toStartWith("234");
+  expect(native[offset100]?.result?.stdout).toStartWith("012");
   expect(files.map(path => readFileSync(path).toString("base64"))).toEqual(before);
+
+  for (const [receipt, done] of [
+    ["0x10", true], ["0x" + "f".repeat(400), false], ["0x", false],
+    ["\uFEFF0b101\uFEFF", true], ["\u20280o77\u2029", true],
+    ["\u00A02\u3000", true], ["\u00852", false],
+  ] as const) {
+    writeFileSync(join(run, "exit"), receipt);
+    const requests = [request(2, "task.log", JSON.stringify({ id: task.id }))];
+    const actual = await exchange(ctx.home, requests, false);
+    expect(actual).toEqual(await exchange(ctx.home, requests, true));
+    expect(actual[0]?.result?.done, receipt.slice(0, 20)).toBe(done);
+  }
+  writeFileSync(activity, [
+    '{"id":"finite-exp","at":1e2,"kind":"config","level":"info","text":"finite"}',
+    '{"id":"huge-exp","at":1e400,"kind":"config","level":"info","text":"not finite"}',
+    '{"id":"finite-dec","at":2.0,"kind":"config","level":"info","text":"finite"}',
+    '{"id":"string-at","at":"2","kind":"config","level":"info","text":"not a number"}',
+    '{"id":"null-at","at":null,"kind":"config","level":"info","text":"not a number"}',
+  ].join("\n") + "\n");
+  const activityRequest = [request(2, "activity.list", "{}")];
+  const activityNative = await exchange(ctx.home, activityRequest, false);
+  expect(activityNative).toEqual(await exchange(ctx.home, activityRequest, true));
+  expect(activityNative[0]?.result?.entries.map((entry: { id: string }) => entry.id)).toEqual(["finite-dec", "finite-exp"]);
 }, 60000);

@@ -2,6 +2,38 @@
 use super::*;
 use std::{collections::HashMap, fs};
 
+#[test]
+fn exit_receipt_number_matches_js_number_and_trim() {
+    for whitespace in [
+        '\u{0009}', '\u{000A}', '\u{000B}', '\u{000C}', '\u{000D}', '\u{0020}', '\u{00A0}',
+        '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}',
+        '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}', '\u{200A}', '\u{2028}', '\u{2029}',
+        '\u{202F}', '\u{205F}', '\u{3000}', '\u{FEFF}',
+    ] {
+        assert_eq!(js_trim(&format!("{whitespace}2{whitespace}")), "2");
+    }
+    for non_js_whitespace in ['\u{0085}', '\u{180E}'] {
+        assert!(!finite_js_number(&format!("{non_js_whitespace}2")));
+    }
+    for (text, expected) in [
+        ("0", true),
+        ("0x10", true),
+        ("0b101", true),
+        ("0o77", true),
+        ("0x", false),
+        ("0xg", false),
+        ("Infinity", false),
+        ("\u{feff}0x10\u{feff}", true),
+        ("\u{2028}0b101\u{2029}", true),
+        ("\u{00a0}2\u{3000}", true),
+        ("\u{0085}2", false),
+    ] {
+        assert_eq!(finite_js_number(text), expected, "{text:?}");
+    }
+    assert!(!finite_js_number(&format!("0x{}", "f".repeat(400))));
+    assert!(finite_js_number(&format!("0x1{}", "0".repeat(255))));
+}
+
 fn ctx(dir: &tempfile::TempDir) -> Ctx {
     Ctx::with(dir.path().into(), dir.path().into(), HashMap::new(), 1000.0)
 }
@@ -72,6 +104,14 @@ async fn activity_limit_accepts_integral_json_forms() {
         ("1.5", "limit: Invalid input: expected int, received number"),
         ("0", "limit: Too small: expected number to be >=1"),
         ("501", "limit: Too big: expected number to be <=500"),
+        (
+            "9007199254740992",
+            "limit: Too big: expected int to be <=9007199254740991; limit: Too big: expected number to be <=500",
+        ),
+        (
+            "-9007199254740992",
+            "limit: Too small: expected int to be >=-9007199254740991; limit: Too small: expected number to be >=1",
+        ),
     ] {
         let params = serde_json::from_str(&format!("{{\"limit\":{raw}}}")).unwrap();
         assert_eq!(
@@ -173,6 +213,7 @@ async fn task_log_accepts_integral_json_offsets() {
             ("-1", "Too small"),
             ("0.5", "expected int"),
             ("9007199254740992", "Too big"),
+            ("-9007199254740992", "Too small: expected int"),
         ] {
             let params =
                 serde_json::from_str(&format!("{{\"id\":\"{id}\",\"{field}\":{raw}}}")).unwrap();

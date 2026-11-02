@@ -106,16 +106,33 @@ fn activity_limit(p: &serde_json::Map<String, Value>) -> Result<usize, CoreError
             "limit: Invalid input: expected number, received {}",
             type_name(v)
         ))),
-        Some(v) if v.as_f64().is_some_and(|n| n.fract() != 0.0) => Err(invalid(
-            "limit: Invalid input: expected int, received number",
-        )),
-        Some(v) if v.as_f64().is_some_and(|n| n < 1.0) => {
-            Err(invalid("limit: Too small: expected number to be >=1"))
+        Some(v)
+            if v.as_f64()
+                .is_none_or(|n| !n.is_finite() || n.fract() != 0.0) =>
+        {
+            Err(invalid(
+                "limit: Invalid input: expected int, received number",
+            ))
         }
-        Some(v) if v.as_f64().is_some_and(|n| n > 500.0) => {
-            Err(invalid("limit: Too big: expected number to be <=500"))
+        Some(v) => {
+            let n = v.as_f64().unwrap_or(50.0);
+            let mut issues = Vec::new();
+            if n < -9_007_199_254_740_991.0 {
+                issues.push("limit: Too small: expected int to be >=-9007199254740991");
+            } else if n > 9_007_199_254_740_991.0 {
+                issues.push("limit: Too big: expected int to be <=9007199254740991");
+            }
+            if n < 1.0 {
+                issues.push("limit: Too small: expected number to be >=1");
+            } else if n > 500.0 {
+                issues.push("limit: Too big: expected number to be <=500");
+            }
+            if issues.is_empty() {
+                Ok(n as usize)
+            } else {
+                Err(invalid(issues.join("; ")))
+            }
         }
-        Some(v) => Ok(v.as_f64().unwrap_or(50.0) as usize),
     }
 }
 
@@ -170,6 +187,11 @@ fn optional_offset(params: &serde_json::Map<String, Value>, name: &str) -> Resul
         Some(n) if !n.is_finite() || n.fract() != 0.0 => {
             return Err(invalid(format!(
                 "{name}: Invalid input: expected int, received number"
+            )));
+        }
+        Some(n) if n < -9_007_199_254_740_991.0 => {
+            return Err(invalid(format!(
+                "{name}: Too small: expected int to be >=-9007199254740991; {name}: Too small: expected number to be >=0"
             )));
         }
         Some(n) if n < 0.0 => {
@@ -290,8 +312,18 @@ fn read_from(file: Option<&Path>, offset: u64) -> Result<(String, u64), CoreErro
     ))
 }
 
+fn js_trim(text: &str) -> &str {
+    text.trim_matches(|c| {
+        matches!(c,
+            '\u{0009}'..='\u{000D}' | '\u{0020}' | '\u{00A0}' | '\u{1680}' |
+            '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' |
+            '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+        )
+    })
+}
+
 fn finite_js_number(text: &str) -> bool {
-    let text = text.trim();
+    let text = js_trim(text);
     if text.is_empty() {
         return false;
     }
@@ -306,7 +338,20 @@ fn finite_js_number(text: &str) -> bool {
     .into_iter()
     .find_map(|(prefix, radix)| text.strip_prefix(prefix).map(|digits| (digits, radix)));
     if let Some((digits, radix)) = radix {
-        return !digits.is_empty() && digits.chars().all(|digit| digit.is_digit(radix));
+        if digits.is_empty() {
+            return false;
+        }
+        let mut value = 0.0_f64;
+        for digit in digits.chars() {
+            let Some(digit) = digit.to_digit(radix) else {
+                return false;
+            };
+            value = value * f64::from(radix) + f64::from(digit);
+            if !value.is_finite() {
+                return false;
+            }
+        }
+        return true;
     }
     text.parse::<f64>().is_ok_and(f64::is_finite)
 }
