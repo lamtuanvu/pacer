@@ -1,12 +1,10 @@
 //! Notification setting writes. Config-change publication remains with the caller.
 
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::os::unix::fs::PermissionsExt;
 use std::{fs, io, path::Path};
-
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotificationError {
@@ -22,13 +20,49 @@ fn valid(level: &str) -> bool {
 
 type SettingsObject = (Map<String, Value>, Option<Vec<u16>>);
 
+fn parse_settings(bytes: &[u8]) -> Result<Value, serde_json::Error> {
+    let mut parser = serde_json::Deserializer::from_slice(bytes);
+    parser.disable_recursion_limit();
+    let value = Value::deserialize(&mut parser)?;
+    parser.end()?;
+    Ok(value)
+}
+
 fn read_object(path: &Path) -> io::Result<SettingsObject> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(_) => return Ok(Default::default()),
     };
     let normalized = normalize_numbers(&bytes);
-    let value = match serde_json::from_slice::<Value>(&normalized) {
+    // Bound stack use without ever treating an unsupported deep document as empty.
+    // Count delimiters outside strings; false positives for invalid JSON are safe.
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for &byte in &normalized {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if matches!(byte, b'[' | b'{') {
+            depth += 1;
+            if depth > 512 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "settings nesting exceeds supported depth",
+                ));
+            }
+        } else if matches!(byte, b']' | b'}') {
+            depth = depth.saturating_sub(1);
+        }
+    }
+    let value = match parse_settings(&normalized) {
         Ok(value) => value,
         Err(_) => {
             // JSON.parse accepts lone UTF-16 surrogates, which serde_json cannot
@@ -49,7 +83,7 @@ fn read_object(path: &Path) -> io::Result<SettingsObject> {
                     i += 1;
                 }
             }
-            if sanitized != normalized && serde_json::from_slice::<Value>(&sanitized).is_ok() {
+            if sanitized != normalized && parse_settings(&sanitized).is_ok() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "settings contain unsupported UTF-16 surrogates",
@@ -225,18 +259,9 @@ fn write_settings(
     fs::create_dir_all(parent)?;
     #[cfg(unix)]
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-    let temp = path.with_file_name(format!(
-        "settings.json.{}.{}.tmp",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
+    let (temp, mut file) = crate::temp_file::create(path)?;
     let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
         use std::io::Write;
-        let mut file = options.open(&temp)?;
         if let Some(units) = units {
             write!(file, "{{")?;
             for (i, unit) in units.iter().enumerate() {
@@ -264,7 +289,9 @@ fn write_settings(
         file.flush()?;
         fs::rename(&temp, path)
     })();
-    let _ = fs::remove_file(temp);
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
     result
 }
 

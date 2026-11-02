@@ -357,18 +357,9 @@ pub fn save_strategy(
         one_line(reason),
         stringify_bun(&raw)
     );
-    let temp = path.with_file_name(format!(
-        "{name}.{}.{}.tmp",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
+    let (temp, mut file) = crate::temp_file::create(&path)?;
     let write = (|| -> io::Result<()> {
-        let mut file_options = fs::OpenOptions::new();
-        file_options.write(true).create_new(true);
-        #[cfg(unix)]
-        file_options.mode(0o600);
         use std::io::Write;
-        let mut file = file_options.open(&temp)?;
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
         if path.exists() && !options.overwrite {
