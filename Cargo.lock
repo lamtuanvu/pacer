@@ -1069,6 +1069,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-limits-protocol"
 version = "0.0.0"
 dependencies = [
