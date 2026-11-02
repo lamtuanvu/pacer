@@ -157,3 +157,81 @@ async fn listener_appends_and_drains_bounded_chunks_before_done() {
     assert_eq!(frames[5], "event: done\ndata: {}");
     server.abort();
 }
+
+#[tokio::test]
+async fn followers_continue_reading_while_another_connection_writes() {
+    let home = tempfile::tempdir().unwrap();
+    let run = home.path().join("run");
+    task(home.path(), &run, "running");
+    let (port, server) = listener(home.path(), false).await;
+    let path = format!("/v3/tasks/{ID}/log?follow=1");
+    let client = client();
+    let mut bodies = Vec::new();
+    for _ in 0..2 {
+        let response = client
+            .request(request(port, &path, Method::GET, true))
+            .await
+            .unwrap();
+        let mut body = response.into_body();
+        body.frame().await.unwrap().unwrap();
+        bodies.push(body);
+    }
+    let mut writer = pacer_store::TaskStore::open(home.path()).unwrap();
+    writer
+        .connection()
+        .unwrap()
+        .execute_batch("BEGIN IMMEDIATE")
+        .unwrap();
+    std::fs::write(run.join("stdout"), "while locked").unwrap();
+    for body in &mut bodies {
+        let frame = tokio::time::timeout(Duration::from_secs(3), body.frame())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&frame.into_data().unwrap()).contains("while locked"));
+    }
+    writer
+        .connection()
+        .unwrap()
+        .execute_batch("ROLLBACK")
+        .unwrap();
+    server.abort();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn listener_refuses_linked_database_without_modifying_target() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    for hard_link in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("target.db");
+        std::fs::write(&target, b"sentinel").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::create_dir(home.path().join("state")).unwrap();
+        let path = home.path().join("state/tasks.db");
+        if hard_link {
+            std::fs::hard_link(&target, path).unwrap();
+        } else {
+            symlink(&target, path).unwrap();
+        }
+        let (port, server) = listener(home.path(), false).await;
+        let response = client()
+            .request(request(
+                port,
+                &format!("/v3/tasks/{ID}/log?follow=1"),
+                Method::GET,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"sentinel");
+        server.abort();
+    }
+}
