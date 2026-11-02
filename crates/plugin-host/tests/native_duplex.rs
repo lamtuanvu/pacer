@@ -124,15 +124,21 @@ async fn duplex_close_reports_node_signal_names() {
 }
 #[tokio::test]
 async fn duplex_uses_the_typescript_half_second_term_grace() {
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::fs;
     let root = std::env::temp_dir().join(format!("pacer-duplex-grace-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
-    let executable = root.join("child");
-    fs::write(&executable,"#!/usr/bin/env python3\nimport signal,time,sys\ndef stop(*_):\n time.sleep(.2)\n sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nprint('ready',flush=True)\nwhile True: time.sleep(.1)\n").unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let script = root.join("child.py");
+    fs::write(&script,"import signal,time,sys\ndef stop(*_):\n time.sleep(.2)\n sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nprint('ready',flush=True)\nwhile True: time.sleep(.1)\n").unwrap();
+    // Executing a freshly written file can race another test's fork on Linux
+    // (ETXTBSY). Launch the existing interpreter; the script is only read.
+    let argv = vec![
+        "ssh".into(),
+        "python3".into(),
+        script.to_string_lossy().into_owned(),
+    ];
     let mut stream = NativeDuplex::prepare(DuplexSpec {
-        argv: vec!["ssh".into()],
-        executable: executable.to_string_lossy().into_owned(),
+        argv: argv.clone(),
+        executable: "/usr/bin/env".into(),
         env: HashMap::from([("PATH".into(), std::env::var("PATH").unwrap())]),
         input: vec![],
         timeout_ms: 1000,
@@ -142,7 +148,7 @@ async fn duplex_uses_the_typescript_half_second_term_grace() {
     let open = stream
         .answer(
             "capability.process.duplex.open",
-            &json!({"argv":["ssh"],"timeoutMs":1000}),
+            &json!({"argv":argv,"timeoutMs":1000}),
             deadline,
         )
         .await
