@@ -1,60 +1,15 @@
-use serde_json::{Map, Number, Value};
+use crate::json::{AdmissionString as JsString, Map, Value, js_numbers};
 use std::{path::Path, process::Command};
 
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
+fn utf16_len(s: &JsString) -> usize {
+    s.utf16_len()
 }
-fn codepoint_len(s: &str) -> usize {
-    s.chars().count()
-}
-
-/// JSON.parse represents every number as binary64, including integer lexemes.
-/// Canonicalize integral values where serde_json can retain an integer exactly.
-fn js_numbers(value: &Value) -> Value {
-    match value {
-        Value::Number(original) => {
-            let Some(n) = original.as_f64().filter(|n| n.is_finite()) else {
-                return value.clone();
-            };
-            if n == 0.0 && n.is_sign_negative() {
-                Number::from_f64(n).map_or_else(|| value.clone(), Value::Number)
-            } else if n.fract() == 0.0 && (0.0..18_446_744_073_709_551_616.0).contains(&n) {
-                Value::Number(Number::from(n as u64))
-            } else if n.fract() == 0.0 && (-9_223_372_036_854_775_808.0..0.0).contains(&n) {
-                Value::Number(Number::from(n as i64))
-            } else {
-                Number::from_f64(n).map_or_else(|| value.clone(), Value::Number)
-            }
-        }
-        Value::Array(items) => Value::Array(items.iter().map(js_numbers).collect()),
-        Value::Object(fields) => Value::Object(
-            fields
-                .iter()
-                .map(|(key, item)| (key.clone(), js_numbers(item)))
-                .collect(),
-        ),
-        _ => value.clone(),
-    }
+fn codepoint_len(s: &JsString) -> usize {
+    s.codepoint_len()
 }
 
-/// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim.
-fn js_trim(s: &str) -> &str {
-    s.trim_matches(|c| {
-        matches!(
-            c,
-            '\u{0009}'..='\u{000D}'
-                | '\u{0020}'
-                | '\u{00A0}'
-                | '\u{1680}'
-                | '\u{2000}'..='\u{200A}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202F}'
-                | '\u{205F}'
-                | '\u{3000}'
-                | '\u{FEFF}'
-        )
-    })
+fn js_trim(s: &JsString) -> JsString {
+    s.trim()
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -66,12 +21,12 @@ fn string_field<'a>(
     name: &str,
     min: usize,
     max: Option<usize>,
-) -> Result<Option<&'a str>, AdmissionError> {
+) -> Result<Option<&'a JsString>, AdmissionError> {
     let Some(value) = raw.get(name) else {
         return Ok(None);
     };
     let text = value
-        .as_str()
+        .as_js_string()
         .ok_or_else(|| AdmissionError(format!("{name}: Expected string")))?;
     if codepoint_len(text) < min || max.is_some_and(|n| codepoint_len(text) > n) {
         return Err(AdmissionError(format!("{name}: invalid length")));
@@ -124,7 +79,7 @@ fn enum_field(
 }
 
 pub fn valid_base(base: &str) -> bool {
-    if (7..=40).contains(&codepoint_len(base)) && base.bytes().all(|c| c.is_ascii_hexdigit()) {
+    if (7..=40).contains(&base.chars().count()) && base.bytes().all(|c| c.is_ascii_hexdigit()) {
         return true;
     }
     if base.is_empty() || base.contains('\0') || base.starts_with('-') || base.contains("@{") {
@@ -136,14 +91,17 @@ pub fn valid_base(base: &str) -> bool {
         .is_ok_and(|result| result.status.success())
 }
 
-fn copy_if_present(from: &Value, to: &mut Map<String, Value>, source: &str, target: &str) {
+fn copy_if_present(from: &Value, to: &mut Map, source: &str, target: &str) {
     if let Some(value) = from.get(source) {
         to.insert(target.into(), value.clone());
     }
 }
 
 /// Parse the public task delegate fields. Unknown caller fields are discarded, as in Zod's object schema.
-pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, AdmissionError> {
+pub(crate) fn parse_delegate_value(
+    raw: &Value,
+    default_repo: &str,
+) -> Result<Value, AdmissionError> {
     let normalized = js_numbers(raw);
     let raw = &normalized;
     if !raw.is_object() {
@@ -164,7 +122,7 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         string_field(raw, name, min, Some(max))?;
     }
     if let Some(title) = string_field(raw, "title", 0, None)?
-        && (js_trim(title).is_empty() || codepoint_len(js_trim(title)) > 60)
+        && (js_trim(title).is_empty() || codepoint_len(&js_trim(title)) > 60)
     {
         return Err(AdmissionError("title: invalid length".into()));
     }
@@ -204,15 +162,16 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         ],
         "invalid kind",
     )?;
-    if let Some(base) = raw.get("base").and_then(Value::as_str)
-        && !valid_base(base)
+    if let Some(base) = raw.get("base").and_then(Value::as_js_string)
+        && !valid_base(&base.to_string())
     {
         return Err(AdmissionError(
             "base must be a branch name or a 7–40 hex SHA".into(),
         ));
     }
     if let Some(group) = string_field(raw, "group", 0, None)? {
-        let bytes = group.as_bytes();
+        let text = group.as_str().unwrap_or("");
+        let bytes = text.as_bytes();
         if bytes.is_empty()
             || codepoint_len(group) > 40
             || !bytes[0].is_ascii_alphanumeric()
@@ -271,10 +230,13 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
     ] {
         copy_if_present(raw, &mut input, source, target);
     }
-    if let Some(title) = raw.get("title").and_then(Value::as_str) {
-        input.insert("title".into(), Value::String(js_trim(title).into()));
+    if let Some(title) = raw.get("title").and_then(Value::as_js_string) {
+        input.insert("title".into(), Value::String(js_trim(title)));
     }
-    Ok(serde_json::json!({"brief":brief,"input":input}))
+    let mut result = Map::new();
+    result.insert("brief".into(), Value::Object(brief));
+    result.insert("input".into(), Value::Object(input));
+    Ok(Value::Object(result))
 }
 
 /// Strategy resolution supplied by the caller for the requested executor.
@@ -290,29 +252,33 @@ pub enum ExecutorResolution {
 }
 
 /// Synchronous checks shared by initial admission and policy revalidation.
-pub fn validate_input(
+pub(crate) fn validate_value(
     input: &Value,
     repo_validated: bool,
     context: &ValidationContext<'_>,
-) -> Vec<String> {
+) -> Vec<JsString> {
     let mut problems = Vec::new();
     let brief = &input["brief"];
     if input.get("title").is_some_and(|v| {
-        !v.as_str()
-            .is_some_and(|s| (1..=60).contains(&utf16_len(js_trim(s))))
+        !v.as_js_string()
+            .is_some_and(|s| (1..=60).contains(&utf16_len(&js_trim(s))))
     }) {
         problems.push("title must be 1–60 characters after trimming".into());
     }
     if !brief["goal"]
-        .as_str()
+        .as_js_string()
         .is_some_and(|s| !js_trim(s).is_empty())
     {
         problems.push("goal is required".into());
     }
-    match brief["repo"].as_str() {
+    let repo = brief["repo"].as_js_string().map(ToString::to_string);
+    match repo.as_deref() {
         Some(repo) if Path::new(repo).is_absolute() => {
-            if !repo_validated && !Path::new(repo).is_dir() {
-                problems.push(format!("repo does not exist: {repo}"));
+            if !repo_validated
+                && !Path::new(repo).is_dir()
+                && let Some(original) = brief["repo"].as_js_string()
+            {
+                problems.push(JsString::surround("repo does not exist: ", original, ""));
             }
         }
         _ => problems.push("repo must be an absolute path".into()),
@@ -325,13 +291,13 @@ pub fn validate_input(
     }
     if brief
         .get("base")
-        .and_then(Value::as_str)
-        .is_some_and(|s| !valid_base(s))
+        .and_then(Value::as_js_string)
+        .is_some_and(|s| !valid_base(&s.to_string()))
     {
         problems.push("base must be a branch name or a 7–40 hex SHA".into());
     }
     if input.get("requestId").is_some_and(|v| {
-        !v.as_str()
+        !v.as_js_string()
             .is_some_and(|s| (1..=128).contains(&utf16_len(s)))
     }) {
         problems.push("request_id must be 1–128 characters".into());
@@ -344,7 +310,7 @@ pub fn validate_input(
     }
     if let Some(kind) = input
         .get("kind")
-        .and_then(Value::as_str)
+        .and_then(Value::as_js_string)
         .filter(|s| !s.is_empty())
     {
         let kinds = [
@@ -360,27 +326,36 @@ pub fn validate_input(
             "unfamiliar-code",
             "research",
         ];
-        if !kinds.contains(&kind) {
-            problems.push(format!(
-                "unknown kind \"{kind}\" (allowed: {})",
-                kinds.join(", ")
+        if !kind.as_str().is_some_and(|s| kinds.contains(&s)) {
+            problems.push(JsString::surround(
+                "unknown kind \"",
+                kind,
+                &format!("\" (allowed: {})", kinds.join(", ")),
             ));
         }
     }
     if let Some(executor) = input
         .get("executor")
-        .and_then(Value::as_str)
+        .and_then(Value::as_js_string)
         .filter(|s| !s.is_empty())
     {
         match context.executor {
-            ExecutorResolution::Unknown => problems.push(format!(
-                "unknown executor \"{executor}\" (configured: {})",
-                context.configured_providers.join(", ")
+            ExecutorResolution::Unknown => problems.push(JsString::surround(
+                "unknown executor \"",
+                executor,
+                &format!(
+                    "\" (configured: {})",
+                    context.configured_providers.join(", ")
+                ),
             )),
             ExecutorResolution::Planner
                 if input.pointer("/dispatch/allowDelegation") != Some(&Value::Bool(true)) =>
             {
-                problems.push(format!("\"{executor}\" is the planner; pick an executor"))
+                problems.push(JsString::surround(
+                    "\"",
+                    executor,
+                    "\" is the planner; pick an executor",
+                ))
             }
             _ => {}
         }
@@ -405,7 +380,7 @@ pub fn validate_input(
     }
     if input
         .get("worktree_reason")
-        .is_some_and(|v| !v.as_str().is_some_and(|s| utf16_len(s) <= 200))
+        .is_some_and(|v| !v.as_js_string().is_some_and(|s| utf16_len(s) <= 200))
     {
         problems.push("worktree_reason must be a string of at most 200 characters".into());
     }

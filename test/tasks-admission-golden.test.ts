@@ -101,3 +101,24 @@ test("queue capacity goldens preserve executor-slot isolation", () => {
     expect(queueCapacity(queueStrategy(true), row.executor, row.use) ?? null).toEqual(row.expected);
   }
 });
+
+const surrogateGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/surrogate-goldens.json", import.meta.url), "utf8")) as Array<{
+  id: string; rawJson?: string; inputJson?: string; accept: boolean; expectedJson?: string; problemsJson?: string;
+}>;
+for (const row of surrogateGoldens) test(`surrogate golden: ${row.id}`, () => {
+  if (row.rawJson !== undefined) {
+    const raw = JSON.parse(row.rawJson);
+    if (!row.accept) expect(() => parseDelegateBrief(raw, "/tmp")).toThrow();
+    else {
+      const { brief, ...input } = parseDelegateBrief(raw, "/tmp");
+      if (row.expectedJson !== undefined) {
+        expect(JSON.parse(JSON.stringify({ brief, input }))).toEqual(JSON.parse(row.expectedJson));
+      }
+    }
+  }
+  if (row.inputJson !== undefined) {
+    const problems = validateInput(strategy, JSON.parse(row.inputJson));
+    expect(problems.length === 0).toBe(row.accept);
+    if (row.problemsJson !== undefined) expect(problems).toEqual(JSON.parse(row.problemsJson));
+  }
+});

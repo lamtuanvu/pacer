@@ -1,17 +1,17 @@
 use crate::brief::AdmissionError;
-use serde_json::{Map, Value, json};
+use crate::json::{Map, Value};
+use serde_json::json;
 
 const SAFE_MAX: f64 = 9_007_199_254_740_991.0;
 
-fn object<'a>(
-    value: &'a Value,
-    fields: &[&str],
-    name: &str,
-) -> Result<&'a Map<String, Value>, AdmissionError> {
+fn object<'a>(value: &'a Value, fields: &[&str], name: &str) -> Result<&'a Map, AdmissionError> {
     let map = value
         .as_object()
         .ok_or_else(|| AdmissionError(format!("{name}: Expected object")))?;
-    if let Some(key) = map.keys().find(|key| !fields.contains(&key.as_str())) {
+    if let Some(key) = map
+        .keys()
+        .find(|key| !key.as_str().is_some_and(|s| fields.contains(&s)))
+    {
         return Err(AdmissionError(format!("{name}.{key}: Unrecognized key")));
     }
     Ok(map)
@@ -19,9 +19,9 @@ fn object<'a>(
 
 fn string(value: &Value, name: &str, min: usize, max: usize) -> Result<(), AdmissionError> {
     let s = value
-        .as_str()
+        .as_js_string()
         .ok_or_else(|| AdmissionError(format!("{name}: Expected string")))?;
-    if !(min..=max).contains(&s.chars().count()) {
+    if !(min..=max).contains(&s.codepoint_len()) {
         return Err(AdmissionError(format!("{name}: invalid length")));
     }
     Ok(())
@@ -77,8 +77,9 @@ fn requirements(value: &Value) -> Result<(), AdmissionError> {
         &["minTier", "tools", "context"],
         "dispatch.requirements",
     )?;
-    for (k, v) in map {
-        match k.as_str() {
+    for (key, v) in map {
+        let k = key.as_str().unwrap_or("");
+        match k {
             "minTier" => one_of(v, k, &["small", "medium", "frontier"])?,
             "tools" => boolean(v, k)?,
             "context" => number(v, k, 1.0, SAFE_MAX, true)?,
@@ -97,8 +98,10 @@ fn preferences(value: &Value) -> Result<Value, AdmissionError> {
         names(v, "strengths", 64)?;
     }
     let mut result = map.clone();
-    result.entry("models").or_insert_with(|| json!([]));
-    result.entry("strengths").or_insert_with(|| json!([]));
+    result.entry("models").or_insert_with(|| json!([]).into());
+    result
+        .entry("strengths")
+        .or_insert_with(|| json!([]).into());
     Ok(Value::Object(result))
 }
 
@@ -121,11 +124,12 @@ pub(crate) fn dispatch(value: &Value) -> Result<Value, AdmissionError> {
     ];
     let map = object(value, &fields, "dispatch")?;
     let mut result = map.clone();
-    for (k, v) in map {
-        match k.as_str() {
+    for (key, v) in map {
+        let k = key.as_str().unwrap_or("");
+        match k {
             "requirements" => requirements(v)?,
             "preferences" => {
-                result.insert(k.clone(), preferences(v)?);
+                result.insert(key.clone(), preferences(v)?);
             }
             "model" => string(v, k, 1, 256)?,
             "kind" => string(v, k, 1, 128)?,
@@ -160,7 +164,7 @@ pub(crate) fn dispatch(value: &Value) -> Result<Value, AdmissionError> {
         ("priority", json!(0)),
         ("estimatePct", json!(0)),
     ] {
-        result.entry(k).or_insert(v);
+        result.entry(k).or_insert_with(|| v.into());
     }
     Ok(Value::Object(result))
 }
@@ -183,8 +187,9 @@ fn rule(value: &Value) -> Result<(), AdmissionError> {
         .get("effect")
         .ok_or_else(|| AdmissionError("effect: Required".into()))?;
     one_of(effect, "effect", &["allow", "deny"])?;
-    for (k, v) in map {
-        match k.as_str() {
+    for (key, v) in map {
+        let k = key.as_str().unwrap_or("");
+        match k {
             "effect" => (),
             "from_kind" | "to_kind" => {
                 one_of(v, k, &["human", "external", "launched", "broker", "any"])?
@@ -236,8 +241,9 @@ fn rule(value: &Value) -> Result<(), AdmissionError> {
             "grant" => one_of(v, k, &["required", "not_required"])?,
             "limits" => {
                 let limits = object(v, &["per_minute", "max_bytes", "confirm"], "limits")?;
-                for (lk, lv) in limits {
-                    match lk.as_str() {
+                for (limit_key, lv) in limits {
+                    let lk = limit_key.as_str().unwrap_or("");
+                    match lk {
                         "per_minute" => number(lv, lk, 1.0, SAFE_MAX, true)?,
                         "max_bytes" => number(lv, lk, 1.0, 1048576.0, true)?,
                         "confirm" => boolean(lv, lk)?,
@@ -273,8 +279,9 @@ pub(crate) fn messaging(value: &Value) -> Result<Value, AdmissionError> {
             &["interval_s", "max_nudges", "escalate_after_s"],
             "liveness",
         )?;
-        for (k, v) in l {
-            match k.as_str() {
+        for (key, v) in l {
+            let k = key.as_str().unwrap_or("");
+            match k {
                 "interval_s" | "escalate_after_s" => number(v, k, 10.0, SAFE_MAX, true)?,
                 "max_nudges" => number(v, k, 0.0, SAFE_MAX, true)?,
                 _ => unreachable!(),

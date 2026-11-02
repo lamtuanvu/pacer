@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use pacer_lifecycle::{
-    ExecutorResolution, SlotLimits, ValidationContext, parse_delegate_brief, queue_capacity,
-    slot_use, validate_input,
+    AdmissionValue, ExecutorResolution, SlotLimits, ValidationContext, parse_delegate_brief,
+    parse_delegate_brief_json, queue_capacity, slot_use, validate_input, validate_input_json,
 };
 use serde_json::{Value, json};
 
@@ -31,6 +31,15 @@ fn brief_goldens() {
     for case in cases {
         let id = case["id"].as_str().unwrap();
         let actual = parse_delegate_brief(&case["raw"], "$REPO");
+        let lossless = parse_delegate_brief_json(&case["raw"].to_string(), "$REPO");
+        assert_eq!(actual.is_ok(), lossless.is_ok(), "{id}");
+        if let (Ok(actual), Ok(lossless)) = (&actual, lossless) {
+            assert_eq!(
+                *actual,
+                serde_json::from_str::<Value>(&lossless.to_json()).unwrap(),
+                "{id}"
+            );
+        }
         if let Some(error) = case.get("error").and_then(Value::as_str) {
             assert!(actual.unwrap_err().to_string().contains(error), "{id}");
         } else {
@@ -198,6 +207,15 @@ fn trim_and_numeric_goldens() {
             let id = row["id"].as_str().unwrap();
             if let Some(raw) = row.get("raw") {
                 let actual = parse_delegate_brief(raw, "/tmp");
+                let lossless = parse_delegate_brief_json(&raw.to_string(), "/tmp");
+                assert_eq!(actual.is_ok(), lossless.is_ok(), "{id}");
+                if let (Ok(actual), Ok(lossless)) = (&actual, lossless) {
+                    assert_eq!(
+                        *actual,
+                        serde_json::from_str::<Value>(&lossless.to_json()).unwrap(),
+                        "{id}"
+                    );
+                }
                 if row["accept"] == false {
                     assert!(actual.is_err(), "{id}");
                 } else {
@@ -226,6 +244,68 @@ fn trim_and_numeric_goldens() {
                     "{id}: {problems:?}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn surrogate_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/surrogate-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        if let Some(raw) = row["rawJson"].as_str() {
+            let actual = parse_delegate_brief_json(raw, "/tmp");
+            assert_eq!(
+                actual.is_ok(),
+                row["accept"] == true,
+                "{}: {actual:?}",
+                row["id"]
+            );
+            if let Some(expected) = row["expectedJson"].as_str() {
+                let actual = actual.unwrap();
+                assert_eq!(
+                    actual,
+                    AdmissionValue::parse(expected).unwrap(),
+                    "{}",
+                    row["id"]
+                );
+                assert_eq!(AdmissionValue::parse(&actual.to_json()).unwrap(), actual);
+            }
+        }
+        if let Some(input) = row["inputJson"].as_str() {
+            let problems = validate_input_json(
+                input,
+                true,
+                &ValidationContext {
+                    configured_providers: &["claude-code", "codex"],
+                    executor: ExecutorResolution::Unknown,
+                },
+            )
+            .unwrap();
+            if let Some(expected) = row["problemsJson"].as_str() {
+                let serialized = format!(
+                    "[{}]",
+                    problems
+                        .iter()
+                        .map(|s| s.to_json())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                assert_eq!(
+                    AdmissionValue::parse(&serialized).unwrap(),
+                    AdmissionValue::parse(expected).unwrap(),
+                    "{}",
+                    row["id"]
+                );
+            }
+            assert_eq!(
+                problems.is_empty(),
+                row["accept"] == true,
+                "{}: {problems:?}",
+                row["id"]
+            );
         }
     }
 }
