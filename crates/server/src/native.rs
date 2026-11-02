@@ -3,6 +3,9 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+mod config_params;
+pub(crate) mod config_sync;
+mod config_writes;
 pub mod plugins;
 mod task_reads;
 
@@ -26,6 +29,42 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "strategy.use",
+        call: config_writes::strategy_use,
+    },
+    NativeOp {
+        name: "strategy.save",
+        call: config_writes::strategy_save,
+    },
+    NativeOp {
+        name: "strategy.remove",
+        call: config_writes::strategy_remove,
+    },
+    NativeOp {
+        name: "routing.set",
+        call: config_writes::routing_set,
+    },
+    NativeOp {
+        name: "runner.set",
+        call: config_writes::runner_set,
+    },
+    NativeOp {
+        name: "runner.reorder",
+        call: config_writes::runner_reorder,
+    },
+    NativeOp {
+        name: "runner.remove",
+        call: config_writes::runner_remove,
+    },
+    NativeOp {
+        name: "notifications.get",
+        call: config_writes::notifications_get,
+    },
+    NativeOp {
+        name: "notifications.set",
+        call: config_writes::notifications_set,
+    },
     NativeOp {
         name: "activity.list",
         call: task_reads::activity_list,
@@ -73,6 +112,7 @@ pub async fn call_native(
     op: &NativeOp,
     params: Value,
     request_id: Option<&Value>,
+    endpoint_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -81,7 +121,31 @@ pub async fn call_native(
             eprintln!("native {}", op.name);
         }
     }
-    (op.call)(ctx, params).await
+    if config_writes::syncs_endpoints(op.name) && endpoint_sync.is_none() {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "endpoint synchronization bridge unavailable",
+        ));
+    }
+    let result = (op.call)(ctx, params).await?;
+    if config_writes::syncs_endpoints(op.name)
+        && let Some(sync) = endpoint_sync
+    {
+        sync.await.map_err(|mut error| {
+            if op.name == "runner.remove" {
+                if error.code == pacer_foundation::api::Code::Internal {
+                    error.code = pacer_foundation::api::Code::InvalidInput;
+                }
+                if error.hint.is_none() {
+                    error.hint =
+                        Some("Check the runner id, account and host configuration.".into());
+                }
+            }
+            error
+        })?;
+    }
+    config_writes::finish(ctx, op.name, &result)?;
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -90,6 +154,20 @@ mod tests {
 
     #[test]
     fn forward_override_removes_only_selected_native_ops() {
+        for name in [
+            "strategy.use",
+            "strategy.save",
+            "strategy.remove",
+            "routing.set",
+            "runner.set",
+            "runner.reorder",
+            "runner.remove",
+            "notifications.get",
+            "notifications.set",
+        ] {
+            assert!(registry("").get(name).is_some(), "{name}");
+            assert!(registry(name).get(name).is_none(), "{name}");
+        }
         assert!(registry("").get("activity.list").is_some());
         assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
@@ -104,6 +182,21 @@ mod tests {
     #[test]
     fn service_registers_only_read_operations_with_individual_fallbacks() {
         for name in pacer_plugin_ops::public::OPERATIONS {
+            assert!(super::service_registry("").get(name).is_some(), "{name}");
+            assert!(super::service_registry(name).get(name).is_none(), "{name}");
+            assert!(registry("").get(name).is_none(), "stdio {name}");
+        }
+        for name in [
+            "strategy.use",
+            "strategy.save",
+            "strategy.remove",
+            "routing.set",
+            "runner.set",
+            "runner.reorder",
+            "runner.remove",
+            "notifications.get",
+            "notifications.set",
+        ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
