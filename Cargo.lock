@@ -1150,8 +1150,8 @@ name = "pacer-plugin-host"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
- "glob",
  "libc",
+ "nix",
  "pacer-plugin-protocol",
  "semver",
  "serde",
