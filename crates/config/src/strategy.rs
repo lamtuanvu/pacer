@@ -1447,7 +1447,11 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     {
         p.push("execution.launch_mode must be interactive or headless".into());
     }
-    let retention = raw.get("task_retention_days").cloned().unwrap_or(json!(14));
+    let retention = raw
+        .get("task_retention_days")
+        .filter(|v| !v.is_null())
+        .cloned()
+        .unwrap_or(json!(14));
     if js_semantics::safe_integer(&retention).is_none_or(|n| n < 0.0) {
         p.push("task_retention_days must be a non-negative integer".into());
     }

@@ -207,6 +207,10 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "host max_tasks", base: bases[1]!, path: ["hosts", "build", "max_tasks"] },
     { label: "runner model context", base: runner, path: ["runners", "codex@box", "models", 0, "context"], safe: true },
     { label: "local max tasks", base, path: ["execution", "local_max_tasks"], safe: true },
+    { label: "idle after", base, path: ["execution", "idle_after_min"] },
+    { label: "idle fail", base, path: ["execution", "idle_fail_min"] },
+    { label: "session log", base, path: ["execution", "session_log_mb"] },
+    { label: "session retention", base, path: ["execution", "session_retention_days"] },
     { label: "task retention", base, path: ["task_retention_days"], safe: true, validZero: true },
     { label: "dispatch timeout", base: dispatch, path: ["dispatch", "timeoutMs"], safe: true },
     { label: "dispatch learning samples", base: dispatch, path: ["dispatch", "learning", "minSamples"], safe: true },
@@ -223,20 +227,15 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "messaging rule per minute", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "per_minute"], safe: true },
     { label: "messaging rule max bytes", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "max_bytes"], safe: true },
   ];
-  const inputs: { label: string; raw: string; accepted: boolean }[] = [];
+  const inputs: { label: string; raw: string; accepted?: boolean }[] = [];
   for (const field of numberFields) {
-    const literals = field.label === "dispatch learning samples" ? ["20.0", "2e1", "20.5"]
-      : field.label === "messaging interval" || field.label === "messaging backoff" || field.label === "messaging escalation" ? ["10.0", "1e1", "10.5"]
-      : [field.validZero ? "0.0" : "1.0", field.validZero ? "0e0" : "1e0", "1.5"];
-    if (field.safe) literals.push("9007199254740991", "9007199254740992");
+    const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null"];
     for (const literal of literals) {
       const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
-      const bounded = ["runner max_tasks", "host max_tasks", "dispatch timeout", "dispatch learning samples", "dispatch learning age",
-        "messaging keep days", "messaging max bytes", "messaging max turns", "messaging rule max bytes"].includes(field.label);
-      inputs.push({ label: `${field.label}=${literal}`, raw, accepted: literal.endsWith(".5") ? false
-        : literal === "9007199254740992" ? false : literal === "9007199254740991" ? !bounded : true });
+      inputs.push({ label: `${field.label}=${literal}`, raw });
     }
   }
+
   const finiteFields: { label: string; base: Json; path: (string | number)[]; accepted: string; rejected: string }[] = [
     { label: "weekly USD", base: endpoint, path: ["accounts", "edge", "budget", "weekly_usd"], accepted: "1.5", rejected: "0" },
     { label: "local load", base, path: ["execution", "local_load_limit"], accepted: "1.5", rejected: "0" },
@@ -246,9 +245,9 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "dispatch reserve", base: dispatch, path: ["dispatch", "reservePct"], accepted: "25.5", rejected: "100.5" },
     { label: "dispatch comfortable", base: dispatch, path: ["dispatch", "comfortablePct"], accepted: "25.5", rejected: "100.5" },
   ];
-  for (const field of finiteFields) for (const [literal, accepted] of [[field.accepted, true], [field.rejected, false]] as const) {
+  for (const field of finiteFields) for (const literal of ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null", field.accepted, field.rejected]) {
     const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
-    inputs.push({ label: `${field.label}=${literal}`, raw, accepted });
+    inputs.push({ label: `${field.label}=${literal}`, raw });
   }
   const names: { label: string; base: Json; path: (string | number)[] }[] = [
     { label: "runner model id", base: runner, path: ["runners", "codex@box", "models", 0, "id"] },
@@ -273,7 +272,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     catch (error) { expected = error instanceof StrategyError
       ? { ok: false, code: "invalid", problems: error.problems }
       : { ok: false, error: (error as Error).message }; }
-    if ((expected as {ok: boolean}).ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${canonical(expected)}`);
+    if (input.accepted !== undefined && (expected as {ok: boolean}).ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${canonical(expected)}`);
     if (canonical(actual[index]) !== canonical(expected)) throw Error(`${input.label}: TS ${canonical(expected)} Rust ${canonical(actual[index])}`);
   }
 }, 30_000);

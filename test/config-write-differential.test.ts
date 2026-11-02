@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { OPS } from "../src/api/ops";
 import * as routing from "../src/core/routing-config";
 import * as runners from "../src/core/runners-config";
 import * as notify from "../src/core/notify";
@@ -136,15 +137,25 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
   }
 });
 
-test("runner.set accepts integral JSON decimal rank with byte parity", async () => {
+test("runner.set numeric inputs match direct writes and the API boundary", async () => {
   const binary = configBinary();
-  const tsHome = home(), rsHome = home();
-  const ts = await runners.set(fakeCtx({ pacerHome: tsHome }), "codex", { rank: 1.0 });
-  const raw = `{"op":"runner.set","home":${JSON.stringify(rsHome)},"id":"codex","options":{"rank":1.0}}\n`;
-  const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
-  expect(result(rs, rsHome)).toEqual(result({ ok: true, value: ts }, tsHome));
-  expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
-});
+  const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null"];
+  for (const field of ["rank", "max_tasks"] as const) for (const literal of literals) {
+    const tsHome = home(), rsHome = home(), ctx = fakeCtx({ pacerHome: tsHome });
+    const value = JSON.parse(literal);
+    const options = { [field]: value };
+    const api = OPS["runner.set"]!.params.safeParse({ id: "codex", ...options });
+    const apiExpected = typeof value === "number" && Number.isSafeInteger(value) && (field === "rank" ? value >= 0 : value > 0);
+    expect(api.success).toBe(apiExpected);
+    let ts: unknown;
+    try { ts = { ok: true, value: await runners.set(ctx, "codex", options) }; }
+    catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const raw = `{"op":"runner.set","home":${JSON.stringify(rsHome)},"id":"codex","options":{"${field}":${literal}}}\n`;
+    const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
+    expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+    expect(readFileSync(join(rsHome, "strategy.yaml"))).toEqual(readFileSync(join(tsHome, "strategy.yaml")));
+  }
+}, 30_000);
 
 test("runner references resolve like TypeScript across mutation and routing", async () => {
   const binary = configBinary();

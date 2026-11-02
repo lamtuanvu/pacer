@@ -939,6 +939,7 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
                 return serde_json::to_string(s).unwrap_or_default();
             }
             if s.is_empty()
+                || s.parse::<f64>().is_ok()
                 || matches!(s.as_str(), "true" | "false" | "null" | "~")
                 || s.contains(": ")
                 || s.contains(" #")
@@ -950,6 +951,7 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             }
             s.to_owned()
         }
+        Value::Number(number) => crate::js_semantics::number_text(number),
         _ => value.to_string(),
     }
 }
