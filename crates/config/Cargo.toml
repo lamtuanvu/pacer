@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ryu-js = "1"
 saphyr-parser = "0.3"
 serde_json.workspace = true
 thiserror.workspace = true

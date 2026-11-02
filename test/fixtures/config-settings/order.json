@@ -1,0 +1,5 @@
+[
+  {"input":"", "expected":[]},
+  {"input":"\ufeffcodex\u2028,\u00a0claude-code\u3000", "expected":["codex","claude-code"]},
+  {"input":"codex,\ufeff", "expected":null}
+]

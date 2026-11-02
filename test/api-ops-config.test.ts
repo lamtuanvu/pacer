@@ -297,3 +297,12 @@ test("config.get only offers detected terminals alongside Automatic", async () =
     expect(["/Applications", join(ctx.home,"Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${app}.app`)))).toBe(true);
   }
 });
+
+test("pacing order shared input fixtures", async () => {
+  const cases = await Bun.file(join(import.meta.dir, "fixtures/config-settings/order.json")).json() as {input: string; expected: string[] | null}[];
+  for (const {input, expected} of cases) {
+    const ctx = await configured();
+    if (expected === null) expect((await error(config.set(ctx, "pacing.order", input))).code).toBe("invalid_input");
+    else expect((await config.set(ctx, "pacing.order", input)).value).toEqual(expected);
+  }
+});
